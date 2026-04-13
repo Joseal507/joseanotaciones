@@ -178,9 +178,9 @@ export default function Home() {
         {/* HERO */}
         <div style={{ textAlign: 'center', marginBottom: '56px' }}>
           <div style={{
-            width: '280px',
-            height: '280px',
-            borderRadius: '48px',
+            width: '350px',
+            height: '350px',
+            borderRadius: '200px',
             border: '4px solid var(--gold)',
             overflow: 'hidden',
             margin: '0 auto 28px',
