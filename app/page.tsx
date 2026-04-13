@@ -10,13 +10,15 @@ import UserMenu from '../components/UserMenu';
 import Buscador from '../components/Buscador';
 import NavbarMobile from '../components/NavbarMobile';
 import RachaWidget from '../components/RachaWidget';
+import { useDarkMode } from '../hooks/useDarkMode';
 import { useIsMobile } from '../hooks/useIsMobile';
 
 export default function Home() {
-  const [darkMode, setDarkMode] = useState(true);
+  const { darkMode, toggle: toggleDark } = useDarkMode();
   const [materias, setMaterias] = useState<Materia[]>([]);
   const [verificando, setVerificando] = useState(true);
   const [showBuscador, setShowBuscador] = useState(false);
+  const [appNombre, setAppNombre] = useState('JoseAnotaciones');
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -30,8 +32,15 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('light', !darkMode);
-  }, [darkMode]);
+    // Leer nombre de la app desde settings
+    try {
+      const s = localStorage.getItem('josea_settings');
+      if (s) {
+        const parsed = JSON.parse(s);
+        if (parsed.nombreApp) setAppNombre(parsed.nombreApp);
+      }
+    } catch {}
+  }, []);
 
   useEffect(() => {
     if (!verificando) {
@@ -72,7 +81,7 @@ export default function Home() {
           <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             onError={(e: any) => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = '📚'; }} />
         </div>
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>Cargando JoseAnotaciones...</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>Cargando {appNombre}...</p>
       </div>
     );
   }
@@ -84,7 +93,7 @@ export default function Home() {
 
       {/* NAVBAR */}
       {isMobile ? (
-        <NavbarMobile darkMode={darkMode} onToggleDark={() => setDarkMode(!darkMode)} />
+        <NavbarMobile darkMode={darkMode} onToggleDark={toggleDark} />
       ) : (
         <>
           <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: '0 40px', position: 'sticky', top: 0, zIndex: 100, display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '68px' }}>
@@ -92,7 +101,9 @@ export default function Home() {
               <img src="/logo.png" alt="Logo" style={{ width: '42px', height: '42px', borderRadius: '10px', objectFit: 'cover' }}
                 onError={(e: any) => { e.target.style.display = 'none'; }} />
               <div>
-                <h1 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>JoseAnotaciones</h1>
+                <h1 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
+                  {appNombre}
+                </h1>
                 <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>Tu plataforma de estudio</p>
               </div>
             </div>
@@ -117,7 +128,7 @@ export default function Home() {
                 style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
                 📚 Materias
               </button>
-              <button onClick={() => setDarkMode(!darkMode)}
+              <button onClick={toggleDark}
                 style={{ padding: '8px 14px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '14px', fontWeight: 700 }}>
                 {darkMode ? '☀️' : '🌙'}
               </button>
@@ -156,7 +167,7 @@ export default function Home() {
           </div>
 
           <h1 style={{ fontSize: isMobile ? '28px' : '56px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px', letterSpacing: isMobile ? '-1px' : '-2px', lineHeight: 1 }}>
-            JOSEANOTACIONES
+            {appNombre.toUpperCase()}
           </h1>
 
           <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', margin: '12px 0 16px' }}>
@@ -302,6 +313,7 @@ export default function Home() {
               { emoji: '🤖', label: 'AlciBot', desc: 'Chat con AI', color: 'var(--pink)', href: '/chat' },
               { emoji: '🎓', label: 'Quizzes', desc: 'Quizzes y flashcard decks', color: '#a78bfa', href: '/quizzes' },
               { emoji: '📊', label: 'Mi Perfil', desc: 'Stats de estudio', color: 'var(--red)', href: '/perfil' },
+              { emoji: '⚙️', label: 'Configuración', desc: 'Ajustes de cuenta', color: 'var(--text-muted)', href: '/settings' },
             ].map((item, i) => (
               <div key={i}
                 onClick={() => window.location.href = item.href}

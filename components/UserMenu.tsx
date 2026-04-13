@@ -41,7 +41,6 @@ export default function UserMenu() {
         onMouseEnter={(e: any) => e.currentTarget.style.borderColor = 'var(--gold)'}
         onMouseLeave={(e: any) => e.currentTarget.style.borderColor = 'var(--border-color)'}
       >
-        {/* Avatar */}
         <div style={{
           width: '28px',
           height: '28px',
@@ -63,14 +62,9 @@ export default function UserMenu() {
         <span style={{ fontSize: '10px', color: 'var(--text-faint)' }}>▼</span>
       </button>
 
-      {/* Dropdown */}
       {open && (
         <>
-          {/* Overlay para cerrar */}
-          <div
-            style={{ position: 'fixed', inset: 0, zIndex: 998 }}
-            onClick={() => setOpen(false)}
-          />
+          <div style={{ position: 'fixed', inset: 0, zIndex: 998 }} onClick={() => setOpen(false)} />
           <div style={{
             position: 'absolute',
             top: '100%',
@@ -80,25 +74,34 @@ export default function UserMenu() {
             border: '1px solid var(--border-color)',
             borderRadius: '14px',
             padding: '8px',
-            minWidth: '200px',
+            minWidth: '210px',
             zIndex: 999,
             boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
           }}>
             {/* Info usuario */}
             <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', marginBottom: '6px' }}>
-              <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 2px' }}>{nombre}</p>
-              <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0 }}>{usuario.email}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', fontWeight: 900, color: '#000', flexShrink: 0 }}>
+                  {inicial}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nombre}</p>
+                  <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{usuario.email}</p>
+                </div>
+              </div>
             </div>
 
-            {/* Opciones */}
+            {/* Links */}
             {[
+              { label: '⚙️ Configuración', href: '/settings' },
               { label: '📊 Mi perfil', href: '/perfil' },
               { label: '📚 Mis materias', href: '/materias' },
               { label: '📅 Agenda', href: '/agenda' },
+              { label: '🎓 Quizzes y Decks', href: '/quizzes' },
             ].map((item, i) => (
               <button key={i}
                 onClick={() => { window.location.href = item.href; setOpen(false); }}
-                style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s' }}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s', display: 'block' }}
                 onMouseEnter={(e: any) => e.currentTarget.style.background = 'var(--bg-secondary)'}
                 onMouseLeave={(e: any) => e.currentTarget.style.background = 'transparent'}>
                 {item.label}

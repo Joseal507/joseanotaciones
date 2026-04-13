@@ -1,25 +1,42 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import UserMenu from './UserMenu';
 import RachaWidget from './RachaWidget';
+import { useDarkMode } from '../hooks/useDarkMode';
 
 interface Props {
   darkMode?: boolean;
   onToggleDark?: () => void;
 }
 
-export default function NavbarMobile({ darkMode, onToggleDark }: Props) {
+export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: Props) {
   const [menuAbierto, setMenuAbierto] = useState(false);
+  const [appNombre, setAppNombre] = useState('JoseAnotaciones');
+  const { darkMode: currentDark, toggle } = useDarkMode();
+
+  const isDark = darkModeProp !== undefined ? darkModeProp : currentDark;
+  const handleToggle = onToggleDark || toggle;
+
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem('josea_settings');
+      if (s) {
+        const parsed = JSON.parse(s);
+        if (parsed.nombreApp) setAppNombre(parsed.nombreApp);
+      }
+    } catch {}
+  }, []);
 
   const links = [
     { label: '🏠 Inicio', href: '/' },
     { label: '📚 Mis Materias', href: '/materias' },
     { label: '🗓️ Horario', href: '/horario' },
     { label: '📅 Agenda', href: '/agenda' },
-    { label: '✅ Objetivos', href: '/agenda' },
     { label: '🤖 AlciBot', href: '/chat' },
+    { label: '🎓 Quizzes y Decks', href: '/quizzes' },
     { label: '📊 Mi Perfil', href: '/perfil' },
+    { label: '⚙️ Configuración', href: '/settings' },
   ];
 
   return (
@@ -36,33 +53,24 @@ export default function NavbarMobile({ darkMode, onToggleDark }: Props) {
         alignItems: 'center',
         height: '60px',
       }}>
-        {/* Logo */}
-        <div
-          style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
           onClick={() => window.location.href = '/'}>
           <img src="/logo.png" alt="Logo"
             style={{ width: '34px', height: '34px', borderRadius: '8px', objectFit: 'cover' }}
-            onError={(e: any) => { e.target.style.display = 'none'; }} />
+            onError={(e: any) => { e.target.style.display = 'none'; }}
+          />
           <span style={{ fontSize: '16px', fontWeight: 900, color: 'var(--text-primary)' }}>
-            JoseAnotaciones
+            {appNombre}
           </span>
         </div>
 
-        {/* Derecha */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* Racha compacta */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <RachaWidget compact />
-
-          {onToggleDark && (
-            <button onClick={onToggleDark}
-              style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', padding: '4px' }}>
-              {darkMode ? '☀️' : '🌙'}
-            </button>
-          )}
-
+          <button onClick={handleToggle}
+            style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', padding: '4px' }}>
+            {isDark ? '☀️' : '🌙'}
+          </button>
           <UserMenu />
-
-          {/* Hamburger */}
           <button
             onClick={() => setMenuAbierto(!menuAbierto)}
             style={{ background: 'none', border: '2px solid var(--border-color)', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '18px' }}>
@@ -71,7 +79,6 @@ export default function NavbarMobile({ darkMode, onToggleDark }: Props) {
         </div>
       </header>
 
-      {/* Barra colores */}
       <div style={{ display: 'flex', height: '3px' }}>
         <div style={{ flex: 1, background: 'var(--gold)' }} />
         <div style={{ flex: 1, background: 'var(--red)' }} />
@@ -79,7 +86,6 @@ export default function NavbarMobile({ darkMode, onToggleDark }: Props) {
         <div style={{ flex: 1, background: 'var(--pink)' }} />
       </div>
 
-      {/* Menu desplegable */}
       {menuAbierto && (
         <div style={{
           position: 'fixed',
@@ -104,12 +110,9 @@ export default function NavbarMobile({ darkMode, onToggleDark }: Props) {
         </div>
       )}
 
-      {/* Overlay */}
       {menuAbierto && (
-        <div
-          style={{ position: 'fixed', inset: 0, zIndex: 98, top: '63px' }}
-          onClick={() => setMenuAbierto(false)}
-        />
+        <div style={{ position: 'fixed', inset: 0, zIndex: 98, top: '63px' }}
+          onClick={() => setMenuAbierto(false)} />
       )}
     </>
   );

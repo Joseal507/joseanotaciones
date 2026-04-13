@@ -8,7 +8,7 @@
   box-sizing: border-box;
 }
 
-/* MODO OSCURO (default) */
+/* ===== MODO OSCURO (default) ===== */
 :root {
   --bg-primary: #000000;
   --bg-secondary: #0a0a0f;
@@ -20,8 +20,6 @@
   --text-secondary: #aaaaaa;
   --text-muted: #555566;
   --text-faint: #333344;
-
-  /* Colores de acento */
   --gold: #f5c842;
   --gold-dim: rgba(245,200,66,0.15);
   --gold-border: rgba(245,200,66,0.3);
@@ -36,7 +34,7 @@
   --pink-border: rgba(244,114,182,0.3);
 }
 
-/* MODO CLARO */
+/* ===== MODO CLARO ===== */
 :root.light {
   --bg-primary: #f8f8f8;
   --bg-secondary: #ffffff;
@@ -48,27 +46,100 @@
   --text-secondary: #444444;
   --text-muted: #888888;
   --text-faint: #bbbbbb;
-
-  /* Colores de acento - IGUALES en ambos modos */
-  --gold: #d4a017;
   --gold-dim: rgba(212,160,23,0.12);
   --gold-border: rgba(212,160,23,0.35);
-  --red: #e63355;
   --red-dim: rgba(230,51,85,0.1);
   --red-border: rgba(230,51,85,0.35);
-  --blue: #0ea5e9;
   --blue-dim: rgba(14,165,233,0.1);
   --blue-border: rgba(14,165,233,0.35);
-  --pink: #db2777;
   --pink-dim: rgba(219,39,119,0.1);
   --pink-border: rgba(219,39,119,0.35);
+}
+
+/* ===== DEFAULT ===== */
+:root[data-theme="default"] {
+  --gold: #f5c842;
+  --gold-dim: rgba(245,200,66,0.15);
+  --gold-border: rgba(245,200,66,0.3);
+  --red: #ff4d6d;
+  --red-dim: rgba(255,77,109,0.15);
+  --red-border: rgba(255,77,109,0.3);
+  --blue: #38bdf8;
+  --blue-dim: rgba(56,189,248,0.15);
+  --blue-border: rgba(56,189,248,0.3);
+  --pink: #f472b6;
+  --pink-dim: rgba(244,114,182,0.15);
+  --pink-border: rgba(244,114,182,0.3);
+}
+
+/* ===== PLAYERO ===== */
+:root[data-theme="playero"] {
+  --gold: #e8c87a;
+  --gold-dim: rgba(232,200,122,0.15);
+  --gold-border: rgba(232,200,122,0.3);
+  --red: #ff6b6b;
+  --red-dim: rgba(255,107,107,0.15);
+  --red-border: rgba(255,107,107,0.3);
+  --blue: #48cae4;
+  --blue-dim: rgba(72,202,228,0.15);
+  --blue-border: rgba(72,202,228,0.3);
+  --pink: #f7c59f;
+  --pink-dim: rgba(247,197,159,0.15);
+  --pink-border: rgba(247,197,159,0.3);
+}
+
+/* ===== FALCONS ===== */
+:root[data-theme="falcons"] {
+  --gold: #a71930;
+  --gold-dim: rgba(167,25,48,0.15);
+  --gold-border: rgba(167,25,48,0.3);
+  --red: #c8c9c7;
+  --red-dim: rgba(200,201,199,0.15);
+  --red-border: rgba(200,201,199,0.3);
+  --blue: #000000;
+  --blue-dim: rgba(40,40,40,0.3);
+  --blue-border: rgba(80,80,80,0.4);
+  --pink: #a71930;
+  --pink-dim: rgba(167,25,48,0.1);
+  --pink-border: rgba(167,25,48,0.25);
+}
+
+/* ===== RAIDERS (EL BRODER) ===== */
+:root[data-theme="raiders"] {
+  --gold: #a5acaf;
+  --gold-dim: rgba(165,172,175,0.15);
+  --gold-border: rgba(165,172,175,0.3);
+  --red: #000000;
+  --red-dim: rgba(30,30,30,0.3);
+  --red-border: rgba(80,80,80,0.4);
+  --blue: #ffffff;
+  --blue-dim: rgba(255,255,255,0.1);
+  --blue-border: rgba(255,255,255,0.2);
+  --pink: #a5acaf;
+  --pink-dim: rgba(165,172,175,0.1);
+  --pink-border: rgba(165,172,175,0.25);
+}
+
+/* ===== MATH (PETER SAUPETER) ===== */
+:root[data-theme="math"] {
+  --gold: #00f5d4;
+  --gold-dim: rgba(0,245,212,0.15);
+  --gold-border: rgba(0,245,212,0.3);
+  --red: #7b2d8b;
+  --red-dim: rgba(123,45,139,0.15);
+  --red-border: rgba(123,45,139,0.3);
+  --blue: #4361ee;
+  --blue-dim: rgba(67,97,238,0.15);
+  --blue-border: rgba(67,97,238,0.3);
+  --pink: #f72585;
+  --pink-dim: rgba(247,37,133,0.15);
+  --pink-border: rgba(247,37,133,0.3);
 }
 
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
   min-height: 100vh;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   transition: background 0.3s ease, color 0.3s ease;
 }
 
