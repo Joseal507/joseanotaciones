@@ -1,26 +1,84 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* MODO OSCURO (default) */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg-primary: #000000;
+  --bg-secondary: #0a0a0f;
+  --bg-card: #0d0d1a;
+  --bg-card2: #111122;
+  --border-color: #1a1a2e;
+  --border-color2: #222244;
+  --text-primary: #ffffff;
+  --text-secondary: #aaaaaa;
+  --text-muted: #555566;
+  --text-faint: #333344;
+
+  /* Colores de acento */
+  --gold: #f5c842;
+  --gold-dim: rgba(245,200,66,0.15);
+  --gold-border: rgba(245,200,66,0.3);
+  --red: #ff4d6d;
+  --red-dim: rgba(255,77,109,0.15);
+  --red-border: rgba(255,77,109,0.3);
+  --blue: #38bdf8;
+  --blue-dim: rgba(56,189,248,0.15);
+  --blue-border: rgba(56,189,248,0.3);
+  --pink: #f472b6;
+  --pink-dim: rgba(244,114,182,0.15);
+  --pink-border: rgba(244,114,182,0.3);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+/* MODO CLARO */
+:root.light {
+  --bg-primary: #f8f8f8;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card2: #f0f0f5;
+  --border-color: #e0e0e8;
+  --border-color2: #ccccdd;
+  --text-primary: #111111;
+  --text-secondary: #444444;
+  --text-muted: #888888;
+  --text-faint: #bbbbbb;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Colores de acento - IGUALES en ambos modos */
+  --gold: #d4a017;
+  --gold-dim: rgba(212,160,23,0.12);
+  --gold-border: rgba(212,160,23,0.35);
+  --red: #e63355;
+  --red-dim: rgba(230,51,85,0.1);
+  --red-border: rgba(230,51,85,0.35);
+  --blue: #0ea5e9;
+  --blue-dim: rgba(14,165,233,0.1);
+  --blue-border: rgba(14,165,233,0.35);
+  --pink: #db2777;
+  --pink-dim: rgba(219,39,119,0.1);
+  --pink-border: rgba(219,39,119,0.35);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  transition: background 0.3s ease, color 0.3s ease;
 }
+
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: var(--bg-secondary); }
+::-webkit-scrollbar-thumb { background: var(--border-color2); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+.flip-card { perspective: 1000px; }
+.flip-card-inner { transition: transform 0.6s; transform-style: preserve-3d; }
+.flip-card.flipped .flip-card-inner { transform: rotateY(180deg); }
+.flip-card-front, .flip-card-back { backface-visibility: hidden; }
+.flip-card-back { transform: rotateY(180deg); }
