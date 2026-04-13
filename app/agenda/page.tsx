@@ -152,11 +152,11 @@ export default function AgendaPage() {
         {/* TABS */}
         <div style={{ display: 'flex', marginBottom: '20px', borderBottom: '2px solid var(--border-color)' }}>
           {[
-            { id: 'calendario', label: isMobile ? '📅 Cal.' : '📅 Calendario', color: 'var(--blue)' },
-            { id: 'agenda', label: isMobile ? '✅ Obj.' : '✅ Objetivos', color: 'var(--pink)' },
+            { id: 'calendario', label: isMobile ? '📅 Calendario' : '📅 Calendario', color: 'var(--blue)' },
+            { id: 'agenda', label: isMobile ? '✅ Objetivos' : '✅ Objetivos', color: 'var(--pink)' },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id as any)}
-              style={{ flex: isMobile ? 1 : 'none', padding: isMobile ? '12px 8px' : '12px 28px', border: 'none', background: 'transparent', borderBottom: tab === t.id ? `3px solid ${t.color}` : '3px solid transparent', color: tab === t.id ? t.color : 'var(--text-muted)', fontSize: isMobile ? '14px' : '15px', fontWeight: 700, cursor: 'pointer', marginBottom: '-2px' }}>
+              style={{ flex: isMobile ? 1 : 'none', padding: isMobile ? '12px 8px' : '12px 28px', border: 'none', background: 'transparent', borderBottom: tab === t.id ? `3px solid ${t.color}` : '3px solid transparent', color: tab === t.id ? t.color : 'var(--text-muted)', fontSize: '15px', fontWeight: 700, cursor: 'pointer', marginBottom: '-2px' }}>
               {t.label}
             </button>
           ))}
