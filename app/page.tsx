@@ -10,6 +10,8 @@ import UserMenu from '../components/UserMenu';
 import Buscador from '../components/Buscador';
 import NavbarMobile from '../components/NavbarMobile';
 import RachaWidget from '../components/RachaWidget';
+import NotasRapidas from '../components/NotasRapidas';
+import GraficasEstudio from '../components/GraficasEstudio';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { useIsMobile } from '../hooks/useIsMobile';
 
@@ -32,7 +34,6 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // Leer nombre de la app desde settings
     try {
       const s = localStorage.getItem('josea_settings');
       if (s) {
@@ -218,6 +219,16 @@ export default function Home() {
             </h2>
           </div>
           <RachaWidget />
+        </div>
+
+        {/* GRÁFICAS */}
+        <div style={{ marginBottom: isMobile ? '28px' : '48px' }}>
+          <GraficasEstudio />
+        </div>
+
+        {/* NOTAS RÁPIDAS */}
+        <div style={{ marginBottom: isMobile ? '28px' : '48px' }}>
+          <NotasRapidas />
         </div>
 
         {/* MATERIAS */}
