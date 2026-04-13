@@ -58,11 +58,13 @@ export interface PerfilEstudio {
   }[];
 }
 
+const isBrowser = () => typeof window !== 'undefined';
+
 const KEY = 'joseanotaciones_materias';
 const KEY_PERFIL = 'josea_perfil';
 
 export const getMaterias = (): Materia[] => {
-  if (typeof window === 'undefined') return [];
+  if (!isBrowser()) return [];
   try {
     const data = localStorage.getItem(KEY);
     return data ? JSON.parse(data) : [];
@@ -70,6 +72,7 @@ export const getMaterias = (): Materia[] => {
 };
 
 export const saveMaterias = (materias: Materia[]) => {
+  if (!isBrowser()) return;
   localStorage.setItem(KEY, JSON.stringify(materias));
 };
 
@@ -87,18 +90,21 @@ export const EMOJIS = [
 ];
 
 export const getPerfil = (): PerfilEstudio => {
-  if (typeof window === 'undefined') {
-    return { flashcardsFalladas: {}, flashcardsAcertadas: {}, materiasStats: {}, sesiones: [] };
-  }
+  const empty: PerfilEstudio = {
+    flashcardsFalladas: {},
+    flashcardsAcertadas: {},
+    materiasStats: {},
+    sesiones: [],
+  };
+  if (!isBrowser()) return empty;
   try {
     const data = localStorage.getItem(KEY_PERFIL);
-    return data ? JSON.parse(data) : { flashcardsFalladas: {}, flashcardsAcertadas: {}, materiasStats: {}, sesiones: [] };
-  } catch {
-    return { flashcardsFalladas: {}, flashcardsAcertadas: {}, materiasStats: {}, sesiones: [] };
-  }
+    return data ? JSON.parse(data) : empty;
+  } catch { return empty; }
 };
 
 export const savePerfil = (perfil: PerfilEstudio) => {
+  if (!isBrowser()) return;
   localStorage.setItem(KEY_PERFIL, JSON.stringify(perfil));
 };
 
@@ -109,6 +115,7 @@ export const registrarResultado = (
   materiaNombre: string,
   materiaColor: string,
 ) => {
+  if (!isBrowser()) return;
   const perfil = getPerfil();
 
   if (acerto) {
@@ -145,6 +152,7 @@ export const registrarQuiz = (
   materiaColor: string,
   puntuacion: number,
 ) => {
+  if (!isBrowser()) return;
   const perfil = getPerfil();
 
   if (!perfil.materiasStats[materiaId]) {

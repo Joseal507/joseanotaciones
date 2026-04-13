@@ -1,5 +1,7 @@
 const KEY = 'josea_notas_rapidas';
 
+const isBrowser = () => typeof window !== 'undefined';
+
 export interface NotaRapida {
   id: string;
   contenido: string;
@@ -10,7 +12,7 @@ export interface NotaRapida {
 const COLORES = ['#f5c842', '#ff4d6d', '#38bdf8', '#f472b6', '#4ade80', '#a78bfa'];
 
 export const getNotas = (): NotaRapida[] => {
-  if (typeof window === 'undefined') return [];
+  if (!isBrowser()) return [];
   try {
     const data = localStorage.getItem(KEY);
     return data ? JSON.parse(data) : [];
@@ -18,6 +20,7 @@ export const getNotas = (): NotaRapida[] => {
 };
 
 export const saveNotas = (notas: NotaRapida[]) => {
+  if (!isBrowser()) return;
   localStorage.setItem(KEY, JSON.stringify(notas));
 };
 

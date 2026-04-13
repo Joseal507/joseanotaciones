@@ -1,5 +1,7 @@
 const KEY = 'josea_racha';
 
+const isBrowser = () => typeof window !== 'undefined';
+
 export interface RachaData {
   rachaActual: number;
   mejorRacha: number;
@@ -7,17 +9,18 @@ export interface RachaData {
   diasEstudiados: string[];
 }
 
+const empty: RachaData = { rachaActual: 0, mejorRacha: 0, ultimoDia: '', diasEstudiados: [] };
+
 export const getRacha = (): RachaData => {
-  if (typeof window === 'undefined') return { rachaActual: 0, mejorRacha: 0, ultimoDia: '', diasEstudiados: [] };
+  if (!isBrowser()) return empty;
   try {
     const data = localStorage.getItem(KEY);
-    return data ? JSON.parse(data) : { rachaActual: 0, mejorRacha: 0, ultimoDia: '', diasEstudiados: [] };
-  } catch {
-    return { rachaActual: 0, mejorRacha: 0, ultimoDia: '', diasEstudiados: [] };
-  }
+    return data ? JSON.parse(data) : empty;
+  } catch { return empty; }
 };
 
 export const saveRacha = (data: RachaData) => {
+  if (!isBrowser()) return;
   localStorage.setItem(KEY, JSON.stringify(data));
 };
 
@@ -33,6 +36,7 @@ export const getAyerStr = () => {
 };
 
 export const registrarEstudioHoy = (): RachaData => {
+  if (!isBrowser()) return empty;
   const racha = getRacha();
   const hoy = getHoyStr();
   const ayer = getAyerStr();
@@ -57,6 +61,7 @@ export const registrarEstudioHoy = (): RachaData => {
 };
 
 export const verificarRacha = (): RachaData => {
+  if (!isBrowser()) return empty;
   const racha = getRacha();
   const hoy = getHoyStr();
   const ayer = getAyerStr();

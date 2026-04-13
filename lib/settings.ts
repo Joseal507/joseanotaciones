@@ -1,3 +1,5 @@
+const isBrowser = () => typeof window !== 'undefined';
+
 export interface AppSettings {
   nombreApp: string;
   tema: 'default' | 'playero' | 'falcons' | 'raiders' | 'math';
@@ -19,7 +21,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 
 export const getSettings = (): AppSettings => {
-  if (typeof window === 'undefined') return DEFAULT_SETTINGS;
+  if (!isBrowser()) return DEFAULT_SETTINGS;
   try {
     const data = localStorage.getItem(KEY);
     return data ? { ...DEFAULT_SETTINGS, ...JSON.parse(data) } : DEFAULT_SETTINGS;
@@ -27,15 +29,17 @@ export const getSettings = (): AppSettings => {
 };
 
 export const saveSettings = (settings: AppSettings) => {
+  if (!isBrowser()) return;
   localStorage.setItem(KEY, JSON.stringify(settings));
 };
 
 export const applyTheme = (tema: AppSettings['tema']) => {
-  if (typeof document === 'undefined') return;
+  if (!isBrowser()) return;
   document.documentElement.setAttribute('data-theme', tema);
 };
 
 export const limpiarDatosEstudio = () => {
+  if (!isBrowser()) return;
   localStorage.removeItem('josea_racha');
   localStorage.removeItem('josea_perfil');
 };
