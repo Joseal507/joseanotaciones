@@ -6,6 +6,7 @@ import ChatDocumento from '../flashcards/ChatDocumento';
 import EstudioModal from '../flashcards/EstudioModal';
 import FlashcardEditor from '../flashcards/FlashcardEditor';
 import QuizModal from '../flashcards/QuizModal';
+import { guardarQuiz, guardarDeck, getFlashcardDecks, eliminarDeck, FlashcardDeck } from '../../lib/quizStorage';
 
 interface Props {
   documento: Documento;
@@ -34,20 +35,17 @@ export default function DocumentoView({
   const [showEditor, setShowEditor] = useState(false);
   const [showQuiz, setShowQuiz] = useState(false);
 
+  // Guardar deck modal
+  const [showGuardarDeck, setShowGuardarDeck] = useState(false);
+  const [nombreDeck, setNombreDeck] = useState('');
+  const [deckGuardado, setDeckGuardado] = useState(false);
+
   const analizar = async () => {
     setAnalizando(true);
     try {
       const [r1, r2] = await Promise.all([
-        fetch('/api/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: documento.contenido }),
-        }),
-        fetch('/api/flashcards', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: documento.contenido, count: flashcardCount }),
-        }),
+        fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: documento.contenido }) }),
+        fetch('/api/flashcards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: documento.contenido, count: flashcardCount }) }),
       ]);
       const [d1, d2] = await Promise.all([r1.json(), r2.json()]);
       const docActualizado = {
@@ -67,22 +65,28 @@ export default function DocumentoView({
   const addMore = async () => {
     setAddingMore(true);
     try {
-      const res = await fetch('/api/flashcards', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: documento.contenido, count: addCount }),
-      });
+      const res = await fetch('/api/flashcards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: documento.contenido, count: addCount }) });
       const data = await res.json();
       if (data.success) {
         const nuevas = [...flashcards, ...data.flashcards];
         setFlashcards(nuevas);
         onActualizar({ ...documento, flashcards: nuevas });
       }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setAddingMore(false);
-    }
+    } catch (err) { console.error(err); }
+    finally { setAddingMore(false); }
+  };
+
+  const handleGuardarDeck = () => {
+    if (!nombreDeck.trim()) return;
+    guardarDeck({
+      nombre: nombreDeck,
+      flashcards,
+      materiaNombre: materia.nombre,
+      materiaColor: materia.color,
+      temaColor: tema.color,
+    });
+    setDeckGuardado(true);
+    setNombreDeck('');
   };
 
   const highlightText = (text: string) => {
@@ -116,8 +120,7 @@ export default function DocumentoView({
       return (
         <div style={{ display: 'flex', justifyContent: 'center', gap: '5px', flexWrap: 'wrap', maxWidth: '400px', margin: '0 auto 16px' }}>
           {flashcards.map((_, i) => (
-            <div key={i}
-              onClick={() => { setCurrentCard(i); setFlipped(false); }}
+            <div key={i} onClick={() => { setCurrentCard(i); setFlipped(false); }}
               style={{ width: i === currentCard ? '24px' : '8px', height: '8px', borderRadius: '4px', background: i === currentCard ? tema.color : 'var(--border-color2)', cursor: 'pointer', transition: 'all 0.3s', flexShrink: 0 }} />
           ))}
         </div>
@@ -126,8 +129,7 @@ export default function DocumentoView({
     return (
       <div style={{ display: 'flex', justifyContent: 'center', gap: '4px', flexWrap: 'wrap', maxWidth: '600px', margin: '0 auto 16px' }}>
         {flashcards.map((_, i) => (
-          <button key={i}
-            onClick={() => { setCurrentCard(i); setFlipped(false); }}
+          <button key={i} onClick={() => { setCurrentCard(i); setFlipped(false); }}
             style={{ width: '32px', height: '32px', borderRadius: '8px', border: 'none', background: i === currentCard ? tema.color : 'var(--bg-secondary)', color: i === currentCard ? '#000' : 'var(--text-faint)', fontSize: '11px', fontWeight: i === currentCard ? 800 : 400, cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0 }}>
             {i + 1}
           </button>
@@ -138,60 +140,79 @@ export default function DocumentoView({
 
   return (
     <>
-      {/* Modales */}
-      {showChat && (
-        <ChatDocumento
-          contexto={documento.contenido}
-          nombreDoc={documento.nombre}
-          temaColor={tema.color}
-          onClose={() => setShowChat(false)}
-        />
-      )}
-      {showEstudio && flashcards.length > 0 && (
-        <EstudioModal
-          flashcards={flashcards}
-          temaColor={tema.color}
-          onClose={() => setShowEstudio(false)}
-        />
-      )}
+      {showChat && <ChatDocumento contexto={documento.contenido} nombreDoc={documento.nombre} temaColor={tema.color} onClose={() => setShowChat(false)} />}
+      {showEstudio && flashcards.length > 0 && <EstudioModal flashcards={flashcards} temaColor={tema.color} onClose={() => setShowEstudio(false)} />}
       {showEditor && (
-        <FlashcardEditor
-          flashcards={flashcards}
-          temaColor={tema.color}
-          onSave={cards => {
-            setFlashcards(cards);
-            onActualizar({ ...documento, flashcards: cards });
-            setShowEditor(false);
-          }}
-          onClose={() => setShowEditor(false)}
-        />
+        <FlashcardEditor flashcards={flashcards} temaColor={tema.color}
+          onSave={cards => { setFlashcards(cards); onActualizar({ ...documento, flashcards: cards }); setShowEditor(false); }}
+          onClose={() => setShowEditor(false)} />
       )}
       {showQuiz && (
-        <QuizModal
-          contenido={documento.contenido}
-          temaColor={tema.color}
-          onClose={() => setShowQuiz(false)}
-        />
+        <QuizModal contenido={documento.contenido} temaColor={tema.color}
+          materiaNombre={materia.nombre} materiaColor={materia.color}
+          onClose={() => setShowQuiz(false)} />
+      )}
+
+      {/* Modal guardar deck */}
+      {showGuardarDeck && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '20px' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '420px', border: '1px solid var(--border-color)' }}>
+            <div style={{ height: '4px', background: tema.color, borderRadius: '2px', marginBottom: '24px' }} />
+            <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>
+              💾 Guardar deck de flashcards
+            </h2>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 20px' }}>
+              {flashcards.length} flashcards de "{documento.nombre}"
+            </p>
+
+            {deckGuardado ? (
+              <div style={{ background: '#4ade8015', border: '1px solid #4ade8044', borderRadius: '10px', padding: '14px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '20px' }}>✅</span>
+                <p style={{ fontSize: '14px', color: '#4ade80', margin: 0, fontWeight: 600 }}>¡Deck guardado exitosamente!</p>
+              </div>
+            ) : (
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>
+                  Nombre del deck
+                </label>
+                <input
+                  value={nombreDeck}
+                  onChange={e => setNombreDeck(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleGuardarDeck()}
+                  placeholder="Ej: Tema 1 - Introducción..."
+                  autoFocus
+                  style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }}
+                  onFocus={e => e.currentTarget.style.borderColor = tema.color}
+                  onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                />
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => { setShowGuardarDeck(false); setDeckGuardado(false); }}
+                style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
+                {deckGuardado ? 'Cerrar' : 'Cancelar'}
+              </button>
+              {!deckGuardado && (
+                <button onClick={handleGuardarDeck} disabled={!nombreDeck.trim()}
+                  style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: nombreDeck.trim() ? tema.color : 'var(--bg-card2)', color: nombreDeck.trim() ? '#000' : 'var(--text-faint)', fontSize: '14px', fontWeight: 800, cursor: nombreDeck.trim() ? 'pointer' : 'not-allowed' }}>
+                  💾 Guardar
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
 
         {/* Breadcrumb */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-          <button onClick={onBack}
-            style={{ background: 'none', border: 'none', color: 'var(--gold)', fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>
-            📚 Materias
-          </button>
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--gold)', fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>📚 Materias</button>
           <span style={{ color: 'var(--text-faint)' }}>/</span>
-          <button onClick={onBackMateria}
-            style={{ background: 'none', border: 'none', color: materia.color, fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>
-            {materia.emoji} {materia.nombre}
-          </button>
+          <button onClick={onBackMateria} style={{ background: 'none', border: 'none', color: materia.color, fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>{materia.emoji} {materia.nombre}</button>
           <span style={{ color: 'var(--text-faint)' }}>/</span>
-          <button onClick={onBackTema}
-            style={{ background: 'none', border: 'none', color: tema.color, fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>
-            📁 {tema.nombre}
-          </button>
+          <button onClick={onBackTema} style={{ background: 'none', border: 'none', color: tema.color, fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>📁 {tema.nombre}</button>
           <span style={{ color: 'var(--text-faint)' }}>/</span>
           <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>📄 {documento.nombre}</span>
         </div>
@@ -201,29 +222,20 @@ export default function DocumentoView({
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{ width: '4px', height: '32px', background: 'var(--blue)', borderRadius: '2px' }} />
             <div>
-              <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
-                {documento.nombre}
-              </h1>
-              <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0 }}>
-                Subido: {documento.fechaSubida}
-              </p>
+              <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{documento.nombre}</h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0 }}>Subido: {documento.fechaSubida}</p>
             </div>
           </div>
 
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            {/* Chat */}
             <button onClick={() => setShowChat(true)}
               style={{ padding: '10px 16px', borderRadius: '10px', border: `2px solid ${tema.color}`, background: 'transparent', color: tema.color, fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
               💬 Chat
             </button>
-
-            {/* Quiz */}
             <button onClick={() => setShowQuiz(true)}
               style={{ padding: '10px 16px', borderRadius: '10px', border: '2px solid #a78bfa', background: 'transparent', color: '#a78bfa', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-              🧩 Quiz
+              🤓 Quiz
             </button>
-
-            {/* Selector flashcards */}
             {!documento.analisis && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Flashcards:</span>
@@ -233,8 +245,6 @@ export default function DocumentoView({
                 </select>
               </div>
             )}
-
-            {/* Analizar */}
             <button onClick={analizar} disabled={analizando}
               style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: analizando ? 'var(--bg-card2)' : 'var(--gold)', color: analizando ? 'var(--text-faint)' : '#000', fontSize: '13px', fontWeight: 800, cursor: analizando ? 'not-allowed' : 'pointer' }}>
               {analizando ? '⏳ Analizando...' : documento.analisis ? '🔄 Re-analizar' : '🔍 Analizar'}
@@ -281,34 +291,12 @@ export default function DocumentoView({
               </div>
             </div>
 
-            {/* Panel lateral */}
             {documento.analisis && (
               <div style={{ width: '240px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {[
-                  {
-                    title: 'Resumen', color: 'var(--pink)',
-                    content: <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{documento.analisis.summary}</p>,
-                  },
-                  {
-                    title: 'Keywords', color: 'var(--blue)',
-                    content: (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                        {documento.analisis.keywords?.map((k, i) => (
-                          <span key={i} style={{ background: 'var(--blue)', color: '#000', padding: '2px 7px', borderRadius: '5px', fontSize: '11px', fontWeight: 700 }}>{k}</span>
-                        ))}
-                      </div>
-                    ),
-                  },
-                  {
-                    title: 'Frases', color: 'var(--gold)',
-                    content: (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        {documento.analisis.important_phrases?.map((p, i) => (
-                          <div key={i} style={{ background: 'var(--gold)', color: '#000', padding: '5px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 600 }}>{p}</div>
-                        ))}
-                      </div>
-                    ),
-                  },
+                  { title: 'Resumen', color: 'var(--pink)', content: <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{documento.analisis.summary}</p> },
+                  { title: 'Keywords', color: 'var(--blue)', content: <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>{documento.analisis.keywords?.map((k, i) => <span key={i} style={{ background: 'var(--blue)', color: '#000', padding: '2px 7px', borderRadius: '5px', fontSize: '11px', fontWeight: 700 }}>{k}</span>)}</div> },
+                  { title: 'Frases', color: 'var(--gold)', content: <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>{documento.analisis.important_phrases?.map((p, i) => <div key={i} style={{ background: 'var(--gold)', color: '#000', padding: '5px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 600 }}>{p}</div>)}</div> },
                 ].map((panel, i) => (
                   <div key={i} style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                     <div style={{ height: '3px', background: panel.color }} />
@@ -340,22 +328,22 @@ export default function DocumentoView({
                     </button>
                     <button onClick={() => setShowQuiz(true)}
                       style={{ padding: '10px 16px', borderRadius: '10px', border: '2px solid #a78bfa', background: 'transparent', color: '#a78bfa', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-                      🧩 Quiz
+                      🤓 Quiz
                     </button>
                     <button onClick={() => setShowEditor(true)}
                       style={{ padding: '10px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-                      ✏️ Editar cards
+                      ✏️ Editar
+                    </button>
+                    <button onClick={() => { setShowGuardarDeck(true); setDeckGuardado(false); }}
+                      style={{ padding: '10px 16px', borderRadius: '10px', border: '2px solid #4ade80', background: 'transparent', color: '#4ade80', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+                      💾 Guardar deck
                     </button>
                   </div>
-                  <span style={{ fontSize: '12px', color: 'var(--text-faint)' }}>
-                    {flashcards.length} tarjetas
-                  </span>
+                  <span style={{ fontSize: '12px', color: 'var(--text-faint)' }}>{flashcards.length} tarjetas</span>
                 </div>
 
-                {/* Indicadores */}
                 <Indicadores />
 
-                {/* Contador */}
                 <div style={{ textAlign: 'center', marginBottom: '16px' }}>
                   <span style={{ background: tema.color, color: '#000', padding: '5px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 800 }}>
                     {currentCard + 1} / {flashcards.length}
@@ -363,38 +351,23 @@ export default function DocumentoView({
                 </div>
 
                 {/* Tarjeta */}
-                <div
-                  onClick={() => setFlipped(!flipped)}
+                <div onClick={() => setFlipped(!flipped)}
                   className={`flip-card ${flipped ? 'flipped' : ''}`}
                   style={{ height: '300px', cursor: 'pointer', maxWidth: '640px', margin: '0 auto' }}>
                   <div className="flip-card-inner" style={{ position: 'relative', width: '100%', height: '100%' }}>
-
-                    {/* Frente */}
                     <div className="flip-card-front" style={{ position: 'absolute', width: '100%', height: '100%' }}>
                       <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '36px 44px', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border-color)', boxSizing: 'border-box', position: 'relative', overflow: 'hidden' }}>
                         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'var(--gold)' }} />
-                        <div style={{ position: 'absolute', top: '16px', left: '16px', background: 'var(--gold)', color: '#000', padding: '3px 10px', borderRadius: '5px', fontSize: '10px', fontWeight: 800 }}>
-                          PREGUNTA
-                        </div>
-                        <h3 style={{ fontSize: '18px', fontWeight: 700, textAlign: 'center', color: 'var(--text-primary)', lineHeight: 1.6, margin: '16px 0 0 0' }}>
-                          {flashcards[currentCard]?.question}
-                        </h3>
-                        <p style={{ color: 'var(--text-faint)', fontSize: '11px', margin: '16px 0 0 0' }}>
-                          👆 Toca para ver respuesta
-                        </p>
+                        <div style={{ position: 'absolute', top: '16px', left: '16px', background: 'var(--gold)', color: '#000', padding: '3px 10px', borderRadius: '5px', fontSize: '10px', fontWeight: 800 }}>PREGUNTA</div>
+                        <h3 style={{ fontSize: '18px', fontWeight: 700, textAlign: 'center', color: 'var(--text-primary)', lineHeight: 1.6, margin: '16px 0 0 0' }}>{flashcards[currentCard]?.question}</h3>
+                        <p style={{ color: 'var(--text-faint)', fontSize: '11px', margin: '16px 0 0 0' }}>👆 Toca para ver respuesta</p>
                       </div>
                     </div>
-
-                    {/* Reverso */}
                     <div className="flip-card-back" style={{ position: 'absolute', width: '100%', height: '100%' }}>
                       <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '36px 44px', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border-color)', boxSizing: 'border-box', position: 'relative', overflow: 'hidden' }}>
                         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'var(--red)' }} />
-                        <div style={{ position: 'absolute', top: '16px', left: '16px', background: 'var(--red)', color: '#000', padding: '3px 10px', borderRadius: '5px', fontSize: '10px', fontWeight: 800 }}>
-                          RESPUESTA
-                        </div>
-                        <p style={{ fontSize: '16px', textAlign: 'center', color: 'var(--text-primary)', lineHeight: 1.7, margin: '16px 0 0 0' }}>
-                          {flashcards[currentCard]?.answer}
-                        </p>
+                        <div style={{ position: 'absolute', top: '16px', left: '16px', background: 'var(--red)', color: '#000', padding: '3px 10px', borderRadius: '5px', fontSize: '10px', fontWeight: 800 }}>RESPUESTA</div>
+                        <p style={{ fontSize: '16px', textAlign: 'center', color: 'var(--text-primary)', lineHeight: 1.7, margin: '16px 0 0 0' }}>{flashcards[currentCard]?.answer}</p>
                       </div>
                     </div>
                   </div>
@@ -416,9 +389,7 @@ export default function DocumentoView({
                 <div style={{ marginTop: '28px', background: 'var(--bg-card)', borderRadius: '14px', border: '1px solid var(--border-color)', overflow: 'hidden', maxWidth: '640px', margin: '28px auto 0' }}>
                   <div style={{ height: '3px', background: 'var(--blue)' }} />
                   <div style={{ padding: '18px' }}>
-                    <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 10px 0' }}>
-                      ➕ Añadir más flashcards
-                    </p>
+                    <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 10px' }}>➕ Añadir más flashcards</p>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
                       {[3, 5, 10, 15].map(n => (
                         <button key={n} onClick={() => setAddCount(n)}
@@ -431,18 +402,14 @@ export default function DocumentoView({
                         {addingMore ? '⏳...' : `➕ ${addCount} tarjetas`}
                       </button>
                     </div>
-                    <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '8px 0 0 0' }}>
-                      Total: {flashcards.length} tarjetas
-                    </p>
+                    <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '8px 0 0' }}>Total: {flashcards.length} tarjetas</p>
                   </div>
                 </div>
               </>
             ) : (
               <div style={{ textAlign: 'center', padding: '60px 0' }}>
                 <div style={{ fontSize: '60px', marginBottom: '12px' }}>🎴</div>
-                <p style={{ fontSize: '16px', color: 'var(--text-faint)', marginBottom: '20px' }}>
-                  No hay flashcards todavía
-                </p>
+                <p style={{ fontSize: '16px', color: 'var(--text-faint)', marginBottom: '20px' }}>No hay flashcards todavía</p>
                 <button onClick={analizar} disabled={analizando}
                   style={{ padding: '12px 28px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
                   {analizando ? '⏳ Analizando...' : '🔍 Analizar y generar flashcards'}

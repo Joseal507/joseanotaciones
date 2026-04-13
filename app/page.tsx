@@ -9,6 +9,7 @@ import { getMateriasDB } from '../lib/db';
 import UserMenu from '../components/UserMenu';
 import Buscador from '../components/Buscador';
 import NavbarMobile from '../components/NavbarMobile';
+import RachaWidget from '../components/RachaWidget';
 import { useIsMobile } from '../hooks/useIsMobile';
 
 export default function Home() {
@@ -197,6 +198,17 @@ export default function Home() {
           ))}
         </div>
 
+        {/* RACHA */}
+        <div style={{ marginBottom: isMobile ? '28px' : '48px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+            <div style={{ width: '4px', height: '28px', background: 'var(--red)', borderRadius: '2px' }} />
+            <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
+              🔥 Racha de estudio
+            </h2>
+          </div>
+          <RachaWidget />
+        </div>
+
         {/* MATERIAS */}
         {materias.length > 0 && (
           <div style={{ marginBottom: isMobile ? '28px' : '48px' }}>
@@ -282,12 +294,13 @@ export default function Home() {
             <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>Accesos rápidos</h2>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(200px, 1fr))', gap: isMobile ? '10px' : '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(180px, 1fr))', gap: isMobile ? '10px' : '14px' }}>
             {[
               { emoji: '📚', label: 'Mis Materias', desc: 'Apuntes y temas', color: 'var(--gold)', href: '/materias' },
               { emoji: '🗓️', label: 'Horario', desc: 'Clases de la semana', color: 'var(--gold)', href: '/horario' },
               { emoji: '📅', label: 'Agenda', desc: 'Calendario y objetivos', color: 'var(--blue)', href: '/agenda' },
               { emoji: '🤖', label: 'AlciBot', desc: 'Chat con AI', color: 'var(--pink)', href: '/chat' },
+              { emoji: '🎓', label: 'Quizzes', desc: 'Quizzes y flashcard decks', color: '#a78bfa', href: '/quizzes' },
               { emoji: '📊', label: 'Mi Perfil', desc: 'Stats de estudio', color: 'var(--red)', href: '/perfil' },
             ].map((item, i) => (
               <div key={i}

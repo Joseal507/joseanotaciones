@@ -27,9 +27,10 @@ const PAGINAS = [
   { titulo: 'Mis Materias', subtitulo: 'Ver todas tus materias', emoji: '📚', href: '/materias', keywords: ['materia', 'materias', 'temas', 'apuntes'] },
   { titulo: 'Agenda', subtitulo: 'Calendario y asignaciones', emoji: '📅', href: '/agenda', keywords: ['agenda', 'calendario', 'asignacion', 'asignaciones', 'tareas', 'tarea'] },
   { titulo: 'Objetivos', subtitulo: 'Tus objetivos y XP', emoji: '✅', href: '/agenda', keywords: ['objetivo', 'objetivos', 'xp', 'nivel', 'logros', 'metas'] },
-  { titulo: 'Horario', subtitulo: 'Horario de clases', emoji: '🗓️', href: '/horario', keywords: ['horario', 'clases', 'clase', 'horarios'] },
-  { titulo: 'AlciBot', subtitulo: 'Chat con AI', emoji: '🤖', href: '/chat', keywords: ['alcibot', 'chat', 'ai', 'bot', 'inteligencia'] },
+  { titulo: 'Horario', subtitulo: 'Horario de clases', emoji: '🗓️', href: '/horario', keywords: ['horario', 'clases', 'clase'] },
+  { titulo: 'AlciBot', subtitulo: 'Chat con AI', emoji: '🤖', href: '/chat', keywords: ['alcibot', 'chat', 'ai', 'bot'] },
   { titulo: 'Mi Perfil', subtitulo: 'Stats de estudio', emoji: '📊', href: '/perfil', keywords: ['perfil', 'stats', 'estadisticas', 'progreso'] },
+  { titulo: 'Quizzes y Flashcard Decks', subtitulo: 'Materiales de estudio guardados', emoji: '🎓', href: '/quizzes', keywords: ['quiz', 'quizzes', 'flashcard', 'deck', 'decks', 'guardados'] },
 ];
 
 export default function Buscador({ onClose }: Props) {
@@ -67,7 +68,7 @@ export default function Buscador({ onClose }: Props) {
     try {
       const encontrados: Resultado[] = [];
 
-      // 1. Buscar páginas del sistema
+      // 1. Páginas del sistema
       PAGINAS.forEach(pagina => {
         const match =
           pagina.titulo.toLowerCase().includes(q) ||
@@ -84,7 +85,36 @@ export default function Buscador({ onClose }: Props) {
         }
       });
 
-      // 2. Buscar en materias de Supabase
+      // 2. Quizzes y decks guardados
+      try {
+        const { getQuizzesGuardados, getFlashcardDecks } = await import('../lib/quizStorage');
+        const quizzesGuardados = getQuizzesGuardados();
+        quizzesGuardados.forEach(quiz => {
+          if (quiz.nombre.toLowerCase().includes(q) || quiz.materiaNombre?.toLowerCase().includes(q)) {
+            encontrados.push({
+              tipo: 'pagina',
+              titulo: quiz.nombre,
+              subtitulo: `🤓 ${quiz.preguntas.length} preguntas${quiz.materiaNombre ? ` · ${quiz.materiaNombre}` : ''}`,
+              emoji: '🤓',
+              href: '/quizzes',
+            });
+          }
+        });
+        const decksGuardados = getFlashcardDecks();
+        decksGuardados.forEach(deck => {
+          if (deck.nombre.toLowerCase().includes(q) || deck.materiaNombre?.toLowerCase().includes(q)) {
+            encontrados.push({
+              tipo: 'pagina',
+              titulo: deck.nombre,
+              subtitulo: `🎴 ${deck.flashcards.length} flashcards${deck.materiaNombre ? ` · ${deck.materiaNombre}` : ''}`,
+              emoji: '🎴',
+              href: '/quizzes',
+            });
+          }
+        });
+      } catch {}
+
+      // 3. Materias de Supabase
       const { data } = await supabase.auth.getUser();
       if (!data.user) {
         setResultados(encontrados);
@@ -94,8 +124,7 @@ export default function Buscador({ onClose }: Props) {
       const materias = await getMateriasDB(data.user.id);
 
       materias.forEach(materia => {
-
-        // Buscar materia por nombre
+        // Buscar materia
         if (materia.nombre.toLowerCase().includes(q)) {
           encontrados.push({
             tipo: 'materia',
@@ -108,8 +137,7 @@ export default function Buscador({ onClose }: Props) {
         }
 
         materia.temas.forEach(tema => {
-
-          // Buscar tema por nombre
+          // Buscar tema
           if (tema.nombre.toLowerCase().includes(q)) {
             encontrados.push({
               tipo: 'tema',
@@ -121,7 +149,7 @@ export default function Buscador({ onClose }: Props) {
             });
           }
 
-          // Buscar en apuntes
+          // Buscar apuntes
           tema.apuntes.forEach(apunte => {
             const tituloMatch = apunte.titulo.toLowerCase().includes(q);
             const textoPlano = apunte.contenido
@@ -153,7 +181,7 @@ export default function Buscador({ onClose }: Props) {
             }
           });
 
-          // Buscar en documentos
+          // Buscar documentos
           tema.documentos.forEach(doc => {
             const nombreMatch = doc.nombre.toLowerCase().includes(q);
             const contenidoMatch = doc.contenido?.toLowerCase().includes(q);
@@ -193,19 +221,15 @@ export default function Buscador({ onClose }: Props) {
   };
 
   const abrirResultado = (r: Resultado) => {
-    if (r.href) {
-      if (r.tipo === 'apunte' || r.tipo === 'documento') {
-        localStorage.setItem('josea_search_result', JSON.stringify({
-          tipo: r.tipo,
-          materiaId: r.materiaId,
-          temaId: r.temaId,
-          id: r.id,
-        }));
-      }
-      window.location.href = r.href;
-    } else {
-      window.location.href = '/materias';
+    if (r.tipo === 'apunte' || r.tipo === 'documento') {
+      localStorage.setItem('josea_search_result', JSON.stringify({
+        tipo: r.tipo,
+        materiaId: r.materiaId,
+        temaId: r.temaId,
+        id: r.id,
+      }));
     }
+    window.location.href = r.href || '/materias';
     onClose();
   };
 
@@ -225,7 +249,7 @@ export default function Buscador({ onClose }: Props) {
       case 'pagina': return { label: 'Página', color: 'var(--blue)' };
       case 'materia': return { label: 'Materia', color: 'var(--gold)' };
       case 'tema': return { label: 'Tema', color: 'var(--pink)' };
-      case 'apunte': return { label: 'Apunte', color: 'var(--green, #4ade80)' };
+      case 'apunte': return { label: 'Apunte', color: '#4ade80' };
       case 'documento': return { label: 'Documento', color: 'var(--blue)' };
       default: return { label: tipo, color: 'var(--text-muted)' };
     }
@@ -258,7 +282,7 @@ export default function Buscador({ onClose }: Props) {
             ref={inputRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Buscar materias, apuntes, páginas..."
+            placeholder="Buscar materias, apuntes, quizzes, páginas..."
             style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: '17px', color: 'var(--text-primary)', fontFamily: 'inherit' }}
           />
           {cargando && <span style={{ fontSize: '13px', color: 'var(--text-faint)' }}>Buscando...</span>}
@@ -268,7 +292,7 @@ export default function Buscador({ onClose }: Props) {
           </button>
         </div>
 
-        {/* Sugerencias rápidas cuando no hay query */}
+        {/* Accesos rápidos cuando no hay query */}
         {!query.trim() && (
           <div style={{ padding: '16px 20px' }}>
             <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 12px' }}>
@@ -276,8 +300,7 @@ export default function Buscador({ onClose }: Props) {
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {PAGINAS.map((p, i) => (
-                <button key={i}
-                  onClick={() => window.location.href = p.href}
+                <button key={i} onClick={() => window.location.href = p.href}
                   style={{ padding: '8px 14px', borderRadius: '10px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-muted)', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.15s' }}
                   onMouseEnter={(e: any) => { e.currentTarget.style.borderColor = 'var(--gold)'; e.currentTarget.style.color = 'var(--gold)'; }}
                   onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
@@ -310,8 +333,7 @@ export default function Buscador({ onClose }: Props) {
             {resultados.map((r, i) => {
               const tipoInfo = getTipoInfo(r.tipo);
               return (
-                <div
-                  key={i}
+                <div key={i}
                   onClick={() => abrirResultado(r)}
                   style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', cursor: 'pointer', display: 'flex', gap: '14px', alignItems: 'flex-start', transition: 'background 0.15s' }}
                   onMouseEnter={(e: any) => e.currentTarget.style.background = 'var(--bg-secondary)'}
@@ -333,7 +355,6 @@ export default function Buscador({ onClose }: Props) {
                       </span>
                     </div>
 
-                    {/* Ruta */}
                     {(r.materia || r.subtitulo) && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', flexWrap: 'wrap' }}>
                         {r.materia && (
@@ -354,7 +375,6 @@ export default function Buscador({ onClose }: Props) {
                       </div>
                     )}
 
-                    {/* Preview */}
                     {r.preview && (
                       <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>
                         {highlightQuery(r.preview)}

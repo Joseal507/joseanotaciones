@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import UserMenu from './UserMenu';
+import RachaWidget from './RachaWidget';
 
 interface Props {
   darkMode?: boolean;
@@ -36,26 +37,31 @@ export default function NavbarMobile({ darkMode, onToggleDark }: Props) {
         height: '60px',
       }}>
         {/* Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
           onClick={() => window.location.href = '/'}>
           <img src="/logo.png" alt="Logo"
             style={{ width: '34px', height: '34px', borderRadius: '8px', objectFit: 'cover' }}
-            onError={(e: any) => { e.target.style.display = 'none'; }}
-          />
+            onError={(e: any) => { e.target.style.display = 'none'; }} />
           <span style={{ fontSize: '16px', fontWeight: 900, color: 'var(--text-primary)' }}>
             JoseAnotaciones
           </span>
         </div>
 
-        {/* Botones derecha */}
+        {/* Derecha */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Racha compacta */}
+          <RachaWidget compact />
+
           {onToggleDark && (
             <button onClick={onToggleDark}
               style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', padding: '4px' }}>
               {darkMode ? '☀️' : '🌙'}
             </button>
           )}
+
           <UserMenu />
+
           {/* Hamburger */}
           <button
             onClick={() => setMenuAbierto(!menuAbierto)}
@@ -89,16 +95,16 @@ export default function NavbarMobile({ darkMode, onToggleDark }: Props) {
           {links.map((link, i) => (
             <button key={i}
               onClick={() => { window.location.href = link.href; setMenuAbierto(false); }}
-              style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: 'none', background: window.location.pathname === link.href ? 'var(--gold-dim)' : 'transparent', color: window.location.pathname === link.href ? 'var(--gold)' : 'var(--text-primary)', fontSize: '15px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'block', marginBottom: '2px', transition: 'all 0.15s' }}
+              style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '15px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'block', marginBottom: '2px', transition: 'all 0.15s' }}
               onMouseEnter={(e: any) => e.currentTarget.style.background = 'var(--bg-secondary)'}
-              onMouseLeave={(e: any) => e.currentTarget.style.background = window.location.pathname === link.href ? 'var(--gold-dim)' : 'transparent'}>
+              onMouseLeave={(e: any) => e.currentTarget.style.background = 'transparent'}>
               {link.label}
             </button>
           ))}
         </div>
       )}
 
-      {/* Overlay para cerrar menu */}
+      {/* Overlay */}
       {menuAbierto && (
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 98, top: '63px' }}

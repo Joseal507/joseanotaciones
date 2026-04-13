@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { registrarEstudioHoy } from '../../lib/racha';
+registrarEstudioHoy();
 
 interface Flashcard {
   question: string;
