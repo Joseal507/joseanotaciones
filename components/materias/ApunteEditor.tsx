@@ -9,6 +9,7 @@ import EditorCanvas from '../editor/EditorCanvas';
 import DrawingCanvas from '../editor/DrawingCanvas';
 import ImageInserter from '../editor/ImageInserter';
 import ExportMenu from '../editor/ExportMenu';
+import { useIsMobile } from '../../hooks/useIsMobile';
 
 interface Props {
   apunte: Apunte;
@@ -29,6 +30,193 @@ const parseBloques = (contenido: string): Bloque[] => {
   return [{ id: genId(), tipo: 'texto', html: contenido }];
 };
 
+function ImagenMobile({ bloque, temaColor, onUpdate, onDelete }: {
+  bloque: BloqueImagen;
+  temaColor: string;
+  onUpdate: (changes: Partial<BloqueImagen>) => void;
+  onDelete: () => void;
+}) {
+  const [width, setWidth] = useState(bloque.width);
+  const [selected, setSelected] = useState(false);
+  const [floating, setFloating] = useState(bloque.floating ?? false);
+  const [pos, setPos] = useState({ x: bloque.x ?? 0, y: bloque.y ?? 0 });
+  const [dragging, setDragging] = useState(false);
+  const touchStart = useRef<{ x: number; w: number } | null>(null);
+  const dragStart = useRef<{ touchX: number; touchY: number; elX: number; elY: number } | null>(null);
+  const longPressTimer = useRef<any>(null);
+  const posRef = useRef(pos);
+
+  useEffect(() => { posRef.current = pos; }, [pos]);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && !floating) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY,
+      );
+      touchStart.current = { x: dist, w: width };
+    } else if (e.touches.length === 1 && floating) {
+      dragStart.current = {
+        touchX: e.touches[0].clientX,
+        touchY: e.touches[0].clientY,
+        elX: posRef.current.x,
+        elY: posRef.current.y,
+      };
+    } else if (e.touches.length === 1 && !floating) {
+      longPressTimer.current = setTimeout(() => {
+        setFloating(true);
+        onUpdate({ floating: true, x: posRef.current.x, y: posRef.current.y });
+        setDragging(true);
+        dragStart.current = {
+          touchX: e.touches[0].clientX,
+          touchY: e.touches[0].clientY,
+          elX: posRef.current.x,
+          elY: posRef.current.y,
+        };
+      }, 600);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    e.preventDefault();
+    if (e.touches.length === 2 && touchStart.current) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY,
+      );
+      const scale = dist / touchStart.current.x;
+      const newW = Math.max(80, Math.min(700, Math.round(touchStart.current.w * scale)));
+      setWidth(newW);
+    } else if (e.touches.length === 1 && (dragging || floating) && dragStart.current) {
+      const dx = e.touches[0].clientX - dragStart.current.touchX;
+      const dy = e.touches[0].clientY - dragStart.current.touchY;
+      const newPos = { x: dragStart.current.elX + dx, y: dragStart.current.elY + dy };
+      setPos(newPos);
+      posRef.current = newPos;
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    if (touchStart.current) {
+      onUpdate({ width });
+      touchStart.current = null;
+    }
+    if (dragging || floating) {
+      onUpdate({ x: posRef.current.x, y: posRef.current.y, floating: true });
+      setDragging(false);
+      dragStart.current = null;
+    }
+  };
+
+  const makeInline = () => {
+    setFloating(false);
+    setPos({ x: 0, y: 0 });
+    onUpdate({ floating: false, x: 0, y: 0 });
+    setSelected(false);
+  };
+
+  const screenW = typeof window !== 'undefined' ? window.innerWidth : 400;
+
+  const containerStyle: React.CSSProperties = floating ? {
+    position: 'absolute',
+    left: pos.x,
+    top: pos.y,
+    width: Math.min(width, screenW - 40),
+    zIndex: 20,
+    touchAction: 'none',
+  } : {
+    margin: '12px 0',
+    textAlign: bloque.align === 'left' ? 'left' : bloque.align === 'right' ? 'right' : 'center',
+    touchAction: 'none',
+  };
+
+  return (
+    <div contentEditable={false} style={floating ? { position: 'relative' } : {}}>
+      <div
+        style={containerStyle}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onClick={() => setSelected(!selected)}
+      >
+        <div style={{ display: 'inline-block', maxWidth: '100%', position: 'relative' }}>
+          <img
+            src={bloque.src}
+            draggable={false}
+            style={{
+              width: floating ? '100%' : Math.min(width, screenW - 40) + 'px',
+              maxWidth: '100%',
+              borderRadius: '10px',
+              border: selected || dragging ? `3px solid ${temaColor}` : floating ? `2px solid ${temaColor}88` : `2px solid ${temaColor}44`,
+              display: 'block',
+              boxShadow: floating ? '0 8px 32px rgba(0,0,0,0.3)' : 'none',
+              opacity: dragging ? 0.85 : 1,
+              transition: 'box-shadow 0.2s, opacity 0.2s',
+            }}
+          />
+          {floating && (
+            <div style={{ position: 'absolute', top: 8, left: 8, background: temaColor, color: '#000', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 800 }}>
+              🪟 Flotando
+            </div>
+          )}
+          {bloque.label && !floating && (
+            <div style={{ position: 'absolute', top: 8, left: 8, background: temaColor, color: '#000', padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 800 }}>
+              {bloque.label}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {!floating && !selected && (
+        <p style={{ textAlign: 'center', fontSize: '10px', color: 'var(--text-faint)', margin: '4px 0 0' }}>
+          Mantén presionado para mover · Pellizca para redimensionar
+        </p>
+      )}
+
+      {selected && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', marginTop: '10px', flexWrap: 'wrap', padding: '0 8px' }}>
+          <div style={{ display: 'flex', gap: '6px', width: '100%', justifyContent: 'center', marginBottom: '4px' }}>
+            <button onClick={makeInline}
+              style={{ flex: 1, maxWidth: '140px', padding: '8px', borderRadius: '8px', border: `2px solid ${!floating ? temaColor : 'var(--border-color)'}`, background: !floating ? temaColor : 'transparent', color: !floating ? '#000' : 'var(--text-muted)', fontSize: '12px', cursor: 'pointer', fontWeight: 700 }}>
+              📄 Inline
+            </button>
+            <button onClick={() => { setFloating(true); onUpdate({ floating: true, x: posRef.current.x, y: posRef.current.y }); }}
+              style={{ flex: 1, maxWidth: '140px', padding: '8px', borderRadius: '8px', border: `2px solid ${floating ? temaColor : 'var(--border-color)'}`, background: floating ? temaColor : 'transparent', color: floating ? '#000' : 'var(--text-muted)', fontSize: '12px', cursor: 'pointer', fontWeight: 700 }}>
+              🪟 Flotar
+            </button>
+          </div>
+
+          {!floating && (['left', 'center', 'right'] as const).map(a => (
+            <button key={a} onClick={() => onUpdate({ align: a })}
+              style={{ padding: '7px 12px', borderRadius: '8px', border: `2px solid ${bloque.align === a ? temaColor : 'var(--border-color)'}`, background: bloque.align === a ? temaColor : 'transparent', color: bloque.align === a ? '#000' : 'var(--text-muted)', fontSize: '14px', cursor: 'pointer', fontWeight: 700 }}>
+              {a === 'left' ? '⬅' : a === 'center' ? '⬛' : '➡'}
+            </button>
+          ))}
+
+          <button onClick={() => { const nw = Math.max(80, width - 40); setWidth(nw); onUpdate({ width: nw }); }}
+            style={{ padding: '7px 14px', borderRadius: '8px', border: `2px solid ${temaColor}`, background: 'transparent', color: temaColor, fontSize: '18px', cursor: 'pointer', fontWeight: 900 }}>−</button>
+          <span style={{ fontSize: '12px', color: 'var(--text-muted)', alignSelf: 'center', minWidth: '50px', textAlign: 'center' }}>{width}px</span>
+          <button onClick={() => { const nw = Math.min(700, width + 40); setWidth(nw); onUpdate({ width: nw }); }}
+            style={{ padding: '7px 14px', borderRadius: '8px', border: `2px solid ${temaColor}`, background: 'transparent', color: temaColor, fontSize: '18px', cursor: 'pointer', fontWeight: 900 }}>+</button>
+
+          <button onClick={onDelete}
+            style={{ padding: '7px 12px', borderRadius: '8px', border: '2px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: '14px', cursor: 'pointer' }}>🗑️</button>
+        </div>
+      )}
+
+      {selected && (
+        <p style={{ textAlign: 'center', fontSize: '10px', color: 'var(--text-faint)', margin: '6px 0 0' }}>
+          {floating ? '☝️ Arrastra para mover' : '🤏 Pellizca con 2 dedos para redimensionar'}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function ApunteEditor({
   apunte, materia, tema,
   onBack, onBackMateria, onBackTema, onGuardar,
@@ -41,11 +229,11 @@ export default function ApunteEditor({
   const [brushSize, setBrushSize] = useState(3);
   const [showDrawingCanvas, setShowDrawingCanvas] = useState(false);
   const [showImage, setShowImage] = useState(false);
-
   const textRefs = useRef<{ [id: string]: HTMLDivElement | null }>({});
   const htmlCache = useRef<{ [id: string]: string }>({});
   const editorRef = useRef<HTMLDivElement>(null);
   const canvasHeight = 800;
+  const isMobile = useIsMobile();
 
   const isDrawing = ['boligrafo', 'marcador', 'lapiz', 'borrador'].includes(herramienta);
 
@@ -100,7 +288,7 @@ export default function ApunteEditor({
         id: genId(),
         tipo: 'imagen',
         src,
-        width: 500,
+        width: isMobile ? 300 : 500,
         align: 'center',
         label,
         floating: false,
@@ -147,66 +335,62 @@ export default function ApunteEditor({
   return (
     <>
       {showDrawingCanvas && (
-        <DrawingCanvas
-          color={tema.color}
-          onSave={(d) => addImagen(d, '🎨 Dibujo')}
-          onClose={() => setShowDrawingCanvas(false)}
-        />
+        <DrawingCanvas color={tema.color} onSave={(d) => addImagen(d, '🎨 Dibujo')} onClose={() => setShowDrawingCanvas(false)} />
       )}
       {showImage && (
-        <ImageInserter
-          color={tema.color}
-          onInsert={(src) => addImagen(src)}
-          onClose={() => setShowImage(false)}
-        />
+        <ImageInserter color={tema.color} onInsert={(src) => addImagen(src)} onClose={() => setShowImage(false)} />
       )}
 
       <div style={{ maxWidth: '1080px', margin: '0 auto' }}>
 
         {/* BREADCRUMB */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '14px', flexWrap: 'wrap' }}>
           <button onClick={onBack}
             style={{ background: 'none', border: 'none', color: 'var(--gold)', fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>
-            📚 Materias
+            📚 {!isMobile && 'Materias'}
           </button>
           <span style={{ color: 'var(--text-faint)' }}>/</span>
           <button onClick={onBackMateria}
-            style={{ background: 'none', border: 'none', color: materia.color, fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>
+            style={{ background: 'none', border: 'none', color: materia.color, fontWeight: 700, cursor: 'pointer', fontSize: '13px', maxWidth: isMobile ? '90px' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {materia.emoji} {materia.nombre}
           </button>
           <span style={{ color: 'var(--text-faint)' }}>/</span>
           <button onClick={onBackTema}
-            style={{ background: 'none', border: 'none', color: tema.color, fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>
+            style={{ background: 'none', border: 'none', color: tema.color, fontWeight: 700, cursor: 'pointer', fontSize: '13px', maxWidth: isMobile ? '90px' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             📁 {tema.nombre}
           </button>
-          <span style={{ color: 'var(--text-faint)' }}>/</span>
-          <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>✏️ {apunte.titulo}</span>
+          {!isMobile && (
+            <>
+              <span style={{ color: 'var(--text-faint)' }}>/</span>
+              <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>✏️ {apunte.titulo}</span>
+            </>
+          )}
         </div>
 
         {/* HEADER */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ width: '4px', height: '32px', background: tema.color, borderRadius: '2px' }} />
-            <h1 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+            <div style={{ width: '4px', height: '28px', background: tema.color, borderRadius: '2px', flexShrink: 0 }} />
+            <h1 style={{ fontSize: isMobile ? '16px' : '22px', fontWeight: 900, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {apunte.titulo}
             </h1>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
             {isDrawing && (
-              <div style={{ background: tema.color + '25', padding: '6px 14px', borderRadius: '10px', border: `1px solid ${tema.color}`, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: tema.color }} />
-                <span style={{ fontSize: '12px', color: tema.color, fontWeight: 700 }}>Modo dibujo</span>
-                <button
-                  onClick={() => handleHerramienta('texto')}
-                  style={{ background: tema.color, border: 'none', color: '#000', padding: '3px 10px', borderRadius: '6px', fontWeight: 800, fontSize: '12px', cursor: 'pointer' }}>
-                  ✅ Listo
+              <div style={{ background: tema.color + '25', padding: '5px 10px', borderRadius: '8px', border: `1px solid ${tema.color}`, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '11px', color: tema.color, fontWeight: 700 }}>
+                  {isMobile ? '🎨' : 'Modo dibujo'}
+                </span>
+                <button onClick={() => handleHerramienta('texto')}
+                  style={{ background: tema.color, border: 'none', color: '#000', padding: '2px 8px', borderRadius: '5px', fontWeight: 800, fontSize: '11px', cursor: 'pointer' }}>
+                  ✅
                 </button>
               </div>
             )}
 
-            <span style={{ fontSize: '12px', color: guardado ? 'var(--text-faint)' : 'var(--gold)', fontWeight: 600 }}>
-              {guardando ? '💾 Guardando...' : guardado ? '✓ Guardado' : '● Sin guardar'}
+            <span style={{ fontSize: '11px', color: guardado ? 'var(--text-faint)' : 'var(--gold)', fontWeight: 600 }}>
+              {guardando ? '💾...' : guardado ? '✓' : '●'}
             </span>
 
             <ExportMenu
@@ -218,8 +402,8 @@ export default function ApunteEditor({
             />
 
             <button onClick={guardar}
-              style={{ padding: '9px 20px', borderRadius: '10px', border: 'none', background: tema.color, color: '#000', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
-              💾 Guardar
+              style={{ padding: isMobile ? '8px 14px' : '9px 20px', borderRadius: '10px', border: 'none', background: tema.color, color: '#000', fontSize: isMobile ? '12px' : '13px', fontWeight: 800, cursor: 'pointer' }}>
+              💾 {!isMobile && 'Guardar'}
             </button>
           </div>
         </div>
@@ -229,28 +413,32 @@ export default function ApunteEditor({
           background: 'var(--bg-card)',
           borderRadius: '16px',
           border: `2px solid ${isDrawing ? tema.color : 'var(--border-color)'}`,
-          overflow: 'visible',
-          boxShadow: isDrawing ? `0 0 0 4px ${tema.color}30` : '0 8px 40px rgba(0,0,0,0.15)',
+          overflow: 'hidden',
+          boxShadow: isDrawing ? `0 0 0 3px ${tema.color}30` : '0 4px 20px rgba(0,0,0,0.1)',
           transition: 'all 0.3s',
         }}>
-          <div style={{ height: '4px', background: tema.color, borderRadius: '14px 14px 0 0' }} />
+          <div style={{ height: '4px', background: tema.color }} />
 
-          {/* TOOLBAR */}
-          <Toolbar
-            temaColor={tema.color}
-            herramientaActiva={herramienta}
-            onHerramienta={handleHerramienta}
-            brushColor={brushColor}
-            onBrushColor={setBrushColor}
-            brushSize={brushSize}
-            onBrushSize={setBrushSize}
-            onExecCmd={exec}
-            onInsertHtml={insertHtml}
-            onInsertImagen={() => { syncCache(); setShowImage(true); }}
-            onInsertDibujo={() => { syncCache(); setShowDrawingCanvas(true); }}
-            onUndo={() => (window as any).__editorUndo?.()}
-            onRedo={() => (window as any).__editorRedo?.()}
-          />
+          {/* TOOLBAR scrolleable en mobile */}
+          <div style={{ overflowX: isMobile ? 'auto' : 'visible', WebkitOverflowScrolling: 'touch' as any }}>
+            <div style={{ minWidth: isMobile ? 'max-content' : 'auto' }}>
+              <Toolbar
+                temaColor={tema.color}
+                herramientaActiva={herramienta}
+                onHerramienta={handleHerramienta}
+                brushColor={brushColor}
+                onBrushColor={setBrushColor}
+                brushSize={brushSize}
+                onBrushSize={setBrushSize}
+                onExecCmd={exec}
+                onInsertHtml={insertHtml}
+                onInsertImagen={() => { syncCache(); setShowImage(true); }}
+                onInsertDibujo={() => { syncCache(); setShowDrawingCanvas(true); }}
+                onUndo={() => (window as any).__editorUndo?.()}
+                onRedo={() => (window as any).__editorRedo?.()}
+              />
+            </div>
+          </div>
 
           {/* ESTILOS */}
           <style>{`
@@ -261,81 +449,46 @@ export default function ApunteEditor({
               font-style: italic;
               pointer-events: none;
             }
-            .ebloque h1 {
-              font-size: 28px; font-weight: 900;
-              color: ${tema.color}; margin: 16px 0 8px;
-            }
-            .ebloque h2 {
-              font-size: 22px; font-weight: 800;
-              color: #111111; margin: 14px 0 6px;
-              padding-bottom: 6px;
-              border-bottom: 3px solid ${tema.color}44;
-            }
-            .ebloque h3 {
-              font-size: 17px; font-weight: 800;
-              color: #111111; margin: 12px 0 4px;
-            }
-            .ebloque p { margin: 4px 0; line-height: 1.8; color: #333333; }
-            .ebloque ul { padding-left: 20px; margin: 6px 0; }
-            .ebloque ol { padding-left: 20px; margin: 6px 0; }
-            .ebloque li { color: #333333; padding: 2px 0; line-height: 1.7; }
+            .ebloque h1 { font-size: ${isMobile ? '22px' : '28px'}; font-weight: 900; color: ${tema.color}; margin: 12px 0 6px; }
+            .ebloque h2 { font-size: ${isMobile ? '18px' : '22px'}; font-weight: 800; color: #111111; margin: 10px 0 5px; padding-bottom: 4px; border-bottom: 3px solid ${tema.color}44; }
+            .ebloque h3 { font-size: ${isMobile ? '15px' : '17px'}; font-weight: 800; color: #111111; margin: 8px 0 4px; }
+            .ebloque p { margin: 4px 0; line-height: 1.7; color: #333333; font-size: ${isMobile ? '15px' : '16px'}; }
+            .ebloque ul { padding-left: 18px; margin: 6px 0; }
+            .ebloque ol { padding-left: 18px; margin: 6px 0; }
+            .ebloque li { color: #333333; padding: 2px 0; line-height: 1.6; font-size: ${isMobile ? '15px' : '16px'}; }
             .ebloque b, .ebloque strong { color: #111111; font-weight: 800; }
             .ebloque i, .ebloque em { color: #111111; }
             .ebloque u { text-decoration-color: ${tema.color}; }
-            .ebloque hr {
-              border: none;
-              border-top: 2px solid #dddddd;
-              margin: 16px 0;
-            }
-            .ebloque blockquote {
-              border-left: 4px solid ${tema.color};
-              padding: 8px 16px; margin: 8px 0;
-              color: #555555; font-style: italic;
-              border-radius: 0 8px 8px 0;
-              background: #f8f8f8;
-            }
+            .ebloque hr { border: none; border-top: 2px solid #dddddd; margin: 16px 0; }
+            .ebloque blockquote { border-left: 4px solid ${tema.color}; padding: 8px 14px; margin: 8px 0; color: #555555; font-style: italic; border-radius: 0 8px 8px 0; background: #f8f8f8; }
           `}</style>
 
-          {/* ÁREA PRINCIPAL - FONDO BLANCO */}
-          <div
-            ref={editorRef}
-            style={{
-              position: 'relative',
-              minHeight: canvasHeight + 'px',
-              background: '#ffffff',
-              borderRadius: '0 0 14px 14px',
-            }}
-          >
-            {/* Canvas de trazos - SIEMPRE ENCIMA */}
+          {/* ÁREA PRINCIPAL */}
+          <div ref={editorRef} style={{ position: 'relative', minHeight: isMobile ? '60vh' : `${canvasHeight}px` }}>
+
+            {/* Canvas trazos */}
             <EditorCanvas
               herramienta={herramienta}
               brushColor={brushColor}
               brushSize={brushSize}
               temaColor={tema.color}
               width={editorRef.current?.clientWidth || 1000}
-              height={canvasHeight}
+              height={isMobile ? 600 : canvasHeight}
               onChange={() => setGuardado(false)}
             />
 
             {/* Bloques */}
             <div style={{
-              padding: '28px 44px',
+              padding: isMobile ? '16px' : '28px 44px',
               pointerEvents: isDrawing ? 'none' : 'all',
               position: 'relative',
               zIndex: 1,
               background: '#ffffff',
-              minHeight: canvasHeight + 'px',
+              minHeight: isMobile ? '60vh' : `${canvasHeight}px`,
             }}>
               {bloques.map((bloque, idx) => (
-                <div
-                  key={bloque.id}
-                  style={{
-                    position: 'relative',
-                    zIndex: bloque.tipo === 'imagen'
-                      ? ((bloque as BloqueImagen).zIndex ?? 2)
-                      : 1,
-                  }}
-                >
+                <div key={bloque.id} style={{ position: 'relative', zIndex: bloque.tipo === 'imagen' ? ((bloque as BloqueImagen).zIndex ?? 2) : 1 }}>
+
                   {/* TEXTO */}
                   {bloque.tipo === 'texto' && (
                     <div
@@ -354,69 +507,86 @@ export default function ApunteEditor({
                       }}
                       style={{
                         fontFamily: 'Georgia, serif',
-                        fontSize: '16px',
+                        fontSize: isMobile ? '15px' : '16px',
                         lineHeight: 1.8,
                         color: '#333333',
                         padding: '2px 0',
                         width: '100%',
+                        WebkitUserSelect: 'text',
+                        userSelect: 'text',
                       }}
                     />
                   )}
 
                   {/* IMAGEN */}
                   {bloque.tipo === 'imagen' && (
-                    <ImageBlock
-                      bloque={bloque as BloqueImagen}
-                      temaColor={tema.color}
-                      onUpdate={(changes) => updateImagen(bloque.id, changes)}
-                      onDelete={() => eliminarBloque(bloque.id)}
-                    />
+                    isMobile ? (
+                      <ImagenMobile
+                        bloque={bloque as BloqueImagen}
+                        temaColor={tema.color}
+                        onUpdate={(changes) => updateImagen(bloque.id, changes)}
+                        onDelete={() => eliminarBloque(bloque.id)}
+                      />
+                    ) : (
+                      <ImageBlock
+                        bloque={bloque as BloqueImagen}
+                        temaColor={tema.color}
+                        onUpdate={(changes) => updateImagen(bloque.id, changes)}
+                        onDelete={() => eliminarBloque(bloque.id)}
+                      />
+                    )
                   )}
                 </div>
               ))}
 
               {/* Botones al final */}
-              <div
-                style={{ marginTop: '60px', display: 'flex', alignItems: 'center', gap: '8px', opacity: 0, transition: 'opacity 0.3s' }}
-                onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.opacity = '1'}
-                onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.opacity = '0'}
-              >
-                <div style={{ flex: 1, height: '1px', background: '#dddddd' }} />
-                <button
-                  onClick={() => addTexto(bloques.length - 1)}
-                  style={{ padding: '4px 14px', borderRadius: '8px', border: `1px solid ${tema.color}`, background: 'transparent', color: tema.color, fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>
-                  + texto
-                </button>
-                <button
-                  onClick={() => { syncCache(); setShowImage(true); }}
-                  style={{ padding: '4px 14px', borderRadius: '8px', border: '1px solid #cccccc', background: 'transparent', color: '#888888', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                  + imagen
-                </button>
-                <button
-                  onClick={() => { syncCache(); setShowDrawingCanvas(true); }}
-                  style={{ padding: '4px 14px', borderRadius: '8px', border: '1px solid #cccccc', background: 'transparent', color: '#888888', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                  + dibujo
-                </button>
-                <div style={{ flex: 1, height: '1px', background: '#dddddd' }} />
-              </div>
+              {isMobile ? (
+                <div style={{ display: 'flex', gap: '8px', marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #eee' }}>
+                  <button onClick={() => addTexto(bloques.length - 1)}
+                    style={{ flex: 1, padding: '11px', borderRadius: '10px', border: `2px solid ${tema.color}`, background: 'transparent', color: tema.color, fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
+                    + Texto
+                  </button>
+                  <button onClick={() => { syncCache(); setShowImage(true); }}
+                    style={{ flex: 1, padding: '11px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+                    🖼️ Imagen
+                  </button>
+                  <button onClick={() => { syncCache(); setShowDrawingCanvas(true); }}
+                    style={{ flex: 1, padding: '11px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+                    🎨 Dibujo
+                  </button>
+                </div>
+              ) : (
+                <div
+                  style={{ marginTop: '40px', display: 'flex', alignItems: 'center', gap: '8px', opacity: 0, transition: 'opacity 0.3s' }}
+                  onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.opacity = '1'}
+                  onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.opacity = '0'}
+                >
+                  <div style={{ flex: 1, height: '1px', background: '#dddddd' }} />
+                  <button onClick={() => addTexto(bloques.length - 1)}
+                    style={{ padding: '4px 12px', borderRadius: '8px', border: `1px solid ${tema.color}`, background: 'transparent', color: tema.color, fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>
+                    + texto
+                  </button>
+                  <button onClick={() => { syncCache(); setShowImage(true); }}
+                    style={{ padding: '4px 12px', borderRadius: '8px', border: '1px solid #cccccc', background: 'transparent', color: '#888888', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                    + imagen
+                  </button>
+                  <button onClick={() => { syncCache(); setShowDrawingCanvas(true); }}
+                    style={{ padding: '4px 12px', borderRadius: '8px', border: '1px solid #cccccc', background: 'transparent', color: '#888888', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                    + dibujo
+                  </button>
+                  <div style={{ flex: 1, height: '1px', background: '#dddddd' }} />
+                </div>
+              )}
             </div>
           </div>
 
           {/* FOOTER */}
-          <div style={{
-            padding: '10px 20px',
-            borderTop: '1px solid var(--border-color)',
-            background: 'var(--bg-secondary)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            borderRadius: '0 0 14px 14px',
-          }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-faint)' }}>
+          <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>
               {bloques.length} bloques · {bloques.filter(b => b.tipo === 'imagen').length} imágenes
             </span>
-            <span style={{ fontSize: '12px', color: 'var(--text-faint)' }}>
-              Cmd+S guardar · Cmd+Z deshacer · Cmd+Y rehacer
+            <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>
+              {isMobile ? 'Toca imagen para controles' : 'Cmd+S guardar · Cmd+Z deshacer'}
             </span>
           </div>
         </div>
