@@ -137,9 +137,14 @@ export default function Home() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
             onClick={() => setShowBuscador(true)}
-            style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            style={{ padding: '8px 14px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
             🔍
             <span style={{ fontSize: '11px', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: '4px' }}>⌘K</span>
+          </button>
+          <button
+            onClick={() => window.location.href = '/horario'}
+            style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+            🗓️ Horario
           </button>
           <button
             onClick={() => window.location.href = '/chat'}
@@ -154,7 +159,7 @@ export default function Home() {
           <button
             onClick={() => window.location.href = '/materias'}
             style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
-            📚 Mis Materias
+            📚 Materias
           </button>
           <button
             onClick={() => setDarkMode(!darkMode)}
@@ -375,6 +380,7 @@ export default function Home() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '14px' }}>
             {[
               { emoji: '📚', label: 'Mis Materias', desc: 'Apuntes y temas', color: 'var(--gold)', href: '/materias' },
+              { emoji: '🗓️', label: 'Horario', desc: 'Clases de la semana', color: 'var(--gold)', href: '/horario' },
               { emoji: '📅', label: 'Agenda', desc: 'Calendario y objetivos', color: 'var(--blue)', href: '/agenda' },
               { emoji: '🤖', label: 'AlciBot', desc: 'Chat con AI', color: 'var(--pink)', href: '/chat' },
               { emoji: '📊', label: 'Mi Perfil', desc: 'Stats de estudio', color: 'var(--red)', href: '/perfil' },
