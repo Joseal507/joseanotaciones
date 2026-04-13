@@ -27,9 +27,11 @@ export interface FlashcardDeck {
 
 const genId = () => Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
 
+const isBrowser = () => typeof window !== 'undefined';
+
 // ===== QUIZZES =====
 export const getQuizzesGuardados = (): QuizGuardado[] => {
-  if (typeof window === 'undefined') return [];
+  if (!isBrowser()) return [];
   try {
     const data = localStorage.getItem(KEY_QUIZZES);
     return data ? JSON.parse(data) : [];
@@ -37,6 +39,7 @@ export const getQuizzesGuardados = (): QuizGuardado[] => {
 };
 
 export const saveQuizzesGuardados = (quizzes: QuizGuardado[]) => {
+  if (!isBrowser()) return;
   localStorage.setItem(KEY_QUIZZES, JSON.stringify(quizzes));
 };
 
@@ -57,7 +60,7 @@ export const eliminarQuizGuardado = (id: string) => {
 
 // ===== FLASHCARD DECKS =====
 export const getFlashcardDecks = (): FlashcardDeck[] => {
-  if (typeof window === 'undefined') return [];
+  if (!isBrowser()) return [];
   try {
     const data = localStorage.getItem(KEY_DECKS);
     return data ? JSON.parse(data) : [];
@@ -65,6 +68,7 @@ export const getFlashcardDecks = (): FlashcardDeck[] => {
 };
 
 export const saveFlashcardDecks = (decks: FlashcardDeck[]) => {
+  if (!isBrowser()) return;
   localStorage.setItem(KEY_DECKS, JSON.stringify(decks));
 };
 
