@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { useState, useEffect } from 'react';
 import { getMaterias, Materia } from '../lib/storage';
 import { supabase } from '../lib/supabase';
@@ -10,7 +12,6 @@ export default function Home() {
   const [materias, setMaterias] = useState<Materia[]>([]);
   const [verificando, setVerificando] = useState(true);
 
-  // Verificar si está logueado
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (!data.session) {
@@ -27,7 +28,15 @@ export default function Home() {
 
   useEffect(() => {
     if (!verificando) {
-      setMaterias(getMaterias());
+      const cargarMaterias = async () => {
+        const { data } = await supabase.auth.getUser();
+        if (data.user) {
+          const { getMateriasDB } = await import('../lib/db');
+          const materiasDB = await getMateriasDB(data.user.id);
+          setMaterias(materiasDB);
+        }
+      };
+      cargarMaterias();
     }
   }, [verificando]);
 
@@ -39,7 +48,6 @@ export default function Home() {
     acc + m.temas.reduce((a, t) =>
       a + t.documentos.reduce((b, d) => b + (d.flashcards?.length || 0), 0), 0), 0);
 
-  // Pantalla de carga mientras verifica sesión
   if (verificando) {
     return (
       <div style={{
@@ -301,7 +309,6 @@ export default function Home() {
                 </div>
               ))}
 
-              {/* Card nueva materia */}
               <div
                 onClick={() => window.location.href = '/materias'}
                 style={{ background: 'transparent', borderRadius: '16px', border: '2px dashed var(--border-color)', padding: '18px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px', transition: 'all 0.2s', minHeight: '130px' }}

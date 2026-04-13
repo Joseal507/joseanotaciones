@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 
@@ -27,7 +29,7 @@ export default function AuthPage() {
       if (error.message.includes('Invalid login')) {
         setError('Email o contraseña incorrectos');
       } else if (error.message.includes('Email not confirmed')) {
-        setError('Confirma tu email primero. Revisa tu bandeja de entrada.');
+        setError('Confirma tu email primero');
       } else {
         setError(error.message);
       }
@@ -47,27 +49,22 @@ export default function AuthPage() {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: { nombre },
-        emailRedirectTo: undefined,
-      },
+      options: { data: { nombre } },
     });
 
     if (error) {
       if (error.message.includes('rate limit')) {
-        setError('Demasiados intentos. Espera unos minutos e intenta de nuevo.');
+        setError('Demasiados intentos. Espera unos minutos.');
       } else if (error.message.includes('already registered')) {
-        setError('Este email ya está registrado. Intenta iniciar sesión.');
+        setError('Este email ya está registrado.');
         setModo('login');
       } else {
         setError(error.message);
       }
     } else if (data.session) {
-      // Registro exitoso sin confirmación
       window.location.href = '/';
     } else {
-      // Necesita confirmar email
-      setMensaje('✅ Revisa tu email y confirma tu cuenta para continuar.');
+      setMensaje('✅ Revisa tu email para confirmar tu cuenta.');
     }
     setCargando(false);
   };
