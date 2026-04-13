@@ -1,126 +1,125 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import { useState, useEffect } from 'react';
-import { getMaterias, Materia } from '../lib/storage';
-import { supabase } from '../lib/supabase';
-import { getMateriasDB } from '../lib/db';
-import UserMenu from '../components/UserMenu';
-import Buscador from '../components/Buscador';
-import NavbarMobile from '../components/NavbarMobile';
-import { useIsMobile } from '../hooks/useIsMobile';
+import { Asignacion, ObjetivoAgenda, getAsignaciones, saveAsignaciones, getObjetivos, saveObjetivos } from '../../lib/agenda';
+import { getMaterias } from '../../lib/storage';
+import { supabase } from '../../lib/supabase';
+import { getAgendaDB, saveAgendaDB } from '../../lib/db';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import NavbarMobile from '../../components/NavbarMobile';
+import Calendario from '../../components/agenda/Calendario';
+import Objetivos from '../../components/agenda/Objetivos';
+import PendientesSidebar from '../../components/agenda/PendientesSidebar';
+import { ModalAsignacion, ModalObjetivo } from '../../components/agenda/ModalesAgenda';
 
-export default function Home() {
-  const [darkMode, setDarkMode] = useState(true);
-  const [materias, setMaterias] = useState<Materia[]>([]);
-  const [verificando, setVerificando] = useState(true);
-  const [showBuscador, setShowBuscador] = useState(false);
+export default function AgendaPage() {
+  const [tab, setTab] = useState<'calendario' | 'agenda'>('calendario');
+  const [asignaciones, setAsignaciones] = useState<Asignacion[]>([]);
+  const [objetivos, setObjetivos] = useState<ObjetivoAgenda[]>([]);
+  const [materias, setMaterias] = useState<any[]>([]);
+  const [hoy] = useState(new Date());
+  const [mes, setMes] = useState(hoy.getMonth());
+  const [anio, setAnio] = useState(hoy.getFullYear());
+  const [diaSeleccionado, setDiaSeleccionado] = useState<string | null>(null);
+  const [modalAsig, setModalAsig] = useState(false);
+  const [modalObj, setModalObj] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const isMobile = useIsMobile();
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) {
-        window.location.href = '/auth';
-      } else {
-        setVerificando(false);
-      }
-    });
-  }, []);
+  const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
 
   useEffect(() => {
-    document.documentElement.classList.toggle('light', !darkMode);
-  }, [darkMode]);
-
-  useEffect(() => {
-    if (!verificando) {
-      const cargarMaterias = async () => {
+    const cargar = async () => {
+      try {
         const { data } = await supabase.auth.getUser();
         if (data.user) {
-          const materiasDB = await getMateriasDB(data.user.id);
-          setMaterias(materiasDB);
+          setUserId(data.user.id);
+          const agendaDB = await getAgendaDB(data.user.id);
+          if (agendaDB.asignaciones.length > 0 || agendaDB.objetivos.length > 0) {
+            setAsignaciones(agendaDB.asignaciones);
+            setObjetivos(agendaDB.objetivos);
+          } else {
+            const localAsig = getAsignaciones();
+            const localObj = getObjetivos();
+            if (localAsig.length > 0 || localObj.length > 0) {
+              setAsignaciones(localAsig);
+              setObjetivos(localObj);
+              await saveAgendaDB(data.user.id, localAsig, localObj);
+            }
+          }
+        } else {
+          setAsignaciones(getAsignaciones());
+          setObjetivos(getObjetivos());
         }
-      };
-      cargarMaterias();
-    }
-  }, [verificando]);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setShowBuscador(true);
+      } catch {
+        setAsignaciones(getAsignaciones());
+        setObjetivos(getObjetivos());
       }
+      setMaterias(getMaterias());
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    cargar();
   }, []);
 
-  const totalApuntes = materias.reduce((acc, m) =>
-    acc + m.temas.reduce((a, t) => a + t.apuntes.length, 0), 0);
-  const totalDocs = materias.reduce((acc, m) =>
-    acc + m.temas.reduce((a, t) => a + t.documentos.length, 0), 0);
-  const totalFlashcards = materias.reduce((acc, m) =>
-    acc + m.temas.reduce((a, t) =>
-      a + t.documentos.reduce((b, d) => b + (d.flashcards?.length || 0), 0), 0), 0);
+  const xpTotal = objetivos.filter(o => o.completado).reduce((acc, o) => acc + o.xp, 0);
+  const nivel = Math.floor(xpTotal / 100) + 1;
+  const xpNivel = xpTotal % 100;
 
-  if (verificando) {
-    return (
-      <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px', fontFamily: '-apple-system, sans-serif' }}>
-        <div style={{ width: '80px', height: '80px', borderRadius: '20px', border: '3px solid var(--gold)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-card)', fontSize: '36px' }}>
-          <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            onError={(e: any) => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = '📚'; }} />
-        </div>
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>Cargando JoseAnotaciones...</p>
-      </div>
-    );
-  }
+  const saveAsig = async (lista: Asignacion[]) => {
+    setAsignaciones(lista);
+    saveAsignaciones(lista);
+    if (userId) await saveAgendaDB(userId, lista, objetivos);
+  };
+
+  const saveObj = async (lista: ObjetivoAgenda[]) => {
+    setObjetivos(lista);
+    saveObjetivos(lista);
+    if (userId) await saveAgendaDB(userId, asignaciones, lista);
+  };
+
+  const handleMes = (dir: 1 | -1) => {
+    if (dir === -1) {
+      if (mes === 0) { setMes(11); setAnio(a => a - 1); }
+      else setMes(m => m - 1);
+    } else {
+      if (mes === 11) { setMes(0); setAnio(a => a + 1); }
+      else setMes(m => m + 1);
+    }
+  };
+
+  const handleSelectDia = (fecha: string) => {
+    setDiaSeleccionado(fecha || null);
+    if (fecha) {
+      const d = new Date(fecha + 'T12:00:00');
+      setMes(d.getMonth());
+      setAnio(d.getFullYear());
+    }
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', fontFamily: '-apple-system, sans-serif' }}>
 
-      {showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
-
       {/* NAVBAR */}
       {isMobile ? (
-        <NavbarMobile darkMode={darkMode} onToggleDark={() => setDarkMode(!darkMode)} />
+        <NavbarMobile />
       ) : (
         <>
-          <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: '0 40px', position: 'sticky', top: 0, zIndex: 100, display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '68px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <img src="/logo.png" alt="Logo" style={{ width: '42px', height: '42px', borderRadius: '10px', objectFit: 'cover' }}
-                onError={(e: any) => { e.target.style.display = 'none'; }} />
+          <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: '0 40px', height: '68px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button onClick={() => window.location.href = '/'}
+                style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                ← Inicio
+              </button>
               <div>
-                <h1 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>JoseAnotaciones</h1>
-                <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>Tu plataforma de estudio</p>
+                <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>📅 Agenda</h1>
+                <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>Calendario y objetivos</p>
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <button onClick={() => setShowBuscador(true)}
-                style={{ padding: '8px 14px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                🔍 <span style={{ fontSize: '11px', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: '4px' }}>⌘K</span>
-              </button>
-              <button onClick={() => window.location.href = '/horario'}
-                style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-                🗓️ Horario
-              </button>
-              <button onClick={() => window.location.href = '/chat'}
-                style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-                🤖 AlciBot
-              </button>
-              <button onClick={() => window.location.href = '/agenda'}
-                style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--blue)', background: 'transparent', color: 'var(--blue)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-                📅 Agenda
-              </button>
-              <button onClick={() => window.location.href = '/materias'}
-                style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
-                📚 Materias
-              </button>
-              <button onClick={() => setDarkMode(!darkMode)}
-                style={{ padding: '8px 14px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '14px', fontWeight: 700 }}>
-                {darkMode ? '☀️' : '🌙'}
-              </button>
-              <UserMenu />
+            <div style={{ background: 'var(--bg-card)', borderRadius: '12px', padding: '10px 16px', border: '1px solid var(--gold-border)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--gold)' }}>⭐ Nivel {nivel}</span>
+              <div style={{ background: 'var(--bg-secondary)', borderRadius: '8px', height: '8px', width: '100px', overflow: 'hidden' }}>
+                <div style={{ width: `${xpNivel}%`, height: '100%', background: 'var(--gold)', borderRadius: '8px' }} />
+              </div>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{xpTotal} XP</span>
             </div>
           </header>
           <div style={{ display: 'flex', height: '3px' }}>
@@ -132,188 +131,119 @@ export default function Home() {
         </>
       )}
 
-      <div style={{ maxWidth: '1100px', margin: '0 auto', padding: isMobile ? '24px 16px' : '48px 40px' }}>
+      <div style={{ maxWidth: '1100px', margin: '0 auto', padding: isMobile ? '16px' : '32px 40px' }}>
 
-        {/* HERO */}
-        <div style={{ textAlign: 'center', marginBottom: isMobile ? '32px' : '56px' }}>
-          <div style={{
-            width: isMobile ? '160px' : '350px',
-            height: isMobile ? '160px' : '350px',
-            borderRadius: '200px',
-            border: '4px solid var(--gold)',
-            overflow: 'hidden',
-            margin: '0 auto 20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'var(--bg-card)',
-            fontSize: isMobile ? '60px' : '120px',
-            boxShadow: '0 20px 80px rgba(245,200,66,0.35)',
-          }}>
-            <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              onError={(e: any) => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = '📚'; }} />
-          </div>
-
-          <h1 style={{ fontSize: isMobile ? '28px' : '56px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px', letterSpacing: isMobile ? '-1px' : '-2px', lineHeight: 1 }}>
-            JOSEANOTACIONES
-          </h1>
-
-          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', margin: '12px 0 16px' }}>
-            {['var(--gold)', 'var(--red)', 'var(--blue)', 'var(--pink)'].map((c, i) => (
-              <div key={i} style={{ width: isMobile ? '24px' : '36px', height: '4px', background: c, borderRadius: '2px' }} />
-            ))}
-          </div>
-
-          <p style={{ fontSize: isMobile ? '15px' : '18px', color: 'var(--text-muted)', margin: '0 0 24px', maxWidth: '460px', marginLeft: 'auto', marginRight: 'auto' }}>
-            Mi plataforma para tirar estudio 💪
-          </p>
-
-          <button
-            onClick={() => window.location.href = '/materias'}
-            style={{ padding: isMobile ? '14px 32px' : '16px 44px', borderRadius: '14px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: isMobile ? '15px' : '17px', fontWeight: 900, cursor: 'pointer', letterSpacing: '0.5px' }}>
-            🚀 IR A MIS MATERIAS
-          </button>
-
-          {/* Búsqueda rápida en mobile */}
-          {isMobile && (
-            <button
-              onClick={() => setShowBuscador(true)}
-              style={{ display: 'block', width: '100%', marginTop: '12px', padding: '14px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '15px', fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>
-              🔍 Buscar apuntes, materias...
-            </button>
-          )}
-        </div>
-
-        {/* STATS */}
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: '1px', background: 'var(--border-color)', borderRadius: '16px', overflow: 'hidden', marginBottom: isMobile ? '28px' : '48px' }}>
-          {[
-            { label: 'Materias', value: materias.length, color: 'var(--gold)', emoji: '📚' },
-            { label: 'Apuntes', value: totalApuntes, color: 'var(--pink)', emoji: '✏️' },
-            { label: 'Documentos', value: totalDocs, color: 'var(--blue)', emoji: '📄' },
-            { label: 'Flashcards', value: totalFlashcards, color: 'var(--red)', emoji: '🎴' },
-          ].map((stat, i) => (
-            <div key={i} style={{ background: 'var(--bg-card)', padding: isMobile ? '16px 12px' : '24px 16px', textAlign: 'center' }}>
-              <div style={{ fontSize: isMobile ? '20px' : '24px', marginBottom: '4px' }}>{stat.emoji}</div>
-              <div style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 900, color: stat.color }}>{stat.value}</div>
-              <div style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: 600, marginTop: '4px' }}>{stat.label}</div>
+        {/* XP Bar mobile */}
+        {isMobile && (
+          <div style={{ background: 'var(--bg-card)', borderRadius: '14px', padding: '14px 16px', border: '1px solid var(--gold-border)', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--gold)' }}>⭐ Nivel {nivel}</span>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{xpTotal} XP</span>
             </div>
+            <div style={{ background: 'var(--bg-secondary)', borderRadius: '8px', height: '10px', overflow: 'hidden' }}>
+              <div style={{ width: `${xpNivel}%`, height: '100%', background: 'var(--gold)', borderRadius: '8px', transition: 'width 0.5s' }} />
+            </div>
+            <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '6px 0 0', textAlign: 'right' }}>
+              {xpNivel}/100 XP → Nivel {nivel + 1}
+            </p>
+          </div>
+        )}
+
+        {/* TABS */}
+        <div style={{ display: 'flex', marginBottom: '20px', borderBottom: '2px solid var(--border-color)' }}>
+          {[
+            { id: 'calendario', label: isMobile ? '📅 Cal.' : '📅 Calendario', color: 'var(--blue)' },
+            { id: 'agenda', label: isMobile ? '✅ Obj.' : '✅ Objetivos', color: 'var(--pink)' },
+          ].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id as any)}
+              style={{ flex: isMobile ? 1 : 'none', padding: isMobile ? '12px 8px' : '12px 28px', border: 'none', background: 'transparent', borderBottom: tab === t.id ? `3px solid ${t.color}` : '3px solid transparent', color: tab === t.id ? t.color : 'var(--text-muted)', fontSize: isMobile ? '14px' : '15px', fontWeight: 700, cursor: 'pointer', marginBottom: '-2px' }}>
+              {t.label}
+            </button>
           ))}
         </div>
 
-        {/* MATERIAS */}
-        {materias.length > 0 && (
-          <div style={{ marginBottom: isMobile ? '28px' : '48px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '4px', height: '28px', background: 'var(--gold)', borderRadius: '2px' }} />
-                <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>Mis Materias</h2>
-              </div>
-              <button onClick={() => window.location.href = '/materias'}
-                style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--gold-border)', background: 'var(--gold-dim)', color: 'var(--gold)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                Ver todas →
+        {/* CALENDARIO */}
+        {tab === 'calendario' && (
+          isMobile ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <button onClick={() => setModalAsig(true)}
+                style={{ width: '100%', padding: '14px', borderRadius: '14px', border: 'none', background: 'var(--blue)', color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>
+                + Nueva asignación
               </button>
+              <Calendario
+                asignaciones={asignaciones}
+                mes={mes}
+                anio={anio}
+                hoyStr={hoyStr}
+                diaSeleccionado={diaSeleccionado}
+                onDia={setDiaSeleccionado}
+                onMes={handleMes}
+              />
+              <PendientesSidebar
+                asignaciones={asignaciones}
+                objetivos={objetivos}
+                hoyStr={hoyStr}
+                diaSeleccionado={diaSeleccionado}
+                onToggleAsig={id => saveAsig(asignaciones.map(a => a.id === id ? { ...a, completada: !a.completada } : a))}
+                onEliminarAsig={id => saveAsig(asignaciones.filter(a => a.id !== id))}
+                onNuevaAsig={() => setModalAsig(true)}
+                onSelectDia={handleSelectDia}
+              />
             </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(240px, 1fr))', gap: isMobile ? '10px' : '16px' }}>
-              {materias.slice(0, isMobile ? 4 : 6).map(materia => (
-                <div key={materia.id}
-                  onClick={() => window.location.href = '/materias'}
-                  style={{ background: 'var(--bg-card)', borderRadius: '14px', border: '1px solid var(--border-color)', overflow: 'hidden', cursor: 'pointer', transition: 'all 0.2s ease' }}
-                  onMouseEnter={(e: any) => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.borderColor = materia.color; }}
-                  onMouseLeave={(e: any) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-                >
-                  <div style={{ height: '4px', background: materia.color }} />
-                  <div style={{ padding: isMobile ? '12px' : '18px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                      <div style={{ width: isMobile ? '34px' : '44px', height: isMobile ? '34px' : '44px', borderRadius: '10px', background: materia.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: isMobile ? '16px' : '20px', flexShrink: 0 }}>
-                        {materia.emoji}
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <h3 style={{ fontSize: isMobile ? '13px' : '15px', fontWeight: 800, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {materia.nombre}
-                        </h3>
-                        <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: 0 }}>
-                          {materia.temas.length} temas
-                        </p>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      {[
-                        { label: 'Apuntes', val: materia.temas.reduce((a, t) => a + t.apuntes.length, 0) },
-                        { label: 'Docs', val: materia.temas.reduce((a, t) => a + t.documentos.length, 0) },
-                      ].map((s, i) => (
-                        <div key={i} style={{ flex: 1, background: 'var(--bg-secondary)', borderRadius: '6px', padding: '6px', textAlign: 'center' }}>
-                          <div style={{ fontSize: isMobile ? '14px' : '16px', fontWeight: 900, color: materia.color }}>{s.val}</div>
-                          <div style={{ fontSize: '9px', color: 'var(--text-faint)', fontWeight: 600 }}>{s.label}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              <div
-                onClick={() => window.location.href = '/materias'}
-                style={{ background: 'transparent', borderRadius: '14px', border: '2px dashed var(--border-color)', padding: '12px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '6px', minHeight: '100px' }}
-                onMouseEnter={(e: any) => { e.currentTarget.style.borderColor = 'var(--gold)'; e.currentTarget.style.background = 'var(--gold-dim)'; }}
-                onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.background = 'transparent'; }}
-              >
-                <div style={{ fontSize: '24px' }}>➕</div>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 700, margin: 0 }}>Nueva materia</p>
-              </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px', alignItems: 'flex-start' }}>
+              <Calendario
+                asignaciones={asignaciones}
+                mes={mes}
+                anio={anio}
+                hoyStr={hoyStr}
+                diaSeleccionado={diaSeleccionado}
+                onDia={setDiaSeleccionado}
+                onMes={handleMes}
+              />
+              <PendientesSidebar
+                asignaciones={asignaciones}
+                objetivos={objetivos}
+                hoyStr={hoyStr}
+                diaSeleccionado={diaSeleccionado}
+                onToggleAsig={id => saveAsig(asignaciones.map(a => a.id === id ? { ...a, completada: !a.completada } : a))}
+                onEliminarAsig={id => saveAsig(asignaciones.filter(a => a.id !== id))}
+                onNuevaAsig={() => setModalAsig(true)}
+                onSelectDia={handleSelectDia}
+              />
             </div>
-          </div>
+          )
         )}
 
-        {/* Sin materias */}
-        {materias.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <div style={{ fontSize: '60px', marginBottom: '16px' }}>📚</div>
-            <h2 style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>
-              ¡Empieza creando tu primera materia!
-            </h2>
-            <p style={{ fontSize: '15px', color: 'var(--text-muted)', margin: '0 0 24px' }}>
-              Organiza tus apuntes, documentos y flashcards
-            </p>
-            <button onClick={() => window.location.href = '/materias'}
-              style={{ padding: '14px 32px', borderRadius: '14px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '16px', fontWeight: 900, cursor: 'pointer' }}>
-              📚 Crear primera materia
-            </button>
-          </div>
+        {/* OBJETIVOS */}
+        {tab === 'agenda' && (
+          <Objetivos
+            objetivos={objetivos}
+            xpTotal={xpTotal}
+            nivel={nivel}
+            xpNivel={xpNivel}
+            onToggle={id => saveObj(objetivos.map(o => o.id === id ? { ...o, completado: !o.completado } : o))}
+            onEliminar={id => saveObj(objetivos.filter(o => o.id !== id))}
+            onNuevo={() => setModalObj(true)}
+          />
         )}
-
-        {/* ACCESOS RÁPIDOS */}
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-            <div style={{ width: '4px', height: '28px', background: 'var(--blue)', borderRadius: '2px' }} />
-            <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>Accesos rápidos</h2>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(200px, 1fr))', gap: isMobile ? '10px' : '14px' }}>
-            {[
-              { emoji: '📚', label: 'Mis Materias', desc: 'Apuntes y temas', color: 'var(--gold)', href: '/materias' },
-              { emoji: '🗓️', label: 'Horario', desc: 'Clases de la semana', color: 'var(--gold)', href: '/horario' },
-              { emoji: '📅', label: 'Agenda', desc: 'Calendario y objetivos', color: 'var(--blue)', href: '/agenda' },
-              { emoji: '🤖', label: 'AlciBot', desc: 'Chat con AI', color: 'var(--pink)', href: '/chat' },
-              { emoji: '📊', label: 'Mi Perfil', desc: 'Stats de estudio', color: 'var(--red)', href: '/perfil' },
-            ].map((item, i) => (
-              <div key={i}
-                onClick={() => window.location.href = item.href}
-                style={{ background: 'var(--bg-card)', borderRadius: '14px', border: '1px solid var(--border-color)', overflow: 'hidden', cursor: 'pointer', transition: 'all 0.2s' }}
-                onMouseEnter={(e: any) => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.borderColor = item.color; }}
-                onMouseLeave={(e: any) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-              >
-                <div style={{ height: '4px', background: item.color }} />
-                <div style={{ padding: isMobile ? '14px 12px' : '20px' }}>
-                  <div style={{ fontSize: isMobile ? '22px' : '28px', marginBottom: '6px' }}>{item.emoji}</div>
-                  <h3 style={{ fontSize: isMobile ? '13px' : '15px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 3px' }}>{item.label}</h3>
-                  <p style={{ fontSize: isMobile ? '11px' : '12px', color: 'var(--text-muted)', margin: 0 }}>{item.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
+
+      {/* MODALES */}
+      {modalAsig && (
+        <ModalAsignacion
+          materias={materias}
+          fechaInicial={diaSeleccionado || hoyStr}
+          onCrear={a => { saveAsig([...asignaciones, a]); setModalAsig(false); }}
+          onClose={() => setModalAsig(false)}
+        />
+      )}
+      {modalObj && (
+        <ModalObjetivo
+          onCrear={o => { saveObj([...objetivos, o]); setModalObj(false); }}
+          onClose={() => setModalObj(false)}
+        />
+      )}
     </div>
   );
 }
