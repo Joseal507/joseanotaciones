@@ -4,32 +4,46 @@ import { Asignacion, ObjetivoAgenda } from './agenda';
 
 // ===== MATERIAS =====
 export const getMateriasDB = async (userId: string): Promise<Materia[]> => {
-  const { data, error } = await supabase
-    .from('materias')
-    .select('datos')
-    .eq('user_id', userId)
-    .single();
+  try {
+    const { data, error } = await supabase
+      .from('materias')
+      .select('datos')
+      .eq('user_id', userId)
+      .single();
 
-  if (error || !data) return [];
-  return data.datos || [];
+    if (error || !data) return [];
+    return data.datos || [];
+  } catch {
+    return [];
+  }
 };
 
 export const saveMateriasDB = async (userId: string, materias: Materia[]) => {
-  const { data: existing } = await supabase
-    .from('materias')
-    .select('id')
-    .eq('user_id', userId)
-    .single();
+  try {
+    const { data: existing } = await supabase
+      .from('materias')
+      .select('id')
+      .eq('user_id', userId)
+      .single();
 
-  if (existing) {
-    await supabase
-      .from('materias')
-      .update({ datos: materias, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
-  } else {
-    await supabase
-      .from('materias')
-      .insert({ user_id: userId, datos: materias });
+    if (existing) {
+      await supabase
+        .from('materias')
+        .update({
+          datos: materias,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', userId);
+    } else {
+      await supabase
+        .from('materias')
+        .insert({
+          user_id: userId,
+          datos: materias,
+        });
+    }
+  } catch (err) {
+    console.error('Error guardando materias:', err);
   }
 };
 
@@ -42,48 +56,66 @@ export const getPerfilDB = async (userId: string): Promise<PerfilEstudio> => {
     sesiones: [],
   };
 
-  const { data, error } = await supabase
-    .from('perfil_estudio')
-    .select('datos')
-    .eq('user_id', userId)
-    .single();
+  try {
+    const { data, error } = await supabase
+      .from('perfil_estudio')
+      .select('datos')
+      .eq('user_id', userId)
+      .single();
 
-  if (error || !data) return empty;
-  return data.datos || empty;
+    if (error || !data) return empty;
+    return data.datos || empty;
+  } catch {
+    return empty;
+  }
 };
 
 export const savePerfilDB = async (userId: string, perfil: PerfilEstudio) => {
-  const { data: existing } = await supabase
-    .from('perfil_estudio')
-    .select('id')
-    .eq('user_id', userId)
-    .single();
+  try {
+    const { data: existing } = await supabase
+      .from('perfil_estudio')
+      .select('id')
+      .eq('user_id', userId)
+      .single();
 
-  if (existing) {
-    await supabase
-      .from('perfil_estudio')
-      .update({ datos: perfil, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
-  } else {
-    await supabase
-      .from('perfil_estudio')
-      .insert({ user_id: userId, datos: perfil });
+    if (existing) {
+      await supabase
+        .from('perfil_estudio')
+        .update({
+          datos: perfil,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', userId);
+    } else {
+      await supabase
+        .from('perfil_estudio')
+        .insert({
+          user_id: userId,
+          datos: perfil,
+        });
+    }
+  } catch (err) {
+    console.error('Error guardando perfil:', err);
   }
 };
 
 // ===== AGENDA =====
 export const getAgendaDB = async (userId: string) => {
-  const { data, error } = await supabase
-    .from('agenda')
-    .select('asignaciones, objetivos')
-    .eq('user_id', userId)
-    .single();
+  try {
+    const { data, error } = await supabase
+      .from('agenda')
+      .select('asignaciones, objetivos')
+      .eq('user_id', userId)
+      .single();
 
-  if (error || !data) return { asignaciones: [], objetivos: [] };
-  return {
-    asignaciones: data.asignaciones || [],
-    objetivos: data.objetivos || [],
-  };
+    if (error || !data) return { asignaciones: [], objetivos: [] };
+    return {
+      asignaciones: data.asignaciones || [],
+      objetivos: data.objetivos || [],
+    };
+  } catch {
+    return { asignaciones: [], objetivos: [] };
+  }
 };
 
 export const saveAgendaDB = async (
@@ -91,20 +123,32 @@ export const saveAgendaDB = async (
   asignaciones: Asignacion[],
   objetivos: ObjetivoAgenda[],
 ) => {
-  const { data: existing } = await supabase
-    .from('agenda')
-    .select('id')
-    .eq('user_id', userId)
-    .single();
+  try {
+    const { data: existing } = await supabase
+      .from('agenda')
+      .select('id')
+      .eq('user_id', userId)
+      .single();
 
-  if (existing) {
-    await supabase
-      .from('agenda')
-      .update({ asignaciones, objetivos, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
-  } else {
-    await supabase
-      .from('agenda')
-      .insert({ user_id: userId, asignaciones, objetivos });
+    if (existing) {
+      await supabase
+        .from('agenda')
+        .update({
+          asignaciones,
+          objetivos,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', userId);
+    } else {
+      await supabase
+        .from('agenda')
+        .insert({
+          user_id: userId,
+          asignaciones,
+          objetivos,
+        });
+    }
+  } catch (err) {
+    console.error('Error guardando agenda:', err);
   }
 };
