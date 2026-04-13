@@ -6,14 +6,14 @@ import {
   Materia, Tema, Apunte, Documento,
 } from '../../lib/storage';
 import { supabase } from '../../lib/supabase';
-import { getMateriasDB, saveMateriasDB, getAgendaDB, saveAgendaDB } from '../../lib/db';
-import { savePerfil, getPerfil } from '../../lib/storage';
+import { getMateriasDB, saveMateriasDB } from '../../lib/db';
 import MateriasList from '../../components/materias/MateriasList';
 import MateriaView from '../../components/materias/MateriaView';
 import TemaView from '../../components/materias/TemaView';
 import ApunteEditor from '../../components/materias/ApunteEditor';
 import DocumentoView from '../../components/materias/DocumentoView';
 import { ModalMateria, ModalTema, ModalApunte } from '../../components/materias/Modales';
+import Buscador from '../../components/Buscador';
 
 type Vista = 'materias' | 'materia' | 'tema' | 'apunte' | 'documento';
 
@@ -30,6 +30,7 @@ export default function MateriasPage() {
   const [subiendoDoc, setSubiendoDoc] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [showBuscador, setShowBuscador] = useState(false);
 
   useEffect(() => {
     const cargar = async () => {
@@ -40,10 +41,8 @@ export default function MateriasPage() {
         if (data.user) {
           setUserId(data.user.id);
 
-          // Limpiar localStorage del usuario anterior
           const lastUserId = localStorage.getItem('josea_last_user');
           if (lastUserId !== data.user.id) {
-            // Usuario diferente — limpiar todos los datos locales
             localStorage.setItem('josea_last_user', data.user.id);
             saveMaterias([]);
             localStorage.removeItem('josea_perfil');
@@ -51,7 +50,6 @@ export default function MateriasPage() {
             localStorage.removeItem('josea_objetivos');
           }
 
-          // Cargar materias desde Supabase
           const materiasDB = await getMateriasDB(data.user.id);
           setMaterias(materiasDB);
           saveMaterias(materiasDB);
@@ -67,6 +65,18 @@ export default function MateriasPage() {
       }
     };
     cargar();
+  }, []);
+
+  // Atajo de teclado Cmd+K
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowBuscador(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, []);
 
   const save = async (m: Materia[]) => {
@@ -231,17 +241,27 @@ export default function MateriasPage() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', padding: '32px 40px', fontFamily: '-apple-system, sans-serif' }}>
 
+      {showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
+
       <div style={{ maxWidth: '1100px', margin: '0 auto 24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <button
-            onClick={() => window.location.href = '/'}
-            style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-            ← Volver al inicio
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => window.location.href = '/'}
+              style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+              ← Inicio
+            </button>
+            <button
+              onClick={() => setShowBuscador(true)}
+              style={{ background: 'none', border: '2px solid var(--border-color)', color: 'var(--text-muted)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              🔍 Buscar
+              <span style={{ fontSize: '11px', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: '4px' }}>⌘K</span>
+            </button>
+          </div>
           {userId && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-faint)' }}>
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80' }} />
-              Sincronizado en la nube ☁️
+              Sincronizado ☁️
             </div>
           )}
         </div>

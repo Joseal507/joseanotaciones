@@ -6,11 +6,13 @@ import { useState, useEffect } from 'react';
 import { getMaterias, Materia } from '../lib/storage';
 import { supabase } from '../lib/supabase';
 import UserMenu from '../components/UserMenu';
+import Buscador from '../components/Buscador';
 
 export default function Home() {
   const [darkMode, setDarkMode] = useState(true);
   const [materias, setMaterias] = useState<Materia[]>([]);
   const [verificando, setVerificando] = useState(true);
+  const [showBuscador, setShowBuscador] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -39,6 +41,17 @@ export default function Home() {
       cargarMaterias();
     }
   }, [verificando]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowBuscador(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   const totalApuntes = materias.reduce((acc, m) =>
     acc + m.temas.reduce((a, t) => a + t.apuntes.length, 0), 0);
@@ -89,6 +102,8 @@ export default function Home() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', fontFamily: '-apple-system, sans-serif' }}>
 
+      {showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
+
       {/* NAVBAR */}
       <header style={{
         background: 'var(--bg-card)',
@@ -120,6 +135,12 @@ export default function Home() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            onClick={() => setShowBuscador(true)}
+            style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            🔍
+            <span style={{ fontSize: '11px', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: '4px' }}>⌘K</span>
+          </button>
           <button
             onClick={() => window.location.href = '/chat'}
             style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
