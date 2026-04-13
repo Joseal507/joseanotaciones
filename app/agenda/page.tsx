@@ -1,13 +1,18 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Asignacion, ObjetivoAgenda, getAsignaciones, saveAsignaciones, getObjetivos, saveObjetivos } from '../../lib/agenda';
+import {
+  Asignacion, ObjetivoAgenda,
+  getAsignaciones, saveAsignaciones,
+  getObjetivos, saveObjetivos,
+} from '../../lib/agenda';
 import { getMaterias } from '../../lib/storage';
+import { supabase } from '../../lib/supabase';
+import { getAgendaDB, saveAgendaDB } from '../../lib/db';
 import Calendario from '../../components/agenda/Calendario';
 import Objetivos from '../../components/agenda/Objetivos';
 import PendientesSidebar from '../../components/agenda/PendientesSidebar';
 import { ModalAsignacion, ModalObjetivo } from '../../components/agenda/ModalesAgenda';
-import { supabase } from '../../lib/supabase';
 
 export default function AgendaPage() {
   const [tab, setTab] = useState<'calendario' | 'agenda'>('calendario');
@@ -20,41 +25,67 @@ export default function AgendaPage() {
   const [diaSeleccionado, setDiaSeleccionado] = useState<string | null>(null);
   const [modalAsig, setModalAsig] = useState(false);
   const [modalObj, setModalObj] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
 
+  // Cargar datos
   useEffect(() => {
-  const cargar = async () => {
-    // Verificar usuario
-    const { data } = await supabase.auth.getUser();
-    const lastUserId = localStorage.getItem('josea_last_user');
-
-    if (data.user && lastUserId === data.user.id) {
-      // Mismo usuario - cargar desde Supabase
+    const cargar = async () => {
       try {
-        const { getAgendaDB } = await import('../../lib/db');
-        const agendaDB = await getAgendaDB(data.user.id);
-        setAsignaciones(agendaDB.asignaciones);
-        setObjetivos(agendaDB.objetivos);
-        return;
-      } catch {}
-    }
-
-    // Usuario diferente o sin cuenta - datos en 0
-    setAsignaciones([]);
-    setObjetivos([]);
-  };
-
-  cargar();
-  setMaterias(getMaterias());
-}, []);
+        const { data } = await supabase.auth.getUser();
+        if (data.user) {
+          setUserId(data.user.id);
+          // Cargar desde Supabase
+          const agendaDB = await getAgendaDB(data.user.id);
+          if (agendaDB.asignaciones.length > 0 || agendaDB.objetivos.length > 0) {
+            setAsignaciones(agendaDB.asignaciones);
+            setObjetivos(agendaDB.objetivos);
+          } else {
+            // Migrar desde localStorage si hay datos
+            const localAsig = getAsignaciones();
+            const localObj = getObjetivos();
+            if (localAsig.length > 0 || localObj.length > 0) {
+              setAsignaciones(localAsig);
+              setObjetivos(localObj);
+              await saveAgendaDB(data.user.id, localAsig, localObj);
+            }
+          }
+        } else {
+          // Sin cuenta - usar localStorage
+          setAsignaciones(getAsignaciones());
+          setObjetivos(getObjetivos());
+        }
+      } catch {
+        setAsignaciones(getAsignaciones());
+        setObjetivos(getObjetivos());
+      }
+      setMaterias(getMaterias());
+    };
+    cargar();
+  }, []);
 
   const xpTotal = objetivos.filter(o => o.completado).reduce((acc, o) => acc + o.xp, 0);
   const nivel = Math.floor(xpTotal / 100) + 1;
   const xpNivel = xpTotal % 100;
 
-  const saveAsig = (lista: Asignacion[]) => { setAsignaciones(lista); saveAsignaciones(lista); };
-  const saveObj = (lista: ObjetivoAgenda[]) => { setObjetivos(lista); saveObjetivos(lista); };
+  // Guardar asignaciones en Supabase + localStorage
+  const saveAsig = async (lista: Asignacion[]) => {
+    setAsignaciones(lista);
+    saveAsignaciones(lista);
+    if (userId) {
+      await saveAgendaDB(userId, lista, objetivos);
+    }
+  };
+
+  // Guardar objetivos en Supabase + localStorage
+  const saveObj = async (lista: ObjetivoAgenda[]) => {
+    setObjetivos(lista);
+    saveObjetivos(lista);
+    if (userId) {
+      await saveAgendaDB(userId, asignaciones, lista);
+    }
+  };
 
   const handleMes = (dir: 1 | -1) => {
     if (dir === -1) {
@@ -94,13 +125,21 @@ export default function AgendaPage() {
           </div>
 
           {/* XP Bar */}
-          <div style={{ background: 'var(--bg-card)', borderRadius: '14px', padding: '12px 18px', border: '1px solid var(--gold-border)', minWidth: '200px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-              <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--gold)' }}>⭐ Nivel {nivel}</span>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{xpTotal} XP</span>
-            </div>
-            <div style={{ background: 'var(--bg-secondary)', borderRadius: '8px', height: '8px', overflow: 'hidden' }}>
-              <div style={{ width: `${xpNivel}%`, height: '100%', background: 'var(--gold)', borderRadius: '8px', transition: 'width 0.5s' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            {userId && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-faint)' }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80' }} />
+                Sincronizado ☁️
+              </div>
+            )}
+            <div style={{ background: 'var(--bg-card)', borderRadius: '14px', padding: '12px 18px', border: '1px solid var(--gold-border)', minWidth: '200px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--gold)' }}>⭐ Nivel {nivel}</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{xpTotal} XP</span>
+              </div>
+              <div style={{ background: 'var(--bg-secondary)', borderRadius: '8px', height: '8px', overflow: 'hidden' }}>
+                <div style={{ width: `${xpNivel}%`, height: '100%', background: 'var(--gold)', borderRadius: '8px', transition: 'width 0.5s' }} />
+              </div>
             </div>
           </div>
         </div>
@@ -137,7 +176,7 @@ export default function AgendaPage() {
               diaSeleccionado={diaSeleccionado}
               onToggleAsig={id => saveAsig(asignaciones.map(a => a.id === id ? { ...a, completada: !a.completada } : a))}
               onEliminarAsig={id => saveAsig(asignaciones.filter(a => a.id !== id))}
-              onNuevaAsig={() => { setModalAsig(true); }}
+              onNuevaAsig={() => setModalAsig(true)}
               onSelectDia={handleSelectDia}
             />
           </div>
