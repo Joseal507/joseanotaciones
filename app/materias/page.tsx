@@ -7,6 +7,8 @@ import {
 } from '../../lib/storage';
 import { supabase } from '../../lib/supabase';
 import { getMateriasDB, saveMateriasDB } from '../../lib/db';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import NavbarMobile from '../../components/NavbarMobile';
 import MateriasList from '../../components/materias/MateriasList';
 import MateriaView from '../../components/materias/MateriaView';
 import TemaView from '../../components/materias/TemaView';
@@ -31,16 +33,15 @@ export default function MateriasPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
   const [showBuscador, setShowBuscador] = useState(false);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const cargar = async () => {
       setCargando(true);
       try {
         const { data } = await supabase.auth.getUser();
-
         if (data.user) {
           setUserId(data.user.id);
-
           const lastUserId = localStorage.getItem('josea_last_user');
           if (lastUserId !== data.user.id) {
             localStorage.setItem('josea_last_user', data.user.id);
@@ -49,11 +50,9 @@ export default function MateriasPage() {
             localStorage.removeItem('josea_asignaciones');
             localStorage.removeItem('josea_objetivos');
           }
-
           const materiasDB = await getMateriasDB(data.user.id);
           setMaterias(materiasDB);
           saveMaterias(materiasDB);
-
         } else {
           window.location.href = '/auth';
         }
@@ -67,7 +66,6 @@ export default function MateriasPage() {
     cargar();
   }, []);
 
-  // Atajo de teclado Cmd+K
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -82,9 +80,7 @@ export default function MateriasPage() {
   const save = async (m: Materia[]) => {
     setMaterias(m);
     saveMaterias(m);
-    if (userId) {
-      await saveMateriasDB(userId, m);
-    }
+    if (userId) await saveMateriasDB(userId, m);
   };
 
   const actualizarMateria = (materia: Materia) => {
@@ -95,42 +91,27 @@ export default function MateriasPage() {
 
   const actualizarTema = (tema: Tema) => {
     if (!materiaActual) return;
-    const nuevaMateria = {
-      ...materiaActual,
-      temas: materiaActual.temas.map(t => t.id === tema.id ? tema : t),
-    };
+    const nuevaMateria = { ...materiaActual, temas: materiaActual.temas.map(t => t.id === tema.id ? tema : t) };
     actualizarMateria(nuevaMateria);
     setTemaActual(tema);
   };
 
   const actualizarApunte = (apunte: Apunte) => {
     if (!temaActual) return;
-    const nuevoTema = {
-      ...temaActual,
-      apuntes: temaActual.apuntes.map(a => a.id === apunte.id ? apunte : a),
-    };
+    const nuevoTema = { ...temaActual, apuntes: temaActual.apuntes.map(a => a.id === apunte.id ? apunte : a) };
     actualizarTema(nuevoTema);
     setApunteActual(apunte);
   };
 
   const actualizarDocumento = (doc: Documento) => {
     if (!temaActual) return;
-    const nuevoTema = {
-      ...temaActual,
-      documentos: temaActual.documentos.map(d => d.id === doc.id ? doc : d),
-    };
+    const nuevoTema = { ...temaActual, documentos: temaActual.documentos.map(d => d.id === doc.id ? doc : d) };
     actualizarTema(nuevoTema);
     setDocumentoActual(doc);
   };
 
   const crearMateria = (data: { nombre: string; color: string; emoji: string }) => {
-    const nueva: Materia = {
-      id: generateId(),
-      nombre: data.nombre,
-      color: data.color,
-      emoji: data.emoji,
-      temas: [],
-    };
+    const nueva: Materia = { id: generateId(), nombre: data.nombre, color: data.color, emoji: data.emoji, temas: [] };
     save([...materias, nueva]);
     setModalMateria(false);
   };
@@ -142,13 +123,7 @@ export default function MateriasPage() {
 
   const crearTema = (data: { nombre: string; color: string }) => {
     if (!materiaActual) return;
-    const nuevo: Tema = {
-      id: generateId(),
-      nombre: data.nombre,
-      color: data.color,
-      apuntes: [],
-      documentos: [],
-    };
+    const nuevo: Tema = { id: generateId(), nombre: data.nombre, color: data.color, apuntes: [], documentos: [] };
     actualizarMateria({ ...materiaActual, temas: [...materiaActual.temas, nuevo] });
     setModalTema(false);
   };
@@ -156,18 +131,13 @@ export default function MateriasPage() {
   const eliminarTema = (id: string) => {
     if (!confirm('¿Eliminar este tema?')) return;
     if (!materiaActual) return;
-    actualizarMateria({
-      ...materiaActual,
-      temas: materiaActual.temas.filter(t => t.id !== id),
-    });
+    actualizarMateria({ ...materiaActual, temas: materiaActual.temas.filter(t => t.id !== id) });
   };
 
   const crearApunte = (data: { titulo: string }) => {
     if (!temaActual) return;
     const nuevo: Apunte = {
-      id: generateId(),
-      titulo: data.titulo,
-      contenido: '',
+      id: generateId(), titulo: data.titulo, contenido: '',
       fechaCreacion: new Date().toLocaleDateString('es-ES'),
       fechaModificacion: new Date().toLocaleDateString('es-ES'),
     };
@@ -180,11 +150,7 @@ export default function MateriasPage() {
 
   const guardarApunte = (contenido: string) => {
     if (!apunteActual) return;
-    actualizarApunte({
-      ...apunteActual,
-      contenido,
-      fechaModificacion: new Date().toLocaleDateString('es-ES'),
-    });
+    actualizarApunte({ ...apunteActual, contenido, fechaModificacion: new Date().toLocaleDateString('es-ES') });
   };
 
   const eliminarApunte = (id: string) => {
@@ -205,9 +171,7 @@ export default function MateriasPage() {
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
       const nuevoDoc: Documento = {
-        id: generateId(),
-        nombre: file.name,
-        contenido: data.content,
+        id: generateId(), nombre: file.name, contenido: data.content,
         tipo: file.name.endsWith('.pdf') ? 'pdf' : 'txt',
         fechaSubida: new Date().toLocaleDateString('es-ES'),
       };
@@ -231,121 +195,118 @@ export default function MateriasPage() {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px' }}>
         <div style={{ fontSize: '48px' }}>📚</div>
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>
-          Cargando tus materias...
-        </p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>Cargando tus materias...</p>
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', padding: '32px 40px', fontFamily: '-apple-system, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', fontFamily: '-apple-system, sans-serif' }}>
 
       {showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
 
-      <div style={{ maxWidth: '1100px', margin: '0 auto 24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={() => window.location.href = '/'}
-              style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-              ← Inicio
-            </button>
-            <button
-              onClick={() => setShowBuscador(true)}
-              style={{ background: 'none', border: '2px solid var(--border-color)', color: 'var(--text-muted)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              🔍 Buscar
-              <span style={{ fontSize: '11px', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: '4px' }}>⌘K</span>
-            </button>
-          </div>
-          {userId && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-faint)' }}>
-              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80' }} />
-              Sincronizado ☁️
+      {/* NAVBAR */}
+      {isMobile ? (
+        <NavbarMobile />
+      ) : (
+        <>
+          <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '24px 40px 0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => window.location.href = '/'}
+                  style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                  ← Inicio
+                </button>
+                <button onClick={() => setShowBuscador(true)}
+                  style={{ background: 'none', border: '2px solid var(--border-color)', color: 'var(--text-muted)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  🔍 Buscar
+                  <span style={{ fontSize: '11px', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: '4px' }}>⌘K</span>
+                </button>
+              </div>
+              {userId && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-faint)' }}>
+                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80' }} />
+                  Sincronizado ☁️
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        </>
+      )}
+
+      {/* CONTENIDO */}
+      <div style={{ padding: isMobile ? '16px' : '0 40px 40px' }}>
+
+        {vista === 'materias' && (
+          <MateriasList
+            materias={materias}
+            onAbrir={m => { setMateriaActual(m); setVista('materia'); }}
+            onEliminar={eliminarMateria}
+            onNueva={() => setModalMateria(true)}
+          />
+        )}
+
+        {vista === 'materia' && materiaActual && (
+          <MateriaView
+            materia={materiaActual}
+            onBack={() => setVista('materias')}
+            onAbrirTema={t => { setTemaActual(t); setVista('tema'); }}
+            onEliminarTema={eliminarTema}
+            onNuevoTema={() => setModalTema(true)}
+          />
+        )}
+
+        {vista === 'tema' && temaActual && materiaActual && (
+          <TemaView
+            materia={materiaActual}
+            tema={temaActual}
+            onBack={() => setVista('materias')}
+            onBackMateria={() => setVista('materia')}
+            onAbrirApunte={a => { setApunteActual(a); setVista('apunte'); }}
+            onAbrirDocumento={d => { setDocumentoActual(d); setVista('documento'); }}
+            onEliminarApunte={eliminarApunte}
+            onEliminarDocumento={eliminarDocumento}
+            onNuevoApunte={() => setModalApunte(true)}
+            onSubirDocumento={subirDocumento}
+            subiendoDoc={subiendoDoc}
+          />
+        )}
+
+        {vista === 'apunte' && apunteActual && materiaActual && temaActual && (
+          <ApunteEditor
+            apunte={apunteActual}
+            materia={materiaActual}
+            tema={temaActual}
+            onBack={() => setVista('materias')}
+            onBackMateria={() => setVista('materia')}
+            onBackTema={() => setVista('tema')}
+            onGuardar={guardarApunte}
+          />
+        )}
+
+        {vista === 'documento' && documentoActual && materiaActual && temaActual && (
+          <DocumentoView
+            documento={documentoActual}
+            materia={materiaActual}
+            tema={temaActual}
+            onBack={() => setVista('materias')}
+            onBackMateria={() => setVista('materia')}
+            onBackTema={() => setVista('tema')}
+            onActualizar={actualizarDocumento}
+          />
+        )}
+
+        {/* MODALES */}
+        {modalMateria && (
+          <ModalMateria onClose={() => setModalMateria(false)} onConfirm={crearMateria} />
+        )}
+        {modalTema && materiaActual && (
+          <ModalTema onClose={() => setModalTema(false)} onConfirm={crearTema} colorMateria={materiaActual.color} />
+        )}
+        {modalApunte && temaActual && (
+          <ModalApunte onClose={() => setModalApunte(false)} onConfirm={crearApunte} colorTema={temaActual.color} />
+        )}
       </div>
-
-      {vista === 'materias' && (
-        <MateriasList
-          materias={materias}
-          onAbrir={m => { setMateriaActual(m); setVista('materia'); }}
-          onEliminar={eliminarMateria}
-          onNueva={() => setModalMateria(true)}
-        />
-      )}
-
-      {vista === 'materia' && materiaActual && (
-        <MateriaView
-          materia={materiaActual}
-          onBack={() => setVista('materias')}
-          onAbrirTema={t => { setTemaActual(t); setVista('tema'); }}
-          onEliminarTema={eliminarTema}
-          onNuevoTema={() => setModalTema(true)}
-        />
-      )}
-
-      {vista === 'tema' && temaActual && materiaActual && (
-        <TemaView
-          materia={materiaActual}
-          tema={temaActual}
-          onBack={() => setVista('materias')}
-          onBackMateria={() => setVista('materia')}
-          onAbrirApunte={a => { setApunteActual(a); setVista('apunte'); }}
-          onAbrirDocumento={d => { setDocumentoActual(d); setVista('documento'); }}
-          onEliminarApunte={eliminarApunte}
-          onEliminarDocumento={eliminarDocumento}
-          onNuevoApunte={() => setModalApunte(true)}
-          onSubirDocumento={subirDocumento}
-          subiendoDoc={subiendoDoc}
-        />
-      )}
-
-      {vista === 'apunte' && apunteActual && materiaActual && temaActual && (
-        <ApunteEditor
-          apunte={apunteActual}
-          materia={materiaActual}
-          tema={temaActual}
-          onBack={() => setVista('materias')}
-          onBackMateria={() => setVista('materia')}
-          onBackTema={() => setVista('tema')}
-          onGuardar={guardarApunte}
-        />
-      )}
-
-      {vista === 'documento' && documentoActual && materiaActual && temaActual && (
-        <DocumentoView
-          documento={documentoActual}
-          materia={materiaActual}
-          tema={temaActual}
-          onBack={() => setVista('materias')}
-          onBackMateria={() => setVista('materia')}
-          onBackTema={() => setVista('tema')}
-          onActualizar={actualizarDocumento}
-        />
-      )}
-
-      {modalMateria && (
-        <ModalMateria
-          onClose={() => setModalMateria(false)}
-          onConfirm={crearMateria}
-        />
-      )}
-      {modalTema && materiaActual && (
-        <ModalTema
-          onClose={() => setModalTema(false)}
-          onConfirm={crearTema}
-          colorMateria={materiaActual.color}
-        />
-      )}
-      {modalApunte && temaActual && (
-        <ModalApunte
-          onClose={() => setModalApunte(false)}
-          onConfirm={crearApunte}
-          colorTema={temaActual.color}
-        />
-      )}
     </div>
   );
 }
