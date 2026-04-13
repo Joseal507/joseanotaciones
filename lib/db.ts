@@ -1,4 +1,7 @@
-// ===== HORARIO =====
+import { supabase } from './supabase';
+import { Materia, PerfilEstudio } from './storage';
+import { Asignacion, ObjetivoAgenda } from './agenda';
+
 export interface ClaseHorario {
   id: string;
   nombre: string;
@@ -21,7 +24,135 @@ const HORARIO_VACIO: Horario = {
   lunes: [], martes: [], miercoles: [], jueves: [], viernes: [],
 };
 
-export const getHorarioDB = async (userId: string): Promise<Horario> => {
+// ===== MATERIAS =====
+export async function getMateriasDB(userId: string): Promise<Materia[]> {
+  try {
+    const { data, error } = await supabase
+      .from('materias')
+      .select('datos')
+      .eq('user_id', userId)
+      .single();
+    if (error || !data) return [];
+    return data.datos || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveMateriasDB(userId: string, materias: Materia[]): Promise<void> {
+  try {
+    const { data: existing } = await supabase
+      .from('materias')
+      .select('id')
+      .eq('user_id', userId)
+      .single();
+
+    if (existing) {
+      await supabase
+        .from('materias')
+        .update({ datos: materias, updated_at: new Date().toISOString() })
+        .eq('user_id', userId);
+    } else {
+      await supabase
+        .from('materias')
+        .insert({ user_id: userId, datos: materias });
+    }
+  } catch (err) {
+    console.error('Error guardando materias:', err);
+  }
+}
+
+// ===== PERFIL =====
+export async function getPerfilDB(userId: string): Promise<PerfilEstudio> {
+  const empty: PerfilEstudio = {
+    flashcardsFalladas: {},
+    flashcardsAcertadas: {},
+    materiasStats: {},
+    sesiones: [],
+  };
+  try {
+    const { data, error } = await supabase
+      .from('perfil_estudio')
+      .select('datos')
+      .eq('user_id', userId)
+      .single();
+    if (error || !data) return empty;
+    return data.datos || empty;
+  } catch {
+    return empty;
+  }
+}
+
+export async function savePerfilDB(userId: string, perfil: PerfilEstudio): Promise<void> {
+  try {
+    const { data: existing } = await supabase
+      .from('perfil_estudio')
+      .select('id')
+      .eq('user_id', userId)
+      .single();
+
+    if (existing) {
+      await supabase
+        .from('perfil_estudio')
+        .update({ datos: perfil, updated_at: new Date().toISOString() })
+        .eq('user_id', userId);
+    } else {
+      await supabase
+        .from('perfil_estudio')
+        .insert({ user_id: userId, datos: perfil });
+    }
+  } catch (err) {
+    console.error('Error guardando perfil:', err);
+  }
+}
+
+// ===== AGENDA =====
+export async function getAgendaDB(userId: string): Promise<{ asignaciones: Asignacion[]; objetivos: ObjetivoAgenda[] }> {
+  try {
+    const { data, error } = await supabase
+      .from('agenda')
+      .select('asignaciones, objetivos')
+      .eq('user_id', userId)
+      .single();
+    if (error || !data) return { asignaciones: [], objetivos: [] };
+    return {
+      asignaciones: data.asignaciones || [],
+      objetivos: data.objetivos || [],
+    };
+  } catch {
+    return { asignaciones: [], objetivos: [] };
+  }
+}
+
+export async function saveAgendaDB(
+  userId: string,
+  asignaciones: Asignacion[],
+  objetivos: ObjetivoAgenda[],
+): Promise<void> {
+  try {
+    const { data: existing } = await supabase
+      .from('agenda')
+      .select('id')
+      .eq('user_id', userId)
+      .single();
+
+    if (existing) {
+      await supabase
+        .from('agenda')
+        .update({ asignaciones, objetivos, updated_at: new Date().toISOString() })
+        .eq('user_id', userId);
+    } else {
+      await supabase
+        .from('agenda')
+        .insert({ user_id: userId, asignaciones, objetivos });
+    }
+  } catch (err) {
+    console.error('Error guardando agenda:', err);
+  }
+}
+
+// ===== HORARIO =====
+export async function getHorarioDB(userId: string): Promise<Horario> {
   try {
     const { data, error } = await supabase
       .from('horario')
@@ -33,9 +164,9 @@ export const getHorarioDB = async (userId: string): Promise<Horario> => {
   } catch {
     return HORARIO_VACIO;
   }
-};
+}
 
-export const saveHorarioDB = async (userId: string, horario: Horario) => {
+export async function saveHorarioDB(userId: string, horario: Horario): Promise<void> {
   try {
     const { data: existing } = await supabase
       .from('horario')
@@ -56,4 +187,4 @@ export const saveHorarioDB = async (userId: string, horario: Horario) => {
   } catch (err) {
     console.error('Error guardando horario:', err);
   }
-};
+}

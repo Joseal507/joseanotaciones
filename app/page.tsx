@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 import { useState, useEffect } from 'react';
 import { getMaterias, Materia } from '../lib/storage';
 import { supabase } from '../lib/supabase';
+import { getMateriasDB } from '../lib/db';
 import UserMenu from '../components/UserMenu';
 import Buscador from '../components/Buscador';
 
@@ -33,7 +34,6 @@ export default function Home() {
       const cargarMaterias = async () => {
         const { data } = await supabase.auth.getUser();
         if (data.user) {
-          const { getMateriasDB } = await import('../lib/db');
           const materiasDB = await getMateriasDB(data.user.id);
           setMaterias(materiasDB);
         }
