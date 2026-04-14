@@ -162,28 +162,45 @@ export default function MateriasPage() {
   };
 
   const subirDocumento = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.[0] || !temaActual) return;
-    const file = e.target.files[0];
-    setSubiendoDoc(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-      const res = await fetch('/api/upload', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-      const nuevoDoc: Documento = {
-        id: generateId(), nombre: file.name, contenido: data.content,
-        tipo: file.name.endsWith('.pdf') ? 'pdf' : 'txt',
-        fechaSubida: new Date().toLocaleDateString('es-ES'),
-      };
-      actualizarTema({ ...temaActual, documentos: [...temaActual.documentos, nuevoDoc] });
-    } catch (err: any) {
-      alert('Error: ' + err.message);
-    } finally {
-      setSubiendoDoc(false);
-      e.target.value = '';
+  if (!e.target.files?.[0] || !temaActual) return;
+  const file = e.target.files[0];
+  setSubiendoDoc(true);
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const res = await fetch('/api/upload', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    // Crear URL del archivo desde base64
+    let archivoUrl: string | undefined;
+    if (data.fileBase64 && data.mimeType) {
+      const blob = new Blob(
+        [Uint8Array.from(atob(data.fileBase64), c => c.charCodeAt(0))],
+        { type: data.mimeType }
+      );
+      archivoUrl = URL.createObjectURL(blob);
+      // Guardamos en sessionStorage para persistir en la sesión
+      sessionStorage.setItem(`doc_${file.name}_${Date.now()}`, data.fileBase64);
+      sessionStorage.setItem(`doc_mime_${file.name}_${Date.now()}`, data.mimeType);
     }
-  };
+
+    const nuevoDoc: Documento = {
+      id: generateId(),
+      nombre: file.name,
+      contenido: data.content,
+      tipo: file.name.endsWith('.pdf') ? 'pdf' : file.name.endsWith('.docx') || file.name.endsWith('.doc') ? 'word' : 'txt',
+      fechaSubida: new Date().toLocaleDateString('es-ES'),
+      archivoUrl,
+    };
+    actualizarTema({ ...temaActual, documentos: [...temaActual.documentos, nuevoDoc] });
+  } catch (err: any) {
+    alert('Error: ' + err.message);
+  } finally {
+    setSubiendoDoc(false);
+    e.target.value = '';
+  }
+};
 
   const eliminarDocumento = (id: string) => {
     if (!confirm('¿Eliminar este documento?')) return;

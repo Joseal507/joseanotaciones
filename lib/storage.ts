@@ -12,6 +12,7 @@ export interface Documento {
   contenido: string;
   tipo: string;
   fechaSubida: string;
+  archivoUrl?: string; // URL del archivo original en Supabase Storage
   analisis?: {
     keywords: string[];
     important_phrases: string[];
