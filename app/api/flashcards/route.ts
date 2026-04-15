@@ -8,31 +8,31 @@ const client = new OpenAI({
 
 export async function POST(request: NextRequest) {
   try {
-    const { content, count, idioma, getRecommendation, existingQuestions } = await request.json();
+    const { content, count, idioma, getRecommendation, existingQuestions, imageBase64, imageMime } = await request.json();
     const lang = idioma === 'en' ? 'en' : 'es';
 
     if (!content) {
       return NextResponse.json({ success: false, error: 'No content' }, { status: 400 });
     }
 
-    // ===== MODO RECOMENDACIÓN =====
+    // ===== RECOMENDACIÓN =====
     if (getRecommendation) {
       const wordCount = content.split(' ').length;
       const estimated = Math.max(5, Math.min(150, Math.round(wordCount / 50)));
 
       const systemPrompt = lang === 'en'
-        ? `You are a study expert. Analyze the text and determine EXACTLY how many flashcards are needed to cover 100% of the important information. Consider: concepts, definitions, dates, processes, examples, relationships. Respond ONLY with valid JSON: {"recommended": number, "reason": "brief explanation in English"}`
-        : `Eres un experto en estudio. Analiza el texto y determina EXACTAMENTE cuántas flashcards se necesitan para cubrir el 100% de la información importante. Considera: conceptos, definiciones, fechas, procesos, ejemplos, relaciones. Responde SOLO con JSON válido: {"recommended": number, "reason": "explicación breve en español"}`;
+        ? `You are a study expert. Analyze the text and determine EXACTLY how many flashcards are needed to cover 100% of the important information. Consider: concepts, definitions, dates, processes, examples, relationships, formulas. Respond ONLY with valid JSON: {"recommended": number, "reason": "brief explanation"}`
+        : `Eres un experto en estudio. Analiza el texto y determina EXACTAMENTE cuántas flashcards se necesitan para cubrir el 100% de la información importante. Considera: conceptos, definiciones, fechas, procesos, ejemplos, relaciones, fórmulas. Responde SOLO con JSON válido: {"recommended": number, "reason": "explicación breve"}`;
 
       const completion = await client.chat.completions.create({
-        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+        model: 'llama-3.3-70b-versatile',
         messages: [
           { role: 'system', content: systemPrompt },
           {
             role: 'user',
             content: lang === 'en'
-              ? `How many flashcards to cover 100% of this text? Estimate: ${estimated}.\n\nTEXT (${wordCount} words):\n${content.substring(0, 4000)}`
-              : `¿Cuántas flashcards para cubrir el 100% de este texto? Estimado: ${estimated}.\n\nTEXTO (${wordCount} palabras):\n${content.substring(0, 4000)}`,
+              ? `How many flashcards for this text? Estimate: ${estimated}.\n\nTEXT (${wordCount} words):\n${content.substring(0, 4000)}`
+              : `¿Cuántas flashcards para este texto? Estimado: ${estimated}.\n\nTEXTO (${wordCount} palabras):\n${content.substring(0, 4000)}`,
           },
         ],
         temperature: 0.2,
@@ -60,10 +60,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // ===== MODO GENERACIÓN =====
+    // ===== GENERACIÓN DE FLASHCARDS =====
     const flashcardCount = count || 10;
 
-    // Si hay preguntas existentes, incluirlas para evitar repetición
     const hasExisting = existingQuestions && existingQuestions.length > 0;
     const existingList = hasExisting
       ? existingQuestions.slice(0, 50).join('\n- ')
@@ -71,25 +70,43 @@ export async function POST(request: NextRequest) {
 
     const avoidInstruction = hasExisting
       ? (lang === 'en'
-          ? `\n\nIMPORTANT: These questions already exist. Do NOT repeat or create similar ones:\n- ${existingList}\n\nCreate questions about DIFFERENT aspects, details, examples or concepts not yet covered.`
-          : `\n\nIMPORTANTE: Estas preguntas ya existen. NO las repitas ni crees preguntas similares:\n- ${existingList}\n\nCrea preguntas sobre DIFERENTES aspectos, detalles, ejemplos o conceptos aún no cubiertos.`)
+        ? `\n\nIMPORTANT: Do NOT repeat or create similar questions to these existing ones:\n- ${existingList}\n\nCreate questions about DIFFERENT aspects not yet covered.`
+        : `\n\nIMPORTANTE: NO repitas ni crees preguntas similares a estas ya existentes:\n- ${existingList}\n\nCrea preguntas sobre DIFERENTES aspectos aún no cubiertos.`)
       : '';
 
     const systemPrompt = lang === 'en'
-      ? `You are an assistant that creates flashcards. ONLY use information from the given text. Do NOT invent anything. Create EXACTLY ${flashcardCount} flashcards covering important concepts. Each flashcard must have a clear question and a concise answer. Make sure all questions are unique and cover different aspects. Respond ONLY with a valid JSON array: [{"question": "question here", "answer": "answer here"}]. No extra text.`
-      : `Eres un asistente que crea flashcards. SOLO usa información del texto dado. NO inventes nada. Crea EXACTAMENTE ${flashcardCount} flashcards cubriendo conceptos importantes. Cada flashcard debe tener una pregunta clara y una respuesta concisa. Asegúrate de que todas las preguntas sean únicas y cubran diferentes aspectos. Responde ÚNICAMENTE con un array JSON válido: [{"question": "pregunta aqui", "answer": "respuesta aqui"}]. Sin texto extra.`;
+      ? `You are an expert flashcard creator with deep reasoning. ONLY use information from the given text. Do NOT invent anything. Create EXACTLY ${flashcardCount} high-quality flashcards covering the most important concepts. Each flashcard must test real understanding, not just memorization. Make questions varied: definitions, applications, comparisons, cause-effect. Respond ONLY with valid JSON array: [{"question": "question here", "answer": "answer here"}]. No extra text.`
+      : `Eres un experto creador de flashcards con razonamiento profundo. SOLO usa información del texto dado. NO inventes nada. Crea EXACTAMENTE ${flashcardCount} flashcards de alta calidad cubriendo los conceptos más importantes. Cada flashcard debe evaluar comprensión real, no solo memorización. Varía las preguntas: definiciones, aplicaciones, comparaciones, causa-efecto. Responde ÚNICAMENTE con array JSON válido: [{"question": "pregunta aqui", "answer": "respuesta aqui"}]. Sin texto extra.`;
 
     const userPrompt = lang === 'en'
-      ? `Create EXACTLY ${flashcardCount} NEW and UNIQUE flashcards from this text. Each must cover a different concept.${avoidInstruction}\n\nTEXT:\n${content.substring(0, 8000)}`
-      : `Crea EXACTAMENTE ${flashcardCount} flashcards NUEVAS y ÚNICAS de este texto. Cada una debe cubrir un concepto diferente.${avoidInstruction}\n\nTEXTO:\n${content.substring(0, 8000)}`;
+      ? `Create EXACTLY ${flashcardCount} NEW and UNIQUE flashcards from this text. Each must cover a different concept and test real understanding.${avoidInstruction}\n\nTEXT:\n${content.substring(0, 8000)}`
+      : `Crea EXACTAMENTE ${flashcardCount} flashcards NUEVAS y ÚNICAS de este texto. Cada una debe cubrir un concepto diferente y evaluar comprensión real.${avoidInstruction}\n\nTEXTO:\n${content.substring(0, 8000)}`;
+
+    // Si hay imagen, usar modelo vision también
+    let messages: any[] = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ];
+
+    if (imageBase64 && imageMime) {
+      messages = [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image_url',
+              image_url: { url: `data:${imageMime};base64,${imageBase64}` },
+            },
+            { type: 'text', text: systemPrompt + '\n\n' + userPrompt },
+          ],
+        },
+      ];
+    }
 
     const completion = await client.chat.completions.create({
-      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.5,
+      model: imageBase64 ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile',
+      messages,
+      temperature: 0.4,
       max_tokens: 8000,
     });
 

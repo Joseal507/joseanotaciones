@@ -47,6 +47,10 @@ export default function DocumentoView({
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
 
+  const esImagen = documento.tipo === 'imagen';
+  const docBase64 = (documento as any).archivoBase64;
+  const docMime = (documento as any).archivoMime;
+
   // Navegación con teclado
   useState(() => {
     const handler = (e: KeyboardEvent) => {
@@ -64,17 +68,31 @@ export default function DocumentoView({
     setAnalizando(true);
     const idiomaActual = getIdioma();
     try {
+      // Paso 1: Análisis completo (con imagen si aplica)
       const r1 = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: documento.contenido, idioma: idiomaActual }),
+        body: JSON.stringify({
+          content: documento.contenido,
+          idioma: idiomaActual,
+          imageBase64: esImagen ? docBase64 : undefined,
+          imageMime: esImagen ? docMime : undefined,
+          esImagen,
+        }),
       });
       const d1 = await r1.json();
 
+      // Paso 2: Recomendación de flashcards
       const r2 = await fetch('/api/flashcards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: documento.contenido, getRecommendation: true, idioma: idiomaActual }),
+        body: JSON.stringify({
+          content: documento.contenido,
+          getRecommendation: true,
+          idioma: idiomaActual,
+          imageBase64: esImagen ? docBase64 : undefined,
+          imageMime: esImagen ? docMime : undefined,
+        }),
       });
       const d2 = await r2.json();
 
@@ -83,10 +101,18 @@ export default function DocumentoView({
       setRecommendedCount(recommended);
       setRecommendedReason(reason);
 
+      // Paso 3: Generar flashcards
       const r3 = await fetch('/api/flashcards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: documento.contenido, count: recommended, idioma: idiomaActual, existingQuestions: [] }),
+        body: JSON.stringify({
+          content: documento.contenido,
+          count: recommended,
+          idioma: idiomaActual,
+          existingQuestions: [],
+          imageBase64: esImagen ? docBase64 : undefined,
+          imageMime: esImagen ? docMime : undefined,
+        }),
       });
       const d3 = await r3.json();
 
@@ -119,6 +145,8 @@ export default function DocumentoView({
           count: addCount,
           idioma: idiomaActual,
           existingQuestions: flashcards.map((f: any) => f.question),
+          imageBase64: esImagen ? docBase64 : undefined,
+          imageMime: esImagen ? docMime : undefined,
         }),
       });
       const data = await res.json();
@@ -172,9 +200,7 @@ export default function DocumentoView({
 
   return (
     <div>
-      {showChat && (
-        <ChatDocumento contexto={documento.contenido} nombreDoc={documento.nombre} temaColor={tema.color} onClose={() => setShowChat(false)} />
-      )}
+      {showChat && <ChatDocumento contexto={documento.contenido} nombreDoc={documento.nombre} temaColor={tema.color} onClose={() => setShowChat(false)} />}
       {showEstudio && flashcards.length > 0 && (
         <EstudioModal
           flashcards={flashcards}
@@ -250,7 +276,9 @@ export default function DocumentoView({
           <span style={{ color: 'var(--text-faint)' }}>/</span>
           <button onClick={onBackTema} style={{ background: 'none', border: 'none', color: tema.color, fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>📁 {tema.nombre}</button>
           <span style={{ color: 'var(--text-faint)' }}>/</span>
-          <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>📄 {documento.nombre}</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
+            {esImagen ? '🖼️' : '📄'} {documento.nombre}
+          </span>
         </div>
 
         {/* Header */}
@@ -261,6 +289,10 @@ export default function DocumentoView({
               <h1 style={{ fontSize: isMobile ? '16px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{documento.nombre}</h1>
               <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0 }}>
                 {tr('subido')}: {documento.fechaSubida}
+                {' '}·{' '}
+                <span style={{ background: esImagen ? 'var(--pink-dim)' : 'var(--blue-dim)', color: esImagen ? 'var(--pink)' : 'var(--blue)', padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 700 }}>
+                  {documento.tipo.toUpperCase()}
+                </span>
                 {documento.analisis && <span style={{ color: '#4ade80', marginLeft: '8px', fontWeight: 700 }}>✓ {tr('analizado')}</span>}
                 {recommendedCount && <span style={{ color: tema.color, marginLeft: '8px', fontWeight: 700 }}>· {recommendedCount} {idioma === 'en' ? 'recommended' : 'recomendadas'}</span>}
               </p>
@@ -271,13 +303,15 @@ export default function DocumentoView({
               style={{ padding: '9px 14px', borderRadius: '10px', border: `2px solid ${tema.color}`, background: 'transparent', color: tema.color, fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
               {tr('chat')}
             </button>
-            <button onClick={() => setShowQuiz(true)}
-              style={{ padding: '9px 14px', borderRadius: '10px', border: '2px solid #a78bfa', background: 'transparent', color: '#a78bfa', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-              {tr('quiz')}
-            </button>
+            {!esImagen && (
+              <button onClick={() => setShowQuiz(true)}
+                style={{ padding: '9px 14px', borderRadius: '10px', border: '2px solid #a78bfa', background: 'transparent', color: '#a78bfa', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                {tr('quiz')}
+              </button>
+            )}
             <button onClick={analizar} disabled={analizando}
               style={{ padding: '9px 16px', borderRadius: '10px', border: 'none', background: analizando ? 'var(--bg-card2)' : 'var(--gold)', color: analizando ? 'var(--text-faint)' : '#000', fontSize: '12px', fontWeight: 800, cursor: analizando ? 'not-allowed' : 'pointer', minWidth: '130px' }}>
-              {analizando ? '⏳ ...' : documento.analisis ? '🔄 ' + tr('reAnalizar') : '🔍 ' + tr('analizar')}
+              {analizando ? '⏳ ...' : documento.analisis ? '🔄 ' + tr('reAnalizar') : esImagen ? '🔍 ' + (idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen') : '🔍 ' + tr('analizar')}
             </button>
           </div>
         </div>
@@ -287,7 +321,9 @@ export default function DocumentoView({
           <div style={{ background: 'var(--bg-card)', borderRadius: '14px', border: `2px solid ${tema.color}44`, padding: '20px', marginBottom: '20px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {[
-                idioma === 'en' ? '🔍 Analyzing document...' : '🔍 Analizando el documento...',
+                esImagen
+                  ? (idioma === 'en' ? '🖼️ Extracting text and visual elements from image...' : '🖼️ Extrayendo texto y elementos visuales de la imagen...')
+                  : (idioma === 'en' ? '🔍 Analyzing document with deep AI...' : '🔍 Analizando documento con AI profunda...'),
                 idioma === 'en' ? '🤖 AI calculating optimal flashcard count...' : '🤖 AI calculando el número óptimo de flashcards...',
                 idioma === 'en' ? '🎴 Generating unique flashcards...' : '🎴 Generando flashcards únicas...',
               ].map((label, i) => (
@@ -307,7 +343,7 @@ export default function DocumentoView({
         {/* Tabs */}
         <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', marginBottom: '24px', overflowX: 'auto' }}>
           {[
-            { id: 'leer', label: `📖 ${documento.archivoUrl || (documento as any).archivoBase64 ? tr('verDocumento') : tr('leerTexto')}` },
+            { id: 'leer', label: esImagen ? `🖼️ ${idioma === 'en' ? 'Image' : 'Imagen'}` : `📖 ${documento.archivoUrl || docBase64 ? tr('verDocumento') : tr('leerTexto')}` },
             { id: 'analisis', label: `🔍 ${tr('analisisAI')}${documento.analisis ? ' ✓' : ''}` },
             { id: 'flashcards', label: `🎴 ${tr('flashcards')}${flashcards.length > 0 ? ` (${flashcards.length})` : ''}` },
           ].map(t => (
@@ -322,28 +358,65 @@ export default function DocumentoView({
         {tab === 'leer' && (
           <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
             <div style={{ height: '4px', background: tema.color }} />
-            <VisorDocumento
-              contenido={documento.contenido}
-              tipo={documento.tipo}
-              nombre={documento.nombre}
-              archivoUrl={documento.archivoUrl}
-              archivoBase64={(documento as any).archivoBase64}
-              archivoMime={(documento as any).archivoMime}
-              analisis={documento.analisis}
-              temaColor={tema.color}
-            />
-            {!documento.analisis && !analizando && (
-              <div style={{ padding: '24px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)', textAlign: 'center' }}>
-                <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: '0 0 12px' }}>
-                  {idioma === 'en'
-                    ? '🤖 Analyze to extract keywords, summary and generate the perfect number of flashcards'
-                    : '🤖 Analiza para extraer palabras clave, resumen y generar el número exacto de flashcards'}
-                </p>
-                <button onClick={analizar} disabled={analizando}
-                  style={{ padding: '12px 28px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-                  🔍 {idioma === 'en' ? 'Analyze & Generate Flashcards' : 'Analizar y Generar Flashcards'}
-                </button>
+
+            {/* ✅ Si es imagen mostrarla directamente */}
+            {esImagen && docBase64 ? (
+              <div style={{ padding: '20px', textAlign: 'center' }}>
+                <img
+                  src={`data:${docMime};base64,${docBase64}`}
+                  alt={documento.nombre}
+                  style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', objectFit: 'contain' }}
+                />
+                {documento.contenido && (
+                  <div style={{ marginTop: '16px', background: 'var(--bg-secondary)', borderRadius: '10px', padding: '14px', textAlign: 'left' }}>
+                    <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', margin: '0 0 8px' }}>
+                      {idioma === 'en' ? '🤖 Extracted text' : '🤖 Texto extraído'}
+                    </p>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6, maxHeight: '200px', overflowY: 'auto' }}>
+                      {documento.contenido}
+                    </p>
+                  </div>
+                )}
+                {!documento.analisis && !analizando && (
+                  <div style={{ marginTop: '20px' }}>
+                    <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                      {idioma === 'en'
+                        ? '🤖 Analyze this image — AI will extract text, describe visual elements and generate flashcards'
+                        : '🤖 Analiza esta imagen — la AI extraerá texto, describirá elementos visuales y generará flashcards'}
+                    </p>
+                    <button onClick={analizar}
+                      style={{ padding: '12px 28px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
+                      🔍 {idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen'}
+                    </button>
+                  </div>
+                )}
               </div>
+            ) : (
+              <>
+                <VisorDocumento
+                  contenido={documento.contenido}
+                  tipo={documento.tipo}
+                  nombre={documento.nombre}
+                  archivoUrl={documento.archivoUrl}
+                  archivoBase64={docBase64}
+                  archivoMime={docMime}
+                  analisis={documento.analisis}
+                  temaColor={tema.color}
+                />
+                {!documento.analisis && !analizando && (
+                  <div style={{ padding: '24px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)', textAlign: 'center' }}>
+                    <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: '0 0 12px' }}>
+                      {idioma === 'en'
+                        ? '🤖 Analyze to extract keywords, summary and generate the perfect number of flashcards using deep AI'
+                        : '🤖 Analiza para extraer palabras clave, resumen y generar el número exacto de flashcards usando AI profunda'}
+                    </p>
+                    <button onClick={analizar} disabled={analizando}
+                      style={{ padding: '12px 28px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
+                      🔍 {idioma === 'en' ? 'Analyze & Generate Flashcards' : 'Analizar y Generar Flashcards'}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -353,17 +426,21 @@ export default function DocumentoView({
           <div>
             {!documento.analisis ? (
               <div style={{ textAlign: 'center', padding: '60px 0' }}>
-                <div style={{ fontSize: '60px', marginBottom: '16px' }}>🔍</div>
+                <div style={{ fontSize: '60px', marginBottom: '16px' }}>{esImagen ? '🖼️' : '🔍'}</div>
                 <h3 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>{tr('sinAnalisis')}</h3>
-                <p style={{ color: 'var(--text-muted)', marginBottom: '8px' }}>{tr('tocaAnalizar')}</p>
+                <p style={{ color: 'var(--text-muted)', marginBottom: '8px' }}>
+                  {esImagen
+                    ? (idioma === 'en' ? 'AI will extract text, describe visual elements and identify key concepts' : 'La AI extraerá texto, describirá elementos visuales e identificará conceptos clave')
+                    : tr('tocaAnalizar')}
+                </p>
                 <p style={{ color: 'var(--text-faint)', fontSize: '13px', marginBottom: '24px' }}>
                   {idioma === 'en'
-                    ? '💡 AI will recommend and generate the exact number of unique flashcards to cover 100% of the content'
-                    : '💡 La AI recomendará y generará el número exacto de flashcards únicas para cubrir el 100% del contenido'}
+                    ? '💡 Uses llama-3.3-70b (deep reasoning) + llama-4-scout (vision) for comprehensive analysis'
+                    : '💡 Usa llama-3.3-70b (razonamiento profundo) + llama-4-scout (visión) para análisis completo'}
                 </p>
                 <button onClick={analizar} disabled={analizando}
                   style={{ padding: '14px 28px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>
-                  {analizando ? tr('analizando') : '🔍 ' + tr('analizarDocumento')}
+                  {analizando ? tr('analizando') : esImagen ? '🖼️ ' + (idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen') : '🔍 ' + tr('analizarDocumento')}
                 </button>
               </div>
             ) : (
@@ -400,6 +477,7 @@ export default function DocumentoView({
                   </div>
                 </div>
 
+                {/* Keywords y frases */}
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
                   <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                     <div style={{ height: '4px', background: 'var(--blue)' }} />
@@ -414,6 +492,7 @@ export default function DocumentoView({
                       </div>
                     </div>
                   </div>
+
                   <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: `2px solid ${tema.color}44`, overflow: 'hidden' }}>
                     <div style={{ height: '4px', background: tema.color }} />
                     <div style={{ padding: '18px' }}>
@@ -431,10 +510,111 @@ export default function DocumentoView({
                   </div>
                 </div>
 
+                {/* Conceptos clave y dificultad */}
+                {((documento.analisis as any).key_concepts?.length > 0 || (documento.analisis as any).difficulty_level) && (
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
+                    {(documento.analisis as any).key_concepts?.length > 0 && (
+                      <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                        <div style={{ height: '4px', background: '#f472b6' }} />
+                        <div style={{ padding: '18px' }}>
+                          <h3 style={{ fontSize: '13px', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 12px' }}>
+                            🧠 {idioma === 'en' ? 'Key Concepts' : 'Conceptos Clave'}
+                          </h3>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            {(documento.analisis as any).key_concepts?.map((c: string, i: number) => (
+                              <span key={i} style={{ background: '#f472b620', border: '1px solid #f472b644', color: '#f472b6', padding: '4px 10px', borderRadius: '8px', fontSize: '12px', fontWeight: 600 }}>{c}</span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {((documento.analisis as any).difficulty_level || (documento.analisis as any).topics?.length > 0) && (
+                      <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                        <div style={{ height: '4px', background: '#a78bfa' }} />
+                        <div style={{ padding: '18px' }}>
+                          <h3 style={{ fontSize: '13px', fontWeight: 800, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 12px' }}>
+                            📊 {idioma === 'en' ? 'Level & Topics' : 'Nivel y Temas'}
+                          </h3>
+                          {(documento.analisis as any).difficulty_level && (
+                            <span style={{ display: 'inline-block', background: '#a78bfa', color: '#000', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 700, marginBottom: '8px' }}>
+                              {(documento.analisis as any).difficulty_level}
+                            </span>
+                          )}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                            {(documento.analisis as any).topics?.map((t: string, i: number) => (
+                              <span key={i} style={{ background: 'var(--bg-secondary)', color: 'var(--text-muted)', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', border: '1px solid var(--border-color)' }}>{t}</span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Study tips */}
+                {(documento.analisis as any).study_tips?.length > 0 && (
+                  <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                    <div style={{ height: '4px', background: '#4ade80' }} />
+                    <div style={{ padding: '18px' }}>
+                      <h3 style={{ fontSize: '13px', fontWeight: 800, color: '#4ade80', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 12px' }}>
+                        💡 {idioma === 'en' ? 'Study Tips' : 'Consejos de Estudio'}
+                      </h3>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {(documento.analisis as any).study_tips?.map((tip: string, i: number) => (
+                          <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                            <span style={{ color: '#4ade80', fontWeight: 900, flexShrink: 0 }}>•</span>
+                            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>{tip}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Elementos visuales (solo imágenes) */}
+                {(documento.analisis as any).visual_elements?.length > 0 && (
+                  <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                    <div style={{ height: '4px', background: 'var(--gold)' }} />
+                    <div style={{ padding: '18px' }}>
+                      <h3 style={{ fontSize: '13px', fontWeight: 800, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 12px' }}>
+                        🖼️ {idioma === 'en' ? 'Visual Elements' : 'Elementos Visuales'}
+                      </h3>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {(documento.analisis as any).visual_elements?.map((v: string, i: number) => (
+                          <div key={i} style={{ background: 'var(--gold-dim)', border: '1px solid var(--gold-border)', color: 'var(--text-primary)', padding: '8px 12px', borderRadius: '8px', fontSize: '13px' }}>
+                            {v}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Conexiones entre conceptos */}
+                {(documento.analisis as any).connections?.length > 0 && (
+                  <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                    <div style={{ height: '4px', background: '#38bdf8' }} />
+                    <div style={{ padding: '18px' }}>
+                      <h3 style={{ fontSize: '13px', fontWeight: 800, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 12px' }}>
+                        🔗 {idioma === 'en' ? 'Connections' : 'Conexiones entre conceptos'}
+                      </h3>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {(documento.analisis as any).connections?.map((c: string, i: number) => (
+                          <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                            <span style={{ color: '#38bdf8', fontWeight: 900, flexShrink: 0 }}>→</span>
+                            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>{c}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ textAlign: 'center' }}>
                   <button onClick={() => setTab('leer')}
                     style={{ padding: '12px 28px', borderRadius: '12px', border: 'none', background: tema.color, color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-                    {tr('leerConHighlights')}
+                    {esImagen ? (idioma === 'en' ? '🖼️ View Image' : '🖼️ Ver Imagen') : tr('leerConHighlights')}
                   </button>
                 </div>
               </div>
@@ -469,10 +649,12 @@ export default function DocumentoView({
                       style={{ padding: '10px 16px', borderRadius: '10px', border: 'none', background: tema.color, color: '#000', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
                       {tr('modoEstudio')}
                     </button>
-                    <button onClick={() => setShowQuiz(true)}
-                      style={{ padding: '10px 14px', borderRadius: '10px', border: '2px solid #a78bfa', background: 'transparent', color: '#a78bfa', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-                      {tr('quiz')}
-                    </button>
+                    {!esImagen && (
+                      <button onClick={() => setShowQuiz(true)}
+                        style={{ padding: '10px 14px', borderRadius: '10px', border: '2px solid #a78bfa', background: 'transparent', color: '#a78bfa', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+                        {tr('quiz')}
+                      </button>
+                    )}
                     <button onClick={() => setShowEditor(true)}
                       style={{ padding: '10px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
                       ✏️ {tr('editar')}
@@ -570,13 +752,13 @@ export default function DocumentoView({
                 <div style={{ fontSize: '60px', marginBottom: '16px' }}>🎴</div>
                 <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>{tr('noHayFlashcards')}</h3>
                 <p style={{ color: 'var(--text-muted)', marginBottom: '8px', fontSize: '14px' }}>
-                  {idioma === 'en'
-                    ? 'Analyze the document first. AI will determine the exact number of flashcards needed.'
-                    : 'Primero analiza el documento. La AI determinará el número exacto de flashcards necesarias.'}
+                  {esImagen
+                    ? (idioma === 'en' ? 'Analyze the image first. AI will extract content and generate flashcards.' : 'Primero analiza la imagen. La AI extraerá el contenido y generará flashcards.')
+                    : (idioma === 'en' ? 'Analyze the document first. AI will determine the exact number of flashcards needed.' : 'Primero analiza el documento. La AI determinará el número exacto de flashcards necesarias.')}
                 </p>
                 <button onClick={analizar} disabled={analizando}
                   style={{ padding: '14px 32px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer', marginTop: '8px' }}>
-                  {analizando ? tr('analizando') : '🔍 ' + (idioma === 'en' ? 'Analyze & Generate' : 'Analizar y Generar')}
+                  {analizando ? tr('analizando') : esImagen ? '🖼️ ' + (idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen') : '🔍 ' + (idioma === 'en' ? 'Analyze & Generate' : 'Analizar y Generar')}
                 </button>
               </div>
             )}

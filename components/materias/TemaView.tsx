@@ -23,13 +23,22 @@ export default function TemaView({
   onEliminarApunte, onEliminarDocumento,
   onNuevoApunte, onSubirDocumento, subiendoDoc,
 }: Props) {
-  const { tr, idioma } = useIdioma();
+  const { idioma } = useIdioma();
+
+  const getTipoIcon = (doc: Documento) => {
+    if (doc.tipo === 'imagen') return '🖼️';
+    if (doc.tipo === 'pdf') return '📄';
+    if (doc.tipo === 'word') return '📝';
+    return '📄';
+  };
 
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+
+      {/* Breadcrumb */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '28px', flexWrap: 'wrap' }}>
         <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--gold)', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>
-          📚 {tr('materias')}
+          📚 {idioma === 'en' ? 'Subjects' : 'Materias'}
         </button>
         <span style={{ color: 'var(--text-faint)' }}>/</span>
         <button onClick={onBackMateria} style={{ background: 'none', border: 'none', color: materia.color, fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>
@@ -39,27 +48,46 @@ export default function TemaView({
         <span style={{ color: tema.color, fontWeight: 700, fontSize: '14px' }}>📁 {tema.nombre}</span>
       </div>
 
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ width: '6px', height: '40px', background: tema.color, borderRadius: '3px' }} />
           <div>
             <h1 style={{ fontSize: '24px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{tema.nombre}</h1>
             <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>
-              {tema.apuntes.length} {idioma === 'en' ? 'notes' : 'apuntes'} · {tema.documentos.length} {idioma === 'en' ? 'documents' : 'documentos'}
+              {tema.apuntes.length} {idioma === 'en' ? 'notes' : 'apuntes'} · {tema.documentos.length} {idioma === 'en' ? 'files' : 'archivos'}
             </p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button onClick={onNuevoApunte}
             style={{ padding: '10px 20px', borderRadius: '10px', border: `2px solid ${tema.color}`, background: 'transparent', color: tema.color, fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
             ✏️ {idioma === 'en' ? 'New Note' : 'Nuevo Apunte'}
           </button>
           <label htmlFor="doc-upload"
             style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: tema.color, color: '#000', fontSize: '13px', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            {subiendoDoc ? (idioma === 'en' ? '⏳ Uploading...' : '⏳ Subiendo...') : (idioma === 'en' ? '📤 Upload Document' : '📤 Subir Documento')}
-            <input id="doc-upload" type="file" accept=".pdf,.doc,.docx,.txt" onChange={onSubirDocumento} style={{ display: 'none' }} />
+            {subiendoDoc
+              ? (idioma === 'en' ? '⏳ Uploading...' : '⏳ Subiendo...')
+              : (idioma === 'en' ? '📤 Upload File' : '📤 Subir Archivo')}
+            <input
+              id="doc-upload"
+              type="file"
+              accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.webp"
+              onChange={onSubirDocumento}
+              style={{ display: 'none' }}
+            />
           </label>
         </div>
+      </div>
+
+      {/* Hint de formatos */}
+      <div style={{ background: 'var(--bg-secondary)', borderRadius: '10px', padding: '10px 16px', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid var(--border-color)' }}>
+        <span style={{ fontSize: '16px' }}>📁</span>
+        <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>
+          {idioma === 'en'
+            ? 'Supported: PDF, Word, TXT, JPG, PNG, WebP — AI analyzes all formats'
+            : 'Soportado: PDF, Word, TXT, JPG, PNG, WebP — la AI analiza todos los formatos'}
+        </p>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
@@ -68,7 +96,9 @@ export default function TemaView({
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
             <div style={{ width: '4px', height: '20px', background: tema.color, borderRadius: '2px' }} />
-            <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{idioma === 'en' ? 'Notes' : 'Apuntes'}</h2>
+            <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+              ✏️ {idioma === 'en' ? 'Notes' : 'Apuntes'} ({tema.apuntes.length})
+            </h2>
           </div>
 
           {tema.apuntes.length === 0 ? (
@@ -91,13 +121,26 @@ export default function TemaView({
                   onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border-color)'}
                 >
                   <div onClick={() => onAbrirApunte(apunte)} style={{ flex: 1 }}>
-                    <p style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px 0' }}>📝 {apunte.titulo}</p>
+                    <p style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px 0' }}>
+                      📝 {apunte.titulo}
+                    </p>
                     <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0 }}>
-                      {apunte.fechaModificacion} · {apunte.contenido.split(' ').filter(Boolean).length} {idioma === 'en' ? 'words' : 'palabras'}
+                      {apunte.fechaModificacion} · {apunte.contenido
+                        ? (() => {
+                            try {
+                              const parsed = JSON.parse(apunte.contenido);
+                              if (parsed.bloques) {
+                                const texto = parsed.bloques.filter((b: any) => b.tipo === 'texto').map((b: any) => b.html?.replace(/<[^>]*>/g, '') || '').join(' ');
+                                return `${texto.split(' ').filter(Boolean).length} ${idioma === 'en' ? 'words' : 'palabras'}`;
+                              }
+                            } catch {}
+                            return `${apunte.contenido.split(' ').filter(Boolean).length} ${idioma === 'en' ? 'words' : 'palabras'}`;
+                          })()
+                        : `0 ${idioma === 'en' ? 'words' : 'palabras'}`}
                     </p>
                   </div>
                   <button onClick={() => onEliminarApunte(apunte.id)}
-                    style={{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: '16px' }}>
+                    style={{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: '16px', flexShrink: 0 }}>
                     🗑️
                   </button>
                 </div>
@@ -110,19 +153,24 @@ export default function TemaView({
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
             <div style={{ width: '4px', height: '20px', background: 'var(--blue)', borderRadius: '2px' }} />
-            <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{idioma === 'en' ? 'Documents' : 'Documentos'}</h2>
+            <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+              📁 {idioma === 'en' ? 'Files' : 'Archivos'} ({tema.documentos.length})
+            </h2>
           </div>
 
           {tema.documentos.length === 0 ? (
             <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '2px dashed var(--border-color)', padding: '40px 20px', textAlign: 'center' }}>
-              <div style={{ fontSize: '40px', marginBottom: '12px' }}>📄</div>
-              <p style={{ color: 'var(--text-faint)', fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>
-                {idioma === 'en' ? 'No documents yet' : 'No hay documentos'}
+              <div style={{ fontSize: '40px', marginBottom: '12px' }}>📁</div>
+              <p style={{ color: 'var(--text-faint)', fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>
+                {idioma === 'en' ? 'No files yet' : 'No hay archivos'}
+              </p>
+              <p style={{ color: 'var(--text-faint)', fontSize: '12px', marginBottom: '12px' }}>
+                PDF, Word, TXT, JPG, PNG
               </p>
               <label htmlFor="doc-upload2"
                 style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: 'var(--blue)', color: '#000', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'inline-block' }}>
-                📤 {idioma === 'en' ? 'Upload document' : 'Subir documento'}
-                <input id="doc-upload2" type="file" accept=".pdf,.doc,.docx,.txt" onChange={onSubirDocumento} style={{ display: 'none' }} />
+                📤 {idioma === 'en' ? 'Upload file' : 'Subir archivo'}
+                <input id="doc-upload2" type="file" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.webp" onChange={onSubirDocumento} style={{ display: 'none' }} />
               </label>
             </div>
           ) : (
@@ -133,20 +181,30 @@ export default function TemaView({
                   onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--blue)'}
                   onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border-color)'}
                 >
-                  <div onClick={() => onAbrirDocumento(doc)} style={{ flex: 1 }}>
-                    <p style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px 0' }}>📄 {doc.nombre}</p>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <div onClick={() => onAbrirDocumento(doc)} style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {getTipoIcon(doc)} {doc.nombre}
+                    </p>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
                       <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{doc.fechaSubida}</span>
-                      {doc.analisis && <span style={{ fontSize: '11px', background: 'var(--blue)', color: '#000', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>{idioma === 'en' ? 'Analyzed ✓' : 'Analizado ✓'}</span>}
+                      {/* Tipo badge */}
+                      <span style={{ fontSize: '10px', background: doc.tipo === 'imagen' ? '#f472b620' : 'var(--blue-dim)', color: doc.tipo === 'imagen' ? 'var(--pink)' : 'var(--blue)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700, textTransform: 'uppercase' }}>
+                        {doc.tipo}
+                      </span>
+                      {doc.analisis && (
+                        <span style={{ fontSize: '10px', background: '#4ade8015', color: '#4ade80', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          ✓ {idioma === 'en' ? 'Analyzed' : 'Analizado'}
+                        </span>
+                      )}
                       {doc.flashcards && doc.flashcards.length > 0 && (
-                        <span style={{ fontSize: '11px', background: 'var(--pink)', color: '#000', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                          {doc.flashcards.length} cards
+                        <span style={{ fontSize: '10px', background: 'var(--pink-dim)', color: 'var(--pink)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          🎴 {doc.flashcards.length}
                         </span>
                       )}
                     </div>
                   </div>
                   <button onClick={() => onEliminarDocumento(doc.id)}
-                    style={{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: '16px' }}>
+                    style={{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: '16px', flexShrink: 0, marginLeft: '8px' }}>
                     🗑️
                   </button>
                 </div>
