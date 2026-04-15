@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 import { useState, useEffect } from 'react';
 import { getMaterias, saveMaterias, generateId, Materia, Tema, Apunte, Documento } from '../../lib/storage';
 import { supabase } from '../../lib/supabase';
-import { getMateriasDB, saveMateriasDB } from '../../lib/db';
+import { saveMateriasDB } from '../../lib/db';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
@@ -32,6 +32,7 @@ export default function MateriasPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
   const [showBuscador, setShowBuscador] = useState(false);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
 
@@ -39,15 +40,31 @@ export default function MateriasPage() {
     const cargar = async () => {
       setCargando(true);
       try {
-        // Esperar a que la sesión esté lista
-        const { data: sessionData } = await supabase.auth.getSession();
-        if (!sessionData.session) {
+        // Mostrar localStorage primero (instantáneo)
+        const materiasLocal = getMaterias();
+        if (materiasLocal.length > 0) {
+          setMaterias(materiasLocal);
+          setCargando(false);
+        }
+
+        // Obtener sesión
+        let session = (await supabase.auth.getSession()).data.session;
+
+        // Si no hay sesión, intentar refresh
+        if (!session) {
+          const { data: refreshData } = await supabase.auth.refreshSession();
+          session = refreshData.session;
+        }
+
+        if (!session) {
           window.location.href = '/auth';
           return;
         }
 
-        const uid = sessionData.session.user.id;
+        const uid = session.user.id;
+        const token = session.access_token;
         setUserId(uid);
+        setAccessToken(token);
 
         const lastUserId = localStorage.getItem('josea_last_user');
         if (lastUserId !== uid) {
@@ -57,33 +74,41 @@ export default function MateriasPage() {
           localStorage.removeItem('josea_objetivos');
         }
 
-        // Mostrar localStorage primero si hay datos
-        const materiasLocal = getMaterias();
-        if (materiasLocal.length > 0) {
-          setMaterias(materiasLocal);
-          setCargando(false);
-        }
+        // Cargar desde API route con el token
+        const res = await fetch('/api/materias', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
 
-        // Cargar desde Supabase
-        const materiasDB = await getMateriasDB(uid);
+        const data = await res.json();
 
-        if (materiasDB.length > 0) {
-          setMaterias(materiasDB);
-          saveMaterias(materiasDB);
+        if (data.success && data.materias.length > 0) {
+          setMaterias(data.materias);
+          saveMaterias(data.materias);
         } else if (materiasLocal.length > 0) {
-          // localStorage tiene pero Supabase no → subir a Supabase
-          await saveMateriasDB(uid, materiasLocal);
-          setMaterias(materiasLocal);
+          // localStorage tiene datos pero Supabase no → subir
+          await fetch('/api/materias', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ materias: materiasLocal }),
+          });
         } else {
           // Reintentar una vez después de 2 segundos
-          // (a veces Supabase tarda en el primer request del celular)
           await new Promise(r => setTimeout(r, 2000));
-          const materiasRetry = await getMateriasDB(uid);
-          if (materiasRetry.length > 0) {
-            setMaterias(materiasRetry);
-            saveMaterias(materiasRetry);
+          const res2 = await fetch('/api/materias', {
+            headers: { 'Authorization': `Bearer ${token}` },
+          });
+          const data2 = await res2.json();
+          if (data2.success && data2.materias.length > 0) {
+            setMaterias(data2.materias);
+            saveMaterias(data2.materias);
           }
         }
+
       } catch (err) {
         console.error(err);
         const materiasLocal = getMaterias();
@@ -111,7 +136,22 @@ export default function MateriasPage() {
   const save = async (m: Materia[]) => {
     setMaterias(m);
     saveMaterias(m);
-    if (userId) await saveMateriasDB(userId, m);
+    try {
+      if (accessToken) {
+        await fetch('/api/materias', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ materias: m }),
+        });
+      } else if (userId) {
+        await saveMateriasDB(userId, m);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const actualizarMateria = (materia: Materia) => {
@@ -153,7 +193,9 @@ export default function MateriasPage() {
   };
 
   const eliminarMateria = (id: string) => {
-    if (!confirm(idioma === 'en' ? 'Delete this subject and all its content?' : '¿Eliminar esta materia y todo su contenido?')) return;
+    if (!confirm(idioma === 'en'
+      ? 'Delete this subject and all its content?'
+      : '¿Eliminar esta materia y todo su contenido?')) return;
     save(materias.filter(m => m.id !== id));
   };
 
@@ -173,7 +215,10 @@ export default function MateriasPage() {
   const eliminarTema = (id: string) => {
     if (!confirm(idioma === 'en' ? 'Delete this topic?' : '¿Eliminar este tema?')) return;
     if (!materiaActual) return;
-    actualizarMateria({ ...materiaActual, temas: materiaActual.temas.filter(t => t.id !== id) });
+    actualizarMateria({
+      ...materiaActual,
+      temas: materiaActual.temas.filter(t => t.id !== id),
+    });
   };
 
   const crearApunte = (data: { titulo: string }) => {
@@ -210,7 +255,10 @@ export default function MateriasPage() {
   const eliminarApunte = (id: string) => {
     if (!confirm(idioma === 'en' ? 'Delete this note?' : '¿Eliminar este apunte?')) return;
     if (!temaActual) return;
-    actualizarTema({ ...temaActual, apuntes: temaActual.apuntes.filter(a => a.id !== id) });
+    actualizarTema({
+      ...temaActual,
+      apuntes: temaActual.apuntes.filter(a => a.id !== id),
+    });
     setVista('tema');
   };
 
@@ -249,7 +297,10 @@ export default function MateriasPage() {
         archivoBase64: data.fileBase64,
         archivoMime: data.mimeType,
       };
-      actualizarTema({ ...temaActual, documentos: [...temaActual.documentos, nuevoDoc] });
+      actualizarTema({
+        ...temaActual,
+        documentos: [...temaActual.documentos, nuevoDoc],
+      });
     } catch (err: any) {
       alert('Error: ' + err.message);
     } finally {
@@ -261,7 +312,10 @@ export default function MateriasPage() {
   const eliminarDocumento = (id: string) => {
     if (!confirm(idioma === 'en' ? 'Delete this document?' : '¿Eliminar este documento?')) return;
     if (!temaActual) return;
-    actualizarTema({ ...temaActual, documentos: temaActual.documentos.filter(d => d.id !== id) });
+    actualizarTema({
+      ...temaActual,
+      documentos: temaActual.documentos.filter(d => d.id !== id),
+    });
     setVista('tema');
   };
 
@@ -269,7 +323,9 @@ export default function MateriasPage() {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px' }}>
         <div style={{ fontSize: '48px' }}>📚</div>
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>{tr('cargando')}</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>
+          {tr('cargando')}
+        </p>
       </div>
     );
   }
@@ -367,13 +423,24 @@ export default function MateriasPage() {
         )}
 
         {modalMateria && (
-          <ModalMateria onClose={() => setModalMateria(false)} onConfirm={crearMateria} />
+          <ModalMateria
+            onClose={() => setModalMateria(false)}
+            onConfirm={crearMateria}
+          />
         )}
         {modalTema && materiaActual && (
-          <ModalTema onClose={() => setModalTema(false)} onConfirm={crearTema} colorMateria={materiaActual.color} />
+          <ModalTema
+            onClose={() => setModalTema(false)}
+            onConfirm={crearTema}
+            colorMateria={materiaActual.color}
+          />
         )}
         {modalApunte && temaActual && (
-          <ModalApunte onClose={() => setModalApunte(false)} onConfirm={crearApunte} colorTema={temaActual.color} />
+          <ModalApunte
+            onClose={() => setModalApunte(false)}
+            onConfirm={crearApunte}
+            colorTema={temaActual.color}
+          />
         )}
       </div>
     </div>
