@@ -48,6 +48,9 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
 
+  // ✅ Wrapper para pasar tr a sub-componentes sin error de tipo
+  const trAny = (key: string) => tr(key as any);
+
   const esImagen = documento.tipo === 'imagen';
   const docBase64 = (documento as any).archivoBase64;
   const docMime = (documento as any).archivoMime;
@@ -69,22 +72,38 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
     setPasoActual(1);
     const idiomaActual = getIdioma();
     try {
-      const r1 = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: documento.contenido, idioma: idiomaActual, imageBase64: esImagen ? docBase64 : undefined, imageMime: esImagen ? docMime : undefined, esImagen }) });
+      const r1 = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: documento.contenido, idioma: idiomaActual, imageBase64: esImagen ? docBase64 : undefined, imageMime: esImagen ? docMime : undefined, esImagen }),
+      });
       const d1 = await r1.json();
       setPasoActual(2);
 
-      const r2 = await fetch('/api/flashcards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: documento.contenido, getRecommendation: true, idioma: idiomaActual, imageBase64: esImagen ? docBase64 : undefined, imageMime: esImagen ? docMime : undefined }) });
+      const r2 = await fetch('/api/flashcards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: documento.contenido, getRecommendation: true, idioma: idiomaActual, imageBase64: esImagen ? docBase64 : undefined, imageMime: esImagen ? docMime : undefined }),
+      });
       const d2 = await r2.json();
       const recommended = d2.success ? d2.recommended : 10;
       setRecommendedCount(recommended);
       setRecommendedReason(d2.success ? d2.reason : '');
       setPasoActual(3);
 
-      const r3 = await fetch('/api/flashcards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: documento.contenido, count: recommended, idioma: idiomaActual, existingQuestions: [], imageBase64: esImagen ? docBase64 : undefined, imageMime: esImagen ? docMime : undefined }) });
+      const r3 = await fetch('/api/flashcards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: documento.contenido, count: recommended, idioma: idiomaActual, existingQuestions: [], imageBase64: esImagen ? docBase64 : undefined, imageMime: esImagen ? docMime : undefined }),
+      });
       const d3 = await r3.json();
       setPasoActual(4);
 
-      const docActualizado = { ...documento, analisis: d1.success ? d1.analysis : documento.analisis, flashcards: d3.success ? d3.flashcards : documento.flashcards };
+      const docActualizado = {
+        ...documento,
+        analisis: d1.success ? d1.analysis : documento.analisis,
+        flashcards: d3.success ? d3.flashcards : documento.flashcards,
+      };
       if (d3.success) setFlashcards(d3.flashcards);
       onActualizar(docActualizado);
       setTab('flashcards');
@@ -98,9 +117,17 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
     setAddingMore(true);
     const idiomaActual = getIdioma();
     try {
-      const res = await fetch('/api/flashcards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: documento.contenido, count: addCount, idioma: idiomaActual, existingQuestions: flashcards.map((f: any) => f.question), imageBase64: esImagen ? docBase64 : undefined, imageMime: esImagen ? docMime : undefined }) });
+      const res = await fetch('/api/flashcards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: documento.contenido, count: addCount, idioma: idiomaActual, existingQuestions: flashcards.map((f: any) => f.question), imageBase64: esImagen ? docBase64 : undefined, imageMime: esImagen ? docMime : undefined }),
+      });
       const data = await res.json();
-      if (data.success) { const nuevas = [...flashcards, ...data.flashcards]; setFlashcards(nuevas); onActualizar({ ...documento, flashcards: nuevas }); }
+      if (data.success) {
+        const nuevas = [...flashcards, ...data.flashcards];
+        setFlashcards(nuevas);
+        onActualizar({ ...documento, flashcards: nuevas });
+      }
     } catch (err) { console.error(err); }
     finally { setAddingMore(false); }
   };
@@ -115,39 +142,63 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   return (
     <div>
       {showChat && <ChatDocumento contexto={documento.contenido} nombreDoc={documento.nombre} temaColor={tema.color} onClose={() => setShowChat(false)} />}
-      {showEstudio && flashcards.length > 0 && <EstudioModal flashcards={flashcards} temaColor={tema.color} onClose={() => setShowEstudio(false)} onModoExamen={() => { setShowEstudio(false); setShowModoExamen(true); }} />}
-      {showEditor && <FlashcardEditor flashcards={flashcards} temaColor={tema.color} onSave={(cards: any) => { setFlashcards(cards); onActualizar({ ...documento, flashcards: cards }); setShowEditor(false); }} onClose={() => setShowEditor(false)} />}
-      {showQuiz && <QuizModal contenido={documento.contenido} temaColor={tema.color} materiaNombre={materia.nombre} materiaColor={materia.color} onClose={() => setShowQuiz(false)} />}
-      {showModoExamen && <ModoExamen flashcards={flashcards} contenido={documento.contenido} nombreDoc={documento.nombre} temaColor={tema.color} onClose={() => setShowModoExamen(false)} />}
+      {showEstudio && flashcards.length > 0 && (
+        <EstudioModal flashcards={flashcards} temaColor={tema.color} onClose={() => setShowEstudio(false)} onModoExamen={() => { setShowEstudio(false); setShowModoExamen(true); }} />
+      )}
+      {showEditor && (
+        <FlashcardEditor flashcards={flashcards} temaColor={tema.color}
+          onSave={(cards: any) => { setFlashcards(cards); onActualizar({ ...documento, flashcards: cards }); setShowEditor(false); }}
+          onClose={() => setShowEditor(false)} />
+      )}
+      {showQuiz && (
+        <QuizModal contenido={documento.contenido} temaColor={tema.color} materiaNombre={materia.nombre} materiaColor={materia.color} onClose={() => setShowQuiz(false)} />
+      )}
+      {showModoExamen && (
+        <ModoExamen flashcards={flashcards} contenido={documento.contenido} nombreDoc={documento.nombre} temaColor={tema.color} onClose={() => setShowModoExamen(false)} />
+      )}
 
       {/* Modal guardar deck */}
       {showGuardarDeck && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '20px' }}>
           <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '420px', border: '1px solid var(--border-color)' }}>
             <div style={{ height: '4px', background: tema.color, borderRadius: '2px', marginBottom: '24px' }} />
-            <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>💾 {tr('guardarDeck')}</h2>
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 20px' }}>{flashcards.length} {tr('tarjetas')} · &quot;{documento.nombre}&quot;</p>
+            <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>💾 {trAny('guardarDeck')}</h2>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 20px' }}>
+              {flashcards.length} {trAny('tarjetas')} · &quot;{documento.nombre}&quot;
+            </p>
             {deckGuardado ? (
               <div style={{ background: '#4ade8015', border: '1px solid #4ade8044', borderRadius: '10px', padding: '14px', marginBottom: '20px' }}>
-                <p style={{ fontSize: '14px', color: '#4ade80', margin: 0, fontWeight: 600 }}>✅ {tr('deckGuardado')}</p>
+                <p style={{ fontSize: '14px', color: '#4ade80', margin: 0, fontWeight: 600 }}>✅ {trAny('deckGuardado')}</p>
               </div>
             ) : (
               <div style={{ marginBottom: '20px' }}>
-                <input value={nombreDeck} onChange={e => setNombreDeck(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleGuardarDeck()} placeholder={tr('nombreDeck')} autoFocus style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }} />
+                <input value={nombreDeck} onChange={e => setNombreDeck(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleGuardarDeck()}
+                  placeholder={trAny('nombreDeck')} autoFocus
+                  style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }} />
               </div>
             )}
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => { setShowGuardarDeck(false); setDeckGuardado(false); }} style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>{deckGuardado ? tr('cerrar') : tr('cancelar')}</button>
-              {!deckGuardado && <button onClick={handleGuardarDeck} disabled={!nombreDeck.trim()} style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: nombreDeck.trim() ? tema.color : 'var(--bg-card2)', color: nombreDeck.trim() ? '#000' : 'var(--text-faint)', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>💾 {tr('guardar')}</button>}
+              <button onClick={() => { setShowGuardarDeck(false); setDeckGuardado(false); }}
+                style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
+                {deckGuardado ? trAny('cerrar') : trAny('cancelar')}
+              </button>
+              {!deckGuardado && (
+                <button onClick={handleGuardarDeck} disabled={!nombreDeck.trim()}
+                  style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: nombreDeck.trim() ? tema.color : 'var(--bg-card2)', color: nombreDeck.trim() ? '#000' : 'var(--text-faint)', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
+                  💾 {trAny('guardar')}
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
 
       <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+
         {/* Breadcrumb */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-          <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--gold)', fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>📚 {tr('materias')}</button>
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--gold)', fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>📚 {trAny('materias')}</button>
           <span style={{ color: 'var(--text-faint)' }}>/</span>
           <button onClick={onBackMateria} style={{ background: 'none', border: 'none', color: materia.color, fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>{materia.emoji} {materia.nombre}</button>
           <span style={{ color: 'var(--text-faint)' }}>/</span>
@@ -163,17 +214,30 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
             <div>
               <h1 style={{ fontSize: isMobile ? '16px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{documento.nombre}</h1>
               <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0 }}>
-                {tr('subido')}: {documento.fechaSubida} · <span style={{ background: esImagen ? 'var(--pink-dim)' : 'var(--blue-dim)', color: esImagen ? 'var(--pink)' : 'var(--blue)', padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 700 }}>{documento.tipo.toUpperCase()}</span>
-                {documento.analisis && <span style={{ color: '#4ade80', marginLeft: '8px', fontWeight: 700 }}>✓ {tr('analizado')}</span>}
+                {trAny('subido')}: {documento.fechaSubida}
+                {' · '}
+                <span style={{ background: esImagen ? 'var(--pink-dim)' : 'var(--blue-dim)', color: esImagen ? 'var(--pink)' : 'var(--blue)', padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 700 }}>
+                  {documento.tipo.toUpperCase()}
+                </span>
+                {documento.analisis && <span style={{ color: '#4ade80', marginLeft: '8px', fontWeight: 700 }}>✓ {trAny('analizado')}</span>}
                 {recommendedCount && <span style={{ color: tema.color, marginLeft: '8px', fontWeight: 700 }}>· {recommendedCount} {idioma === 'en' ? 'recommended' : 'recomendadas'}</span>}
               </p>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <button onClick={() => setShowChat(true)} style={{ padding: '9px 14px', borderRadius: '10px', border: `2px solid ${tema.color}`, background: 'transparent', color: tema.color, fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>{tr('chat')}</button>
-            {!esImagen && <button onClick={() => setShowQuiz(true)} style={{ padding: '9px 14px', borderRadius: '10px', border: '2px solid #a78bfa', background: 'transparent', color: '#a78bfa', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>{tr('quiz')}</button>}
-            <button onClick={analizar} disabled={analizando} style={{ padding: '9px 16px', borderRadius: '10px', border: 'none', background: analizando ? 'var(--bg-card2)' : 'var(--gold)', color: analizando ? 'var(--text-faint)' : '#000', fontSize: '12px', fontWeight: 800, cursor: analizando ? 'not-allowed' : 'pointer', minWidth: '130px' }}>
-              {analizando ? '⏳ ...' : documento.analisis ? '🔄 ' + tr('reAnalizar') : esImagen ? '🔍 ' + (idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen') : '🔍 ' + tr('analizar')}
+            <button onClick={() => setShowChat(true)}
+              style={{ padding: '9px 14px', borderRadius: '10px', border: `2px solid ${tema.color}`, background: 'transparent', color: tema.color, fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+              {trAny('chat')}
+            </button>
+            {!esImagen && (
+              <button onClick={() => setShowQuiz(true)}
+                style={{ padding: '9px 14px', borderRadius: '10px', border: '2px solid #a78bfa', background: 'transparent', color: '#a78bfa', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                {trAny('quiz')}
+              </button>
+            )}
+            <button onClick={analizar} disabled={analizando}
+              style={{ padding: '9px 16px', borderRadius: '10px', border: 'none', background: analizando ? 'var(--bg-card2)' : 'var(--gold)', color: analizando ? 'var(--text-faint)' : '#000', fontSize: '12px', fontWeight: 800, cursor: analizando ? 'not-allowed' : 'pointer', minWidth: '130px' }}>
+              {analizando ? '⏳ ...' : documento.analisis ? '🔄 ' + trAny('reAnalizar') : esImagen ? '🔍 ' + (idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen') : '🔍 ' + trAny('analizar')}
             </button>
           </div>
         </div>
@@ -184,11 +248,12 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
         {/* Tabs */}
         <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', marginBottom: '24px', overflowX: 'auto' }}>
           {[
-            { id: 'leer', label: esImagen ? `🖼️ ${idioma === 'en' ? 'Image' : 'Imagen'}` : `📖 ${documento.archivoUrl || docBase64 ? tr('verDocumento') : tr('leerTexto')}` },
-            { id: 'analisis', label: `🔍 ${tr('analisisAI')}${documento.analisis ? ' ✓' : ''}` },
-            { id: 'flashcards', label: `🎴 ${tr('flashcards')}${flashcards.length > 0 ? ` (${flashcards.length})` : ''}` },
+            { id: 'leer', label: esImagen ? `🖼️ ${idioma === 'en' ? 'Image' : 'Imagen'}` : `📖 ${documento.archivoUrl || docBase64 ? trAny('verDocumento') : trAny('leerTexto')}` },
+            { id: 'analisis', label: `🔍 ${trAny('analisisAI')}${documento.analisis ? ' ✓' : ''}` },
+            { id: 'flashcards', label: `🎴 ${trAny('flashcards')}${flashcards.length > 0 ? ` (${flashcards.length})` : ''}` },
           ].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id as any)} style={{ padding: '12px 20px', border: 'none', background: 'transparent', borderBottom: tab === t.id ? `3px solid ${tema.color}` : '3px solid transparent', color: tab === t.id ? tema.color : 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer', marginBottom: '-2px', whiteSpace: 'nowrap' }}>
+            <button key={t.id} onClick={() => setTab(t.id as any)}
+              style={{ padding: '12px 20px', border: 'none', background: 'transparent', borderBottom: tab === t.id ? `3px solid ${tema.color}` : '3px solid transparent', color: tab === t.id ? tema.color : 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer', marginBottom: '-2px', whiteSpace: 'nowrap' }}>
               {t.label}
             </button>
           ))}
@@ -200,27 +265,44 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
             <div style={{ height: '4px', background: tema.color }} />
             {esImagen && docBase64 ? (
               <div style={{ padding: '20px', textAlign: 'center' }}>
-                <img src={`data:${docMime};base64,${docBase64}`} alt={documento.nombre} style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', objectFit: 'contain' }} />
+                <img src={`data:${docMime};base64,${docBase64}`} alt={documento.nombre}
+                  style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', objectFit: 'contain' }} />
                 {documento.contenido && (
                   <div style={{ marginTop: '16px', background: 'var(--bg-secondary)', borderRadius: '10px', padding: '14px', textAlign: 'left' }}>
-                    <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', margin: '0 0 8px' }}>{idioma === 'en' ? '🤖 Extracted text' : '🤖 Texto extraído'}</p>
+                    <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', margin: '0 0 8px' }}>
+                      {idioma === 'en' ? '🤖 Extracted text' : '🤖 Texto extraído'}
+                    </p>
                     <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6, maxHeight: '200px', overflowY: 'auto' }}>{documento.contenido}</p>
                   </div>
                 )}
                 {!documento.analisis && !analizando && (
                   <div style={{ marginTop: '20px' }}>
-                    <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '12px' }}>{idioma === 'en' ? '🤖 Analyze this image — AI will extract text and generate flashcards' : '🤖 Analiza esta imagen — la AI extraerá texto y generará flashcards'}</p>
-                    <button onClick={analizar} style={{ padding: '12px 28px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>🔍 {idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen'}</button>
+                    <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                      {idioma === 'en' ? '🤖 Analyze this image — AI will extract text and generate flashcards' : '🤖 Analiza esta imagen — la AI extraerá texto y generará flashcards'}
+                    </p>
+                    <button onClick={analizar}
+                      style={{ padding: '12px 28px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
+                      🔍 {idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen'}
+                    </button>
                   </div>
                 )}
               </div>
             ) : (
               <>
-                <VisorDocumento contenido={documento.contenido} tipo={documento.tipo} nombre={documento.nombre} archivoUrl={documento.archivoUrl} archivoBase64={docBase64} archivoMime={docMime} analisis={documento.analisis} temaColor={tema.color} />
+                <VisorDocumento
+                  contenido={documento.contenido} tipo={documento.tipo} nombre={documento.nombre}
+                  archivoUrl={documento.archivoUrl} archivoBase64={docBase64} archivoMime={docMime}
+                  analisis={documento.analisis} temaColor={tema.color}
+                />
                 {!documento.analisis && !analizando && (
                   <div style={{ padding: '24px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)', textAlign: 'center' }}>
-                    <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: '0 0 12px' }}>{idioma === 'en' ? '🤖 Analyze to extract keywords and generate flashcards using deep AI' : '🤖 Analiza para extraer palabras clave y generar flashcards con AI profunda'}</p>
-                    <button onClick={analizar} disabled={analizando} style={{ padding: '12px 28px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>🔍 {idioma === 'en' ? 'Analyze & Generate Flashcards' : 'Analizar y Generar Flashcards'}</button>
+                    <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: '0 0 12px' }}>
+                      {idioma === 'en' ? '🤖 Analyze to extract keywords and generate flashcards using deep AI' : '🤖 Analiza para extraer palabras clave y generar flashcards con AI profunda'}
+                    </p>
+                    <button onClick={analizar} disabled={analizando}
+                      style={{ padding: '12px 28px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
+                      🔍 {idioma === 'en' ? 'Analyze & Generate Flashcards' : 'Analizar y Generar Flashcards'}
+                    </button>
                   </div>
                 )}
               </>
@@ -234,7 +316,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
             documento={documento} tema={tema} idioma={idioma} isMobile={isMobile}
             analizando={analizando} recommendedCount={recommendedCount}
             recommendedReason={recommendedReason} flashcardsLength={flashcards.length}
-            tr={tr} onAnalizar={analizar} onVerFlashcards={() => setTab('flashcards')}
+            tr={trAny} onAnalizar={analizar} onVerFlashcards={() => setTab('flashcards')}
             onVerDoc={() => setTab('leer')} esImagen={esImagen}
           />
         )}
@@ -245,7 +327,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
             flashcards={flashcards} currentCard={currentCard} flipped={flipped}
             addCount={addCount} addingMore={addingMore} recommendedCount={recommendedCount}
             recommendedReason={recommendedReason} tema={tema} isMobile={isMobile}
-            idioma={idioma} esImagen={esImagen} analizando={analizando} tr={tr}
+            idioma={idioma} esImagen={esImagen} analizando={analizando} tr={trAny}
             onFlip={() => setFlipped(!flipped)}
             onPrev={() => { setFlipped(false); setCurrentCard((currentCard - 1 + flashcards.length) % flashcards.length); }}
             onNext={() => { setFlipped(false); setCurrentCard((currentCard + 1) % flashcards.length); }}
