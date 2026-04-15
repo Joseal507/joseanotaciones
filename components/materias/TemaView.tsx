@@ -70,12 +70,12 @@ export default function TemaView({
               ? (idioma === 'en' ? '⏳ Uploading...' : '⏳ Subiendo...')
               : (idioma === 'en' ? '📤 Upload File' : '📤 Subir Archivo')}
             <input
-              id="doc-upload"
-              type="file"
-              accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.webp"
-              onChange={onSubirDocumento}
-              style={{ display: 'none' }}
-            />
+  id="doc-upload"
+  type="file"
+  accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.webp,.mp3,.wav,.m4a,.ogg,.webm,.mp4"
+  onChange={onSubirDocumento}
+  style={{ display: 'none' }}
+/>
           </label>
         </div>
       </div>

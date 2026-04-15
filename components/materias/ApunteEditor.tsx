@@ -21,14 +21,11 @@ interface Props {
   onGuardar: (contenido: string) => void;
 }
 
-// ✅ Parse que soporta formato nuevo (con canvas) y legacy (array directo)
 const parseBloques = (contenido: string): Bloque[] => {
   if (!contenido) return [{ id: genId(), tipo: 'texto', html: '' }];
   try {
     const p = JSON.parse(contenido);
-    if (p && p.bloques && Array.isArray(p.bloques)) {
-      return p.bloques.map((b: any) => ({ ...b, id: genId() }));
-    }
+    if (p && p.bloques && Array.isArray(p.bloques)) return p.bloques.map((b: any) => ({ ...b, id: genId() }));
     if (Array.isArray(p)) return p.map(b => ({ ...b, id: genId() }));
   } catch {}
   return [{ id: genId(), tipo: 'texto', html: contenido }];
@@ -42,6 +39,8 @@ const parseCanvasData = (contenido: string): string | null => {
   } catch {}
   return null;
 };
+
+const BLOQUES_POR_PAGINA = 5;
 
 function ImagenMobile({ bloque, temaColor, onUpdate, onDelete }: {
   bloque: BloqueImagen; temaColor: string;
@@ -134,6 +133,10 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
   const [showDrawingCanvas, setShowDrawingCanvas] = useState(false);
   const [showImage, setShowImage] = useState(false);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const [hojasRaya, setHojasRaya] = useState(false);
+  const [tipoHoja, setTipoHoja] = useState<'raya' | 'cuadricula' | 'puntos'>('raya');
+  const [mostrarPaginas, setMostrarPaginas] = useState(true);
+
   const textRefs = useRef<{ [id: string]: HTMLDivElement | null }>({});
   const htmlCache = useRef<{ [id: string]: string }>({});
   const editorRef = useRef<HTMLDivElement>(null);
@@ -141,6 +144,10 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
   const isMobile = useIsMobile();
 
   const isDrawing = ['boligrafo', 'marcador', 'lapiz', 'borrador'].includes(herramienta);
+  const totalPaginas = Math.max(1, Math.ceil(bloques.length / BLOQUES_POR_PAGINA));
+
+  // Margen izquierdo cuando hay rayas (espacio para la línea roja)
+  const MARGEN_RAYA = isMobile ? 44 : 72;
 
   useEffect(() => {
     const renderKatex = async () => {
@@ -163,22 +170,14 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
     });
   }, []);
 
-  // ✅ Guardar con canvas data
   const guardar = useCallback(() => {
     syncCache();
     const synced = bloques.map(b => {
       if (b.tipo === 'texto') return { ...b, html: htmlCache.current[b.id] ?? (b as any).html ?? '' };
       return b;
     });
-
-    // Exportar canvas como imagen
     const canvasData = (window as any).__canvasExport?.() || null;
-
-    const contenidoFinal = JSON.stringify({
-      bloques: synced,
-      canvasData: canvasData,
-    });
-
+    const contenidoFinal = JSON.stringify({ bloques: synced, canvasData });
     setGuardando(true);
     onGuardar(contenidoFinal);
     setTimeout(() => { setGuardando(false); setGuardado(true); }, 600);
@@ -249,6 +248,126 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
   const insertHtml = (html: string) => { document.execCommand('insertHTML', false, html); triggerAutoSave(); };
   const handleHerramienta = (h: Herramienta) => { syncCache(); setHerramienta(h); };
 
+  const getBackgroundImage = () => {
+    if (!hojasRaya) return 'none';
+    if (tipoHoja === 'raya') return 'repeating-linear-gradient(transparent, transparent 31px, #b8cfe0 31px, #b8cfe0 32px)';
+    if (tipoHoja === 'cuadricula') return 'repeating-linear-gradient(transparent, transparent 31px, #b8cfe0 31px, #b8cfe0 32px), repeating-linear-gradient(90deg, transparent, transparent 31px, #b8cfe0 31px, #b8cfe0 32px)';
+    return 'radial-gradient(circle, #94b4cc 1.2px, transparent 1.2px)';
+  };
+
+  const getBackgroundSize = () => {
+    if (!hojasRaya) return 'auto';
+    if (tipoHoja === 'puntos') return '32px 32px';
+    return '100% 32px';
+  };
+
+  const renderBloques = () => {
+    const resultado: React.ReactNode[] = [];
+
+    bloques.forEach((bloque, idx) => {
+      if (mostrarPaginas && idx > 0 && idx % BLOQUES_POR_PAGINA === 0) {
+        const numPagina = Math.floor(idx / BLOQUES_POR_PAGINA);
+        resultado.push(
+          <div key={`page-${idx}`} style={{
+            margin: '32px 0',
+            position: 'relative',
+            pointerEvents: 'none',
+            userSelect: 'none',
+          }}>
+            <div style={{
+              width: '100%',
+              borderTop: '2px dashed #ccc',
+              position: 'relative',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <span style={{
+                position: 'absolute',
+                background: '#f0f4f8',
+                border: '1px solid #ccc',
+                borderRadius: '20px',
+                padding: '3px 14px',
+                fontSize: '11px',
+                color: '#888',
+                fontWeight: 700,
+                letterSpacing: '0.5px',
+                top: '-11px',
+              }}>
+                📄 Página {numPagina} · {numPagina + 1} de {totalPaginas}
+              </span>
+            </div>
+            <div style={{
+              height: '18px',
+              background: 'linear-gradient(to bottom, rgba(0,0,0,0.04), transparent)',
+              marginTop: '18px',
+            }} />
+          </div>
+        );
+      }
+
+      resultado.push(
+        <div key={bloque.id} style={{ position: 'relative', zIndex: bloque.tipo === 'imagen' ? ((bloque as BloqueImagen).zIndex ?? 2) : 1 }}>
+          {bloque.tipo === 'texto' && (
+            <div
+              ref={el => {
+                textRefs.current[bloque.id] = el;
+                if (el && el.innerHTML === '') el.innerHTML = htmlCache.current[bloque.id] ?? (bloque as any).html ?? '';
+              }}
+              contentEditable
+              suppressContentEditableWarning
+              className="ebloque"
+              onInput={e => { htmlCache.current[bloque.id] = (e.currentTarget as HTMLDivElement).innerHTML; triggerAutoSave(); }}
+              onFocus={() => setSelectedImageId(null)}
+              style={{
+                fontFamily: 'Georgia, serif',
+                fontSize: isMobile ? '15px' : '16px',
+                lineHeight: hojasRaya ? '32px' : '1.8',
+                color: '#222',
+                padding: '2px 0',
+                width: '100%',
+                WebkitUserSelect: 'text',
+                userSelect: 'text',
+                // ✅ Sangría: cuando hay raya, el texto empieza después de la línea roja
+                paddingLeft: hojasRaya && tipoHoja === 'raya' ? `${MARGEN_RAYA - (isMobile ? 16 : 44) + 16}px` : '0px',
+                boxSizing: 'border-box',
+              }}
+            />
+          )}
+
+          {bloque.tipo === 'imagen' && (
+            <div
+              onClick={(e) => { e.stopPropagation(); setSelectedImageId(bloque.id === selectedImageId ? null : bloque.id); }}
+              style={{ outline: selectedImageId === bloque.id ? `3px solid ${tema.color}` : 'none', borderRadius: '12px', transition: 'outline 0.15s' }}
+            >
+              {isMobile ? (
+                <ImagenMobile bloque={bloque as BloqueImagen} temaColor={tema.color}
+                  onUpdate={(changes) => updateImagen(bloque.id, changes)}
+                  onDelete={() => { eliminarBloque(bloque.id); setSelectedImageId(null); }} />
+              ) : (
+                <div>
+                  <ImageBlock bloque={bloque as BloqueImagen} temaColor={tema.color}
+                    onUpdate={(changes) => updateImagen(bloque.id, changes)}
+                    onDelete={() => { eliminarBloque(bloque.id); setSelectedImageId(null); }} />
+                  {selectedImageId === bloque.id && (
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '8px' }}>
+                      <button onClick={(e) => { e.stopPropagation(); eliminarBloque(bloque.id); setSelectedImageId(null); }}
+                        style={{ padding: '7px 18px', borderRadius: '8px', border: '2px solid var(--red)', background: 'var(--red-dim)', color: 'var(--red)', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
+                        🗑️ Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    });
+
+    return resultado;
+  };
+
   return (
     <>
       {showDrawingCanvas && <DrawingCanvas color={tema.color} onSave={(d) => addImagen(d, '🎨 Dibujo')} onClose={() => setShowDrawingCanvas(false)} />}
@@ -272,7 +391,7 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
             <div style={{ width: '4px', height: '28px', background: tema.color, borderRadius: '2px', flexShrink: 0 }} />
             <h1 style={{ fontSize: isMobile ? '16px' : '22px', fontWeight: 900, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{apunte.titulo}</h1>
           </div>
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
             {isDrawing && (
               <div style={{ background: tema.color + '25', padding: '5px 10px', borderRadius: '8px', border: `1px solid ${tema.color}`, display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ fontSize: '11px', color: tema.color, fontWeight: 700 }}>{isMobile ? '🎨' : '🎨 Dibujando'}</span>
@@ -280,6 +399,37 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
                   style={{ background: tema.color, border: 'none', color: '#000', padding: '2px 8px', borderRadius: '5px', fontWeight: 800, fontSize: '11px', cursor: 'pointer' }}>✅ Texto</button>
               </div>
             )}
+
+            {/* BOTÓN HOJAS DE RAYA */}
+            <button
+              onClick={() => setHojasRaya(!hojasRaya)}
+              title={hojasRaya ? 'Quitar rayas' : 'Hojas de raya'}
+              style={{
+                padding: isMobile ? '8px' : '8px 12px', borderRadius: '10px',
+                border: `2px solid ${hojasRaya ? tema.color : 'var(--border-color)'}`,
+                background: hojasRaya ? tema.color + '20' : 'transparent',
+                color: hojasRaya ? tema.color : 'var(--text-muted)',
+                fontSize: '13px', fontWeight: 700, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '4px',
+              }}>
+              📓 {!isMobile && (hojasRaya ? 'Rayas ON' : 'Rayas')}
+            </button>
+
+            {/* BOTÓN PÁGINAS */}
+            <button
+              onClick={() => setMostrarPaginas(!mostrarPaginas)}
+              title={mostrarPaginas ? 'Ocultar páginas' : 'Mostrar páginas'}
+              style={{
+                padding: isMobile ? '8px' : '8px 12px', borderRadius: '10px',
+                border: `2px solid ${mostrarPaginas ? tema.color : 'var(--border-color)'}`,
+                background: mostrarPaginas ? tema.color + '20' : 'transparent',
+                color: mostrarPaginas ? tema.color : 'var(--text-muted)',
+                fontSize: '13px', fontWeight: 700, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '4px',
+              }}>
+              📄 {!isMobile && `Pág ${totalPaginas}`}
+            </button>
+
             <span style={{ fontSize: '11px', color: guardando ? 'var(--gold)' : guardado ? '#4ade80' : 'var(--gold)', fontWeight: 600 }}>
               {guardando ? '💾...' : guardado ? '✓' : '●'}
             </span>
@@ -322,6 +472,30 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
             </div>
           </div>
 
+          {/* Selector tipo hoja */}
+          {hojasRaya && (
+            <div style={{ padding: '8px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 700 }}>Tipo de hoja:</span>
+              {([
+                { key: 'raya', label: '📓 Raya' },
+                { key: 'cuadricula', label: '📐 Cuadrícula' },
+                { key: 'puntos', label: '⠿ Puntos' },
+              ] as const).map(t => (
+                <button key={t.key} onClick={() => setTipoHoja(t.key)}
+                  style={{
+                    padding: '5px 12px', borderRadius: '8px',
+                    border: `2px solid ${tipoHoja === t.key ? tema.color : '#e2e8f0'}`,
+                    background: tipoHoja === t.key ? tema.color + '20' : 'white',
+                    color: tipoHoja === t.key ? tema.color : '#64748b',
+                    fontSize: '12px', fontWeight: 700, cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           <style>{`
             .ebloque { outline: none; min-height: 28px; }
             .ebloque:empty:before { content: 'Escribe aquí...'; color: #999; font-style: italic; pointer-events: none; }
@@ -347,7 +521,6 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
           {/* ÁREA PRINCIPAL */}
           <div ref={editorRef} style={{ position: 'relative', minHeight: isMobile ? '60vh' : '600px' }}>
 
-            {/* ✅ Canvas con datos iniciales */}
             <EditorCanvas
               herramienta={herramienta}
               brushColor={brushColor}
@@ -360,60 +533,39 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
             {/* Contenido */}
             <div
               style={{
-                padding: isMobile ? '16px' : '28px 44px',
+                // ✅ Padding izquierdo extra cuando hay línea roja de raya
+                paddingTop: isMobile ? '16px' : '28px',
+                paddingBottom: isMobile ? '16px' : '28px',
+                paddingRight: isMobile ? '16px' : '44px',
+                paddingLeft: hojasRaya && tipoHoja === 'raya'
+                  ? `${MARGEN_RAYA}px`
+                  : isMobile ? '16px' : '44px',
                 pointerEvents: isDrawing ? 'none' : 'all',
                 position: 'relative', zIndex: 1,
                 background: '#ffffff',
+                backgroundImage: getBackgroundImage(),
+                backgroundSize: getBackgroundSize(),
                 minHeight: isMobile ? '60vh' : '600px',
+                transition: 'padding-left 0.3s, background-image 0.3s',
+                boxSizing: 'border-box',
               }}
               onClick={() => { if (!isDrawing) setSelectedImageId(null); }}
             >
-              {bloques.map((bloque) => (
-                <div key={bloque.id} style={{ position: 'relative', zIndex: bloque.tipo === 'imagen' ? ((bloque as BloqueImagen).zIndex ?? 2) : 1 }}>
+              {/* Línea roja de margen */}
+              {hojasRaya && tipoHoja === 'raya' && (
+                <div style={{
+                  position: 'absolute',
+                  left: `${MARGEN_RAYA - 12}px`,
+                  top: 0,
+                  bottom: 0,
+                  width: '2px',
+                  background: '#ff9999',
+                  pointerEvents: 'none',
+                  zIndex: 0,
+                }} />
+              )}
 
-                  {bloque.tipo === 'texto' && (
-                    <div
-                      ref={el => {
-                        textRefs.current[bloque.id] = el;
-                        if (el && el.innerHTML === '') el.innerHTML = htmlCache.current[bloque.id] ?? (bloque as any).html ?? '';
-                      }}
-                      contentEditable
-                      suppressContentEditableWarning
-                      className="ebloque"
-                      onInput={e => { htmlCache.current[bloque.id] = (e.currentTarget as HTMLDivElement).innerHTML; triggerAutoSave(); }}
-                      onFocus={() => setSelectedImageId(null)}
-                      style={{ fontFamily: 'Georgia, serif', fontSize: isMobile ? '15px' : '16px', lineHeight: 1.8, color: '#222', padding: '2px 0', width: '100%', WebkitUserSelect: 'text', userSelect: 'text' }}
-                    />
-                  )}
-
-                  {bloque.tipo === 'imagen' && (
-                    <div
-                      onClick={(e) => { e.stopPropagation(); setSelectedImageId(bloque.id === selectedImageId ? null : bloque.id); }}
-                      style={{ outline: selectedImageId === bloque.id ? `3px solid ${tema.color}` : 'none', borderRadius: '12px', transition: 'outline 0.15s' }}
-                    >
-                      {isMobile ? (
-                        <ImagenMobile bloque={bloque as BloqueImagen} temaColor={tema.color}
-                          onUpdate={(changes) => updateImagen(bloque.id, changes)}
-                          onDelete={() => { eliminarBloque(bloque.id); setSelectedImageId(null); }} />
-                      ) : (
-                        <div>
-                          <ImageBlock bloque={bloque as BloqueImagen} temaColor={tema.color}
-                            onUpdate={(changes) => updateImagen(bloque.id, changes)}
-                            onDelete={() => { eliminarBloque(bloque.id); setSelectedImageId(null); }} />
-                          {selectedImageId === bloque.id && (
-                            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '8px' }}>
-                              <button onClick={(e) => { e.stopPropagation(); eliminarBloque(bloque.id); setSelectedImageId(null); }}
-                                style={{ padding: '7px 18px', borderRadius: '8px', border: '2px solid var(--red)', background: 'var(--red-dim)', color: 'var(--red)', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
-                                🗑️ Delete
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
+              {renderBloques()}
 
               {/* Botones agregar */}
               {isMobile ? (
@@ -439,7 +591,7 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
           {/* FOOTER */}
           <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>
-              {bloques.length} bloques · {bloques.filter(b => b.tipo === 'imagen').length} imágenes
+              {bloques.length} bloques · {bloques.filter(b => b.tipo === 'imagen').length} imágenes · 📄 {totalPaginas} pág.
               {(window as any).__canvasHasStrokes?.() && ' · 🎨 trazos'}
             </span>
             <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>

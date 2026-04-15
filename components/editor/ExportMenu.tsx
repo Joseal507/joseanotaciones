@@ -256,12 +256,14 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
     }
   };
 
-  const exportWord = async () => {
+    const exportWord = async () => {
     setLoading('word');
     setOpen(false);
     try {
-      const { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, AlignmentType } = await import('docx');
-      const { saveAs } = await import('file-saver');
+      const docxModule = await import('docx');
+      const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = docxModule;
+      const fileSaver = await import('file-saver');
+      const saveAs = fileSaver.default?.saveAs || fileSaver.saveAs;
 
       const children: any[] = [];
 
@@ -281,101 +283,123 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
           const parser = new DOMParser();
           const doc = parser.parseFromString(html, 'text/html');
 
-          doc.body.childNodes.forEach(node => {
-            const el = node as Element;
-            const tagName = el.tagName?.toLowerCase();
-            const text = el.textContent || '';
-            if (!text.trim() && !['hr', 'br'].includes(tagName)) return;
-
-            if (tagName === 'h1') {
-              children.push(new Paragraph({ text, heading: HeadingLevel.HEADING_1, spacing: { before: 300, after: 150 } }));
-            } else if (tagName === 'h2') {
-              children.push(new Paragraph({ text, heading: HeadingLevel.HEADING_2, spacing: { before: 200, after: 100 } }));
-            } else if (tagName === 'h3') {
-              children.push(new Paragraph({ text, heading: HeadingLevel.HEADING_3, spacing: { before: 150, after: 100 } }));
-            } else if (tagName === 'ul') {
-              el.querySelectorAll('li').forEach(li => {
-                children.push(new Paragraph({
-                  children: [new TextRun({ text: '• ' + (li.textContent || ''), size: 22, color: '333333' })],
-                  spacing: { before: 60, after: 60 },
-                }));
-              });
-            } else if (tagName === 'ol') {
-              let count = 1;
-              el.querySelectorAll('li').forEach(li => {
-                children.push(new Paragraph({
-                  children: [new TextRun({ text: `${count}. ${li.textContent || ''}`, size: 22, color: '333333' })],
-                  spacing: { before: 60, after: 60 },
-                }));
-                count++;
-              });
-            } else {
-              const runs: any[] = [];
-              el.childNodes.forEach(child => {
-                const childEl = child as Element;
-                const childTag = childEl.tagName?.toLowerCase();
-                const childText = child.textContent || '';
-                if (!childText) return;
-
-                runs.push(new TextRun({
-                  text: childText,
-                  bold: childTag === 'b' || childTag === 'strong',
-                  italics: childTag === 'i' || childTag === 'em',
-                  underline: childTag === 'u' ? {} : undefined,
-                  strike: childTag === 's',
-                  size: 22,
-                  color: '333333',
-                }));
-              });
-
-              if (runs.length === 0) {
-                runs.push(new TextRun({ text, size: 22, color: '333333' }));
+          const processNodes = (parent: Node) => {
+            parent.childNodes.forEach(node => {
+              if (node.nodeType === Node.TEXT_NODE) {
+                const text = (node.textContent || '').trim();
+                if (text) {
+                  children.push(new Paragraph({
+                    children: [new TextRun({ text, size: 22, color: '333333' })],
+                    spacing: { before: 80, after: 80 },
+                  }));
+                }
+                return;
               }
 
-              children.push(new Paragraph({ children: runs, spacing: { before: 80, after: 80 } }));
-            }
-          });
+              const el = node as Element;
+              const tag = el.tagName?.toLowerCase();
+              const text = (el.textContent || '').trim();
+              if (!text && !['hr', 'br'].includes(tag)) return;
 
+              if (tag === 'h1') {
+                children.push(new Paragraph({ text, heading: HeadingLevel.HEADING_1, spacing: { before: 300, after: 150 } }));
+              } else if (tag === 'h2') {
+                children.push(new Paragraph({ text, heading: HeadingLevel.HEADING_2, spacing: { before: 200, after: 100 } }));
+              } else if (tag === 'h3' || tag === 'h4') {
+                children.push(new Paragraph({ text, heading: HeadingLevel.HEADING_3, spacing: { before: 150, after: 100 } }));
+              } else if (tag === 'ul' || tag === 'ol') {
+                let count = 1;
+                el.querySelectorAll('li').forEach(li => {
+                  const prefix = tag === 'ol' ? `${count}. ` : '• ';
+                  children.push(new Paragraph({
+                    children: [new TextRun({ text: prefix + (li.textContent || ''), size: 22, color: '333333' })],
+                    spacing: { before: 60, after: 60 },
+                  }));
+                  count++;
+                });
+              } else if (tag === 'hr') {
+                children.push(new Paragraph({ text: '─────────────────────', spacing: { before: 200, after: 200 } }));
+              } else if (tag === 'br') {
+                children.push(new Paragraph({ text: '', spacing: { before: 40, after: 40 } }));
+              } else if (['p', 'div', 'span', 'section', 'article'].includes(tag)) {
+                // Procesar inline: bold, italic, underline
+                const runs: any[] = [];
+                const extractRuns = (parent: Node, parentBold = false, parentItalic = false, parentUnderline = false) => {
+                  parent.childNodes.forEach(child => {
+                    if (child.nodeType === Node.TEXT_NODE) {
+                      const t = child.textContent || '';
+                      if (t) {
+                        runs.push(new TextRun({
+                          text: t,
+                          bold: parentBold,
+                          italics: parentItalic,
+                          underline: parentUnderline ? {} : undefined,
+                          size: 22,
+                          color: '333333',
+                        }));
+                      }
+                    } else {
+                      const childEl = child as Element;
+                      const childTag = childEl.tagName?.toLowerCase();
+                      const isBold = parentBold || childTag === 'b' || childTag === 'strong';
+                      const isItalic = parentItalic || childTag === 'i' || childTag === 'em';
+                      const isUnderline = parentUnderline || childTag === 'u';
+                      extractRuns(childEl, isBold, isItalic, isUnderline);
+                    }
+                  });
+                };
+                extractRuns(el);
+
+                if (runs.length > 0) {
+                  children.push(new Paragraph({ children: runs, spacing: { before: 80, after: 80 } }));
+                }
+              } else {
+                // Cualquier otro tag: tratar como párrafo simple
+                if (text) {
+                  children.push(new Paragraph({
+                    children: [new TextRun({ text, size: 22, color: '333333' })],
+                    spacing: { before: 80, after: 80 },
+                  }));
+                }
+              }
+            });
+          };
+
+          processNodes(doc.body);
         } else if (bloque.tipo === 'imagen') {
           try {
             const src = (bloque as BloqueImagen).src;
-            if (src.startsWith('data:')) {
+            if (src.startsWith('data:') && docxModule.ImageRun) {
               const base64Data = src.split(',')[1];
               const binaryString = atob(base64Data);
               const bytes = new Uint8Array(binaryString.length);
               for (let i = 0; i < binaryString.length; i++) {
                 bytes[i] = binaryString.charCodeAt(i);
               }
-
               const imgWidth = Math.min((bloque as BloqueImagen).width, 500);
-              const scale = imgWidth / (bloque as BloqueImagen).width;
-
-              children.push(
-                new Paragraph({
-                  alignment: AlignmentType.CENTER,
-                  children: [
-                    new ImageRun({
-                      data: bytes,
-                      transformation: { width: imgWidth, height: Math.round(300 * scale) },
-                      type: 'png',
-                    }),
-                  ],
-                  spacing: { before: 200, after: 200 },
-                })
-              );
+              const scale = imgWidth / ((bloque as BloqueImagen).width || 500);
+              children.push(new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new docxModule.ImageRun({ data: bytes, transformation: { width: imgWidth, height: Math.round(300 * scale) }, type: 'png' })],
+                spacing: { before: 200, after: 200 },
+              }));
             }
-          } catch {}
+          } catch (imgErr) {
+            console.log('Image export skipped:', imgErr);
+          }
         }
+      }
+
+      if (children.length <= 1) {
+        children.push(new Paragraph({
+          children: [new TextRun({ text: getPlainText() || 'Empty document', size: 22 })],
+        }));
       }
 
       const document = new Document({
         sections: [{
           children,
-          properties: {
-            page: {
-              margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
-            },
-          },
+          properties: { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } },
         }],
       });
 
@@ -383,13 +407,24 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
       saveAs(buffer, `${titulo}.docx`);
 
     } catch (err) {
-      console.error(err);
-      alert('Error exporting Word');
+      console.error('Word export error:', err);
+      // Fallback: exportar como texto plano
+      try {
+        const text = getPlainText();
+        const blob = new Blob([text], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${titulo}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (e2) {
+        alert('Error exporting. Try PDF instead.');
+      }
     } finally {
       setLoading(null);
     }
   };
-
   return (
     <div style={{ position: 'relative' }}>
       <button

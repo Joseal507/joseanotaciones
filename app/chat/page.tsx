@@ -9,6 +9,8 @@ import { getIdioma } from '../../lib/i18n';
 interface Mensaje {
   role: 'user' | 'assistant';
   content: string;
+  imageUrl?: string;
+  isAudio?: boolean;
 }
 
 export default function ChatPage() {
@@ -20,25 +22,37 @@ export default function ChatPage() {
   const [todosDocumentos, setTodosDocumentos] = useState<any[]>([]);
   const [usarDocumentos, setUsarDocumentos] = useState(false);
   const [fotoPerfil, setFotoPerfil] = useState('');
+
+  const [selectedImage, setSelectedImage] = useState<{ base64: string; mime: string; preview: string } | null>(null);
+
+  const [grabando, setGrabando] = useState(false);
+  const [audioGrabado, setAudioGrabado] = useState<{ blob: Blob; url: string } | null>(null);
+  const [transcribiendo, setTranscribiendo] = useState(false);
+
+  const [audioEnabled, setAudioEnabled] = useState(false);
+  const [modoLlamada, setModoLlamada] = useState(false);
+  const [llamandoAI, setLlamandoAI] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     const saludo = idioma === 'en'
-      ? "Hi! I'm AlciBot 🤖 Your personal study assistant. I can explain concepts, help you study, answer questions and more. How can I help you today?"
-      : '¡Hola! Soy AlciBot 🤖 Tu asistente de estudio personal. Puedo explicarte conceptos, ayudarte a estudiar, resolver dudas y más. ¿En qué te puedo ayudar hoy?';
+      ? "Hi! I'm JeffreyBot 🤖 Disciple of José Alberto de Obaldia. I can help you with text, images or voice messages! How can I help?"
+      : '¡Hola! Soy JeffreyBot 🤖 Discípulo de José Alberto de Obaldia. ¡Puedes enviarme texto, imágenes o mensajes de voz! ¿En qué te ayudo?';
     setMensajes([{ role: 'assistant', content: saludo }]);
     setPerfil(getPerfil());
     setFotoPerfil(getSettings().fotoPerfil || '');
 
     const materias = getMaterias();
     const docs: any[] = [];
-    materias.forEach(m => {
-      m.temas.forEach(t => {
-        t.documentos.forEach(d => {
-          if (d.contenido) docs.push({ nombre: d.nombre, materia: m.nombre, contenido: d.contenido });
-        });
-      });
-    });
+    materias.forEach(m => m.temas.forEach(t => t.documentos.forEach(d => {
+      if (d.contenido) docs.push({ nombre: d.nombre, materia: m.nombre, contenido: d.contenido });
+    })));
     setTodosDocumentos(docs);
   }, [idioma]);
 
@@ -46,20 +60,212 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [mensajes]);
 
-  const enviar = async () => {
-    if (!input.trim() || cargando) return;
-    const userMsg = input.trim();
+  // Cargar voces + parar al salir
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+    }
+    return () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  // ===== ENVIAR TEXTO =====
+  const enviar = async (textoOverride?: string, imgData?: { base64: string; mime: string }) => {
+    const texto = textoOverride || input.trim();
+    const imgToSend = imgData || selectedImage;
+
+    if (!texto && !imgToSend) return;
+    if (cargando) return;
+
+    const newMsg: Mensaje = {
+      role: 'user',
+      content: texto || (idioma === 'en' ? '(image sent)' : '(imagen enviada)'),
+      imageUrl: imgToSend?.preview,
+    };
+
+    setMensajes(prev => [...prev, newMsg]);
     setInput('');
-    setMensajes(prev => [...prev, { role: 'user', content: userMsg }]);
+    setSelectedImage(null);
+    setCargando(true);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mensaje: texto || (idioma === 'en' ? 'Analyze this image' : 'Analiza esta imagen'),
+          contexto: null,
+          historial: mensajes.slice(-8).map(m => ({ role: m.role, content: m.content })),
+          perfil,
+          todosDocumentos: usarDocumentos ? todosDocumentos : [],
+          idioma: getIdioma(),
+          imageBase64: imgToSend?.base64 || undefined,
+          imageMime: imgToSend?.mime || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMensajes(prev => [...prev, { role: 'assistant', content: data.respuesta }]);
+        if (audioEnabled || modoLlamada) {
+          await reproducirRespuesta(data.respuesta);
+        }
+      }
+    } catch {
+      setMensajes(prev => [...prev, {
+        role: 'assistant',
+        content: idioma === 'en' ? 'Connection error. Try again.' : 'Error de conexión. Intenta de nuevo.',
+      }]);
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  // ===== TEXTO TO SPEECH =====
+  const reproducirRespuesta = async (texto: string) => {
+    if (!('speechSynthesis' in window)) return;
+    try {
+      setLlamandoAI(true);
+      window.speechSynthesis.cancel();
+
+      const textoLimpio = texto
+        .replace(/#{1,3}\s/g, '')
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/\*([^*]+)\*/g, '$1')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/[-•]/g, ',')
+        .substring(0, 1000);
+
+      const utterance = new SpeechSynthesisUtterance(textoLimpio);
+      const idiomaActual = getIdioma();
+      utterance.lang = idiomaActual === 'en' ? 'en-US' : 'es-MX';
+      utterance.rate = 0.92;
+      utterance.pitch = 1.25;
+      utterance.volume = 1.0;
+
+      const voices = window.speechSynthesis.getVoices();
+      let bestVoice;
+      if (idiomaActual === 'en') {
+        bestVoice =
+          voices.find(v => v.name === 'Daniel') ||
+          voices.find(v => v.name === 'Alex') ||
+          voices.find(v => v.name === 'Rishi') ||
+          voices.find(v => v.lang.startsWith('en') && !['Karen', 'Samantha', 'Moira', 'Tessa', 'Veena', 'Victoria'].includes(v.name));
+      } else {
+        bestVoice =
+          voices.find(v => v.name === 'Juan') ||
+          voices.find(v => v.name === 'Jorge') ||
+          voices.find(v => v.name === 'Diego') ||
+          voices.find(v => v.lang.startsWith('es') && !['Monica', 'Paulina'].includes(v.name));
+      }
+      if (bestVoice) utterance.voice = bestVoice;
+
+      await new Promise<void>((resolve) => {
+        const keepAlive = setInterval(() => {
+          if (window.speechSynthesis.speaking) {
+            window.speechSynthesis.pause();
+            window.speechSynthesis.resume();
+          } else clearInterval(keepAlive);
+        }, 10000);
+        utterance.onend = () => { clearInterval(keepAlive); resolve(); };
+        utterance.onerror = () => { clearInterval(keepAlive); resolve(); };
+        window.speechSynthesis.speak(utterance);
+      });
+    } catch (err) {
+      console.error('TTS error:', err);
+    } finally {
+      setLlamandoAI(false);
+    }
+  };
+
+  // ===== SELECCIONAR IMAGEN =====
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const result = ev.target?.result as string;
+      const base64 = result.split(',')[1];
+      setSelectedImage({ base64, mime: file.type, preview: result });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // ===== INICIAR GRABACIÓN =====
+  const iniciarGrabacion = async () => {
+    try {
+      if (audioGrabado) { URL.revokeObjectURL(audioGrabado.url); setAudioGrabado(null); }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      audioChunksRef.current = [];
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const url = URL.createObjectURL(blob);
+        setAudioGrabado({ blob, url });
+        streamRef.current?.getTracks().forEach(t => t.stop());
+      };
+      mediaRecorder.start();
+      setGrabando(true);
+    } catch (err) {
+      alert(idioma === 'en' ? 'Could not access microphone.' : 'No se pudo acceder al micrófono.');
+    }
+  };
+
+  // ===== DETENER GRABACIÓN =====
+  const detenerGrabacion = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    setGrabando(false);
+  };
+
+  // ===== DESCARTAR AUDIO =====
+  const descartarAudio = () => {
+    if (audioGrabado) { URL.revokeObjectURL(audioGrabado.url); setAudioGrabado(null); }
+  };
+
+  // ===== ENVIAR AUDIO GRABADO =====
+  const enviarAudioGrabado = async () => {
+    if (!audioGrabado) return;
+    setTranscribiendo(true);
+    const formData = new FormData();
+    formData.append('audio', audioGrabado.blob, 'recording.webm');
+    formData.append('idioma', getIdioma());
+    try {
+      const res = await fetch('/api/audio/transcribe', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.success && data.text) {
+        setMensajes(prev => [...prev, { role: 'user', content: data.text, isAudio: true }]);
+        descartarAudio();
+        await enviarTextoAlAI(data.text);
+      } else {
+        alert(idioma === 'en' ? 'Could not transcribe audio.' : 'No se pudo transcribir el audio.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert(idioma === 'en' ? 'Error transcribing.' : 'Error al transcribir.');
+    } finally {
+      setTranscribiendo(false);
+    }
+  };
+
+  const enviarTextoAlAI = async (texto: string) => {
     setCargando(true);
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mensaje: userMsg,
+          mensaje: texto,
           contexto: null,
-          historial: mensajes.slice(-10).map(m => ({ role: m.role, content: m.content })),
+          historial: mensajes.slice(-8).map(m => ({ role: m.role, content: m.content })),
           perfil,
           todosDocumentos: usarDocumentos ? todosDocumentos : [],
           idioma: getIdioma(),
@@ -68,11 +274,44 @@ export default function ChatPage() {
       const data = await res.json();
       if (data.success) {
         setMensajes(prev => [...prev, { role: 'assistant', content: data.respuesta }]);
+        if (audioEnabled || modoLlamada) await reproducirRespuesta(data.respuesta);
       }
-    } catch {
-      setMensajes(prev => [...prev, { role: 'assistant', content: idioma === 'en' ? 'Connection error. Try again.' : 'Error al conectar. Intenta de nuevo.' }]);
-    } finally {
-      setCargando(false);
+    } catch (err) { console.error(err); }
+    finally { setCargando(false); }
+  };
+
+  // ===== SUBIR ARCHIVO AUDIO =====
+  const handleAudioFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setTranscribiendo(true);
+    const formData = new FormData();
+    formData.append('audio', file);
+    formData.append('idioma', getIdioma());
+    try {
+      const res = await fetch('/api/audio/transcribe', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.success && data.text) {
+        setMensajes(prev => [...prev, { role: 'user', content: data.text, isAudio: true }]);
+        await enviarTextoAlAI(data.text);
+      }
+    } catch (err) { console.error(err); }
+    finally { setTranscribiendo(false); e.target.value = ''; }
+  };
+
+  // ===== MODO LLAMADA =====
+  const toggleModoLlamada = async () => {
+    if (modoLlamada) {
+      window.speechSynthesis?.cancel();
+      setModoLlamada(false);
+      setAudioEnabled(false);
+    } else {
+      setModoLlamada(true);
+      setAudioEnabled(true);
+      const saludo = idioma === 'en'
+        ? "Hi! I'm JeffreyBot, disciple of José Alberto de Obaldia. I'm listening, how can I help you?"
+        : '¡Hola! Soy JeffreyBot, discípulo de José Alberto de Obaldia. Te escucho, ¿en qué puedo ayudarte?';
+      await reproducirRespuesta(saludo);
     }
   };
 
@@ -114,55 +353,69 @@ export default function ChatPage() {
     });
   };
 
-  const sugerencias = idioma === 'en'
-    ? ['How does photosynthesis work?', "Explain Newton's laws", 'What is a derivative?', 'Tips to memorize better', 'How to write an effective summary?']
-    : ['¿Cómo funciona la fotosíntesis?', 'Explícame las leyes de Newton', '¿Qué es la derivada en cálculo?', 'Dame técnicas para memorizar mejor', '¿Cómo hago un resumen efectivo?'];
-
-  // Avatar del usuario
   const UserAvatar = ({ size = 36 }: { size?: number }) => (
-    <div style={{
-      width: size, height: size, borderRadius: '50%',
-      overflow: 'hidden', flexShrink: 0,
-      background: fotoPerfil ? 'transparent' : 'var(--blue)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: size * 0.5,
-    }}>
-      {fotoPerfil
-        ? <img src={fotoPerfil} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-        : '👤'}
+    <div style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: fotoPerfil ? 'transparent' : 'var(--blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.5 }}>
+      {fotoPerfil ? <img src={fotoPerfil} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '👤'}
     </div>
   );
+
+  const sugerencias = idioma === 'en'
+    ? ['How does photosynthesis work?', "Explain Newton's laws", 'What is a derivative?', 'Tips to memorize better']
+    : ['¿Cómo funciona la fotosíntesis?', 'Explícame las leyes de Newton', '¿Qué es la derivada?', 'Técnicas para memorizar'];
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', fontFamily: '-apple-system, sans-serif' }}>
 
+      <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} style={{ display: 'none' }} />
+      <input ref={audioInputRef} type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.webm" onChange={handleAudioFile} style={{ display: 'none' }} />
+
       {/* Header */}
-      <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: '0 40px', height: '68px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+      <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: '0 24px', height: '68px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button onClick={() => window.location.href = '/'}
-            style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+            style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '7px 14px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
             ← {tr('inicio')}
           </button>
           <div>
-            <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>🤖 AlciBot</h1>
+            <h1 style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              🤖 JeffreyBot
+              {modoLlamada && (
+                <span style={{ fontSize: '11px', background: '#4ade80', color: '#000', padding: '2px 8px', borderRadius: '6px', fontWeight: 800 }}>
+                  📞 {idioma === 'en' ? 'CALL' : 'LLAMADA'}
+                </span>
+              )}
+              {llamandoAI && (
+                <span style={{ fontSize: '11px', background: 'var(--gold)', color: '#000', padding: '2px 8px', borderRadius: '6px', fontWeight: 800 }}>
+                  🔊 {idioma === 'en' ? 'Speaking...' : 'Hablando...'}
+                </span>
+              )}
+            </h1>
             <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>
-              {usarDocumentos ? `${todosDocumentos.length} ${idioma === 'en' ? 'docs loaded' : 'docs cargados'}` : tr('asistente')}
+              {usarDocumentos ? `${todosDocumentos.length} docs` : idioma === 'en' ? 'Disciple of José Alberto de Obaldia' : 'Discípulo de José Alberto de Obaldia'}
             </p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <button onClick={toggleModoLlamada}
+            style={{ padding: '7px 14px', borderRadius: '8px', border: `2px solid ${modoLlamada ? '#4ade80' : 'var(--border-color)'}`, background: modoLlamada ? '#4ade8020' : 'transparent', color: modoLlamada ? '#4ade80' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+            {modoLlamada ? '📞 Colgar' : '📞 Llamar'}
+          </button>
+          <button onClick={() => setAudioEnabled(!audioEnabled)}
+            style={{ padding: '7px 14px', borderRadius: '8px', border: `2px solid ${audioEnabled ? 'var(--gold)' : 'var(--border-color)'}`, background: audioEnabled ? 'var(--gold-dim)' : 'transparent', color: audioEnabled ? 'var(--gold)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+            {audioEnabled ? '🔊 Voz ON' : '🔇 Voz OFF'}
+          </button>
           <button onClick={() => setUsarDocumentos(!usarDocumentos)}
-            style={{ padding: '8px 16px', borderRadius: '8px', border: `2px solid ${usarDocumentos ? 'var(--blue)' : 'var(--border-color)'}`, background: usarDocumentos ? 'var(--blue-dim)' : 'transparent', color: usarDocumentos ? 'var(--blue)' : 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            📚 {usarDocumentos ? `${tr('docsOn')} (${todosDocumentos.length})` : tr('usarDocs')}
+            style={{ padding: '7px 14px', borderRadius: '8px', border: `2px solid ${usarDocumentos ? 'var(--blue)' : 'var(--border-color)'}`, background: usarDocumentos ? 'var(--blue-dim)' : 'transparent', color: usarDocumentos ? 'var(--blue)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+            📚 {usarDocumentos ? `ON (${todosDocumentos.length})` : tr('usarDocs')}
           </button>
           <button onClick={() => window.location.href = '/perfil'}
-            style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-            📊 {tr('perfil')}
+            style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+            📊
           </button>
-          <button onClick={() => setMensajes([{ role: 'assistant', content: idioma === 'en' ? "Hi! I'm AlciBot 🤖 How can I help?" : '¡Hola! Soy AlciBot 🤖 ¿En qué te puedo ayudar?' }])}
-            style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-            {tr('limpiar')}
+          <button onClick={() => setMensajes([{ role: 'assistant', content: idioma === 'en' ? "Hi! I'm JeffreyBot 🤖 Disciple of José Alberto de Obaldia" : '¡Hola! Soy JeffreyBot 🤖 Discípulo de José Alberto de Obaldia' }])}
+            style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+            🗑️
           </button>
         </div>
       </header>
@@ -174,24 +427,14 @@ export default function ChatPage() {
         <div style={{ flex: 1, background: 'var(--pink)' }} />
       </div>
 
-      {usarDocumentos && todosDocumentos.length > 0 && (
-        <div style={{ background: 'var(--blue-dim)', borderBottom: '1px solid var(--blue-border)', padding: '8px 40px' }}>
-          <span style={{ fontSize: '13px', color: 'var(--blue)', fontWeight: 600 }}>
-            📚 AlciBot {idioma === 'en'
-              ? `has access to ${todosDocumentos.length} document(s). Ask anything about them.`
-              : `tiene acceso a ${todosDocumentos.length} documento(s). Puedes preguntarle sobre ellos.`}
-          </span>
-        </div>
-      )}
-
       {/* Mensajes */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 40px', display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '800px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '800px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
 
         {mensajes.length === 1 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', marginBottom: '16px' }}>
             {sugerencias.map((s, i) => (
-              <button key={i} onClick={() => setInput(s)}
-                style={{ padding: '8px 14px', borderRadius: '20px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '13px', cursor: 'pointer', transition: 'all 0.2s' }}
+              <button key={i} onClick={() => enviar(s)}
+                style={{ padding: '8px 14px', borderRadius: '20px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '13px', cursor: 'pointer' }}
                 onMouseEnter={(e: any) => { e.currentTarget.style.borderColor = 'var(--gold)'; e.currentTarget.style.color = 'var(--gold)'; }}
                 onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
                 {s}
@@ -202,78 +445,184 @@ export default function ChatPage() {
 
         {mensajes.map((msg, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: '8px' }}>
-
-            {/* Avatar bot */}
             {msg.role === 'assistant' && (
-              <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0 }}>
-                🤖
-              </div>
+              <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0 }}>🤖</div>
             )}
-
             <div style={{
-              maxWidth: '75%', padding: '14px 18px',
+              maxWidth: '75%', padding: '12px 16px',
               borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
               background: msg.role === 'user' ? 'var(--gold)' : 'var(--bg-card)',
               color: msg.role === 'user' ? '#000' : 'var(--text-primary)',
               fontSize: '15px', lineHeight: 1.7,
               border: msg.role === 'assistant' ? '1px solid var(--border-color)' : 'none',
-              fontWeight: msg.role === 'user' ? 600 : 400,
             }}>
-              {msg.role === 'assistant' ? renderMensaje(msg.content) : msg.content}
+              {msg.imageUrl && <img src={msg.imageUrl} alt="" style={{ maxWidth: '100%', borderRadius: '10px', marginBottom: '8px', display: 'block' }} />}
+              {msg.isAudio && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', opacity: 0.8 }}>
+                  <span>🎤</span>
+                  <span style={{ fontSize: '11px', fontWeight: 600 }}>{idioma === 'en' ? 'Voice message' : 'Mensaje de voz'}</span>
+                </div>
+              )}
+              {msg.role === 'assistant' ? renderMensaje(msg.content) : <span>{msg.content}</span>}
+              {msg.role === 'assistant' && i > 0 && (
+                <button onClick={() => reproducirRespuesta(msg.content)} disabled={llamandoAI}
+                  style={{ marginTop: '8px', padding: '4px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '11px', cursor: llamandoAI ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  🔊 {idioma === 'en' ? 'Listen' : 'Escuchar'}
+                </button>
+              )}
             </div>
-
-            {/* Avatar usuario con foto */}
             {msg.role === 'user' && <UserAvatar size={36} />}
           </div>
         ))}
 
-        {/* Cargando */}
-        {cargando && (
+        {(cargando || transcribiendo) && (
           <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'flex-end', gap: '8px' }}>
-            <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>
-              🤖
-            </div>
+            <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>🤖</div>
             <div style={{ padding: '14px 18px', borderRadius: '18px 18px 18px 4px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginRight: '4px' }}>
+                {transcribiendo ? (idioma === 'en' ? '🎤 Transcribing...' : '🎤 Transcribiendo...') : ''}
+              </span>
               {[0, 1, 2].map(i => (
                 <div key={i} style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--gold)', animation: `bounce 1s ${i * 0.2}s infinite` }} />
               ))}
             </div>
           </div>
         )}
-
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
-      <div style={{ padding: '20px 40px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)' }}>
-        <div style={{ maxWidth: '800px', margin: '0 auto', display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
-
-          {/* Foto del usuario al lado del input */}
-          <UserAvatar size={36} />
-
-          <textarea value={input} onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
-            placeholder={idioma === 'en' ? 'Type your question... (Enter to send)' : 'Escribe tu pregunta... (Enter para enviar)'}
-            disabled={cargando}
-            rows={2}
-            style={{ flex: 1, padding: '14px 16px', borderRadius: '14px', border: `2px solid ${input ? 'var(--gold)' : 'var(--border-color)'}`, background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', resize: 'none', outline: 'none', transition: 'border 0.2s', fontFamily: 'inherit', lineHeight: 1.5 }}
-          />
-          <button onClick={enviar} disabled={!input.trim() || cargando}
-            style={{ padding: '14px 24px', borderRadius: '14px', border: 'none', background: input.trim() && !cargando ? 'var(--gold)' : 'var(--bg-card2)', color: input.trim() && !cargando ? '#000' : 'var(--text-faint)', fontWeight: 800, fontSize: '15px', cursor: input.trim() && !cargando ? 'pointer' : 'not-allowed', transition: 'all 0.2s' }}>
-            {tr('enviar')}
-          </button>
+      {/* PREVIEW IMAGEN */}
+      {selectedImage && (
+        <div style={{ padding: '10px 24px', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-color)', maxWidth: '800px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <img src={selectedImage.preview} alt="" style={{ width: '56px', height: '56px', objectFit: 'cover', borderRadius: '8px', border: '2px solid var(--gold)' }} />
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: '13px', color: 'var(--text-primary)', margin: 0, fontWeight: 600 }}>{idioma === 'en' ? '🖼️ Image ready to send' : '🖼️ Imagen lista para enviar'}</p>
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '2px 0 0' }}>{idioma === 'en' ? 'Add a message or send directly' : 'Agrega un mensaje o envía directamente'}</p>
+            </div>
+            <button onClick={() => setSelectedImage(null)}
+              style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: '13px', cursor: 'pointer', fontWeight: 700 }}>
+              ✕ {idioma === 'en' ? 'Remove' : 'Quitar'}
+            </button>
+          </div>
         </div>
-        <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '8px auto 0', maxWidth: '800px', textAlign: 'center' }}>
-          {usarDocumentos
-            ? `AlciBot ${idioma === 'en' ? `has access to your ${todosDocumentos.length} documents` : `tiene acceso a tus ${todosDocumentos.length} documentos`}`
-            : `AlciBot ${idioma === 'en' ? 'uses general knowledge · Enable "Use my docs" to access your subjects' : 'responde con conocimiento general · Activa "Usar mis docs" para acceder a tus materias'}`}
-        </p>
+      )}
+
+      {/* PANEL AUDIO GRABADO */}
+      {audioGrabado && (
+        <div style={{ padding: '14px 24px', background: 'var(--bg-card)', borderTop: '2px solid var(--gold)', maxWidth: '800px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+          <p style={{ fontSize: '12px', fontWeight: 700, color: 'var(--gold)', margin: '0 0 10px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+            🎤 {idioma === 'en' ? 'Voice message recorded' : 'Mensaje de voz grabado'}
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <audio src={audioGrabado.url} controls style={{ flex: 1, minWidth: '200px', height: '36px' }} />
+            <button onClick={enviarAudioGrabado} disabled={transcribiendo}
+              style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: transcribiendo ? 'var(--bg-card2)' : 'var(--gold)', color: transcribiendo ? 'var(--text-faint)' : '#000', fontSize: '13px', fontWeight: 800, cursor: transcribiendo ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
+              {transcribiendo ? (idioma === 'en' ? '⏳ Transcribing...' : '⏳ Transcribiendo...') : (idioma === 'en' ? '📤 Send' : '📤 Enviar')}
+            </button>
+            <button onClick={descartarAudio} disabled={transcribiendo}
+              style={{ padding: '10px 16px', borderRadius: '10px', border: '2px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: '13px', fontWeight: 700, cursor: transcribiendo ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
+              🗑️ {idioma === 'en' ? 'Discard' : 'Descartar'}
+            </button>
+            <button onClick={() => { descartarAudio(); iniciarGrabacion(); }} disabled={transcribiendo}
+              style={{ padding: '10px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: transcribiendo ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
+              🔄 {idioma === 'en' ? 'Record again' : 'Grabar de nuevo'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* INPUT ÁREA */}
+      <div style={{ padding: '16px 24px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)' }}>
+        <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+          {!audioGrabado && (
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' }}>
+              <button onClick={() => fileInputRef.current?.click()}
+                style={{ padding: '7px 14px', borderRadius: '8px', border: `1px solid ${selectedImage ? 'var(--gold)' : 'var(--border-color)'}`, background: selectedImage ? 'var(--gold-dim)' : 'transparent', color: selectedImage ? 'var(--gold)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                🖼️ {idioma === 'en' ? 'Image' : 'Imagen'}
+              </button>
+              <button onClick={() => audioInputRef.current?.click()}
+                style={{ padding: '7px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                🎵 {idioma === 'en' ? 'Audio file' : 'Archivo audio'}
+              </button>
+              {!grabando ? (
+                <button onClick={iniciarGrabacion}
+                  style={{ padding: '7px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  🎤 {idioma === 'en' ? 'Record' : 'Grabar'}
+                </button>
+              ) : (
+                <button onClick={detenerGrabacion}
+                  style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--red)', background: 'var(--red-dim)', color: 'var(--red)', fontSize: '12px', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', animation: 'pulse-red 1s infinite' }}>
+                  ⏹️ {idioma === 'en' ? 'Stop recording' : 'Parar grabación'}
+                  <span style={{ fontSize: '10px', background: 'var(--red)', color: '#fff', padding: '1px 6px', borderRadius: '4px' }}>REC</span>
+                </button>
+              )}
+              {llamandoAI && (
+                <button onClick={() => { window.speechSynthesis?.cancel(); setLlamandoAI(false); }}
+                  style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--red)', background: 'rgba(239,68,68,0.1)', color: 'var(--red)', fontSize: '12px', fontWeight: 800, cursor: 'pointer', animation: 'pulse-red 1s infinite' }}>
+                  🔇 {idioma === 'en' ? 'Stop voice' : 'Parar voz'}
+                </button>
+              )}
+              <button onClick={() => setAudioEnabled(!audioEnabled)}
+                style={{ padding: '7px 14px', borderRadius: '8px', border: `1px solid ${audioEnabled ? 'var(--gold)' : 'var(--border-color)'}`, background: audioEnabled ? 'var(--gold-dim)' : 'transparent', color: audioEnabled ? 'var(--gold)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                {audioEnabled ? '🔊 Voz ON' : '🔇 Voz OFF'}
+              </button>
+            </div>
+          )}
+
+          {!audioGrabado && (
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
+              <UserAvatar size={36} />
+              <textarea
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
+                placeholder={
+                  grabando
+                    ? (idioma === 'en' ? '🔴 Recording... click Stop to finish' : '🔴 Grabando... toca Parar para terminar')
+                    : (idioma === 'en' ? 'Type, send an image or record voice...' : 'Escribe, envía imagen o graba voz...')
+                }
+                disabled={cargando || grabando}
+                rows={2}
+                style={{
+                  flex: 1, padding: '14px 16px', borderRadius: '14px',
+                  border: `2px solid ${grabando ? 'var(--red)' : (input || selectedImage) ? 'var(--gold)' : 'var(--border-color)'}`,
+                  background: 'var(--bg-secondary)', color: 'var(--text-primary)',
+                  fontSize: '15px', resize: 'none', outline: 'none',
+                  transition: 'border 0.2s', fontFamily: 'inherit', lineHeight: 1.5,
+                }}
+              />
+              <button onClick={() => enviar()}
+                disabled={(!input.trim() && !selectedImage) || cargando || grabando}
+                style={{
+                  padding: '14px 24px', borderRadius: '14px', border: 'none',
+                  background: (input.trim() || selectedImage) && !cargando && !grabando ? 'var(--gold)' : 'var(--bg-card2)',
+                  color: (input.trim() || selectedImage) && !cargando && !grabando ? '#000' : 'var(--text-faint)',
+                  fontWeight: 800, fontSize: '15px',
+                  cursor: (input.trim() || selectedImage) && !cargando && !grabando ? 'pointer' : 'not-allowed',
+                  transition: 'all 0.2s',
+                }}>
+                {tr('enviar')}
+              </button>
+            </div>
+          )}
+
+          <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '8px 0 0', textAlign: 'center' }}>
+            {idioma === 'en'
+              ? '🖼️ Images · 🎤 Voice · 🎵 Audio files · 📞 Call mode · 🔊 AI voice'
+              : '🖼️ Imágenes · 🎤 Voz · 🎵 Audio · 📞 Llamada · 🔊 Respuesta en voz'}
+          </p>
+        </div>
       </div>
 
       <style>{`
         @keyframes bounce {
           0%, 100% { transform: translateY(0); opacity: 0.5; }
           50% { transform: translateY(-6px); opacity: 1; }
+        }
+        @keyframes pulse-red {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
         }
       `}</style>
     </div>

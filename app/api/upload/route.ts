@@ -14,12 +14,14 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes);
     let content = '';
     let esImagen = false;
+    let esAudio = false;
     let mimeType = '';
     const nombre = file.name.toLowerCase();
 
     if (nombre.endsWith('.txt')) {
       content = buffer.toString('utf-8');
       mimeType = 'text/plain';
+
     } else if (nombre.endsWith('.pdf')) {
       try {
         const pdfParse = (await import('pdf-parse')).default;
@@ -29,6 +31,7 @@ export async function POST(request: NextRequest) {
       } catch {
         return NextResponse.json({ success: false, error: 'No se pudo leer el PDF' }, { status: 400 });
       }
+
     } else if (nombre.endsWith('.docx') || nombre.endsWith('.doc')) {
       try {
         const mammoth = (await import('mammoth')).default;
@@ -38,6 +41,7 @@ export async function POST(request: NextRequest) {
       } catch {
         return NextResponse.json({ success: false, error: 'No se pudo leer el Word' }, { status: 400 });
       }
+
     } else if (nombre.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
       esImagen = true;
       mimeType = nombre.endsWith('.png') ? 'image/png'
@@ -68,10 +72,42 @@ export async function POST(request: NextRequest) {
       } catch (err: any) {
         return NextResponse.json({ success: false, error: 'Error procesando imagen: ' + err.message }, { status: 400 });
       }
+
+    } else if (nombre.match(/\.(mp3|mp4|wav|m4a|ogg|webm|flac|aac)$/i)) {
+      // ✅ AUDIO
+      esAudio = true;
+      mimeType = nombre.endsWith('.mp3') ? 'audio/mpeg'
+        : nombre.endsWith('.wav') ? 'audio/wav'
+        : nombre.endsWith('.m4a') ? 'audio/m4a'
+        : nombre.endsWith('.ogg') ? 'audio/ogg'
+        : nombre.endsWith('.flac') ? 'audio/flac'
+        : nombre.endsWith('.aac') ? 'audio/aac'
+        : nombre.endsWith('.mp4') ? 'audio/mp4'
+        : 'audio/webm';
+
+      try {
+        const client = getGroqClient();
+        const audioFile = new File([buffer], file.name, { type: mimeType });
+
+        const transcription = await (client.audio as any).transcriptions.create({
+          file: audioFile,
+          model: 'whisper-large-v3',
+          response_format: 'json',
+          temperature: 0.0,
+        });
+
+        content = transcription.text || '';
+        if (!content) {
+          return NextResponse.json({ success: false, error: 'No se pudo transcribir el audio' }, { status: 400 });
+        }
+      } catch (err: any) {
+        return NextResponse.json({ success: false, error: 'Error transcribiendo audio: ' + err.message }, { status: 400 });
+      }
+
     } else {
       return NextResponse.json({
         success: false,
-        error: idioma => 'Formato no soportado. Usa PDF, Word, TXT, JPG, PNG o WebP.',
+        error: 'Formato no soportado. Usa PDF, Word, TXT, JPG, PNG, WebP, MP3, WAV, M4A, OGG.',
       }, { status: 400 });
     }
 
@@ -88,6 +124,7 @@ export async function POST(request: NextRequest) {
       fileBase64,
       mimeType,
       esImagen,
+      esAudio,
       words: content.trim().split(' ').length,
     });
 

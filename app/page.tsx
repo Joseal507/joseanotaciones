@@ -121,7 +121,7 @@ export default function Home() {
               </button>
               <button onClick={() => window.location.href = '/chat'}
                 style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-                🤖 AlciBot
+              🤖 JeffreyBot
               </button>
               <button onClick={() => window.location.href = '/agenda'}
                 style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--blue)', background: 'transparent', color: 'var(--blue)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
