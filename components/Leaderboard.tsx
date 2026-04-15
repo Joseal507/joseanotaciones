@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { getPerfil } from '../lib/storage';
-import { verificarRacha } from '../lib/racha';
+import { syncLeaderboard } from '../lib/syncLeaderboard';
 import { useIdioma } from '../hooks/useIdioma';
 
 interface LeaderEntry {
@@ -19,54 +18,10 @@ interface LeaderEntry {
 export default function Leaderboard() {
   const [entries, setEntries] = useState<LeaderEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [myName, setMyName] = useState('');
   const [myRank, setMyRank] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
   const { idioma } = useIdioma();
-
-  const syncMyStats = async () => {
-    setSyncing(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      let session = sessionData.session;
-      if (!session) {
-        const { data } = await supabase.auth.refreshSession();
-        session = data.session;
-      }
-      if (!session) return;
-
-      const perfil = getPerfil();
-      const racha = verificarRacha();
-      const nombre = session.user.user_metadata?.nombre || session.user.email?.split('@')[0] || 'Usuario';
-
-      const totalAcertadas = Object.values(perfil.flashcardsAcertadas || {}).reduce((a: number, b: any) => a + b, 0);
-      const totalFalladas = Object.values(perfil.flashcardsFalladas || {}).reduce((a: number, b: any) => a + b, 0);
-      const total = totalAcertadas + totalFalladas;
-      const precision = total > 0 ? Math.round((totalAcertadas / total) * 100) : 0;
-      const xpTotal = Object.values(perfil.materiasStats || {}).reduce((acc: number, m: any) => acc + m.totalFlashcards, 0);
-
-      await fetch('/api/leaderboard', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          nombre,
-          xp_total: xpTotal,
-          flashcards_estudiadas: total,
-          racha_actual: racha.rachaActual,
-          mejor_racha: racha.mejorRacha,
-          precision_global: precision,
-        }),
-      });
-
-      await cargarLeaderboard();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const cargarLeaderboard = async () => {
     setLoading(true);
@@ -76,11 +31,13 @@ export default function Leaderboard() {
       if (data.success) {
         setEntries(data.data);
 
-        // Encontrar mi posición
         const { data: sessionData } = await supabase.auth.getUser();
         if (sessionData.user) {
-          const myName = sessionData.user.user_metadata?.nombre || sessionData.user.email?.split('@')[0];
-          const myIdx = data.data.findIndex((e: LeaderEntry) => e.nombre === myName);
+          const name = sessionData.user.user_metadata?.nombre || sessionData.user.email?.split('@')[0] || '';
+          setMyName(name);
+          const myIdx = data.data.findIndex((e: LeaderEntry) =>
+            e.nombre.toLowerCase() === name.toLowerCase()
+          );
           if (myIdx >= 0) setMyRank(myIdx + 1);
         }
       }
@@ -91,9 +48,25 @@ export default function Leaderboard() {
     }
   };
 
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await syncLeaderboard();
+      await cargarLeaderboard();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   useEffect(() => {
-    cargarLeaderboard();
-    syncMyStats();
+    const init = async () => {
+      // Sync primero, luego cargar
+      await syncLeaderboard();
+      await cargarLeaderboard();
+    };
+    init();
   }, []);
 
   const getMedal = (rank: number) => {
@@ -105,7 +78,7 @@ export default function Leaderboard() {
 
   const getColor = (rank: number) => {
     if (rank === 1) return '#f5c842';
-    if (rank === 2) return '#aaa';
+    if (rank === 2) return '#aaaaaa';
     if (rank === 3) return '#cd7f32';
     return 'var(--text-faint)';
   };
@@ -119,35 +92,45 @@ export default function Leaderboard() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
           <div>
             <h3 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px' }}>
-              🏆 {idioma === 'en' ? 'Leaderboard' : 'Leaderboard'}
+              🏆 Leaderboard
             </h3>
             <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>
               {idioma === 'en' ? 'Top students by XP' : 'Top estudiantes por XP'}
-              {myRank && <span style={{ color: 'var(--gold)', marginLeft: '8px', fontWeight: 700 }}>· {idioma === 'en' ? 'Your rank' : 'Tu posición'}: #{myRank}</span>}
+              {myRank && (
+                <span style={{ color: 'var(--gold)', marginLeft: '8px', fontWeight: 700 }}>
+                  · {idioma === 'en' ? 'Your rank' : 'Tu posición'}: #{myRank}
+                </span>
+              )}
             </p>
           </div>
-          <button onClick={syncMyStats} disabled={syncing}
-            style={{ padding: '7px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: syncing ? 'not-allowed' : 'pointer' }}>
+          <button onClick={handleSync} disabled={syncing}
+            style={{ padding: '7px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: syncing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
             {syncing ? '⏳ ...' : '🔄 Sync'}
           </button>
         </div>
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: '30px 0' }}>
-            <p style={{ color: 'var(--text-faint)', fontSize: '14px' }}>Cargando...</p>
+            <div style={{ fontSize: '32px', marginBottom: '8px' }}>⏳</div>
+            <p style={{ color: 'var(--text-faint)', fontSize: '14px', margin: 0 }}>
+              {idioma === 'en' ? 'Loading...' : 'Cargando...'}
+            </p>
           </div>
         ) : entries.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '30px 0' }}>
             <div style={{ fontSize: '40px', marginBottom: '8px' }}>🏆</div>
-            <p style={{ color: 'var(--text-faint)', fontSize: '14px', margin: '0 0 12px' }}>
+            <p style={{ color: 'var(--text-faint)', fontSize: '14px', margin: '0 0 4px' }}>
               {idioma === 'en' ? 'Be the first on the leaderboard!' : '¡Sé el primero en el leaderboard!'}
+            </p>
+            <p style={{ color: 'var(--text-faint)', fontSize: '12px', margin: 0 }}>
+              {idioma === 'en' ? 'Study flashcards to appear here' : 'Estudia flashcards para aparecer aquí'}
             </p>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {entries.map((entry, i) => {
               const rank = i + 1;
-              const isMe = rank === myRank;
+              const isMe = entry.nombre.toLowerCase() === myName.toLowerCase();
               return (
                 <div key={i} style={{
                   display: 'flex', alignItems: 'center', gap: '12px',
@@ -157,13 +140,19 @@ export default function Leaderboard() {
                   transition: 'all 0.2s',
                 }}>
                   {/* Rank */}
-                  <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: rank <= 3 ? getColor(rank) + '20' : 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: rank <= 3 ? '18px' : '13px', fontWeight: 900, color: getColor(rank), flexShrink: 0 }}>
+                  <div style={{
+                    width: '36px', height: '36px', borderRadius: '10px',
+                    background: rank <= 3 ? getColor(rank) + '20' : 'var(--bg-secondary)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: rank <= 3 ? '18px' : '13px', fontWeight: 900,
+                    color: getColor(rank), flexShrink: 0,
+                  }}>
                     {getMedal(rank)}
                   </div>
 
                   {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
                       <p style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {entry.nombre}
                       </p>
@@ -173,16 +162,19 @@ export default function Leaderboard() {
                         </span>
                       )}
                     </div>
-                    <div style={{ display: 'flex', gap: '10px', marginTop: '2px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>🎴 {entry.flashcards_estudiadas}</span>
                       <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>🔥 {entry.racha_actual}</span>
                       <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>🎯 {entry.precision_global}%</span>
+                      {entry.mejor_racha > 0 && (
+                        <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>🏆 {entry.mejor_racha}</span>
+                      )}
                     </div>
                   </div>
 
                   {/* XP */}
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <p style={{ fontSize: '16px', fontWeight: 900, color: getColor(rank), margin: 0 }}>
+                    <p style={{ fontSize: '18px', fontWeight: 900, color: getColor(rank), margin: 0 }}>
                       {entry.xp_total}
                     </p>
                     <p style={{ fontSize: '10px', color: 'var(--text-faint)', margin: 0 }}>XP</p>
@@ -194,7 +186,9 @@ export default function Leaderboard() {
         )}
 
         <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '12px 0 0', textAlign: 'center' }}>
-          {idioma === 'en' ? 'Updates when you study flashcards' : 'Se actualiza cuando estudias flashcards'}
+          {idioma === 'en'
+            ? 'Updates automatically when you study flashcards'
+            : 'Se actualiza automáticamente cuando estudias flashcards'}
         </p>
       </div>
     </div>

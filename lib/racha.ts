@@ -40,23 +40,37 @@ export const registrarEstudioHoy = (): RachaData => {
   const racha = getRacha();
   const hoy = getHoyStr();
   const ayer = getAyerStr();
+
   if (racha.ultimoDia === hoy) return racha;
+
   if (racha.ultimoDia === ayer) {
     racha.rachaActual += 1;
   } else {
     racha.rachaActual = 1;
   }
+
   racha.ultimoDia = hoy;
+
   if (racha.rachaActual > racha.mejorRacha) {
     racha.mejorRacha = racha.rachaActual;
   }
+
   if (!racha.diasEstudiados.includes(hoy)) {
     racha.diasEstudiados.push(hoy);
     if (racha.diasEstudiados.length > 60) {
       racha.diasEstudiados = racha.diasEstudiados.slice(-60);
     }
   }
+
   saveRacha(racha);
+
+  // ✅ Sync leaderboard en background (no bloquea)
+  try {
+    import('./syncLeaderboard').then(({ syncLeaderboard }) => {
+      syncLeaderboard();
+    }).catch(() => {});
+  } catch {}
+
   return racha;
 };
 
