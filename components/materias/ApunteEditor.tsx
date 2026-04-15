@@ -21,13 +21,26 @@ interface Props {
   onGuardar: (contenido: string) => void;
 }
 
+// ✅ Parse que soporta formato nuevo (con canvas) y legacy (array directo)
 const parseBloques = (contenido: string): Bloque[] => {
   if (!contenido) return [{ id: genId(), tipo: 'texto', html: '' }];
   try {
     const p = JSON.parse(contenido);
+    if (p && p.bloques && Array.isArray(p.bloques)) {
+      return p.bloques.map((b: any) => ({ ...b, id: genId() }));
+    }
     if (Array.isArray(p)) return p.map(b => ({ ...b, id: genId() }));
   } catch {}
   return [{ id: genId(), tipo: 'texto', html: contenido }];
+};
+
+const parseCanvasData = (contenido: string): string | null => {
+  if (!contenido) return null;
+  try {
+    const p = JSON.parse(contenido);
+    if (p && p.canvasData) return p.canvasData;
+  } catch {}
+  return null;
 };
 
 function ImagenMobile({ bloque, temaColor, onUpdate, onDelete }: {
@@ -96,7 +109,7 @@ function ImagenMobile({ bloque, temaColor, onUpdate, onDelete }: {
       {selected && (
         <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
           <button onClick={() => { setFloating(false); setPos({ x: 0, y: 0 }); onUpdate({ floating: false, x: 0, y: 0 }); setSelected(false); }}
-            style={{ padding: '6px 12px', borderRadius: '8px', border: `2px solid ${temaColor}`, background: 'transparent', color: temaColor, fontSize: '12px', cursor: 'pointer', fontWeight: 700 }}>📄 Inline</button>
+            style={{ padding: '6px 12px', borderRadius: '8px', border: `2px solid ${temaColor}`, background: 'transparent', color: temaColor, fontSize: '12px', cursor: 'pointer', fontWeight: 700 }}>📄</button>
           <button onClick={() => { const nw = Math.max(80, width - 40); setWidth(nw); onUpdate({ width: nw }); }}
             style={{ padding: '6px 12px', borderRadius: '8px', border: `2px solid ${temaColor}`, background: 'transparent', color: temaColor, fontSize: '16px', cursor: 'pointer' }}>−</button>
           <span style={{ fontSize: '12px', color: 'var(--text-muted)', alignSelf: 'center' }}>{width}px</span>
@@ -112,6 +125,7 @@ function ImagenMobile({ bloque, temaColor, onUpdate, onDelete }: {
 
 export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMateria, onBackTema, onGuardar }: Props) {
   const [bloques, setBloques] = useState<Bloque[]>(() => parseBloques(apunte.contenido));
+  const [initialCanvasData] = useState<string | null>(() => parseCanvasData(apunte.contenido));
   const [guardando, setGuardando] = useState(false);
   const [guardado, setGuardado] = useState(true);
   const [herramienta, setHerramienta] = useState<Herramienta>('texto');
@@ -128,16 +142,13 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
 
   const isDrawing = ['boligrafo', 'marcador', 'lapiz', 'borrador'].includes(herramienta);
 
-  // Renderizar LaTeX después de cargar
   useEffect(() => {
     const renderKatex = async () => {
       try {
         const katex = (await import('katex')).default;
         document.querySelectorAll('.latex-formula[data-formula]').forEach(el => {
           const formula = el.getAttribute('data-formula') || '';
-          try {
-            el.innerHTML = katex.renderToString(formula, { throwOnError: false, displayMode: false });
-          } catch {}
+          try { el.innerHTML = katex.renderToString(formula, { throwOnError: false, displayMode: false }); } catch {}
         });
       } catch {}
     };
@@ -152,14 +163,24 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
     });
   }, []);
 
+  // ✅ Guardar con canvas data
   const guardar = useCallback(() => {
     syncCache();
     const synced = bloques.map(b => {
       if (b.tipo === 'texto') return { ...b, html: htmlCache.current[b.id] ?? (b as any).html ?? '' };
       return b;
     });
+
+    // Exportar canvas como imagen
+    const canvasData = (window as any).__canvasExport?.() || null;
+
+    const contenidoFinal = JSON.stringify({
+      bloques: synced,
+      canvasData: canvasData,
+    });
+
     setGuardando(true);
-    onGuardar(JSON.stringify(synced));
+    onGuardar(contenidoFinal);
     setTimeout(() => { setGuardando(false); setGuardado(true); }, 600);
   }, [bloques, onGuardar, syncCache]);
 
@@ -326,13 +347,14 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
           {/* ÁREA PRINCIPAL */}
           <div ref={editorRef} style={{ position: 'relative', minHeight: isMobile ? '60vh' : '600px' }}>
 
-            {/* Canvas de trazos */}
+            {/* ✅ Canvas con datos iniciales */}
             <EditorCanvas
               herramienta={herramienta}
               brushColor={brushColor}
               brushSize={brushSize}
               temaColor={tema.color}
               onChange={() => triggerAutoSave()}
+              initialCanvasData={initialCanvasData}
             />
 
             {/* Contenido */}
@@ -340,8 +362,7 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
               style={{
                 padding: isMobile ? '16px' : '28px 44px',
                 pointerEvents: isDrawing ? 'none' : 'all',
-                position: 'relative',
-                zIndex: 1,
+                position: 'relative', zIndex: 1,
                 background: '#ffffff',
                 minHeight: isMobile ? '60vh' : '600px',
               }}
@@ -350,7 +371,6 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
               {bloques.map((bloque) => (
                 <div key={bloque.id} style={{ position: 'relative', zIndex: bloque.tipo === 'imagen' ? ((bloque as BloqueImagen).zIndex ?? 2) : 1 }}>
 
-                  {/* TEXTO */}
                   {bloque.tipo === 'texto' && (
                     <div
                       ref={el => {
@@ -366,7 +386,6 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
                     />
                   )}
 
-                  {/* IMAGEN */}
                   {bloque.tipo === 'imagen' && (
                     <div
                       onClick={(e) => { e.stopPropagation(); setSelectedImageId(bloque.id === selectedImageId ? null : bloque.id); }}
@@ -421,11 +440,12 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
           <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>
               {bloques.length} bloques · {bloques.filter(b => b.tipo === 'imagen').length} imágenes
+              {(window as any).__canvasHasStrokes?.() && ' · 🎨 trazos'}
             </span>
             <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>
               {isDrawing
-                ? '🎨 Dibujando · Click ✅ para volver a texto'
-                : isMobile ? 'Auto-guardado ✓' : 'Auto-guardado · Cmd+S · Click imagen + Delete para borrar'}
+                ? '🎨 Dibujando · ✅ para volver a texto'
+                : isMobile ? 'Auto-guardado ✓' : 'Auto-guardado · Cmd+S · Delete para borrar imágenes'}
             </span>
           </div>
         </div>

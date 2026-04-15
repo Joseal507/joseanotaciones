@@ -12,9 +12,12 @@ interface Props {
   brushSize: number;
   temaColor: string;
   onChange: () => void;
+  initialCanvasData?: string | null;
 }
 
-export default function EditorCanvas({ herramienta, brushColor, brushSize, temaColor, onChange }: Props) {
+export default function EditorCanvas({
+  herramienta, brushColor, brushSize, temaColor, onChange, initialCanvasData
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const strokesRef = useRef<Stroke[]>([]);
@@ -22,64 +25,56 @@ export default function EditorCanvas({ herramienta, brushColor, brushSize, temaC
   const currentStroke = useRef<Stroke | null>(null);
   const drawing = useRef(false);
   const lastPoint = useRef<Point | null>(null);
+  const initialized = useRef(false);
 
   const isDrawingTool = ['boligrafo', 'marcador', 'lapiz', 'borrador'].includes(herramienta);
 
-  const initCanvas = useCallback(() => {
+  useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
-    const w = container.clientWidth;
-    const h = container.clientHeight;
-    if (w === 0 || h === 0) return;
 
-    // Solo redimensionar si cambió
-    if (canvas.width === w && canvas.height === h) return;
-
-    // Guardar imagen actual antes de redimensionar
-    const ctx = canvas.getContext('2d');
-    let imageData: ImageData | null = null;
-    if (ctx && canvas.width > 0 && canvas.height > 0) {
-      try { imageData = ctx.getImageData(0, 0, canvas.width, canvas.height); } catch {}
-    }
-
+    const w = container.clientWidth || 800;
+    const h = container.clientHeight || 600;
     canvas.width = w;
     canvas.height = h;
 
-    // Restaurar imagen
-    if (ctx && imageData) {
-      ctx.putImageData(imageData, 0, 0);
+    // Cargar imagen guardada
+    if (initialCanvasData && !initialized.current) {
+      initialized.current = true;
+      const img = new Image();
+      img.onload = () => {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          strokesRef.current = [{ points: [{ x: 0, y: 0 }, { x: 1, y: 1 }], color: '#000', size: 1, tipo: 'boligrafo' as Herramienta }];
+        }
+      };
+      img.src = initialCanvasData;
     }
-  }, []);
 
-  useEffect(() => {
-    initCanvas();
     const observer = new ResizeObserver(() => {
-      const canvas = canvasRef.current;
-      const container = containerRef.current;
-      if (!canvas || !container) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      if (w === canvas.width && h === canvas.height) return;
+      const newW = container.clientWidth;
+      const newH = container.clientHeight;
+      if (newW === canvas.width && newH === canvas.height) return;
 
-      // Guardar pixels antes de redimensionar
       const ctx = canvas.getContext('2d');
       let imageData: ImageData | null = null;
       if (ctx && canvas.width > 0 && canvas.height > 0) {
         try { imageData = ctx.getImageData(0, 0, canvas.width, canvas.height); } catch {}
       }
 
-      canvas.width = w;
-      canvas.height = h;
+      canvas.width = newW;
+      canvas.height = newH;
 
       if (ctx && imageData) {
         ctx.putImageData(imageData, 0, 0);
       }
     });
 
-    if (containerRef.current) observer.observe(containerRef.current);
+    observer.observe(container);
     return () => observer.disconnect();
-  }, []);
+  }, [initialCanvasData]);
 
   const applyStyle = (ctx: CanvasRenderingContext2D) => {
     ctx.lineCap = 'round';
@@ -244,6 +239,11 @@ export default function EditorCanvas({ herramienta, brushColor, brushSize, temaC
     (window as any).__editorUndo = undo;
     (window as any).__editorRedo = redo;
     (window as any).__canvasHasStrokes = () => strokesRef.current.length > 0;
+    (window as any).__canvasExport = () => {
+      const canvas = canvasRef.current;
+      if (!canvas || strokesRef.current.length === 0) return null;
+      return canvas.toDataURL('image/png');
+    };
   }, [undo, redo]);
 
   useEffect(() => {
@@ -257,17 +257,12 @@ export default function EditorCanvas({ herramienta, brushColor, brushSize, temaC
   }, [isDrawingTool, undo, redo]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        position: 'absolute',
-        top: 0, left: 0,
-        width: '100%', height: '100%',
-        pointerEvents: isDrawingTool ? 'all' : 'none',
-        zIndex: isDrawingTool ? 20 : 5,
-        cursor: isDrawingTool ? (herramienta === 'borrador' ? 'cell' : 'crosshair') : 'default',
-      }}
-    >
+    <div ref={containerRef} style={{
+      position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+      pointerEvents: isDrawingTool ? 'all' : 'none',
+      zIndex: isDrawingTool ? 20 : 5,
+      cursor: isDrawingTool ? (herramienta === 'borrador' ? 'cell' : 'crosshair') : 'default',
+    }}>
       {isDrawingTool && (
         <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: '6px', zIndex: 30 }}>
           <button onClick={undo}
@@ -293,13 +288,9 @@ export default function EditorCanvas({ herramienta, brushColor, brushSize, temaC
         onTouchMove={isDrawingTool ? draw : undefined}
         onTouchEnd={isDrawingTool ? stopDraw : undefined}
         style={{
-          position: 'absolute',
-          top: 0, left: 0,
+          position: 'absolute', top: 0, left: 0,
           width: '100%', height: '100%',
-          touchAction: 'none',
-          // ✅ Sin borde, sin fondo
-          background: 'transparent',
-          border: 'none',
+          touchAction: 'none', background: 'transparent',
         }}
       />
     </div>
