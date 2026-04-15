@@ -24,6 +24,20 @@ const HORARIO_VACIO: Horario = {
   lunes: [], martes: [], miercoles: [], jueves: [], viernes: [],
 };
 
+// ✅ Limpiar base64 antes de guardar en Supabase
+const limpiarMaterias = (materias: Materia[]): any[] => {
+  return materias.map(m => ({
+    ...m,
+    temas: m.temas.map(t => ({
+      ...t,
+      documentos: t.documentos.map(d => {
+        const { archivoBase64, archivoUrl, ...resto } = d as any;
+        return resto;
+      }),
+    })),
+  }));
+};
+
 // ===== MATERIAS =====
 export async function getMateriasDB(userId: string): Promise<Materia[]> {
   try {
@@ -39,6 +53,9 @@ export async function getMateriasDB(userId: string): Promise<Materia[]> {
 
 export async function saveMateriasDB(userId: string, materias: Materia[]): Promise<void> {
   try {
+    // ✅ Limpiar antes de guardar
+    const materiasLimpias = limpiarMaterias(materias);
+
     const { data: existing } = await supabase
       .from('materias')
       .select('id')
@@ -48,12 +65,12 @@ export async function saveMateriasDB(userId: string, materias: Materia[]): Promi
     if (existing) {
       await supabase
         .from('materias')
-        .update({ datos: materias, updated_at: new Date().toISOString() })
+        .update({ datos: materiasLimpias, updated_at: new Date().toISOString() })
         .eq('user_id', userId);
     } else {
       await supabase
         .from('materias')
-        .insert({ user_id: userId, datos: materias });
+        .insert({ user_id: userId, datos: materiasLimpias });
     }
   } catch (err) { console.error('Error guardando materias:', err); }
 }

@@ -3,8 +3,22 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+const limpiarMaterias = (materias: any[]) => {
+  if (!Array.isArray(materias)) return [];
+  return materias.map(m => ({
+    ...m,
+    temas: (m.temas || []).map((t: any) => ({
+      ...t,
+      documentos: (t.documentos || []).map((d: any) => {
+        const { archivoBase64, archivoUrl, ...resto } = d;
+        return resto;
+      }),
+    })),
+  }));
+};
 
 export async function GET(request: NextRequest) {
   try {
@@ -51,6 +65,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { materias } = await request.json();
+    const materiasLimpias = limpiarMaterias(materias);
 
     const { data: existing } = await supabase
       .from('materias')
@@ -61,12 +76,12 @@ export async function POST(request: NextRequest) {
     if (existing) {
       await supabase
         .from('materias')
-        .update({ datos: materias, updated_at: new Date().toISOString() })
+        .update({ datos: materiasLimpias, updated_at: new Date().toISOString() })
         .eq('user_id', user.id);
     } else {
       await supabase
         .from('materias')
-        .insert({ user_id: user.id, datos: materias });
+        .insert({ user_id: user.id, datos: materiasLimpias });
     }
 
     return NextResponse.json({ success: true });

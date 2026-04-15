@@ -74,19 +74,18 @@ export const getMaterias = (): Materia[] => {
   } catch { return []; }
 };
 
+// ✅ No guardar base64 en localStorage - ahorra espacio
 export const saveMaterias = (materias: Materia[]) => {
   if (!isBrowser()) return;
   try {
-    // Remover archivoBase64 para no llenar localStorage
     const light = materias.map(m => ({
       ...m,
       temas: m.temas.map(t => ({
         ...t,
-        documentos: t.documentos.map(d => ({
-          ...d,
-          archivoBase64: undefined,
-          archivoUrl: undefined,
-        })),
+        documentos: t.documentos.map(d => {
+          const { archivoBase64, archivoUrl, ...resto } = d as any;
+          return resto;
+        }),
       })),
     }));
     localStorage.setItem(KEY, JSON.stringify(light));
