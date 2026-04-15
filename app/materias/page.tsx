@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 import { useState, useEffect } from 'react';
 import { getMaterias, saveMaterias, generateId, Materia, Tema, Apunte, Documento } from '../../lib/storage';
 import { supabase } from '../../lib/supabase';
-import { saveMateriasDB } from '../../lib/db';
+import { syncGetAll, syncSave } from '../../lib/sync';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
@@ -32,7 +32,6 @@ export default function MateriasPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
   const [showBuscador, setShowBuscador] = useState(false);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
 
@@ -40,81 +39,50 @@ export default function MateriasPage() {
     const cargar = async () => {
       setCargando(true);
       try {
-        // Mostrar localStorage primero (instantáneo)
+        // 1. Mostrar localStorage inmediatamente
         const materiasLocal = getMaterias();
         if (materiasLocal.length > 0) {
           setMaterias(materiasLocal);
           setCargando(false);
         }
 
-        // Obtener sesión
+        // 2. Verificar sesión
         let session = (await supabase.auth.getSession()).data.session;
-
-        // Si no hay sesión, intentar refresh
         if (!session) {
-          const { data: refreshData } = await supabase.auth.refreshSession();
-          session = refreshData.session;
+          const { data } = await supabase.auth.refreshSession();
+          session = data.session;
         }
-
         if (!session) {
           window.location.href = '/auth';
           return;
         }
 
-        const uid = session.user.id;
-        const token = session.access_token;
-        setUserId(uid);
-        setAccessToken(token);
+        setUserId(session.user.id);
 
-        const lastUserId = localStorage.getItem('josea_last_user');
-        if (lastUserId !== uid) {
-          localStorage.setItem('josea_last_user', uid);
-          localStorage.removeItem('josea_perfil');
-          localStorage.removeItem('josea_asignaciones');
-          localStorage.removeItem('josea_objetivos');
-        }
+        // 3. Cargar desde Supabase via API con service role
+        const remoteData = await syncGetAll();
 
-        // Cargar desde API route con el token
-        const res = await fetch('/api/materias', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        });
-
-        const data = await res.json();
-
-        if (data.success && data.materias.length > 0) {
-          setMaterias(data.materias);
-          saveMaterias(data.materias);
+        if (remoteData && remoteData.materias.length > 0) {
+          // Supabase tiene datos → usar esos
+          setMaterias(remoteData.materias);
+          saveMaterias(remoteData.materias);
         } else if (materiasLocal.length > 0) {
-          // localStorage tiene datos pero Supabase no → subir
-          await fetch('/api/materias', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ materias: materiasLocal }),
-          });
+          // Supabase vacío pero local tiene → subir a Supabase
+          await syncSave('materias', materiasLocal);
         } else {
-          // Reintentar una vez después de 2 segundos
+          // Todo vacío → reintentar en 2s
           await new Promise(r => setTimeout(r, 2000));
-          const res2 = await fetch('/api/materias', {
-            headers: { 'Authorization': `Bearer ${token}` },
-          });
-          const data2 = await res2.json();
-          if (data2.success && data2.materias.length > 0) {
-            setMaterias(data2.materias);
-            saveMaterias(data2.materias);
+          const remoteData2 = await syncGetAll();
+          if (remoteData2 && remoteData2.materias.length > 0) {
+            setMaterias(remoteData2.materias);
+            saveMaterias(remoteData2.materias);
           }
         }
 
       } catch (err) {
         console.error(err);
         const materiasLocal = getMaterias();
-        if (materiasLocal.length > 0) {
-          setMaterias(materiasLocal);
-        }
+        if (materiasLocal.length > 0) setMaterias(materiasLocal);
       } finally {
         setCargando(false);
       }
@@ -136,22 +104,7 @@ export default function MateriasPage() {
   const save = async (m: Materia[]) => {
     setMaterias(m);
     saveMaterias(m);
-    try {
-      if (accessToken) {
-        await fetch('/api/materias', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ materias: m }),
-        });
-      } else if (userId) {
-        await saveMateriasDB(userId, m);
-      }
-    } catch (err) {
-      console.error(err);
-    }
+    syncSave('materias', m); // no await para no bloquear UI
   };
 
   const actualizarMateria = (materia: Materia) => {
@@ -323,9 +276,7 @@ export default function MateriasPage() {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px' }}>
         <div style={{ fontSize: '48px' }}>📚</div>
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>
-          {tr('cargando')}
-        </p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>{tr('cargando')}</p>
       </div>
     );
   }
