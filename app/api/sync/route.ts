@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-let _supabaseAdmin: ReturnType<typeof createClient> | null = null;
-let _supabaseAuth: ReturnType<typeof createClient> | null = null;
+let _supabaseAdmin: any = null;
+let _supabaseAuth: any = null;
 
 const getSupabaseAdmin = () => {
   if (!_supabaseAdmin) {
@@ -11,7 +11,7 @@ const getSupabaseAdmin = () => {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
   }
-  return _supabaseAdmin;
+  return _supabaseAdmin as any;
 };
 
 const getSupabaseAuth = () => {
@@ -21,7 +21,7 @@ const getSupabaseAuth = () => {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
   }
-  return _supabaseAuth;
+  return _supabaseAuth as any;
 };
 
 const limpiarMaterias = (materias: any[]) => {
@@ -50,6 +50,15 @@ async function getUserFromToken(request: NextRequest) {
   }
 }
 
+async function upsert(db: any, tabla: string, uid: string, datos: any) {
+  const { data: existing } = await db.from(tabla).select('id').eq('user_id', uid).single();
+  if (existing) {
+    await db.from(tabla).update({ ...datos, updated_at: new Date().toISOString() }).eq('user_id', uid);
+  } else {
+    await db.from(tabla).insert({ user_id: uid, ...datos });
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const user = await getUserFromToken(request);
@@ -60,12 +69,11 @@ export async function GET(request: NextRequest) {
     const uid = user.id;
     const db = getSupabaseAdmin();
 
-    // ✅ Cast a any para evitar error de tipos
     const [materiasRes, agendaRes, horarioRes, settingsRes] = await Promise.all([
-      db.from('materias').select('datos').eq('user_id', uid).single() as any,
-      db.from('agenda').select('asignaciones, objetivos').eq('user_id', uid).single() as any,
-      db.from('horario').select('datos').eq('user_id', uid).single() as any,
-      db.from('user_settings').select('datos').eq('user_id', uid).single() as any,
+      db.from('materias').select('datos').eq('user_id', uid).single(),
+      db.from('agenda').select('asignaciones, objetivos').eq('user_id', uid).single(),
+      db.from('horario').select('datos').eq('user_id', uid).single(),
+      db.from('user_settings').select('datos').eq('user_id', uid).single(),
     ]);
 
     return NextResponse.json({
@@ -97,51 +105,22 @@ export async function POST(request: NextRequest) {
 
     if (tipo === 'materias') {
       const materiasLimpias = limpiarMaterias(datos);
-      const { data: existing } = await (db.from('materias').select('id').eq('user_id', uid).single() as any);
-      if (existing) {
-        await db.from('materias')
-          .update({ datos: materiasLimpias, updated_at: new Date().toISOString() })
-          .eq('user_id', uid);
-      } else {
-        await db.from('materias')
-          .insert({ user_id: uid, datos: materiasLimpias });
-      }
+      await upsert(db, 'materias', uid, { datos: materiasLimpias });
     }
 
     if (tipo === 'agenda') {
-      const { data: existing } = await (db.from('agenda').select('id').eq('user_id', uid).single() as any);
-      if (existing) {
-        await db.from('agenda')
-          .update({ asignaciones: datos.asignaciones, objetivos: datos.objetivos, updated_at: new Date().toISOString() })
-          .eq('user_id', uid);
-      } else {
-        await db.from('agenda')
-          .insert({ user_id: uid, asignaciones: datos.asignaciones, objetivos: datos.objetivos });
-      }
+      await upsert(db, 'agenda', uid, {
+        asignaciones: datos.asignaciones,
+        objetivos: datos.objetivos,
+      });
     }
 
     if (tipo === 'horario') {
-      const { data: existing } = await (db.from('horario').select('id').eq('user_id', uid).single() as any);
-      if (existing) {
-        await db.from('horario')
-          .update({ datos: datos, updated_at: new Date().toISOString() })
-          .eq('user_id', uid);
-      } else {
-        await db.from('horario')
-          .insert({ user_id: uid, datos: datos });
-      }
+      await upsert(db, 'horario', uid, { datos });
     }
 
     if (tipo === 'settings') {
-      const { data: existing } = await (db.from('user_settings').select('id').eq('user_id', uid).single() as any);
-      if (existing) {
-        await db.from('user_settings')
-          .update({ datos: datos, updated_at: new Date().toISOString() })
-          .eq('user_id', uid);
-      } else {
-        await db.from('user_settings')
-          .insert({ user_id: uid, datos: datos });
-      }
+      await upsert(db, 'user_settings', uid, { datos });
     }
 
     return NextResponse.json({ success: true });
