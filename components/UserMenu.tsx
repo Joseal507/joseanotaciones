@@ -3,16 +3,20 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useIdioma } from '../hooks/useIdioma';
+import { getSettings } from '../lib/settings';
 
 export default function UserMenu() {
   const [usuario, setUsuario] = useState<any>(null);
   const [open, setOpen] = useState(false);
+  const [fotoPerfil, setFotoPerfil] = useState('');
   const { tr } = useIdioma();
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       setUsuario(data.user);
     });
+    const settings = getSettings();
+    setFotoPerfil(settings.fotoPerfil || '');
   }, []);
 
   const cerrarSesion = async () => {
@@ -25,31 +29,36 @@ export default function UserMenu() {
   const nombre = usuario.user_metadata?.nombre || usuario.email?.split('@')[0] || 'Usuario';
   const inicial = nombre.charAt(0).toUpperCase();
 
+  const Avatar = ({ size = 28 }: { size?: number }) => (
+    <div style={{
+      width: size + 'px', height: size + 'px', borderRadius: '50%',
+      overflow: 'hidden', flexShrink: 0,
+      background: fotoPerfil ? 'transparent' : 'var(--gold)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: Math.round(size * 0.46) + 'px', fontWeight: 900, color: '#000',
+    }}>
+      {fotoPerfil ? (
+        <img src={fotoPerfil} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      ) : (
+        inicial
+      )}
+    </div>
+  );
+
   return (
     <div style={{ position: 'relative' }}>
       <button
         onClick={() => setOpen(!open)}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '6px 12px',
-          borderRadius: '10px',
+          display: 'flex', alignItems: 'center', gap: '8px',
+          padding: '6px 12px', borderRadius: '10px',
           border: '2px solid var(--border-color)',
-          background: 'transparent',
-          cursor: 'pointer',
-          transition: 'all 0.2s',
+          background: 'transparent', cursor: 'pointer', transition: 'all 0.2s',
         }}
         onMouseEnter={(e: any) => e.currentTarget.style.borderColor = 'var(--gold)'}
         onMouseLeave={(e: any) => e.currentTarget.style.borderColor = 'var(--border-color)'}
       >
-        <div style={{
-          width: '28px', height: '28px', borderRadius: '50%', background: 'var(--gold)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: '13px', fontWeight: 900, color: '#000', flexShrink: 0,
-        }}>
-          {inicial}
-        </div>
+        <Avatar size={28} />
         <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {nombre}
         </span>
@@ -67,9 +76,7 @@ export default function UserMenu() {
           }}>
             <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', marginBottom: '6px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', fontWeight: 900, color: '#000', flexShrink: 0 }}>
-                  {inicial}
-                </div>
+                <Avatar size={36} />
                 <div style={{ minWidth: 0 }}>
                   <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nombre}</p>
                   <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{usuario.email}</p>
@@ -95,8 +102,7 @@ export default function UserMenu() {
 
             <div style={{ height: '1px', background: 'var(--border-color)', margin: '6px 0' }} />
 
-            <button
-              onClick={cerrarSesion}
+            <button onClick={cerrarSesion}
               style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--red)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s' }}
               onMouseEnter={(e: any) => e.currentTarget.style.background = 'var(--red-dim)'}
               onMouseLeave={(e: any) => e.currentTarget.style.background = 'transparent'}>

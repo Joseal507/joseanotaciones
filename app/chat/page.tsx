@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { getPerfil, getMaterias } from '../../lib/storage';
+import { getSettings } from '../../lib/settings';
 import { useIdioma } from '../../hooks/useIdioma';
 import { getIdioma } from '../../lib/i18n';
 
@@ -12,22 +13,22 @@ interface Mensaje {
 
 export default function ChatPage() {
   const { tr, idioma } = useIdioma();
-
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [input, setInput] = useState('');
   const [cargando, setCargando] = useState(false);
   const [perfil, setPerfil] = useState<any>(null);
   const [todosDocumentos, setTodosDocumentos] = useState<any[]>([]);
   const [usarDocumentos, setUsarDocumentos] = useState(false);
+  const [fotoPerfil, setFotoPerfil] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const saludo = idioma === 'en'
       ? "Hi! I'm AlciBot 🤖 Your personal study assistant. I can explain concepts, help you study, answer questions and more. How can I help you today?"
       : '¡Hola! Soy AlciBot 🤖 Tu asistente de estudio personal. Puedo explicarte conceptos, ayudarte a estudiar, resolver dudas y más. ¿En qué te puedo ayudar hoy?';
-
     setMensajes([{ role: 'assistant', content: saludo }]);
     setPerfil(getPerfil());
+    setFotoPerfil(getSettings().fotoPerfil || '');
 
     const materias = getMaterias();
     const docs: any[] = [];
@@ -51,7 +52,6 @@ export default function ChatPage() {
     setInput('');
     setMensajes(prev => [...prev, { role: 'user', content: userMsg }]);
     setCargando(true);
-
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -87,8 +87,7 @@ export default function ChatPage() {
   };
 
   const renderMensaje = (texto: string) => {
-    const lineas = texto.split('\n');
-    return lineas.map((linea, i) => {
+    return texto.split('\n').map((linea, i) => {
       if (linea.startsWith('### ')) return <h3 key={i} style={{ fontSize: '16px', fontWeight: 800, color: 'var(--gold)', margin: '12px 0 6px' }}>{linea.slice(4)}</h3>;
       if (linea.startsWith('## ')) return <h2 key={i} style={{ fontSize: '18px', fontWeight: 800, color: 'var(--gold)', margin: '14px 0 8px' }}>{linea.slice(3)}</h2>;
       if (linea.startsWith('# ')) return <h1 key={i} style={{ fontSize: '20px', fontWeight: 900, color: 'var(--gold)', margin: '16px 0 8px' }}>{linea.slice(2)}</h1>;
@@ -119,9 +118,25 @@ export default function ChatPage() {
     ? ['How does photosynthesis work?', "Explain Newton's laws", 'What is a derivative?', 'Tips to memorize better', 'How to write an effective summary?']
     : ['¿Cómo funciona la fotosíntesis?', 'Explícame las leyes de Newton', '¿Qué es la derivada en cálculo?', 'Dame técnicas para memorizar mejor', '¿Cómo hago un resumen efectivo?'];
 
+  // Avatar del usuario
+  const UserAvatar = ({ size = 36 }: { size?: number }) => (
+    <div style={{
+      width: size, height: size, borderRadius: '50%',
+      overflow: 'hidden', flexShrink: 0,
+      background: fotoPerfil ? 'transparent' : 'var(--blue)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: size * 0.5,
+    }}>
+      {fotoPerfil
+        ? <img src={fotoPerfil} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        : '👤'}
+    </div>
+  );
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', fontFamily: '-apple-system, sans-serif' }}>
 
+      {/* Header */}
       <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: '0 40px', height: '68px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <button onClick={() => window.location.href = '/'}
@@ -138,7 +153,7 @@ export default function ChatPage() {
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <button onClick={() => setUsarDocumentos(!usarDocumentos)}
-            style={{ padding: '8px 16px', borderRadius: '8px', border: `2px solid ${usarDocumentos ? 'var(--blue)' : 'var(--border-color)'}`, background: usarDocumentos ? 'var(--blue-dim)' : 'transparent', color: usarDocumentos ? 'var(--blue)' : 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            style={{ padding: '8px 16px', borderRadius: '8px', border: `2px solid ${usarDocumentos ? 'var(--blue)' : 'var(--border-color)'}`, background: usarDocumentos ? 'var(--blue-dim)' : 'transparent', color: usarDocumentos ? 'var(--blue)' : 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
             📚 {usarDocumentos ? `${tr('docsOn')} (${todosDocumentos.length})` : tr('usarDocs')}
           </button>
           <button onClick={() => window.location.href = '/perfil'}
@@ -162,11 +177,14 @@ export default function ChatPage() {
       {usarDocumentos && todosDocumentos.length > 0 && (
         <div style={{ background: 'var(--blue-dim)', borderBottom: '1px solid var(--blue-border)', padding: '8px 40px' }}>
           <span style={{ fontSize: '13px', color: 'var(--blue)', fontWeight: 600 }}>
-            📚 AlciBot {idioma === 'en' ? `has access to ${todosDocumentos.length} document(s). Ask anything about them.` : `tiene acceso a ${todosDocumentos.length} documento(s). Puedes preguntarle sobre ellos.`}
+            📚 AlciBot {idioma === 'en'
+              ? `has access to ${todosDocumentos.length} document(s). Ask anything about them.`
+              : `tiene acceso a ${todosDocumentos.length} documento(s). Puedes preguntarle sobre ellos.`}
           </span>
         </div>
       )}
 
+      {/* Mensajes */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '24px 40px', display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '800px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
 
         {mensajes.length === 1 && (
@@ -184,9 +202,14 @@ export default function ChatPage() {
 
         {mensajes.map((msg, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: '8px' }}>
+
+            {/* Avatar bot */}
             {msg.role === 'assistant' && (
-              <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0 }}>🤖</div>
+              <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0 }}>
+                🤖
+              </div>
             )}
+
             <div style={{
               maxWidth: '75%', padding: '14px 18px',
               borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
@@ -198,15 +221,18 @@ export default function ChatPage() {
             }}>
               {msg.role === 'assistant' ? renderMensaje(msg.content) : msg.content}
             </div>
-            {msg.role === 'user' && (
-              <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0 }}>👤</div>
-            )}
+
+            {/* Avatar usuario con foto */}
+            {msg.role === 'user' && <UserAvatar size={36} />}
           </div>
         ))}
 
+        {/* Cargando */}
         {cargando && (
           <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'flex-end', gap: '8px' }}>
-            <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>🤖</div>
+            <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>
+              🤖
+            </div>
             <div style={{ padding: '14px 18px', borderRadius: '18px 18px 18px 4px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', display: 'flex', gap: '6px', alignItems: 'center' }}>
               {[0, 1, 2].map(i => (
                 <div key={i} style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--gold)', animation: `bounce 1s ${i * 0.2}s infinite` }} />
@@ -218,19 +244,22 @@ export default function ChatPage() {
         <div ref={bottomRef} />
       </div>
 
+      {/* Input */}
       <div style={{ padding: '20px 40px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)' }}>
-        <div style={{ maxWidth: '800px', margin: '0 auto', display: 'flex', gap: '10px' }}>
-          <textarea
-            value={input}
-            onChange={e => setInput(e.target.value)}
+        <div style={{ maxWidth: '800px', margin: '0 auto', display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
+
+          {/* Foto del usuario al lado del input */}
+          <UserAvatar size={36} />
+
+          <textarea value={input} onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
-            placeholder={idioma === 'en' ? 'Type your question... (Enter to send, Shift+Enter new line)' : 'Escribe tu pregunta... (Enter para enviar, Shift+Enter nueva línea)'}
+            placeholder={idioma === 'en' ? 'Type your question... (Enter to send)' : 'Escribe tu pregunta... (Enter para enviar)'}
             disabled={cargando}
             rows={2}
             style={{ flex: 1, padding: '14px 16px', borderRadius: '14px', border: `2px solid ${input ? 'var(--gold)' : 'var(--border-color)'}`, background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', resize: 'none', outline: 'none', transition: 'border 0.2s', fontFamily: 'inherit', lineHeight: 1.5 }}
           />
           <button onClick={enviar} disabled={!input.trim() || cargando}
-            style={{ padding: '14px 24px', borderRadius: '14px', border: 'none', background: input.trim() && !cargando ? 'var(--gold)' : 'var(--bg-card2)', color: input.trim() && !cargando ? '#000' : 'var(--text-faint)', fontWeight: 800, fontSize: '15px', cursor: input.trim() && !cargando ? 'pointer' : 'not-allowed', transition: 'all 0.2s', alignSelf: 'flex-end' }}>
+            style={{ padding: '14px 24px', borderRadius: '14px', border: 'none', background: input.trim() && !cargando ? 'var(--gold)' : 'var(--bg-card2)', color: input.trim() && !cargando ? '#000' : 'var(--text-faint)', fontWeight: 800, fontSize: '15px', cursor: input.trim() && !cargando ? 'pointer' : 'not-allowed', transition: 'all 0.2s' }}>
             {tr('enviar')}
           </button>
         </div>
