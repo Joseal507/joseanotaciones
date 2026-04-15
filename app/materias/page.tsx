@@ -45,7 +45,7 @@ export default function MateriasPage() {
           const lastUserId = localStorage.getItem('josea_last_user');
           if (lastUserId !== data.user.id) {
             localStorage.setItem('josea_last_user', data.user.id);
-            saveMaterias([]);
+            // NO borrar materias - vienen de Supabase
             localStorage.removeItem('josea_perfil');
             localStorage.removeItem('josea_asignaciones');
             localStorage.removeItem('josea_objetivos');
@@ -91,20 +91,32 @@ export default function MateriasPage() {
 
   const actualizarTema = (tema: Tema) => {
     if (!materiaActual) return;
-    const nuevaMateria = { ...materiaActual, temas: materiaActual.temas.map(t => t.id === tema.id ? tema : t) };
+    const nuevaMateria = {
+      ...materiaActual,
+      temas: materiaActual.temas.map(t => t.id === tema.id ? tema : t),
+    };
     actualizarMateria(nuevaMateria);
     setTemaActual(tema);
   };
 
   const actualizarDocumento = (doc: Documento) => {
     if (!temaActual) return;
-    const nuevoTema = { ...temaActual, documentos: temaActual.documentos.map(d => d.id === doc.id ? doc : d) };
+    const nuevoTema = {
+      ...temaActual,
+      documentos: temaActual.documentos.map(d => d.id === doc.id ? doc : d),
+    };
     actualizarTema(nuevoTema);
     setDocumentoActual(doc);
   };
 
   const crearMateria = (data: { nombre: string; color: string; emoji: string }) => {
-    const nueva: Materia = { id: generateId(), nombre: data.nombre, color: data.color, emoji: data.emoji, temas: [] };
+    const nueva: Materia = {
+      id: generateId(),
+      nombre: data.nombre,
+      color: data.color,
+      emoji: data.emoji,
+      temas: [],
+    };
     save([...materias, nueva]);
     setModalMateria(false);
   };
@@ -116,7 +128,13 @@ export default function MateriasPage() {
 
   const crearTema = (data: { nombre: string; color: string }) => {
     if (!materiaActual) return;
-    const nuevo: Tema = { id: generateId(), nombre: data.nombre, color: data.color, apuntes: [], documentos: [] };
+    const nuevo: Tema = {
+      id: generateId(),
+      nombre: data.nombre,
+      color: data.color,
+      apuntes: [],
+      documentos: [],
+    };
     actualizarMateria({ ...materiaActual, temas: [...materiaActual.temas, nuevo] });
     setModalTema(false);
   };
@@ -130,7 +148,9 @@ export default function MateriasPage() {
   const crearApunte = (data: { titulo: string }) => {
     if (!temaActual) return;
     const nuevo: Apunte = {
-      id: generateId(), titulo: data.titulo, contenido: '',
+      id: generateId(),
+      titulo: data.titulo,
+      contenido: '',
       fechaCreacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
       fechaModificacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
     };
@@ -142,10 +162,16 @@ export default function MateriasPage() {
   };
 
   const guardarApunte = (contenido: string) => {
-    if (!apunteActual) return;
-    const updated = { ...apunteActual, contenido, fechaModificacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES') };
-    if (!temaActual) return;
-    const nuevoTema = { ...temaActual, apuntes: temaActual.apuntes.map(a => a.id === updated.id ? updated : a) };
+    if (!apunteActual || !temaActual) return;
+    const updated: Apunte = {
+      ...apunteActual,
+      contenido,
+      fechaModificacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
+    };
+    const nuevoTema = {
+      ...temaActual,
+      apuntes: temaActual.apuntes.map(a => a.id === updated.id ? updated : a),
+    };
     actualizarTema(nuevoTema);
     setApunteActual(updated);
   };
@@ -184,7 +210,9 @@ export default function MateriasPage() {
         id: generateId(),
         nombre: file.name,
         contenido: data.content,
-        tipo: file.name.endsWith('.pdf') ? 'pdf' : file.name.endsWith('.docx') || file.name.endsWith('.doc') ? 'word' : 'txt',
+        tipo: file.name.endsWith('.pdf') ? 'pdf'
+          : file.name.endsWith('.docx') || file.name.endsWith('.doc') ? 'word'
+          : 'txt',
         fechaSubida: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
         archivoUrl,
         archivoBase64: data.fileBase64,
@@ -307,9 +335,15 @@ export default function MateriasPage() {
           />
         )}
 
-        {modalMateria && <ModalMateria onClose={() => setModalMateria(false)} onConfirm={crearMateria} />}
-        {modalTema && materiaActual && <ModalTema onClose={() => setModalTema(false)} onConfirm={crearTema} colorMateria={materiaActual.color} />}
-        {modalApunte && temaActual && <ModalApunte onClose={() => setModalApunte(false)} onConfirm={crearApunte} colorTema={temaActual.color} />}
+        {modalMateria && (
+          <ModalMateria onClose={() => setModalMateria(false)} onConfirm={crearMateria} />
+        )}
+        {modalTema && materiaActual && (
+          <ModalTema onClose={() => setModalTema(false)} onConfirm={crearTema} colorMateria={materiaActual.color} />
+        )}
+        {modalApunte && temaActual && (
+          <ModalApunte onClose={() => setModalApunte(false)} onConfirm={crearApunte} colorTema={temaActual.color} />
+        )}
       </div>
     </div>
   );
