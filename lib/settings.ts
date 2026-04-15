@@ -2,7 +2,7 @@ const isBrowser = () => typeof window !== 'undefined';
 
 export interface AppSettings {
   nombreApp: string;
-  tema: 'default' | 'playero' | 'falcons' | 'raiders' | 'math';
+  tema: 'default' | 'alai' | 'falcons' | 'raiders' | 'math';
   fotoPerfil: string;
   notifAsignaciones: boolean;
   notifRacha: boolean;

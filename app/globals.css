@@ -72,20 +72,20 @@
   --pink-border: rgba(244,114,182,0.3);
 }
 
-/* ===== PLAYERO ===== */
-:root[data-theme="playero"] {
-  --gold: #e8c87a;
-  --gold-dim: rgba(232,200,122,0.15);
-  --gold-border: rgba(232,200,122,0.3);
-  --red: #ff6b6b;
-  --red-dim: rgba(255,107,107,0.15);
-  --red-border: rgba(255,107,107,0.3);
-  --blue: #48cae4;
-  --blue-dim: rgba(72,202,228,0.15);
-  --blue-border: rgba(72,202,228,0.3);
-  --pink: #f7c59f;
-  --pink-dim: rgba(247,197,159,0.15);
-  --pink-border: rgba(247,197,159,0.3);
+/* ===== ALAI ===== */
+:root[data-theme="alai"] {
+  --gold: #7ec8e3;
+  --gold-dim: rgba(126,200,227,0.15);
+  --gold-border: rgba(126,200,227,0.3);
+  --red: #c9184a;
+  --red-dim: rgba(201,24,74,0.15);
+  --red-border: rgba(201,24,74,0.3);
+  --blue: #023e8a;
+  --blue-dim: rgba(2,62,138,0.15);
+  --blue-border: rgba(2,62,138,0.3);
+  --pink: #ff85a1;
+  --pink-dim: rgba(255,133,161,0.15);
+  --pink-border: rgba(255,133,161,0.3);
 }
 
 /* ===== FALCONS ===== */

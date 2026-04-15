@@ -11,11 +11,36 @@ import { getSettings, saveSettings, applyTheme, limpiarDatosEstudio, AppSettings
 type Seccion = 'perfil' | 'seguridad' | 'personalizacion' | 'notificaciones' | 'datos' | 'cuenta';
 
 const TEMAS: { id: AppSettings['tema']; label: string; desc: string; colors: string[] }[] = [
-  { id: 'default', label: '⭐ Default', desc: 'Dorado, rojo, celeste y rosado', colors: ['#f5c842', '#ff4d6d', '#38bdf8', '#f472b6'] },
-  { id: 'playero', label: '🏖️ Playero', desc: 'Arena, turquesa y coral', colors: ['#e8c87a', '#ff6b6b', '#48cae4', '#f7c59f'] },
-  { id: 'falcons', label: '🏈 Falcons', desc: 'Rojo Atlanta, negro y plata', colors: ['#a71930', '#c8c9c7', '#000000', '#a71930'] },
-  { id: 'raiders', label: '🏴‍☠️ El Broder 😐', desc: 'Plata, negro y blanco', colors: ['#a5acaf', '#000000', '#ffffff', '#a5acaf'] },
-  { id: 'math', label: '🔢 Peter Saupeter 😏', desc: 'Verde neón, azul eléctrico, morado y pink', colors: ['#00f5d4', '#4361ee', '#7b2d8b', '#f72585'] },
+  {
+    id: 'default',
+    label: '⭐ Default',
+    desc: 'Dorado, rojo, celeste y rosado',
+    colors: ['#f5c842', '#ff4d6d', '#38bdf8', '#f472b6'],
+  },
+  {
+    id: 'alai',
+    label: '👧 Alai',
+    desc: 'Celeste, azul marino, rosado y rosado oscuro',
+    colors: ['#7ec8e3', '#023e8a', '#ff85a1', '#c9184a'],
+  },
+  {
+    id: 'falcons',
+    label: '🏈 Falcons',
+    desc: 'Rojo Atlanta, negro y plata',
+    colors: ['#a71930', '#c8c9c7', '#000000', '#a71930'],
+  },
+  {
+    id: 'raiders',
+    label: '🏴‍☠️ El Broder 😐',
+    desc: 'Plata, negro y blanco — Las Vegas Raiders',
+    colors: ['#a5acaf', '#000000', '#ffffff', '#a5acaf'],
+  },
+  {
+    id: 'math',
+    label: '🔢 Peter Saupeter 😏',
+    desc: 'Verde neón, azul eléctrico, morado y pink',
+    colors: ['#00f5d4', '#4361ee', '#7b2d8b', '#f72585'],
+  },
 ];
 
 export default function SettingsPage() {
