@@ -39,26 +39,57 @@ export default function MateriasPage() {
     const cargar = async () => {
       setCargando(true);
       try {
-        const { data } = await supabase.auth.getUser();
-        if (data.user) {
-          setUserId(data.user.id);
-          const lastUserId = localStorage.getItem('josea_last_user');
-          if (lastUserId !== data.user.id) {
-            localStorage.setItem('josea_last_user', data.user.id);
-            // NO borrar materias - vienen de Supabase
-            localStorage.removeItem('josea_perfil');
-            localStorage.removeItem('josea_asignaciones');
-            localStorage.removeItem('josea_objetivos');
-          }
-          const materiasDB = await getMateriasDB(data.user.id);
+        // Esperar a que la sesión esté lista
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData.session) {
+          window.location.href = '/auth';
+          return;
+        }
+
+        const uid = sessionData.session.user.id;
+        setUserId(uid);
+
+        const lastUserId = localStorage.getItem('josea_last_user');
+        if (lastUserId !== uid) {
+          localStorage.setItem('josea_last_user', uid);
+          localStorage.removeItem('josea_perfil');
+          localStorage.removeItem('josea_asignaciones');
+          localStorage.removeItem('josea_objetivos');
+        }
+
+        // Mostrar localStorage primero si hay datos
+        const materiasLocal = getMaterias();
+        if (materiasLocal.length > 0) {
+          setMaterias(materiasLocal);
+          setCargando(false);
+        }
+
+        // Cargar desde Supabase
+        const materiasDB = await getMateriasDB(uid);
+
+        if (materiasDB.length > 0) {
           setMaterias(materiasDB);
           saveMaterias(materiasDB);
+        } else if (materiasLocal.length > 0) {
+          // localStorage tiene pero Supabase no → subir a Supabase
+          await saveMateriasDB(uid, materiasLocal);
+          setMaterias(materiasLocal);
         } else {
-          window.location.href = '/auth';
+          // Reintentar una vez después de 2 segundos
+          // (a veces Supabase tarda en el primer request del celular)
+          await new Promise(r => setTimeout(r, 2000));
+          const materiasRetry = await getMateriasDB(uid);
+          if (materiasRetry.length > 0) {
+            setMaterias(materiasRetry);
+            saveMaterias(materiasRetry);
+          }
         }
       } catch (err) {
         console.error(err);
-        setMaterias([]);
+        const materiasLocal = getMaterias();
+        if (materiasLocal.length > 0) {
+          setMaterias(materiasLocal);
+        }
       } finally {
         setCargando(false);
       }
