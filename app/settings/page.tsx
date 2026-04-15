@@ -7,6 +7,7 @@ import { useDarkMode } from '../../hooks/useDarkMode';
 import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
 import { getSettings, saveSettings, applyTheme, limpiarDatosEstudio, AppSettings, DEFAULT_SETTINGS } from '../../lib/settings';
+import { getSettingsDB, saveSettingsDB } from '../../lib/db';
 
 type Seccion = 'perfil' | 'seguridad' | 'personalizacion' | 'notificaciones' | 'datos' | 'cuenta';
 
@@ -48,6 +49,7 @@ export default function SettingsPage() {
   const [usuario, setUsuario] = useState<any>(null);
   const [cargando, setCargando] = useState(true);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [userId, setUserId] = useState<string | null>(null);
   const { darkMode: isDark, toggle: toggleDark } = useDarkMode();
   const { idioma, setIdioma, tr } = useIdioma();
   const isMobile = useIsMobile();
@@ -71,10 +73,31 @@ export default function SettingsPage() {
       const { data } = await supabase.auth.getUser();
       if (!data.user) { window.location.href = '/auth'; return; }
       setUsuario(data.user);
+      setUserId(data.user.id);
       setNombre(data.user.user_metadata?.nombre || '');
-      const s = getSettings();
-      setSettings(s);
-      applyTheme(s.tema);
+
+      // Cargar settings locales primero
+      const localSettings = getSettings();
+
+      // Intentar cargar desde Supabase
+      try {
+        const remoteSettings = await getSettingsDB(data.user.id);
+        if (remoteSettings) {
+          const merged = { ...DEFAULT_SETTINGS, ...localSettings, ...remoteSettings };
+          setSettings(merged);
+          saveSettings(merged);
+          applyTheme(merged.tema);
+        } else {
+          setSettings(localSettings);
+          applyTheme(localSettings.tema);
+          // Subir settings locales a Supabase
+          await saveSettingsDB(data.user.id, localSettings);
+        }
+      } catch {
+        setSettings(localSettings);
+        applyTheme(localSettings.tema);
+      }
+
       setCargando(false);
     };
     cargar();
@@ -86,28 +109,39 @@ export default function SettingsPage() {
     }
   }, [seccion, settings.nombreApp]);
 
-  const updateSettings = (changes: Partial<AppSettings>) => {
+  const updateSettings = async (changes: Partial<AppSettings>) => {
     const nuevas = { ...settings, ...changes };
     setSettings(nuevas);
     saveSettings(nuevas);
     if (changes.tema) applyTheme(changes.tema);
+
+    // Sincronizar con Supabase
+    if (userId) {
+      try {
+        await saveSettingsDB(userId, nuevas);
+      } catch (err) {
+        console.error(err);
+      }
+    }
   };
 
-  const guardarNombreApp = () => {
+  const guardarNombreApp = async () => {
     const valor = nombreAppRef.current?.value?.trim() || 'JoseAnotaciones';
     const nuevas = { ...settings, nombreApp: valor };
     setSettings(nuevas);
     saveSettings(nuevas);
+    if (userId) await saveSettingsDB(userId, nuevas);
     setMensajeNombreApp('✅ ' + valor);
     setTimeout(() => setMensajeNombreApp(''), 3000);
   };
 
-  const restablecerNombreApp = () => {
+  const restablecerNombreApp = async () => {
     if (nombreAppRef.current) nombreAppRef.current.value = 'JoseAnotaciones';
     const nuevas = { ...settings, nombreApp: 'JoseAnotaciones' };
     setSettings(nuevas);
     saveSettings(nuevas);
-    setMensajeNombreApp('✅');
+    if (userId) await saveSettingsDB(userId, nuevas);
+    setMensajeNombreApp('✅ Restablecido');
     setTimeout(() => setMensajeNombreApp(''), 3000);
   };
 
@@ -130,9 +164,9 @@ export default function SettingsPage() {
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) { alert('Max 2MB'); return; }
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const result = ev.target?.result as string;
-      updateSettings({ fotoPerfil: result });
+      await updateSettings({ fotoPerfil: result });
     };
     reader.readAsDataURL(file);
   };
@@ -176,7 +210,7 @@ export default function SettingsPage() {
     const permiso = await Notification.requestPermission();
     if (permiso === 'granted') {
       new Notification('JoseAnotaciones', { body: tr('notifActivadas') });
-      updateSettings({ notifAsignaciones: true, notifRacha: true, notifLogros: true });
+      await updateSettings({ notifAsignaciones: true, notifRacha: true, notifLogros: true });
     }
   };
 
@@ -373,9 +407,7 @@ export default function SettingsPage() {
               </Card>
               <Card color="var(--pink)">
                 <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('olvidasteContrasena')}</h2>
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
-                  {usuario?.email}
-                </p>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>{usuario?.email}</p>
                 <Alert msg={mensajeReset} />
                 <button onClick={enviarReset} disabled={enviandoReset}
                   style={{ padding: '13px 24px', borderRadius: '10px', border: 'none', background: enviandoReset ? 'var(--bg-card2)' : 'var(--pink)', color: enviandoReset ? 'var(--text-faint)' : '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer', alignSelf: 'flex-start' }}>
@@ -447,7 +479,7 @@ export default function SettingsPage() {
                       const isActive = settings.tema === tema.id;
                       return (
                         <button key={tema.id}
-                          onClick={() => { const nuevas = { ...settings, tema: tema.id }; setSettings(nuevas); saveSettings(nuevas); applyTheme(tema.id); }}
+                          onClick={() => updateSettings({ tema: tema.id })}
                           style={{ padding: '16px 18px', borderRadius: '12px', border: `2px solid ${isActive ? tema.colors[0] : 'var(--border-color)'}`, background: isActive ? tema.colors[0] + '25' : 'var(--bg-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', transition: 'all 0.2s', textAlign: 'left', width: '100%' }}>
                           <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
                             {tema.colors.map((c, i) => (
@@ -517,9 +549,10 @@ export default function SettingsPage() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {[
                     { label: '☁️ ' + tr('materias'), desc: 'Supabase (cloud)' },
+                    { label: '📸 ' + tr('fotoPerfil'), desc: 'Supabase (cloud) ✅' },
+                    { label: '🎨 ' + tr('temaColores'), desc: 'Supabase (cloud) ✅' },
                     { label: '📊 Stats', desc: 'localStorage' },
                     { label: '🔥 Streak', desc: 'localStorage' },
-                    { label: '⚙️ Settings', desc: 'localStorage' },
                     { label: '🎓 Quizzes & decks', desc: 'localStorage' },
                   ].map((item, i) => (
                     <div key={i} style={{ padding: '10px 14px', background: 'var(--bg-secondary)', borderRadius: '10px' }}>

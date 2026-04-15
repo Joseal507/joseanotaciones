@@ -34,9 +34,7 @@ export async function getMateriasDB(userId: string): Promise<Materia[]> {
       .single();
     if (error || !data) return [];
     return data.datos || [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 export async function saveMateriasDB(userId: string, materias: Materia[]): Promise<void> {
@@ -57,9 +55,7 @@ export async function saveMateriasDB(userId: string, materias: Materia[]): Promi
         .from('materias')
         .insert({ user_id: userId, datos: materias });
     }
-  } catch (err) {
-    console.error('Error guardando materias:', err);
-  }
+  } catch (err) { console.error('Error guardando materias:', err); }
 }
 
 // ===== PERFIL =====
@@ -78,9 +74,7 @@ export async function getPerfilDB(userId: string): Promise<PerfilEstudio> {
       .single();
     if (error || !data) return empty;
     return data.datos || empty;
-  } catch {
-    return empty;
-  }
+  } catch { return empty; }
 }
 
 export async function savePerfilDB(userId: string, perfil: PerfilEstudio): Promise<void> {
@@ -101,9 +95,7 @@ export async function savePerfilDB(userId: string, perfil: PerfilEstudio): Promi
         .from('perfil_estudio')
         .insert({ user_id: userId, datos: perfil });
     }
-  } catch (err) {
-    console.error('Error guardando perfil:', err);
-  }
+  } catch (err) { console.error('Error guardando perfil:', err); }
 }
 
 // ===== AGENDA =====
@@ -119,9 +111,7 @@ export async function getAgendaDB(userId: string): Promise<{ asignaciones: Asign
       asignaciones: data.asignaciones || [],
       objetivos: data.objetivos || [],
     };
-  } catch {
-    return { asignaciones: [], objetivos: [] };
-  }
+  } catch { return { asignaciones: [], objetivos: [] }; }
 }
 
 export async function saveAgendaDB(
@@ -146,9 +136,7 @@ export async function saveAgendaDB(
         .from('agenda')
         .insert({ user_id: userId, asignaciones, objetivos });
     }
-  } catch (err) {
-    console.error('Error guardando agenda:', err);
-  }
+  } catch (err) { console.error('Error guardando agenda:', err); }
 }
 
 // ===== HORARIO =====
@@ -161,9 +149,7 @@ export async function getHorarioDB(userId: string): Promise<Horario> {
       .single();
     if (error || !data) return HORARIO_VACIO;
     return data.datos || HORARIO_VACIO;
-  } catch {
-    return HORARIO_VACIO;
-  }
+  } catch { return HORARIO_VACIO; }
 }
 
 export async function saveHorarioDB(userId: string, horario: Horario): Promise<void> {
@@ -184,7 +170,39 @@ export async function saveHorarioDB(userId: string, horario: Horario): Promise<v
         .from('horario')
         .insert({ user_id: userId, datos: horario });
     }
-  } catch (err) {
-    console.error('Error guardando horario:', err);
-  }
+  } catch (err) { console.error('Error guardando horario:', err); }
+}
+
+// ===== SETTINGS =====
+export async function getSettingsDB(userId: string): Promise<any> {
+  try {
+    const { data, error } = await supabase
+      .from('user_settings')
+      .select('datos')
+      .eq('user_id', userId)
+      .single();
+    if (error || !data) return null;
+    return data.datos;
+  } catch { return null; }
+}
+
+export async function saveSettingsDB(userId: string, settings: any): Promise<void> {
+  try {
+    const { data: existing } = await supabase
+      .from('user_settings')
+      .select('id')
+      .eq('user_id', userId)
+      .single();
+
+    if (existing) {
+      await supabase
+        .from('user_settings')
+        .update({ datos: settings, updated_at: new Date().toISOString() })
+        .eq('user_id', userId);
+    } else {
+      await supabase
+        .from('user_settings')
+        .insert({ user_id: userId, datos: settings });
+    }
+  } catch (err) { console.error('Error guardando settings:', err); }
 }
