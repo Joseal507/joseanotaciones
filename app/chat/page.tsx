@@ -13,6 +13,12 @@ interface Mensaje {
   isAudio?: boolean;
 }
 
+interface ImageData {
+  base64: string;
+  mime: string;
+  preview: string;
+}
+
 export default function ChatPage() {
   const { tr, idioma } = useIdioma();
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
@@ -22,13 +28,10 @@ export default function ChatPage() {
   const [todosDocumentos, setTodosDocumentos] = useState<any[]>([]);
   const [usarDocumentos, setUsarDocumentos] = useState(false);
   const [fotoPerfil, setFotoPerfil] = useState('');
-
-  const [selectedImage, setSelectedImage] = useState<{ base64: string; mime: string; preview: string } | null>(null);
-
+  const [selectedImage, setSelectedImage] = useState<ImageData | null>(null);
   const [grabando, setGrabando] = useState(false);
   const [audioGrabado, setAudioGrabado] = useState<{ blob: Blob; url: string } | null>(null);
   const [transcribiendo, setTranscribiendo] = useState(false);
-
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [modoLlamada, setModoLlamada] = useState(false);
   const [llamandoAI, setLlamandoAI] = useState(false);
@@ -60,23 +63,20 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [mensajes]);
 
-  // Cargar voces + parar al salir
   useEffect(() => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.getVoices();
       window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
     }
     return () => {
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     };
   }, []);
 
-  // ===== ENVIAR TEXTO =====
-  const enviar = async (textoOverride?: string, imgData?: { base64: string; mime: string }) => {
+  // ===== ENVIAR =====
+  const enviar = async (textoOverride?: string, imgData?: ImageData) => {
     const texto = textoOverride || input.trim();
-    const imgToSend = imgData || selectedImage;
+    const imgToSend: ImageData | null = imgData || selectedImage;
 
     if (!texto && !imgToSend) return;
     if (cargando) return;
@@ -110,9 +110,7 @@ export default function ChatPage() {
       const data = await res.json();
       if (data.success) {
         setMensajes(prev => [...prev, { role: 'assistant', content: data.respuesta }]);
-        if (audioEnabled || modoLlamada) {
-          await reproducirRespuesta(data.respuesta);
-        }
+        if (audioEnabled || modoLlamada) await reproducirRespuesta(data.respuesta);
       }
     } catch {
       setMensajes(prev => [...prev, {
@@ -124,7 +122,7 @@ export default function ChatPage() {
     }
   };
 
-  // ===== TEXTO TO SPEECH =====
+  // ===== TTS =====
   const reproducirRespuesta = async (texto: string) => {
     if (!('speechSynthesis' in window)) return;
     try {
@@ -152,13 +150,11 @@ export default function ChatPage() {
         bestVoice =
           voices.find(v => v.name === 'Daniel') ||
           voices.find(v => v.name === 'Alex') ||
-          voices.find(v => v.name === 'Rishi') ||
           voices.find(v => v.lang.startsWith('en') && !['Karen', 'Samantha', 'Moira', 'Tessa', 'Veena', 'Victoria'].includes(v.name));
       } else {
         bestVoice =
           voices.find(v => v.name === 'Juan') ||
           voices.find(v => v.name === 'Jorge') ||
-          voices.find(v => v.name === 'Diego') ||
           voices.find(v => v.lang.startsWith('es') && !['Monica', 'Paulina'].includes(v.name));
       }
       if (bestVoice) utterance.voice = bestVoice;
@@ -181,7 +177,7 @@ export default function ChatPage() {
     }
   };
 
-  // ===== SELECCIONAR IMAGEN =====
+  // ===== IMAGEN =====
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -195,7 +191,7 @@ export default function ChatPage() {
     e.target.value = '';
   };
 
-  // ===== INICIAR GRABACIÓN =====
+  // ===== GRABACIÓN =====
   const iniciarGrabacion = async () => {
     try {
       if (audioGrabado) { URL.revokeObjectURL(audioGrabado.url); setAudioGrabado(null); }
@@ -213,12 +209,11 @@ export default function ChatPage() {
       };
       mediaRecorder.start();
       setGrabando(true);
-    } catch (err) {
+    } catch {
       alert(idioma === 'en' ? 'Could not access microphone.' : 'No se pudo acceder al micrófono.');
     }
   };
 
-  // ===== DETENER GRABACIÓN =====
   const detenerGrabacion = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
@@ -226,12 +221,10 @@ export default function ChatPage() {
     setGrabando(false);
   };
 
-  // ===== DESCARTAR AUDIO =====
   const descartarAudio = () => {
     if (audioGrabado) { URL.revokeObjectURL(audioGrabado.url); setAudioGrabado(null); }
   };
 
-  // ===== ENVIAR AUDIO GRABADO =====
   const enviarAudioGrabado = async () => {
     if (!audioGrabado) return;
     setTranscribiendo(true);
@@ -250,7 +243,6 @@ export default function ChatPage() {
       }
     } catch (err) {
       console.error(err);
-      alert(idioma === 'en' ? 'Error transcribing.' : 'Error al transcribir.');
     } finally {
       setTranscribiendo(false);
     }
@@ -280,7 +272,6 @@ export default function ChatPage() {
     finally { setCargando(false); }
   };
 
-  // ===== SUBIR ARCHIVO AUDIO =====
   const handleAudioFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -299,7 +290,6 @@ export default function ChatPage() {
     finally { setTranscribiendo(false); e.target.value = ''; }
   };
 
-  // ===== MODO LLAMADA =====
   const toggleModoLlamada = async () => {
     if (modoLlamada) {
       window.speechSynthesis?.cancel();
@@ -309,8 +299,8 @@ export default function ChatPage() {
       setModoLlamada(true);
       setAudioEnabled(true);
       const saludo = idioma === 'en'
-        ? "Hi! I'm JeffreyBot, disciple of José Alberto de Obaldia. I'm listening, how can I help you?"
-        : '¡Hola! Soy JeffreyBot, discípulo de José Alberto de Obaldia. Te escucho, ¿en qué puedo ayudarte?';
+        ? "Hi! I'm JeffreyBot, disciple of José Alberto de Obaldia. I'm listening!"
+        : '¡Hola! Soy JeffreyBot, discípulo de José Alberto de Obaldia. ¡Te escucho!';
       await reproducirRespuesta(saludo);
     }
   };
@@ -396,14 +386,14 @@ export default function ChatPage() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
           <button onClick={toggleModoLlamada}
             style={{ padding: '7px 14px', borderRadius: '8px', border: `2px solid ${modoLlamada ? '#4ade80' : 'var(--border-color)'}`, background: modoLlamada ? '#4ade8020' : 'transparent', color: modoLlamada ? '#4ade80' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
             {modoLlamada ? '📞 Colgar' : '📞 Llamar'}
           </button>
           <button onClick={() => setAudioEnabled(!audioEnabled)}
             style={{ padding: '7px 14px', borderRadius: '8px', border: `2px solid ${audioEnabled ? 'var(--gold)' : 'var(--border-color)'}`, background: audioEnabled ? 'var(--gold-dim)' : 'transparent', color: audioEnabled ? 'var(--gold)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-            {audioEnabled ? '🔊 Voz ON' : '🔇 Voz OFF'}
+            {audioEnabled ? '🔊 ON' : '🔇 OFF'}
           </button>
           <button onClick={() => setUsarDocumentos(!usarDocumentos)}
             style={{ padding: '7px 14px', borderRadius: '8px', border: `2px solid ${usarDocumentos ? 'var(--blue)' : 'var(--border-color)'}`, background: usarDocumentos ? 'var(--blue-dim)' : 'transparent', color: usarDocumentos ? 'var(--blue)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
@@ -413,7 +403,7 @@ export default function ChatPage() {
             style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
             📊
           </button>
-          <button onClick={() => setMensajes([{ role: 'assistant', content: idioma === 'en' ? "Hi! I'm JeffreyBot 🤖 Disciple of José Alberto de Obaldia" : '¡Hola! Soy JeffreyBot 🤖 Discípulo de José Alberto de Obaldia' }])}
+          <button onClick={() => setMensajes([{ role: 'assistant', content: idioma === 'en' ? "Hi! I'm JeffreyBot 🤖" : '¡Hola! Soy JeffreyBot 🤖' }])}
             style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
             🗑️
           </button>
@@ -434,7 +424,7 @@ export default function ChatPage() {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', marginBottom: '16px' }}>
             {sugerencias.map((s, i) => (
               <button key={i} onClick={() => enviar(s)}
-                style={{ padding: '8px 14px', borderRadius: '20px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '13px', cursor: 'pointer' }}
+                style={{ padding: '8px 14px', borderRadius: '20px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '13px', cursor: 'pointer', transition: 'all 0.2s' }}
                 onMouseEnter={(e: any) => { e.currentTarget.style.borderColor = 'var(--gold)'; e.currentTarget.style.color = 'var(--gold)'; }}
                 onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
                 {s}
@@ -456,7 +446,9 @@ export default function ChatPage() {
               fontSize: '15px', lineHeight: 1.7,
               border: msg.role === 'assistant' ? '1px solid var(--border-color)' : 'none',
             }}>
-              {msg.imageUrl && <img src={msg.imageUrl} alt="" style={{ maxWidth: '100%', borderRadius: '10px', marginBottom: '8px', display: 'block' }} />}
+              {msg.imageUrl && (
+                <img src={msg.imageUrl} alt="" style={{ maxWidth: '100%', borderRadius: '10px', marginBottom: '8px', display: 'block' }} />
+              )}
               {msg.isAudio && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', opacity: 0.8 }}>
                   <span>🎤</span>
@@ -479,36 +471,43 @@ export default function ChatPage() {
           <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'flex-end', gap: '8px' }}>
             <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>🤖</div>
             <div style={{ padding: '14px 18px', borderRadius: '18px 18px 18px 4px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', display: 'flex', gap: '6px', alignItems: 'center' }}>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginRight: '4px' }}>
-                {transcribiendo ? (idioma === 'en' ? '🎤 Transcribing...' : '🎤 Transcribiendo...') : ''}
-              </span>
-              {[0, 1, 2].map(i => (
-                <div key={i} style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--gold)', animation: `bounce 1s ${i * 0.2}s infinite` }} />
+              {transcribiendo && (
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginRight: '4px' }}>
+                  🎤 {idioma === 'en' ? 'Transcribing...' : 'Transcribiendo...'}
+                </span>
+              )}
+              {[0, 1, 2].map(j => (
+                <div key={j} style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--gold)', animation: `bounce 1s ${j * 0.2}s infinite` }} />
               ))}
             </div>
           </div>
         )}
+
         <div ref={bottomRef} />
       </div>
 
-      {/* PREVIEW IMAGEN */}
+      {/* Preview imagen */}
       {selectedImage && (
         <div style={{ padding: '10px 24px', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-color)', maxWidth: '800px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <img src={selectedImage.preview} alt="" style={{ width: '56px', height: '56px', objectFit: 'cover', borderRadius: '8px', border: '2px solid var(--gold)' }} />
             <div style={{ flex: 1 }}>
-              <p style={{ fontSize: '13px', color: 'var(--text-primary)', margin: 0, fontWeight: 600 }}>{idioma === 'en' ? '🖼️ Image ready to send' : '🖼️ Imagen lista para enviar'}</p>
-              <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '2px 0 0' }}>{idioma === 'en' ? 'Add a message or send directly' : 'Agrega un mensaje o envía directamente'}</p>
+              <p style={{ fontSize: '13px', color: 'var(--text-primary)', margin: 0, fontWeight: 600 }}>
+                {idioma === 'en' ? '🖼️ Image ready to send' : '🖼️ Imagen lista para enviar'}
+              </p>
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '2px 0 0' }}>
+                {idioma === 'en' ? 'Add a message or send directly' : 'Agrega un mensaje o envía directamente'}
+              </p>
             </div>
             <button onClick={() => setSelectedImage(null)}
               style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: '13px', cursor: 'pointer', fontWeight: 700 }}>
-              ✕ {idioma === 'en' ? 'Remove' : 'Quitar'}
+              ✕
             </button>
           </div>
         </div>
       )}
 
-      {/* PANEL AUDIO GRABADO */}
+      {/* Panel audio grabado */}
       {audioGrabado && (
         <div style={{ padding: '14px 24px', background: 'var(--bg-card)', borderTop: '2px solid var(--gold)', maxWidth: '800px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
           <p style={{ fontSize: '12px', fontWeight: 700, color: 'var(--gold)', margin: '0 0 10px', textTransform: 'uppercase', letterSpacing: '1px' }}>
@@ -522,17 +521,17 @@ export default function ChatPage() {
             </button>
             <button onClick={descartarAudio} disabled={transcribiendo}
               style={{ padding: '10px 16px', borderRadius: '10px', border: '2px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: '13px', fontWeight: 700, cursor: transcribiendo ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
-              🗑️ {idioma === 'en' ? 'Discard' : 'Descartar'}
+              🗑️
             </button>
             <button onClick={() => { descartarAudio(); iniciarGrabacion(); }} disabled={transcribiendo}
               style={{ padding: '10px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: transcribiendo ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
-              🔄 {idioma === 'en' ? 'Record again' : 'Grabar de nuevo'}
+              🔄
             </button>
           </div>
         </div>
       )}
 
-      {/* INPUT ÁREA */}
+      {/* Input */}
       <div style={{ padding: '16px 24px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)' }}>
         <div style={{ maxWidth: '800px', margin: '0 auto' }}>
           {!audioGrabado && (
@@ -547,26 +546,22 @@ export default function ChatPage() {
               </button>
               {!grabando ? (
                 <button onClick={iniciarGrabacion}
-                  style={{ padding: '7px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  style={{ padding: '7px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
                   🎤 {idioma === 'en' ? 'Record' : 'Grabar'}
                 </button>
               ) : (
                 <button onClick={detenerGrabacion}
-                  style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--red)', background: 'var(--red-dim)', color: 'var(--red)', fontSize: '12px', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', animation: 'pulse-red 1s infinite' }}>
-                  ⏹️ {idioma === 'en' ? 'Stop recording' : 'Parar grabación'}
+                  style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--red)', background: 'var(--red-dim)', color: 'var(--red)', fontSize: '12px', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  ⏹️ {idioma === 'en' ? 'Stop' : 'Parar'}
                   <span style={{ fontSize: '10px', background: 'var(--red)', color: '#fff', padding: '1px 6px', borderRadius: '4px' }}>REC</span>
                 </button>
               )}
               {llamandoAI && (
                 <button onClick={() => { window.speechSynthesis?.cancel(); setLlamandoAI(false); }}
-                  style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--red)', background: 'rgba(239,68,68,0.1)', color: 'var(--red)', fontSize: '12px', fontWeight: 800, cursor: 'pointer', animation: 'pulse-red 1s infinite' }}>
+                  style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--red)', background: 'rgba(239,68,68,0.1)', color: 'var(--red)', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}>
                   🔇 {idioma === 'en' ? 'Stop voice' : 'Parar voz'}
                 </button>
               )}
-              <button onClick={() => setAudioEnabled(!audioEnabled)}
-                style={{ padding: '7px 14px', borderRadius: '8px', border: `1px solid ${audioEnabled ? 'var(--gold)' : 'var(--border-color)'}`, background: audioEnabled ? 'var(--gold-dim)' : 'transparent', color: audioEnabled ? 'var(--gold)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                {audioEnabled ? '🔊 Voz ON' : '🔇 Voz OFF'}
-              </button>
             </div>
           )}
 
@@ -579,7 +574,7 @@ export default function ChatPage() {
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
                 placeholder={
                   grabando
-                    ? (idioma === 'en' ? '🔴 Recording... click Stop to finish' : '🔴 Grabando... toca Parar para terminar')
+                    ? (idioma === 'en' ? '🔴 Recording...' : '🔴 Grabando...')
                     : (idioma === 'en' ? 'Type, send an image or record voice...' : 'Escribe, envía imagen o graba voz...')
                 }
                 disabled={cargando || grabando}
@@ -600,7 +595,6 @@ export default function ChatPage() {
                   color: (input.trim() || selectedImage) && !cargando && !grabando ? '#000' : 'var(--text-faint)',
                   fontWeight: 800, fontSize: '15px',
                   cursor: (input.trim() || selectedImage) && !cargando && !grabando ? 'pointer' : 'not-allowed',
-                  transition: 'all 0.2s',
                 }}>
                 {tr('enviar')}
               </button>
@@ -609,7 +603,7 @@ export default function ChatPage() {
 
           <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '8px 0 0', textAlign: 'center' }}>
             {idioma === 'en'
-              ? '🖼️ Images · 🎤 Voice · 🎵 Audio files · 📞 Call mode · 🔊 AI voice'
+              ? '🖼️ Images · 🎤 Voice · 🎵 Audio · 📞 Call mode · 🔊 AI voice'
               : '🖼️ Imágenes · 🎤 Voz · 🎵 Audio · 📞 Llamada · 🔊 Respuesta en voz'}
           </p>
         </div>
