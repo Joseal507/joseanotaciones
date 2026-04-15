@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getGroqClient } from '../../../lib/groqClient';
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,9 +14,7 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes);
     let content = '';
     let esImagen = false;
-    let base64Image = '';
     let mimeType = '';
-
     const nombre = file.name.toLowerCase();
 
     if (nombre.endsWith('.txt')) {
@@ -27,7 +26,7 @@ export async function POST(request: NextRequest) {
         const pdfData = await pdfParse(buffer);
         content = pdfData.text;
         mimeType = 'application/pdf';
-      } catch (err) {
+      } catch {
         return NextResponse.json({ success: false, error: 'No se pudo leer el PDF' }, { status: 400 });
       }
     } else if (nombre.endsWith('.docx') || nombre.endsWith('.doc')) {
@@ -36,52 +35,32 @@ export async function POST(request: NextRequest) {
         const result = await mammoth.extractRawText({ buffer });
         content = result.value;
         mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      } catch (err) {
+      } catch {
         return NextResponse.json({ success: false, error: 'No se pudo leer el Word' }, { status: 400 });
       }
-    } else if (
-      nombre.endsWith('.jpg') || nombre.endsWith('.jpeg') ||
-      nombre.endsWith('.png') || nombre.endsWith('.webp') ||
-      nombre.endsWith('.gif')
-    ) {
-      // ✅ Imagen
+    } else if (nombre.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
       esImagen = true;
-      base64Image = buffer.toString('base64');
       mimeType = nombre.endsWith('.png') ? 'image/png'
         : nombre.endsWith('.webp') ? 'image/webp'
         : nombre.endsWith('.gif') ? 'image/gif'
         : 'image/jpeg';
 
-      // Extraer texto de imagen con AI vision
+      const base64Image = buffer.toString('base64');
       try {
-        const OpenAI = (await import('openai')).default;
-        const client = new OpenAI({
-          apiKey: process.env.GROQ_API_KEY,
-          baseURL: 'https://api.groq.com/openai/v1',
-        });
-
+        const client = getGroqClient();
         const visionRes = await client.chat.completions.create({
           model: 'meta-llama/llama-4-scout-17b-16e-instruct',
           messages: [
             {
               role: 'user',
               content: [
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: `data:${mimeType};base64,${base64Image}`,
-                  },
-                },
-                {
-                  type: 'text',
-                  text: 'Extract ALL text visible in this image. Also describe any diagrams, charts, tables or visual elements. Be thorough and detailed. If there are formulas or equations, write them out. Output everything you see.',
-                },
+                { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}` } },
+                { type: 'text', text: 'Extract ALL text visible in this image. Also describe any diagrams, charts, tables or visual elements. Be thorough and detailed. If there are formulas or equations, write them out. Output everything you see.' },
               ] as any,
             },
           ],
           max_tokens: 4000,
         });
-
         content = visionRes.choices[0]?.message?.content || '';
         if (!content) {
           return NextResponse.json({ success: false, error: 'No se pudo extraer contenido de la imagen' }, { status: 400 });
@@ -92,7 +71,7 @@ export async function POST(request: NextRequest) {
     } else {
       return NextResponse.json({
         success: false,
-        error: 'Formato no soportado. Usa PDF, Word, TXT, JPG, PNG o WebP.'
+        error: idioma => 'Formato no soportado. Usa PDF, Word, TXT, JPG, PNG o WebP.',
       }, { status: 400 });
     }
 

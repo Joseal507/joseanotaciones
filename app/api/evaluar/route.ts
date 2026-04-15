@@ -1,26 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
-
-const client = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY,
-  baseURL: 'https://api.groq.com/openai/v1',
-});
+import { getGroqClient } from '../../../lib/groqClient';
 
 export async function POST(request: NextRequest) {
   try {
     const { pregunta, respuestaCorrecta, respuestaUsuario, idioma } = await request.json();
     const lang = idioma === 'en' ? 'en' : 'es';
+    const client = getGroqClient();
 
     const systemPrompt = lang === 'en'
-      ? `You are an educational response evaluator. Evaluate the user's response comparing it to the correct answer. Respond ONLY with a JSON in this exact format:\n{\n  "nivel": "INSANE" | "correcta" | "medio_correcta" | "incorrecta" | "muy_incorrecta",\n  "porcentaje": 0-100,\n  "explicacion": "brief explanation of why it is right or wrong",\n  "consejo": "tip to remember it better"\n}\nLevels:\n- INSANE: 95-100% correct, perfect or better than expected answer\n- correcta: 75-94% correct, captures the main idea\n- medio_correcta: 50-74% correct, something correct but missing info\n- incorrecta: 20-49% correct, very little correct\n- muy_incorrecta: 0-19% correct, completely wrong`
-      : `Eres un evaluador de respuestas educativas. Evalúa la respuesta del usuario comparándola con la respuesta correcta. Responde ÚNICAMENTE con un JSON con este formato exacto:\n{\n  "nivel": "INSANE" | "correcta" | "medio_correcta" | "incorrecta" | "muy_incorrecta",\n  "porcentaje": 0-100,\n  "explicacion": "explicación breve de por qué está bien o mal",\n  "consejo": "consejo para recordarlo mejor"\n}`;
+      ? `You are an educational response evaluator. Evaluate the user's response comparing it to the correct answer. Respond ONLY with a JSON in this exact format:
+{
+  "nivel": "INSANE" | "correcta" | "medio_correcta" | "incorrecta" | "muy_incorrecta",
+  "porcentaje": 0-100,
+  "explicacion": "brief explanation of why it is right or wrong",
+  "consejo": "tip to remember it better"
+}
+Levels:
+- INSANE: 95-100% correct, perfect answer
+- correcta: 75-94% correct, captures the main idea
+- medio_correcta: 50-74% correct, something correct but missing info
+- incorrecta: 20-49% correct, very little correct
+- muy_incorrecta: 0-19% correct, completely wrong`
+      : `Eres un evaluador de respuestas educativas. Evalúa la respuesta del usuario comparándola con la respuesta correcta. Responde ÚNICAMENTE con un JSON con este formato exacto:
+{
+  "nivel": "INSANE" | "correcta" | "medio_correcta" | "incorrecta" | "muy_incorrecta",
+  "porcentaje": 0-100,
+  "explicacion": "explicación breve de por qué está bien o mal",
+  "consejo": "consejo para recordarlo mejor"
+}`;
 
     const userPrompt = lang === 'en'
       ? `Question: ${pregunta}\nCorrect answer: ${respuestaCorrecta}\nUser's answer: ${respuestaUsuario}`
       : `Pregunta: ${pregunta}\nRespuesta correcta: ${respuestaCorrecta}\nRespuesta del usuario: ${respuestaUsuario}`;
 
     const completion = await client.chat.completions.create({
-      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      model: 'llama-3.3-70b-versatile',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
