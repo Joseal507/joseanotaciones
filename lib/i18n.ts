@@ -46,7 +46,7 @@ const traducciones = {
   // ===== HOME =====
   tuPlataforma: { es: 'Tu plataforma de estudio', en: 'Your study platform' },
   miPlataforma: { es: 'Mi plataforma para tirar estudio 🧏‍♂️', en: 'My study platform 🧏‍♂️' },
-  irAMaterias: { es: '🚀 IR A MIS MATERIAS', en: '🚀 GO TO MY SUBJECTS' },
+  irAMaterias: { es: 'MATERIAS', en: '🚀 GO TO MY SUBJECTS' },
   buscarApuntes: { es: 'Buscar apuntes, materias...', en: 'Search notes, subjects...' },
   apuntes: { es: 'Apuntes', en: 'Notes' },
   documentos: { es: 'Documentos', en: 'Documents' },

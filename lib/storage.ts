@@ -76,7 +76,23 @@ export const getMaterias = (): Materia[] => {
 
 export const saveMaterias = (materias: Materia[]) => {
   if (!isBrowser()) return;
-  localStorage.setItem(KEY, JSON.stringify(materias));
+  try {
+    // Remover archivoBase64 para no llenar localStorage
+    const light = materias.map(m => ({
+      ...m,
+      temas: m.temas.map(t => ({
+        ...t,
+        documentos: t.documentos.map(d => ({
+          ...d,
+          archivoBase64: undefined,
+          archivoUrl: undefined,
+        })),
+      })),
+    }));
+    localStorage.setItem(KEY, JSON.stringify(light));
+  } catch (err) {
+    console.error('localStorage full, skipping local save');
+  }
 };
 
 export const generateId = () =>

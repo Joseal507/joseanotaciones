@@ -7,6 +7,7 @@ import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
 import EstudioModal from '../../components/flashcards/EstudioModal';
+import ModoExamen from '../../components/flashcards/ModoExamen';
 
 export default function QuizzesPage() {
   const [tab, setTab] = useState<'quizzes' | 'decks'>('quizzes');
@@ -16,14 +17,18 @@ export default function QuizzesPage() {
   const [quizActivo, setQuizActivo] = useState<QuizGuardado | null>(null);
   const [deckActivo, setDeckActivo] = useState<FlashcardDeck | null>(null);
   const [showEstudio, setShowEstudio] = useState(false);
+  const [showModoExamen, setShowModoExamen] = useState(false);
   const { tr, idioma } = useIdioma();
 
+  // Quiz state
   const [idx, setIdx] = useState(0);
   const [seleccionada, setSeleccionada] = useState<number | null>(null);
   const [respondida, setRespondida] = useState(false);
   const [puntos, setPuntos] = useState(0);
   const [resultados, setResultados] = useState<{ correcta: boolean }[]>([]);
   const [fase, setFase] = useState<'lista' | 'jugando' | 'fin'>('lista');
+
+  // Deck viewer state
   const [currentCard, setCurrentCard] = useState(0);
   const [flipped, setFlipped] = useState(false);
 
@@ -99,14 +104,31 @@ export default function QuizzesPage() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', fontFamily: '-apple-system, sans-serif' }}>
 
+      {/* EstudioModal del deck activo */}
       {showEstudio && deckActivo && (
         <EstudioModal
           flashcards={deckActivo.flashcards}
           temaColor={deckActivo.temaColor || deckActivo.materiaColor || 'var(--gold)'}
-          onClose={() => { setShowEstudio(false); setDeckActivo(null); }}
+          onClose={() => { setShowEstudio(false); }}
+          onModoExamen={() => {
+            setShowEstudio(false);
+            setShowModoExamen(true);
+          }}
         />
       )}
 
+      {/* ModoExamen del deck activo */}
+      {showModoExamen && deckActivo && (
+        <ModoExamen
+          flashcards={deckActivo.flashcards}
+          contenido=""
+          nombreDoc={deckActivo.nombre}
+          temaColor={deckActivo.temaColor || deckActivo.materiaColor || 'var(--gold)'}
+          onClose={() => setShowModoExamen(false)}
+        />
+      )}
+
+      {/* NAVBAR */}
       {isMobile ? <NavbarMobile /> : (
         <>
           <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: '0 40px', height: '68px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
@@ -116,11 +138,9 @@ export default function QuizzesPage() {
                 {fase !== 'lista' ? `← ${tr('volver')}` : `← ${tr('inicio')}`}
               </button>
               <div>
-                <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
-                  {tr('materialesEstudio')}
-                </h1>
+                <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>🎓 {tr('materialesEstudio')}</h1>
                 <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>
-                  {quizzes.length} {tr('quizzes').toLowerCase()} · {decks.length} {tr('flashcardDecks').toLowerCase()}
+                  {quizzes.length} {tr('quizzes').toLowerCase()} · {decks.length} decks
                 </p>
               </div>
             </div>
@@ -147,6 +167,7 @@ export default function QuizzesPage() {
               </div>
             )}
 
+            {/* Buscador */}
             <div style={{ position: 'relative', marginBottom: '20px' }}>
               <input value={busqueda} onChange={e => setBusqueda(e.target.value)}
                 placeholder={idioma === 'en' ? 'Search by name or subject...' : 'Buscar por nombre o materia...'}
@@ -157,6 +178,7 @@ export default function QuizzesPage() {
               <span style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', fontSize: '18px' }}>🔍</span>
             </div>
 
+            {/* Tabs */}
             <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', marginBottom: '24px' }}>
               <button onClick={() => setTab('quizzes')}
                 style={{ flex: 1, padding: '12px', border: 'none', background: 'transparent', borderBottom: tab === 'quizzes' ? '3px solid #a78bfa' : '3px solid transparent', color: tab === 'quizzes' ? '#a78bfa' : 'var(--text-muted)', fontSize: '15px', fontWeight: 700, cursor: 'pointer', marginBottom: '-2px' }}>
@@ -168,6 +190,7 @@ export default function QuizzesPage() {
               </button>
             </div>
 
+            {/* QUIZZES */}
             {tab === 'quizzes' && (
               <div>
                 {quizzesFiltrados.length === 0 ? (
@@ -189,7 +212,7 @@ export default function QuizzesPage() {
                     {quizzesFiltrados.map(quiz => (
                       <div key={quiz.id} style={{ background: 'var(--bg-card)', borderRadius: '16px', border: `1px solid ${quiz.materiaColor || '#a78bfa'}44`, overflow: 'hidden' }}>
                         <div style={{ height: '4px', background: quiz.materiaColor || '#a78bfa' }} />
-                        <div style={{ padding: '18px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                        <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{quiz.nombre}</h3>
                             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -216,6 +239,7 @@ export default function QuizzesPage() {
               </div>
             )}
 
+            {/* DECKS */}
             {tab === 'decks' && (
               <div>
                 {decksFiltrados.length === 0 ? (
@@ -237,7 +261,7 @@ export default function QuizzesPage() {
                     {decksFiltrados.map(deck => (
                       <div key={deck.id} style={{ background: 'var(--bg-card)', borderRadius: '16px', border: `1px solid ${deck.materiaColor || 'var(--gold)'}44`, overflow: 'hidden' }}>
                         <div style={{ height: '4px', background: deck.materiaColor || 'var(--gold)' }} />
-                        <div style={{ padding: '18px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                        <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{deck.nombre}</h3>
                             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -248,11 +272,11 @@ export default function QuizzesPage() {
                           </div>
                           <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                             <button onClick={() => { setDeckActivo(deck); setCurrentCard(0); setFlipped(false); }}
-                              style={{ padding: '9px 16px', borderRadius: '10px', border: `2px solid ${deck.materiaColor || 'var(--gold)'}`, background: 'transparent', color: deck.materiaColor || 'var(--gold)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                              style={{ padding: '9px 14px', borderRadius: '10px', border: `2px solid ${deck.materiaColor || 'var(--gold)'}`, background: 'transparent', color: deck.materiaColor || 'var(--gold)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
                               🎴 {tr('ver')}
                             </button>
                             <button onClick={() => { setDeckActivo(deck); setShowEstudio(true); }}
-                              style={{ padding: '9px 16px', borderRadius: '10px', border: 'none', background: deck.materiaColor || 'var(--gold)', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>
+                              style={{ padding: '9px 14px', borderRadius: '10px', border: 'none', background: deck.materiaColor || 'var(--gold)', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>
                               🧠 {tr('estudiar')}
                             </button>
                             <button onClick={() => eliminarDeckFn(deck.id)}
@@ -271,7 +295,7 @@ export default function QuizzesPage() {
         )}
 
         {/* ===== VER DECK ===== */}
-        {fase === 'lista' && deckActivo && !showEstudio && (
+        {fase === 'lista' && deckActivo && !showEstudio && !showModoExamen && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', display: 'flex', flexDirection: 'column', zIndex: 2000 }}>
             <div style={{ padding: '16px 24px', background: 'var(--bg-card)', borderBottom: `3px solid ${deckActivo.materiaColor || 'var(--gold)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
@@ -279,7 +303,7 @@ export default function QuizzesPage() {
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{currentCard + 1} / {deckActivo.flashcards.length}</p>
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button onClick={() => { setShowEstudio(true); }}
+                <button onClick={() => setShowEstudio(true)}
                   style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: deckActivo.materiaColor || 'var(--gold)', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>
                   🧠 {tr('estudiar')}
                 </button>
@@ -346,7 +370,9 @@ export default function QuizzesPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <div>
                 <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px' }}>{quizActivo.nombre}</h2>
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>{idioma === 'en' ? 'Question' : 'Pregunta'} {idx + 1} / {quizActivo.preguntas.length} · {puntos} {idioma === 'en' ? 'correct' : 'correctas'}</p>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                  {idioma === 'en' ? 'Question' : 'Pregunta'} {idx + 1} / {quizActivo.preguntas.length} · {puntos} {idioma === 'en' ? 'correct' : 'correctas'}
+                </p>
               </div>
               <button onClick={() => setFase('lista')}
                 style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', cursor: 'pointer' }}>✕</button>
@@ -411,7 +437,9 @@ export default function QuizzesPage() {
             <h2 style={{ fontSize: '26px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px' }}>
               {idioma === 'en' ? 'Quiz completed!' : '¡Quiz completado!'}
             </h2>
-            <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>{puntos} {idioma === 'en' ? 'of' : 'de'} {quizActivo.preguntas.length} {idioma === 'en' ? 'correct' : 'correctas'}</p>
+            <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>
+              {puntos} {idioma === 'en' ? 'of' : 'de'} {quizActivo.preguntas.length} {idioma === 'en' ? 'correct' : 'correctas'}
+            </p>
 
             <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '28px', border: `2px solid ${quizActivo.materiaColor || '#a78bfa'}44`, marginBottom: '24px' }}>
               <div style={{ fontSize: '56px', fontWeight: 900, color: quizActivo.materiaColor || '#a78bfa', lineHeight: 1 }}>{puntos}/{quizActivo.preguntas.length}</div>

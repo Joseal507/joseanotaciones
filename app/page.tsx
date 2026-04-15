@@ -12,6 +12,8 @@ import NavbarMobile from '../components/NavbarMobile';
 import RachaWidget from '../components/RachaWidget';
 import NotasRapidas from '../components/NotasRapidas';
 import GraficasEstudio from '../components/GraficasEstudio';
+import HorarioWidget from '../components/HorarioWidget';
+import Leaderboard from '../components/Leaderboard';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useIdioma } from '../hooks/useIdioma';
@@ -23,7 +25,7 @@ export default function Home() {
   const [showBuscador, setShowBuscador] = useState(false);
   const [appNombre, setAppNombre] = useState('JoseAnotaciones');
   const isMobile = useIsMobile();
-  const { tr } = useIdioma();
+  const { tr, idioma } = useIdioma();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -94,6 +96,7 @@ export default function Home() {
 
       {showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
 
+      {/* NAVBAR */}
       {isMobile ? (
         <NavbarMobile darkMode={darkMode} onToggleDark={toggleDark} />
       ) : (
@@ -182,7 +185,7 @@ export default function Home() {
 
           <button onClick={() => window.location.href = '/materias'}
             style={{ padding: isMobile ? '14px 32px' : '16px 44px', borderRadius: '14px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: isMobile ? '15px' : '17px', fontWeight: 900, cursor: 'pointer' }}>
-            {tr('irAMaterias')}
+            🚀 {tr('irAMaterias')}
           </button>
 
           {isMobile && (
@@ -209,6 +212,17 @@ export default function Home() {
           ))}
         </div>
 
+        {/* HORARIO HOY */}
+        <div style={{ marginBottom: isMobile ? '28px' : '48px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+            <div style={{ width: '4px', height: '28px', background: 'var(--gold)', borderRadius: '2px' }} />
+            <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
+              🗓️ {idioma === 'en' ? 'Today' : 'Hoy'}
+            </h2>
+          </div>
+          <HorarioWidget />
+        </div>
+
         {/* RACHA */}
         <div style={{ marginBottom: isMobile ? '28px' : '48px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
@@ -223,6 +237,17 @@ export default function Home() {
         {/* GRÁFICAS */}
         <div style={{ marginBottom: isMobile ? '28px' : '48px' }}>
           <GraficasEstudio />
+        </div>
+
+        {/* LEADERBOARD */}
+        <div style={{ marginBottom: isMobile ? '28px' : '48px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+            <div style={{ width: '4px', height: '28px', background: 'var(--gold)', borderRadius: '2px' }} />
+            <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
+              🏆 Leaderboard
+            </h2>
+          </div>
+          <Leaderboard />
         </div>
 
         {/* NOTAS RÁPIDAS */}
@@ -250,8 +275,7 @@ export default function Home() {
                   onClick={() => window.location.href = '/materias'}
                   style={{ background: 'var(--bg-card)', borderRadius: '14px', border: '1px solid var(--border-color)', overflow: 'hidden', cursor: 'pointer', transition: 'all 0.2s ease' }}
                   onMouseEnter={(e: any) => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.borderColor = materia.color; }}
-                  onMouseLeave={(e: any) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-                >
+                  onMouseLeave={(e: any) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}>
                   <div style={{ height: '4px', background: materia.color }} />
                   <div style={{ padding: isMobile ? '12px' : '18px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
@@ -267,7 +291,7 @@ export default function Home() {
                     </div>
                     <div style={{ display: 'flex', gap: '6px' }}>
                       {[
-                        { label: tr('apuntes'), val: materia.temas.reduce((a, t) => a + t.apuntes.length, 0) },
+                        { label: idioma === 'en' ? 'Notes' : 'Apuntes', val: materia.temas.reduce((a, t) => a + t.apuntes.length, 0) },
                         { label: 'Docs', val: materia.temas.reduce((a, t) => a + t.documentos.length, 0) },
                       ].map((s, i) => (
                         <div key={i} style={{ flex: 1, background: 'var(--bg-secondary)', borderRadius: '6px', padding: '6px', textAlign: 'center' }}>
@@ -314,27 +338,26 @@ export default function Home() {
             <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{tr('accesosRapidos')}</h2>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(180px, 1fr))', gap: isMobile ? '10px' : '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(160px, 1fr))', gap: isMobile ? '10px' : '14px' }}>
             {[
-              { emoji: '📚', label: tr('misMaterias'), desc: tr('apuntes') + ' & ' + tr('temas'), color: 'var(--gold)', href: '/materias' },
-              { emoji: '🗓️', label: tr('horario'), desc: tr('horarioClases'), color: 'var(--gold)', href: '/horario' },
+              { emoji: '📚', label: tr('misMaterias'), desc: idioma === 'en' ? 'Notes & topics' : 'Apuntes y temas', color: 'var(--gold)', href: '/materias' },
+              { emoji: '🗓️', label: tr('horario'), desc: idioma === 'en' ? 'Weekly schedule' : 'Clases de la semana', color: 'var(--gold)', href: '/horario' },
               { emoji: '📅', label: tr('agenda'), desc: tr('calendarioYObjetivos'), color: 'var(--blue)', href: '/agenda' },
-              { emoji: '🤖', label: 'AlciBot', desc: tr('chat'), color: 'var(--pink)', href: '/chat' },
-              { emoji: '🎓', label: tr('quizzes'), desc: tr('quizzesDecks'), color: '#a78bfa', href: '/quizzes' },
-              { emoji: '📊', label: tr('perfil'), desc: tr('precision'), color: 'var(--red)', href: '/perfil' },
-              { emoji: '⚙️', label: tr('configuracion'), desc: tr('ajustesCuenta'), color: 'var(--text-muted)', href: '/settings' },
+              { emoji: '🤖', label: 'AlciBot', desc: idioma === 'en' ? 'AI chat' : 'Chat con AI', color: 'var(--pink)', href: '/chat' },
+              { emoji: '🎓', label: tr('quizzes'), desc: idioma === 'en' ? 'Saved materials' : 'Materiales guardados', color: '#a78bfa', href: '/quizzes' },
+              { emoji: '📊', label: tr('perfil'), desc: idioma === 'en' ? 'Study stats' : 'Stats de estudio', color: 'var(--red)', href: '/perfil' },
+              { emoji: '⚙️', label: tr('configuracion'), desc: idioma === 'en' ? 'Settings' : 'Ajustes', color: 'var(--text-muted)', href: '/settings' },
             ].map((item, i) => (
               <div key={i}
                 onClick={() => window.location.href = item.href}
                 style={{ background: 'var(--bg-card)', borderRadius: '14px', border: '1px solid var(--border-color)', overflow: 'hidden', cursor: 'pointer', transition: 'all 0.2s' }}
                 onMouseEnter={(e: any) => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.borderColor = item.color; }}
-                onMouseLeave={(e: any) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-              >
+                onMouseLeave={(e: any) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}>
                 <div style={{ height: '4px', background: item.color }} />
-                <div style={{ padding: isMobile ? '14px 12px' : '20px' }}>
-                  <div style={{ fontSize: isMobile ? '22px' : '28px', marginBottom: '6px' }}>{item.emoji}</div>
-                  <h3 style={{ fontSize: isMobile ? '13px' : '15px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 3px' }}>{item.label}</h3>
-                  <p style={{ fontSize: isMobile ? '11px' : '12px', color: 'var(--text-muted)', margin: 0 }}>{item.desc}</p>
+                <div style={{ padding: isMobile ? '14px 12px' : '18px' }}>
+                  <div style={{ fontSize: isMobile ? '22px' : '26px', marginBottom: '6px' }}>{item.emoji}</div>
+                  <h3 style={{ fontSize: isMobile ? '12px' : '14px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 3px' }}>{item.label}</h3>
+                  <p style={{ fontSize: isMobile ? '10px' : '11px', color: 'var(--text-muted)', margin: 0 }}>{item.desc}</p>
                 </div>
               </div>
             ))}

@@ -15,113 +15,242 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState<'pdf' | 'word' | null>(null);
 
+  // Extraer texto plano de los bloques
+  const getPlainText = (): string => {
+    const lines: string[] = [];
+    bloques.forEach(bloque => {
+      if (bloque.tipo === 'texto') {
+        const html = htmlCache.current[bloque.id] ?? textRefs.current[bloque.id]?.innerHTML ?? (bloque as any).html ?? '';
+        if (!html.trim()) return;
+        // Convertir HTML a texto plano manteniendo estructura
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const extractText = (node: Node): string => {
+          let text = '';
+          node.childNodes.forEach(child => {
+            if (child.nodeType === Node.TEXT_NODE) {
+              text += child.textContent || '';
+            } else if (child.nodeType === Node.ELEMENT_NODE) {
+              const el = child as Element;
+              const tag = el.tagName.toLowerCase();
+              if (['h1', 'h2', 'h3', 'h4'].includes(tag)) {
+                text += '\n\n' + (child.textContent || '') + '\n\n';
+              } else if (tag === 'br') {
+                text += '\n';
+              } else if (tag === 'li') {
+                text += '• ' + (child.textContent || '') + '\n';
+              } else if (['p', 'div'].includes(tag)) {
+                text += '\n' + extractText(child) + '\n';
+              } else {
+                text += extractText(child);
+              }
+            }
+          });
+          return text;
+        };
+        lines.push(extractText(doc.body));
+      }
+    });
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  };
+
   const exportPDF = async () => {
     setLoading('pdf');
     setOpen(false);
     try {
       const { default: jsPDF } = await import('jspdf');
-      const { default: html2canvas } = await import('html2canvas');
-
-      // Crear contenedor temporal con todo el contenido
-      const container = document.createElement('div');
-      container.style.cssText = `
-        width: 800px;
-        padding: 60px;
-        background: white;
-        color: #111;
-        font-family: Georgia, serif;
-        font-size: 16px;
-        line-height: 1.8;
-        position: fixed;
-        top: -9999px;
-        left: -9999px;
-      `;
-
-      // Título
-      const titleEl = document.createElement('h1');
-      titleEl.textContent = titulo;
-      titleEl.style.cssText = `
-        font-size: 32px;
-        font-weight: 900;
-        color: ${temaColor};
-        margin: 0 0 32px;
-        padding-bottom: 12px;
-        border-bottom: 3px solid ${temaColor};
-      `;
-      container.appendChild(titleEl);
-
-      // Contenido de bloques
-      bloques.forEach(bloque => {
-        if (bloque.tipo === 'texto') {
-          const html = htmlCache.current[bloque.id] ?? textRefs.current[bloque.id]?.innerHTML ?? (bloque as any).html ?? '';
-          if (!html.trim()) return;
-          const div = document.createElement('div');
-          div.innerHTML = html;
-          div.style.cssText = 'margin-bottom: 16px; color: #222;';
-
-          // Estilos para los elementos internos
-          div.querySelectorAll('h1').forEach((el: any) => { el.style.color = temaColor; el.style.fontSize = '28px'; });
-          div.querySelectorAll('h2').forEach((el: any) => { el.style.color = '#111'; el.style.fontSize = '22px'; });
-          div.querySelectorAll('h3').forEach((el: any) => { el.style.color = '#111'; el.style.fontSize = '18px'; });
-          div.querySelectorAll('p, li').forEach((el: any) => { el.style.color = '#333'; });
-          container.appendChild(div);
-        } else if (bloque.tipo === 'imagen') {
-          const img = document.createElement('img');
-          img.src = (bloque as BloqueImagen).src;
-          img.style.cssText = `
-            max-width: 100%;
-            width: ${(bloque as BloqueImagen).width}px;
-            border-radius: 8px;
-            display: block;
-            margin: 16px auto;
-          `;
-          container.appendChild(img);
-        }
-      });
-
-      document.body.appendChild(container);
-
-      // Esperar a que carguen las imágenes
-      const images = container.querySelectorAll('img');
-      await Promise.all(Array.from(images).map(img =>
-        new Promise(resolve => {
-          if (img.complete) resolve(null);
-          else { img.onload = resolve; img.onerror = resolve; }
-        })
-      ));
-
-      const canvas = await html2canvas(container, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-      });
-
-      document.body.removeChild(container);
 
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      const totalPages = Math.ceil(imgHeight / pageHeight);
+      const margin = 20;
+      const maxWidth = pageWidth - margin * 2;
+      let y = margin;
 
-      for (let i = 0; i < totalPages; i++) {
-        if (i > 0) pdf.addPage();
-        pdf.addImage(
-          canvas.toDataURL('image/jpeg', 0.95),
-          'JPEG',
-          0,
-          -(i * pageHeight),
-          imgWidth,
-          imgHeight
-        );
+      // Título
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(22);
+      pdf.setTextColor(40, 40, 40);
+      const tituloLines = pdf.splitTextToSize(titulo, maxWidth);
+      pdf.text(tituloLines, margin, y);
+      y += tituloLines.length * 10 + 5;
+
+      // Línea decorativa
+      pdf.setDrawColor(200, 200, 200);
+      pdf.setLineWidth(0.5);
+      pdf.line(margin, y, pageWidth - margin, y);
+      y += 10;
+
+      // Contenido
+      bloques.forEach(bloque => {
+        if (bloque.tipo === 'texto') {
+          const html = htmlCache.current[bloque.id] ?? textRefs.current[bloque.id]?.innerHTML ?? (bloque as any).html ?? '';
+          if (!html.trim()) return;
+
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, 'text/html');
+
+          const processNode = (node: Node) => {
+            node.childNodes.forEach(child => {
+              if (child.nodeType === Node.TEXT_NODE) {
+                const text = (child.textContent || '').trim();
+                if (!text) return;
+
+                pdf.setFont('helvetica', 'normal');
+                pdf.setFontSize(11);
+                pdf.setTextColor(50, 50, 50);
+                const lines = pdf.splitTextToSize(text, maxWidth);
+
+                lines.forEach((line: string) => {
+                  if (y > pageHeight - margin) {
+                    pdf.addPage();
+                    y = margin;
+                  }
+                  pdf.text(line, margin, y);
+                  y += 6;
+                });
+                y += 2;
+
+              } else if (child.nodeType === Node.ELEMENT_NODE) {
+                const el = child as Element;
+                const tag = el.tagName.toLowerCase();
+                const text = (el.textContent || '').trim();
+                if (!text && !['br', 'hr', 'img'].includes(tag)) return;
+
+                if (tag === 'h1') {
+                  y += 4;
+                  if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+                  pdf.setFont('helvetica', 'bold');
+                  pdf.setFontSize(18);
+                  pdf.setTextColor(30, 30, 30);
+                  const lines = pdf.splitTextToSize(text, maxWidth);
+                  lines.forEach((line: string) => {
+                    if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+                    pdf.text(line, margin, y);
+                    y += 8;
+                  });
+                  y += 3;
+                } else if (tag === 'h2') {
+                  y += 3;
+                  if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+                  pdf.setFont('helvetica', 'bold');
+                  pdf.setFontSize(15);
+                  pdf.setTextColor(40, 40, 40);
+                  const lines = pdf.splitTextToSize(text, maxWidth);
+                  lines.forEach((line: string) => {
+                    if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+                    pdf.text(line, margin, y);
+                    y += 7;
+                  });
+                  y += 2;
+                } else if (tag === 'h3') {
+                  y += 2;
+                  if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+                  pdf.setFont('helvetica', 'bold');
+                  pdf.setFontSize(13);
+                  pdf.setTextColor(50, 50, 50);
+                  const lines = pdf.splitTextToSize(text, maxWidth);
+                  lines.forEach((line: string) => {
+                    if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+                    pdf.text(line, margin, y);
+                    y += 6;
+                  });
+                  y += 2;
+                } else if (tag === 'li') {
+                  if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+                  pdf.setFont('helvetica', 'normal');
+                  pdf.setFontSize(11);
+                  pdf.setTextColor(50, 50, 50);
+                  const bulletText = '  •  ' + text;
+                  const lines = pdf.splitTextToSize(bulletText, maxWidth - 5);
+                  lines.forEach((line: string) => {
+                    if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+                    pdf.text(line, margin, y);
+                    y += 5.5;
+                  });
+                  y += 1;
+                } else if (tag === 'hr') {
+                  y += 3;
+                  if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+                  pdf.setDrawColor(200, 200, 200);
+                  pdf.line(margin, y, pageWidth - margin, y);
+                  y += 5;
+                } else if (tag === 'br') {
+                  y += 4;
+                } else if (['b', 'strong'].includes(tag)) {
+                  if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+                  pdf.setFont('helvetica', 'bold');
+                  pdf.setFontSize(11);
+                  pdf.setTextColor(30, 30, 30);
+                  const lines = pdf.splitTextToSize(text, maxWidth);
+                  lines.forEach((line: string) => {
+                    if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+                    pdf.text(line, margin, y);
+                    y += 6;
+                  });
+                  pdf.setFont('helvetica', 'normal');
+                } else if (['ul', 'ol'].includes(tag)) {
+                  processNode(el);
+                } else if (['p', 'div', 'span'].includes(tag)) {
+                  // Procesar hijos para mantener formato inline
+                  const childText = (el.textContent || '').trim();
+                  if (childText) {
+                    if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+                    pdf.setFont('helvetica', 'normal');
+                    pdf.setFontSize(11);
+                    pdf.setTextColor(50, 50, 50);
+                    const lines = pdf.splitTextToSize(childText, maxWidth);
+                    lines.forEach((line: string) => {
+                      if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+                      pdf.text(line, margin, y);
+                      y += 6;
+                    });
+                    y += 2;
+                  }
+                } else {
+                  processNode(el);
+                }
+              }
+            });
+          };
+
+          processNode(doc.body);
+          y += 3;
+        } else if (bloque.tipo === 'imagen') {
+          // Intentar añadir imagen al PDF
+          try {
+            const imgSrc = (bloque as BloqueImagen).src;
+            if (imgSrc.startsWith('data:')) {
+              const imgWidth = Math.min((bloque as BloqueImagen).width * 0.26, maxWidth);
+              const imgHeight = imgWidth * 0.6;
+
+              if (y + imgHeight > pageHeight - margin) {
+                pdf.addPage();
+                y = margin;
+              }
+
+              const x = margin + (maxWidth - imgWidth) / 2;
+              pdf.addImage(imgSrc, 'PNG', x, y, imgWidth, imgHeight);
+              y += imgHeight + 8;
+            }
+          } catch {}
+        }
+      });
+
+      // Footer en cada página
+      const totalPages = pdf.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(8);
+        pdf.setTextColor(180, 180, 180);
+        pdf.text(`${titulo} — ${i}/${totalPages}`, margin, pageHeight - 8);
       }
 
       pdf.save(`${titulo}.pdf`);
     } catch (err) {
       console.error(err);
-      alert('Error al exportar PDF');
+      alert('Error exporting PDF');
     } finally {
       setLoading(null);
     }
@@ -136,7 +265,6 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
 
       const children: any[] = [];
 
-      // Título
       children.push(
         new Paragraph({
           text: titulo,
@@ -145,13 +273,11 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
         })
       );
 
-      // Procesar bloques
       for (const bloque of bloques) {
         if (bloque.tipo === 'texto') {
           const html = htmlCache.current[bloque.id] ?? textRefs.current[bloque.id]?.innerHTML ?? (bloque as any).html ?? '';
           if (!html.trim()) continue;
 
-          // Parsear HTML básico
           const parser = new DOMParser();
           const doc = parser.parseFromString(html, 'text/html');
 
@@ -159,7 +285,7 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
             const el = node as Element;
             const tagName = el.tagName?.toLowerCase();
             const text = el.textContent || '';
-            if (!text.trim()) return;
+            if (!text.trim() && !['hr', 'br'].includes(tagName)) return;
 
             if (tagName === 'h1') {
               children.push(new Paragraph({ text, heading: HeadingLevel.HEADING_1, spacing: { before: 300, after: 150 } }));
@@ -170,7 +296,7 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
             } else if (tagName === 'ul') {
               el.querySelectorAll('li').forEach(li => {
                 children.push(new Paragraph({
-                  text: `• ${li.textContent || ''}`,
+                  children: [new TextRun({ text: '• ' + (li.textContent || ''), size: 22, color: '333333' })],
                   spacing: { before: 60, after: 60 },
                 }));
               });
@@ -178,13 +304,12 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
               let count = 1;
               el.querySelectorAll('li').forEach(li => {
                 children.push(new Paragraph({
-                  text: `${count}. ${li.textContent || ''}`,
+                  children: [new TextRun({ text: `${count}. ${li.textContent || ''}`, size: 22, color: '333333' })],
                   spacing: { before: 60, after: 60 },
                 }));
                 count++;
               });
             } else {
-              // Párrafo con formato inline
               const runs: any[] = [];
               el.childNodes.forEach(child => {
                 const childEl = child as Element;
@@ -198,12 +323,13 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
                   italics: childTag === 'i' || childTag === 'em',
                   underline: childTag === 'u' ? {} : undefined,
                   strike: childTag === 's',
-                  size: 24,
+                  size: 22,
+                  color: '333333',
                 }));
               });
 
               if (runs.length === 0) {
-                runs.push(new TextRun({ text, size: 24 }));
+                runs.push(new TextRun({ text, size: 22, color: '333333' }));
               }
 
               children.push(new Paragraph({ children: runs, spacing: { before: 80, after: 80 } }));
@@ -213,33 +339,32 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
         } else if (bloque.tipo === 'imagen') {
           try {
             const src = (bloque as BloqueImagen).src;
-            // Convertir imagen a buffer
-            const response = await fetch(src);
-            const arrayBuffer = await response.arrayBuffer();
-            const uint8 = new Uint8Array(arrayBuffer);
+            if (src.startsWith('data:')) {
+              const base64Data = src.split(',')[1];
+              const binaryString = atob(base64Data);
+              const bytes = new Uint8Array(binaryString.length);
+              for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
 
-            const imgWidth = Math.min((bloque as BloqueImagen).width, 600);
-            const scale = imgWidth / (bloque as BloqueImagen).width;
+              const imgWidth = Math.min((bloque as BloqueImagen).width, 500);
+              const scale = imgWidth / (bloque as BloqueImagen).width;
 
-            children.push(
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                children: [
-                  new ImageRun({
-                    data: uint8,
-                    transformation: {
-                      width: imgWidth,
-                      height: Math.round(300 * scale),
-                    },
-                    type: 'png',
-                  }),
-                ],
-                spacing: { before: 200, after: 200 },
-              })
-            );
-          } catch {
-            // Si falla la imagen, saltar
-          }
+              children.push(
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new ImageRun({
+                      data: bytes,
+                      transformation: { width: imgWidth, height: Math.round(300 * scale) },
+                      type: 'png',
+                    }),
+                  ],
+                  spacing: { before: 200, after: 200 },
+                })
+              );
+            }
+          } catch {}
         }
       }
 
@@ -248,12 +373,7 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
           children,
           properties: {
             page: {
-              margin: {
-                top: 1440,
-                right: 1440,
-                bottom: 1440,
-                left: 1440,
-              },
+              margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
             },
           },
         }],
@@ -264,7 +384,7 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
 
     } catch (err) {
       console.error(err);
-      alert('Error al exportar Word');
+      alert('Error exporting Word');
     } finally {
       setLoading(null);
     }
@@ -276,63 +396,49 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
         onClick={() => setOpen(!open)}
         disabled={!!loading}
         style={{
-          padding: '9px 18px',
-          borderRadius: '10px',
+          padding: '9px 18px', borderRadius: '10px',
           border: '2px solid var(--border-color)',
-          background: 'transparent',
-          color: 'var(--text-muted)',
-          fontSize: '13px',
-          fontWeight: 700,
+          background: 'transparent', color: 'var(--text-muted)',
+          fontSize: '13px', fontWeight: 700,
           cursor: loading ? 'not-allowed' : 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
+          display: 'flex', alignItems: 'center', gap: '6px',
           transition: 'all 0.2s',
         }}
         onMouseEnter={(e: any) => { if (!loading) { e.currentTarget.style.borderColor = temaColor; e.currentTarget.style.color = temaColor; } }}
         onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
       >
-        {loading ? '⏳ Exportando...' : '📤 Exportar'}
+        {loading ? '⏳ Exporting...' : '📤 Export'}
         {!loading && <span style={{ fontSize: '10px' }}>▼</span>}
       </button>
 
       {open && (
         <div style={{
-          position: 'absolute',
-          top: '100%',
-          right: 0,
-          marginTop: '8px',
-          background: 'var(--bg-card)',
-          border: `2px solid ${temaColor}`,
-          borderRadius: '14px',
-          padding: '8px',
-          zIndex: 9999,
-          minWidth: '180px',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          position: 'absolute', top: '100%', right: 0, marginTop: '8px',
+          background: 'var(--bg-card)', border: `2px solid ${temaColor}`,
+          borderRadius: '14px', padding: '8px', zIndex: 9999,
+          minWidth: '180px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
         }}>
-          <button
-            onClick={exportPDF}
+          <button onClick={exportPDF}
             style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}
             onMouseEnter={(e: any) => { e.currentTarget.style.background = 'var(--red-dim)'; e.currentTarget.style.color = 'var(--red)'; }}
             onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-primary)'; }}
           >
             <span style={{ fontSize: '18px' }}>📄</span>
             <div>
-              <div style={{ fontWeight: 800 }}>Exportar PDF</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Con imágenes y formato</div>
+              <div style={{ fontWeight: 800 }}>Export PDF</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>With real text (analyzable)</div>
             </div>
           </button>
 
-          <button
-            onClick={exportWord}
+          <button onClick={exportWord}
             style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}
             onMouseEnter={(e: any) => { e.currentTarget.style.background = 'var(--blue-dim)'; e.currentTarget.style.color = 'var(--blue)'; }}
             onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-primary)'; }}
           >
             <span style={{ fontSize: '18px' }}>📝</span>
             <div>
-              <div style={{ fontWeight: 800 }}>Exportar Word</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-faint)'  }}>Archivo .docx editable</div>
+              <div style={{ fontWeight: 800 }}>Export Word</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Editable .docx file</div>
             </div>
           </button>
         </div>
