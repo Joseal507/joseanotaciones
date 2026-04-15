@@ -8,33 +8,22 @@ const client = new OpenAI({
 
 export async function POST(request: NextRequest) {
   try {
-    const { content, count = 5 } = await request.json();
+    const { content, count = 5, idioma } = await request.json();
+    const lang = idioma === 'en' ? 'en' : 'es';
+
+    const systemPrompt = lang === 'en'
+      ? `You are an educational quiz creator. Create multiple choice questions based ONLY on the given text. Wrong options should be plausible but clearly incorrect for someone who read the text. Respond ONLY with valid JSON:\n[\n  {\n    "pregunta": "question here",\n    "opciones": ["correct option", "wrong option 1", "wrong option 2", "wrong option 3"],\n    "correcta": 0,\n    "explicacion": "why this is the correct answer"\n  }\n]\nThe "correcta" index indicates which option is correct (0-3). Randomly mix the order.`
+      : `Eres un creador de quizzes educativos. Crea preguntas de opción múltiple basadas ÚNICAMENTE en el texto dado. Las opciones incorrectas deben ser plausibles pero claramente incorrectas. Responde ÚNICAMENTE con JSON válido:\n[\n  {\n    "pregunta": "pregunta aquí",\n    "opciones": ["opción correcta", "opción incorrecta 1", "opción incorrecta 2", "opción incorrecta 3"],\n    "correcta": 0,\n    "explicacion": "por qué esta es la respuesta correcta"\n  }\n]`;
+
+    const userPrompt = lang === 'en'
+      ? `Create exactly ${count} multiple choice questions based on this text:\n\n${content.substring(0, 6000)}`
+      : `Crea exactamente ${count} preguntas de opción múltiple basadas en este texto:\n\n${content.substring(0, 6000)}`;
 
     const completion = await client.chat.completions.create({
       model: 'meta-llama/llama-4-scout-17b-16e-instruct',
       messages: [
-        {
-          role: 'system',
-          content: `Eres un creador de quizzes educativos. Crea preguntas de opción múltiple basadas ÚNICAMENTE en el texto dado. 
-          
-Las opciones incorrectas deben ser plausibles pero claramente incorrectas para alguien que leyó el texto.
-
-Responde ÚNICAMENTE con JSON válido:
-[
-  {
-    "pregunta": "pregunta aquí",
-    "opciones": ["opción correcta", "opción incorrecta 1", "opción incorrecta 2", "opción incorrecta 3"],
-    "correcta": 0,
-    "explicacion": "por qué esta es la respuesta correcta"
-  }
-]
-
-El índice "correcta" indica qué opción es correcta (0-3). Mezcla el orden de las opciones aleatoriamente.`,
-        },
-        {
-          role: 'user',
-          content: `Crea exactamente ${count} preguntas de opción múltiple basadas en este texto:\n\n${content.substring(0, 6000)}`,
-        },
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
       ],
       temperature: 0.4,
       max_tokens: 3000,

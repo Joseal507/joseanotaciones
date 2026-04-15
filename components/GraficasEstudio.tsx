@@ -2,12 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { getPerfil, PerfilEstudio } from '../lib/storage';
+import { useIdioma } from '../hooks/useIdioma';
 
 interface DiaData {
   dia: string;
   fecha: string;
-  acertadas: number;
-  falladas: number;
   total: number;
 }
 
@@ -15,11 +14,10 @@ export default function GraficasEstudio() {
   const [perfil, setPerfil] = useState<PerfilEstudio | null>(null);
   const [rachaData, setRachaData] = useState<{ fecha: string; estudió: boolean }[]>([]);
   const [tab, setTab] = useState<'semana' | 'materias' | 'racha'>('semana');
+  const { tr, idioma } = useIdioma();
 
   useEffect(() => {
     setPerfil(getPerfil());
-
-    // Cargar racha
     try {
       const r = localStorage.getItem('josea_racha');
       if (r) {
@@ -29,10 +27,7 @@ export default function GraficasEstudio() {
           const d = new Date();
           d.setDate(d.getDate() - i);
           const str = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          dias.push({
-            fecha: str,
-            estudió: racha.diasEstudiados?.includes(str) || false,
-          });
+          dias.push({ fecha: str, estudió: racha.diasEstudiados?.includes(str) || false });
         }
         setRachaData(dias);
       }
@@ -54,21 +49,17 @@ export default function GraficasEstudio() {
 
   const maxTotal = Math.max(...materiasArr.map(m => m.totalFlashcards), 1);
 
-  // Días de la semana
+  const diasNombresEs = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  const diasNombresEn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const diasNombres = idioma === 'en' ? diasNombresEn : diasNombresEs;
+
   const diasSemana: DiaData[] = [];
-  const diasNombres = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const str = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const sesiones = perfil.sesiones?.filter(s => s.fecha === str) || [];
-    diasSemana.push({
-      dia: diasNombres[d.getDay()],
-      fecha: str,
-      acertadas: sesiones.reduce((a, s) => a + (s.puntuacion || 0), 0),
-      falladas: sesiones.length > 0 ? Math.max(0, sesiones.length * 5 - sesiones.reduce((a, s) => a + (s.puntuacion || 0), 0)) : 0,
-      total: sesiones.length,
-    });
+    diasSemana.push({ dia: diasNombres[d.getDay()], fecha: str, total: sesiones.length });
   }
 
   const maxSesiones = Math.max(...diasSemana.map(d => d.total), 1);
@@ -80,17 +71,17 @@ export default function GraficasEstudio() {
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
         <div style={{ width: '4px', height: '28px', background: 'var(--blue)', borderRadius: '2px' }} />
         <h2 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
-          📈 Tu progreso
+          {tr('tuProgresoGraficas')}
         </h2>
       </div>
 
       {/* Stats rápidas */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1px', background: 'var(--border-color)', borderRadius: '14px', overflow: 'hidden', marginBottom: '20px' }}>
         {[
-          { label: 'Estudiadas', value: total, color: 'var(--gold)', emoji: '📚' },
-          { label: 'Acertadas', value: totalAcertadas, color: '#4ade80', emoji: '✅' },
-          { label: 'Falladas', value: totalFalladas, color: 'var(--red)', emoji: '❌' },
-          { label: 'Precisión', value: `${porcentaje}%`, color: 'var(--blue)', emoji: '🎯' },
+          { label: tr('totalEstudiadas'), value: total, color: 'var(--gold)', emoji: '📚' },
+          { label: tr('acertadas'), value: totalAcertadas, color: '#4ade80', emoji: '✅' },
+          { label: tr('falladas'), value: totalFalladas, color: 'var(--red)', emoji: '❌' },
+          { label: tr('precision'), value: `${porcentaje}%`, color: 'var(--blue)', emoji: '🎯' },
         ].map((s, i) => (
           <div key={i} style={{ background: 'var(--bg-card)', padding: '16px 12px', textAlign: 'center' }}>
             <div style={{ fontSize: '18px', marginBottom: '4px' }}>{s.emoji}</div>
@@ -103,9 +94,9 @@ export default function GraficasEstudio() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
         {[
-          { id: 'semana', label: '📅 Esta semana' },
-          { id: 'materias', label: '📚 Por materia' },
-          { id: 'racha', label: '🔥 Racha 30 días' },
+          { id: 'semana', label: tr('estaSemana') },
+          { id: 'materias', label: tr('porMateria') },
+          { id: 'racha', label: tr('racha30') },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id as any)}
             style={{ padding: '8px 16px', borderRadius: '10px', border: `2px solid ${tab === t.id ? 'var(--blue)' : 'var(--border-color)'}`, background: tab === t.id ? 'var(--blue-dim)' : 'transparent', color: tab === t.id ? 'var(--blue)' : 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>
@@ -143,7 +134,7 @@ export default function GraficasEstudio() {
                       {dia.dia}
                     </span>
                     {estudióEseDia && !esHoy && <span style={{ fontSize: '10px' }}>🔥</span>}
-                    {esHoy && <span style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 800 }}>HOY</span>}
+                    {esHoy && <span style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 800 }}>{idioma === 'en' ? 'TODAY' : 'HOY'}</span>}
                   </div>
                 );
               })}
@@ -151,13 +142,13 @@ export default function GraficasEstudio() {
 
             <div style={{ marginTop: '20px', padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: '10px', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
               <div>
-                <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Esta semana</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{tr('estaSemana')}</span>
                 <p style={{ fontSize: '18px', fontWeight: 900, color: 'var(--blue)', margin: 0 }}>
-                  {diasConActividad} días activos
+                  {diasConActividad} {tr('diasActivos')}
                 </p>
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Sesiones totales</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{tr('sesionesTotales')}</span>
                 <p style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
                   {diasSemana.reduce((a, d) => a + d.total, 0)}
                 </p>
@@ -175,9 +166,7 @@ export default function GraficasEstudio() {
             {materiasArr.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 0' }}>
                 <div style={{ fontSize: '48px', marginBottom: '12px' }}>📚</div>
-                <p style={{ color: 'var(--text-faint)', fontSize: '14px', margin: 0 }}>
-                  Estudia algunas flashcards para ver tus stats por materia
-                </p>
+                <p style={{ color: 'var(--text-faint)', fontSize: '14px', margin: 0 }}>{tr('estudiaFlashcards')}</p>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -199,17 +188,16 @@ export default function GraficasEstudio() {
                           </span>
                         </div>
                       </div>
-                      {/* Barra compuesta */}
                       <div style={{ background: 'var(--bg-secondary)', borderRadius: '8px', height: '12px', overflow: 'hidden', position: 'relative' }}>
                         <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${barWidth}%`, display: 'flex', borderRadius: '8px', overflow: 'hidden' }}>
                           <div style={{ background: '#4ade80', width: `${(m.acertadas / m.totalFlashcards) * 100}%`, transition: 'width 0.8s' }} />
-                          <div style={{ background: 'var(--red)', flex: 1, opacity: 0.7, transition: 'width 0.8s' }} />
+                          <div style={{ background: 'var(--red)', flex: 1, opacity: 0.7 }} />
                         </div>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '3px' }}>
-                        <span style={{ fontSize: '10px', color: 'var(--text-faint)' }}>{m.totalFlashcards} flashcards estudiadas</span>
+                        <span style={{ fontSize: '10px', color: 'var(--text-faint)' }}>{m.totalFlashcards} {tr('flashcardsEstudiadas')}</span>
                         {m.quizzes > 0 && (
-                          <span style={{ fontSize: '10px', color: '#a78bfa' }}>🤓 {m.quizzes} quizzes</span>
+                          <span style={{ fontSize: '10px', color: '#a78bfa' }}>🤓 {m.quizzes} {tr('quizzes')}</span>
                         )}
                       </div>
                     </div>
@@ -227,29 +215,25 @@ export default function GraficasEstudio() {
           <div style={{ height: '4px', background: 'var(--red)' }} />
           <div style={{ padding: '24px' }}>
             <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 16px' }}>
-              Últimos 30 días de actividad
+              {tr('ultimos30')}
             </p>
-
-            {/* Grid de días */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: '4px', marginBottom: '20px' }}>
               {rachaData.map((d, i) => {
-                const fecha = new Date(d.fecha + 'T12:00:00');
                 const esHoy = i === rachaData.length - 1;
                 return (
-                  <div key={i} title={`${d.fecha}${d.estudió ? ' — Estudiaste 🔥' : ''}`}
-                    style={{ aspectRatio: '1', borderRadius: '6px', background: d.estudió ? 'var(--gold)' : 'var(--bg-secondary)', border: esHoy ? '2px solid var(--gold)' : '1px solid var(--border-color)', transition: 'all 0.2s', cursor: 'default', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px' }}>
+                  <div key={i} title={`${d.fecha}${d.estudió ? ' 🔥' : ''}`}
+                    style={{ aspectRatio: '1', borderRadius: '6px', background: d.estudió ? 'var(--gold)' : 'var(--bg-secondary)', border: esHoy ? '2px solid var(--gold)' : '1px solid var(--border-color)', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px' }}>
                     {d.estudió && <span>🔥</span>}
                   </div>
                 );
               })}
             </div>
 
-            {/* Stats racha */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
               {[
-                { label: 'Días activos', value: rachaData.filter(d => d.estudió).length, color: 'var(--gold)' },
-                { label: 'Días inactivos', value: rachaData.filter(d => !d.estudió).length, color: 'var(--text-faint)' },
-                { label: '% actividad', value: `${Math.round((rachaData.filter(d => d.estudió).length / 30) * 100)}%`, color: 'var(--blue)' },
+                { label: tr('diasActivosLabel'), value: rachaData.filter(d => d.estudió).length, color: 'var(--gold)' },
+                { label: tr('diasInactivos'), value: rachaData.filter(d => !d.estudió).length, color: 'var(--text-faint)' },
+                { label: tr('actividad'), value: `${Math.round((rachaData.filter(d => d.estudió).length / 30) * 100)}%`, color: 'var(--blue)' },
               ].map((s, i) => (
                 <div key={i} style={{ background: 'var(--bg-secondary)', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
                   <div style={{ fontSize: '22px', fontWeight: 900, color: s.color }}>{s.value}</div>
@@ -258,15 +242,14 @@ export default function GraficasEstudio() {
               ))}
             </div>
 
-            {/* Leyenda */}
             <div style={{ display: 'flex', gap: '16px', marginTop: '16px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <div style={{ width: '14px', height: '14px', borderRadius: '4px', background: 'var(--gold)' }} />
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Día activo 🔥</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{tr('diaActivo')}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <div style={{ width: '14px', height: '14px', borderRadius: '4px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }} />
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Sin actividad</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{tr('sinActividad')}</span>
               </div>
             </div>
           </div>

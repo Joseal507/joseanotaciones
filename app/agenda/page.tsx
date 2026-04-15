@@ -6,6 +6,7 @@ import { getMaterias } from '../../lib/storage';
 import { supabase } from '../../lib/supabase';
 import { getAgendaDB, saveAgendaDB } from '../../lib/db';
 import { useIsMobile } from '../../hooks/useIsMobile';
+import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
 import Calendario from '../../components/agenda/Calendario';
 import Objetivos from '../../components/agenda/Objetivos';
@@ -25,6 +26,7 @@ export default function AgendaPage() {
   const [modalObj, setModalObj] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const isMobile = useIsMobile();
+  const { tr, idioma } = useIdioma();
 
   const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
 
@@ -98,7 +100,6 @@ export default function AgendaPage() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', fontFamily: '-apple-system, sans-serif' }}>
 
-      {/* NAVBAR */}
       {isMobile ? (
         <NavbarMobile />
       ) : (
@@ -107,15 +108,15 @@ export default function AgendaPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <button onClick={() => window.location.href = '/'}
                 style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-                ← Inicio
+                ← {tr('inicio')}
               </button>
               <div>
-                <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>📅 Agenda</h1>
-                <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>Calendario y objetivos</p>
+                <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>📅 {tr('agenda')}</h1>
+                <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>{tr('calendarioYObjetivos')}</p>
               </div>
             </div>
             <div style={{ background: 'var(--bg-card)', borderRadius: '12px', padding: '10px 16px', border: '1px solid var(--gold-border)', display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--gold)' }}>⭐ Nivel {nivel}</span>
+              <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--gold)' }}>⭐ {idioma === 'en' ? 'Level' : 'Nivel'} {nivel}</span>
               <div style={{ background: 'var(--bg-secondary)', borderRadius: '8px', height: '8px', width: '100px', overflow: 'hidden' }}>
                 <div style={{ width: `${xpNivel}%`, height: '100%', background: 'var(--gold)', borderRadius: '8px' }} />
               </div>
@@ -133,18 +134,17 @@ export default function AgendaPage() {
 
       <div style={{ maxWidth: '1100px', margin: '0 auto', padding: isMobile ? '16px' : '32px 40px' }}>
 
-        {/* XP Bar mobile */}
         {isMobile && (
           <div style={{ background: 'var(--bg-card)', borderRadius: '14px', padding: '14px 16px', border: '1px solid var(--gold-border)', marginBottom: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-              <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--gold)' }}>⭐ Nivel {nivel}</span>
+              <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--gold)' }}>⭐ {idioma === 'en' ? 'Level' : 'Nivel'} {nivel}</span>
               <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{xpTotal} XP</span>
             </div>
             <div style={{ background: 'var(--bg-secondary)', borderRadius: '8px', height: '10px', overflow: 'hidden' }}>
               <div style={{ width: `${xpNivel}%`, height: '100%', background: 'var(--gold)', borderRadius: '8px', transition: 'width 0.5s' }} />
             </div>
             <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '6px 0 0', textAlign: 'right' }}>
-              {xpNivel}/100 XP → Nivel {nivel + 1}
+              {xpNivel}/100 XP → {idioma === 'en' ? 'Level' : 'Nivel'} {nivel + 1}
             </p>
           </div>
         )}
@@ -152,8 +152,8 @@ export default function AgendaPage() {
         {/* TABS */}
         <div style={{ display: 'flex', marginBottom: '20px', borderBottom: '2px solid var(--border-color)' }}>
           {[
-            { id: 'calendario', label: isMobile ? '📅 Calendario' : '📅 Calendario', color: 'var(--blue)' },
-            { id: 'agenda', label: isMobile ? '✅ Objetivos' : '✅ Objetivos', color: 'var(--pink)' },
+            { id: 'calendario', label: `📅 ${tr('calendario')}`, color: 'var(--blue)' },
+            { id: 'agenda', label: `✅ ${tr('objetivos')}`, color: 'var(--pink)' },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id as any)}
               style={{ flex: isMobile ? 1 : 'none', padding: isMobile ? '12px 8px' : '12px 28px', border: 'none', background: 'transparent', borderBottom: tab === t.id ? `3px solid ${t.color}` : '3px solid transparent', color: tab === t.id ? t.color : 'var(--text-muted)', fontSize: '15px', fontWeight: 700, cursor: 'pointer', marginBottom: '-2px' }}>
@@ -168,7 +168,7 @@ export default function AgendaPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <button onClick={() => setModalAsig(true)}
                 style={{ width: '100%', padding: '14px', borderRadius: '14px', border: 'none', background: 'var(--blue)', color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>
-                + Nueva asignación
+                + {tr('nuevaAsignacion')}
               </button>
               <Calendario
                 asignaciones={asignaciones}
@@ -229,7 +229,6 @@ export default function AgendaPage() {
         )}
       </div>
 
-      {/* MODALES */}
       {modalAsig && (
         <ModalAsignacion
           materias={materias}

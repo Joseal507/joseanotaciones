@@ -14,6 +14,7 @@ import NotasRapidas from '../components/NotasRapidas';
 import GraficasEstudio from '../components/GraficasEstudio';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { useIdioma } from '../hooks/useIdioma';
 
 export default function Home() {
   const { darkMode, toggle: toggleDark } = useDarkMode();
@@ -22,6 +23,7 @@ export default function Home() {
   const [showBuscador, setShowBuscador] = useState(false);
   const [appNombre, setAppNombre] = useState('JoseAnotaciones');
   const isMobile = useIsMobile();
+  const { tr } = useIdioma();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -82,7 +84,7 @@ export default function Home() {
           <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             onError={(e: any) => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = '📚'; }} />
         </div>
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>Cargando {appNombre}...</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>{tr('cargando')} {appNombre}...</p>
       </div>
     );
   }
@@ -92,7 +94,6 @@ export default function Home() {
 
       {showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
 
-      {/* NAVBAR */}
       {isMobile ? (
         <NavbarMobile darkMode={darkMode} onToggleDark={toggleDark} />
       ) : (
@@ -102,10 +103,8 @@ export default function Home() {
               <img src="/logo.png" alt="Logo" style={{ width: '42px', height: '42px', borderRadius: '10px', objectFit: 'cover' }}
                 onError={(e: any) => { e.target.style.display = 'none'; }} />
               <div>
-                <h1 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
-                  {appNombre}
-                </h1>
-                <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>Tu plataforma de estudio</p>
+                <h1 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{appNombre}</h1>
+                <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>{tr('tuPlataforma')}</p>
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -115,7 +114,7 @@ export default function Home() {
               </button>
               <button onClick={() => window.location.href = '/horario'}
                 style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-                🗓️ Horario
+                🗓️ {tr('horario')}
               </button>
               <button onClick={() => window.location.href = '/chat'}
                 style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
@@ -123,11 +122,11 @@ export default function Home() {
               </button>
               <button onClick={() => window.location.href = '/agenda'}
                 style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--blue)', background: 'transparent', color: 'var(--blue)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-                📅 Agenda
+                📅 {tr('agenda')}
               </button>
               <button onClick={() => window.location.href = '/materias'}
                 style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
-                📚 Materias
+                📚 {tr('materias')}
               </button>
               <button onClick={toggleDark}
                 style={{ padding: '8px 14px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '14px', fontWeight: 700 }}>
@@ -178,18 +177,18 @@ export default function Home() {
           </div>
 
           <p style={{ fontSize: isMobile ? '15px' : '18px', color: 'var(--text-muted)', margin: '0 0 24px', maxWidth: '460px', marginLeft: 'auto', marginRight: 'auto' }}>
-            Mi plataforma para tirar estudio 💪
+            {tr('miPlataforma')}
           </p>
 
           <button onClick={() => window.location.href = '/materias'}
             style={{ padding: isMobile ? '14px 32px' : '16px 44px', borderRadius: '14px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: isMobile ? '15px' : '17px', fontWeight: 900, cursor: 'pointer' }}>
-            🚀 IR A MIS MATERIAS
+            {tr('irAMaterias')}
           </button>
 
           {isMobile && (
             <button onClick={() => setShowBuscador(true)}
               style={{ display: 'block', width: '100%', marginTop: '12px', padding: '14px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '15px', fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>
-              🔍 Buscar apuntes, materias...
+              🔍 {tr('buscarApuntes')}
             </button>
           )}
         </div>
@@ -197,10 +196,10 @@ export default function Home() {
         {/* STATS */}
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: '1px', background: 'var(--border-color)', borderRadius: '16px', overflow: 'hidden', marginBottom: isMobile ? '28px' : '48px' }}>
           {[
-            { label: 'Materias', value: materias.length, color: 'var(--gold)', emoji: '📚' },
-            { label: 'Apuntes', value: totalApuntes, color: 'var(--pink)', emoji: '✏️' },
-            { label: 'Documentos', value: totalDocs, color: 'var(--blue)', emoji: '📄' },
-            { label: 'Flashcards', value: totalFlashcards, color: 'var(--red)', emoji: '🎴' },
+            { label: tr('materias'), value: materias.length, color: 'var(--gold)', emoji: '📚' },
+            { label: tr('apuntes'), value: totalApuntes, color: 'var(--pink)', emoji: '✏️' },
+            { label: tr('documentos'), value: totalDocs, color: 'var(--blue)', emoji: '📄' },
+            { label: tr('flashcards'), value: totalFlashcards, color: 'var(--red)', emoji: '🎴' },
           ].map((stat, i) => (
             <div key={i} style={{ background: 'var(--bg-card)', padding: isMobile ? '16px 12px' : '24px 16px', textAlign: 'center' }}>
               <div style={{ fontSize: isMobile ? '20px' : '24px', marginBottom: '4px' }}>{stat.emoji}</div>
@@ -215,7 +214,7 @@ export default function Home() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
             <div style={{ width: '4px', height: '28px', background: 'var(--red)', borderRadius: '2px' }} />
             <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
-              🔥 Racha de estudio
+              {tr('rachaEstudio')}
             </h2>
           </div>
           <RachaWidget />
@@ -237,11 +236,11 @@ export default function Home() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{ width: '4px', height: '28px', background: 'var(--gold)', borderRadius: '2px' }} />
-                <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>Mis Materias</h2>
+                <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{tr('misMaterias')}</h2>
               </div>
               <button onClick={() => window.location.href = '/materias'}
                 style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--gold-border)', background: 'var(--gold-dim)', color: 'var(--gold)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                Ver todas →
+                {tr('verTodas')}
               </button>
             </div>
 
@@ -263,12 +262,12 @@ export default function Home() {
                         <h3 style={{ fontSize: isMobile ? '13px' : '15px', fontWeight: 800, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {materia.nombre}
                         </h3>
-                        <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: 0 }}>{materia.temas.length} temas</p>
+                        <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: 0 }}>{materia.temas.length} {tr('temas')}</p>
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: '6px' }}>
                       {[
-                        { label: 'Apuntes', val: materia.temas.reduce((a, t) => a + t.apuntes.length, 0) },
+                        { label: tr('apuntes'), val: materia.temas.reduce((a, t) => a + t.apuntes.length, 0) },
                         { label: 'Docs', val: materia.temas.reduce((a, t) => a + t.documentos.length, 0) },
                       ].map((s, i) => (
                         <div key={i} style={{ flex: 1, background: 'var(--bg-secondary)', borderRadius: '6px', padding: '6px', textAlign: 'center' }}>
@@ -286,25 +285,24 @@ export default function Home() {
                 onMouseEnter={(e: any) => { e.currentTarget.style.borderColor = 'var(--gold)'; e.currentTarget.style.background = 'var(--gold-dim)'; }}
                 onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.background = 'transparent'; }}>
                 <div style={{ fontSize: '24px' }}>➕</div>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 700, margin: 0 }}>Nueva materia</p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 700, margin: 0 }}>{tr('nuevaMateria')}</p>
               </div>
             </div>
           </div>
         )}
 
-        {/* Sin materias */}
         {materias.length === 0 && (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
             <div style={{ fontSize: '60px', marginBottom: '16px' }}>📚</div>
             <h2 style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>
-              ¡Empieza creando tu primera materia!
+              {tr('crearPrimeraMateria')}
             </h2>
             <p style={{ fontSize: '15px', color: 'var(--text-muted)', margin: '0 0 24px' }}>
-              Organiza tus apuntes, documentos y flashcards
+              {tr('organizaApuntes')}
             </p>
             <button onClick={() => window.location.href = '/materias'}
               style={{ padding: '14px 32px', borderRadius: '14px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '16px', fontWeight: 900, cursor: 'pointer' }}>
-              📚 Crear primera materia
+              {tr('crearPrimera')}
             </button>
           </div>
         )}
@@ -313,18 +311,18 @@ export default function Home() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
             <div style={{ width: '4px', height: '28px', background: 'var(--blue)', borderRadius: '2px' }} />
-            <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>Accesos rápidos</h2>
+            <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{tr('accesosRapidos')}</h2>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(180px, 1fr))', gap: isMobile ? '10px' : '14px' }}>
             {[
-              { emoji: '📚', label: 'Mis Materias', desc: 'Apuntes y temas', color: 'var(--gold)', href: '/materias' },
-              { emoji: '🗓️', label: 'Horario', desc: 'Clases de la semana', color: 'var(--gold)', href: '/horario' },
-              { emoji: '📅', label: 'Agenda', desc: 'Calendario y objetivos', color: 'var(--blue)', href: '/agenda' },
-              { emoji: '🤖', label: 'AlciBot', desc: 'Chat con AI', color: 'var(--pink)', href: '/chat' },
-              { emoji: '🎓', label: 'Quizzes', desc: 'Quizzes y flashcard decks', color: '#a78bfa', href: '/quizzes' },
-              { emoji: '📊', label: 'Mi Perfil', desc: 'Stats de estudio', color: 'var(--red)', href: '/perfil' },
-              { emoji: '⚙️', label: 'Configuración', desc: 'Ajustes de cuenta', color: 'var(--text-muted)', href: '/settings' },
+              { emoji: '📚', label: tr('misMaterias'), desc: tr('apuntes') + ' & ' + tr('temas'), color: 'var(--gold)', href: '/materias' },
+              { emoji: '🗓️', label: tr('horario'), desc: tr('horarioClases'), color: 'var(--gold)', href: '/horario' },
+              { emoji: '📅', label: tr('agenda'), desc: tr('calendarioYObjetivos'), color: 'var(--blue)', href: '/agenda' },
+              { emoji: '🤖', label: 'AlciBot', desc: tr('chat'), color: 'var(--pink)', href: '/chat' },
+              { emoji: '🎓', label: tr('quizzes'), desc: tr('quizzesDecks'), color: '#a78bfa', href: '/quizzes' },
+              { emoji: '📊', label: tr('perfil'), desc: tr('precision'), color: 'var(--red)', href: '/perfil' },
+              { emoji: '⚙️', label: tr('configuracion'), desc: tr('ajustesCuenta'), color: 'var(--text-muted)', href: '/settings' },
             ].map((item, i) => (
               <div key={i}
                 onClick={() => window.location.href = item.href}

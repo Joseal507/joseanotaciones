@@ -4,42 +4,18 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useDarkMode } from '../../hooks/useDarkMode';
+import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
 import { getSettings, saveSettings, applyTheme, limpiarDatosEstudio, AppSettings, DEFAULT_SETTINGS } from '../../lib/settings';
 
 type Seccion = 'perfil' | 'seguridad' | 'personalizacion' | 'notificaciones' | 'datos' | 'cuenta';
 
 const TEMAS: { id: AppSettings['tema']; label: string; desc: string; colors: string[] }[] = [
-  {
-    id: 'default',
-    label: '⭐ Default',
-    desc: 'Dorado, rojo, celeste y rosado',
-    colors: ['#f5c842', '#ff4d6d', '#38bdf8', '#f472b6'],
-  },
-  {
-    id: 'playero',
-    label: '🏖️ Playero',
-    desc: 'Arena, turquesa y coral',
-    colors: ['#e8c87a', '#ff6b6b', '#48cae4', '#f7c59f'],
-  },
-  {
-    id: 'falcons',
-    label: '🏈 Falcons',
-    desc: 'Rojo Atlanta, negro y plata',
-    colors: ['#a71930', '#c8c9c7', '#000000', '#a71930'],
-  },
-  {
-    id: 'raiders',
-    label: '🏴‍☠️ El Broder 😐',
-    desc: 'Plata, negro y blanco — Las Vegas Raiders',
-    colors: ['#a5acaf', '#000000', '#ffffff', '#a5acaf'],
-  },
-  {
-    id: 'math',
-    label: '🔢 Peter Saupeter 😏',
-    desc: 'Verde neón, azul eléctrico, morado y pink',
-    colors: ['#00f5d4', '#4361ee', '#7b2d8b', '#f72585'],
-  },
+  { id: 'default', label: '⭐ Default', desc: 'Dorado, rojo, celeste y rosado', colors: ['#f5c842', '#ff4d6d', '#38bdf8', '#f472b6'] },
+  { id: 'playero', label: '🏖️ Playero', desc: 'Arena, turquesa y coral', colors: ['#e8c87a', '#ff6b6b', '#48cae4', '#f7c59f'] },
+  { id: 'falcons', label: '🏈 Falcons', desc: 'Rojo Atlanta, negro y plata', colors: ['#a71930', '#c8c9c7', '#000000', '#a71930'] },
+  { id: 'raiders', label: '🏴‍☠️ El Broder 😐', desc: 'Plata, negro y blanco', colors: ['#a5acaf', '#000000', '#ffffff', '#a5acaf'] },
+  { id: 'math', label: '🔢 Peter Saupeter 😏', desc: 'Verde neón, azul eléctrico, morado y pink', colors: ['#00f5d4', '#4361ee', '#7b2d8b', '#f72585'] },
 ];
 
 export default function SettingsPage() {
@@ -48,24 +24,20 @@ export default function SettingsPage() {
   const [cargando, setCargando] = useState(true);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { darkMode: isDark, toggle: toggleDark } = useDarkMode();
+  const { idioma, setIdioma, tr } = useIdioma();
   const isMobile = useIsMobile();
   const fotoRef = useRef<HTMLInputElement>(null);
   const nombreAppRef = useRef<HTMLInputElement>(null);
 
-  // Perfil
   const [nombre, setNombre] = useState('');
   const [guardandoPerfil, setGuardandoPerfil] = useState(false);
   const [mensajePerfil, setMensajePerfil] = useState('');
-
-  // Contraseña
   const [passwordNueva, setPasswordNueva] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [guardandoPassword, setGuardandoPassword] = useState(false);
   const [mensajePassword, setMensajePassword] = useState('');
   const [errorPassword, setErrorPassword] = useState('');
   const [mensajeNombreApp, setMensajeNombreApp] = useState('');
-
-  // Reset email
   const [enviandoReset, setEnviandoReset] = useState(false);
   const [mensajeReset, setMensajeReset] = useState('');
 
@@ -83,7 +55,6 @@ export default function SettingsPage() {
     cargar();
   }, []);
 
-  // Cuando carga la seccion personalizacion, setea el input del nombre
   useEffect(() => {
     if (seccion === 'personalizacion' && nombreAppRef.current) {
       nombreAppRef.current.value = settings.nombreApp || 'JoseAnotaciones';
@@ -102,7 +73,7 @@ export default function SettingsPage() {
     const nuevas = { ...settings, nombreApp: valor };
     setSettings(nuevas);
     saveSettings(nuevas);
-    setMensajeNombreApp('✅ Nombre guardado: ' + valor);
+    setMensajeNombreApp('✅ ' + valor);
     setTimeout(() => setMensajeNombreApp(''), 3000);
   };
 
@@ -111,7 +82,7 @@ export default function SettingsPage() {
     const nuevas = { ...settings, nombreApp: 'JoseAnotaciones' };
     setSettings(nuevas);
     saveSettings(nuevas);
-    setMensajeNombreApp('✅ Nombre restablecido');
+    setMensajeNombreApp('✅');
     setTimeout(() => setMensajeNombreApp(''), 3000);
   };
 
@@ -121,7 +92,7 @@ export default function SettingsPage() {
     try {
       const { error } = await supabase.auth.updateUser({ data: { nombre } });
       if (error) throw error;
-      setMensajePerfil('✅ Perfil actualizado correctamente');
+      setMensajePerfil(tr('perfilActualizado'));
     } catch (err: any) {
       setMensajePerfil('❌ Error: ' + err.message);
     } finally {
@@ -132,7 +103,7 @@ export default function SettingsPage() {
   const handleFotoPerfil = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) { alert('La imagen debe ser menor a 2MB'); return; }
+    if (file.size > 2 * 1024 * 1024) { alert('Max 2MB'); return; }
     const reader = new FileReader();
     reader.onload = (ev) => {
       const result = ev.target?.result as string;
@@ -143,14 +114,14 @@ export default function SettingsPage() {
 
   const cambiarPassword = async () => {
     setErrorPassword(''); setMensajePassword('');
-    if (!passwordNueva || !passwordConfirm) { setErrorPassword('Completa todos los campos'); return; }
-    if (passwordNueva.length < 6) { setErrorPassword('Mínimo 6 caracteres'); return; }
-    if (passwordNueva !== passwordConfirm) { setErrorPassword('Las contraseñas no coinciden'); return; }
+    if (!passwordNueva || !passwordConfirm) { setErrorPassword(tr('noCoinciden')); return; }
+    if (passwordNueva.length < 6) { setErrorPassword('Min 6 chars'); return; }
+    if (passwordNueva !== passwordConfirm) { setErrorPassword(tr('noCoinciden')); return; }
     setGuardandoPassword(true);
     try {
       const { error } = await supabase.auth.updateUser({ password: passwordNueva });
       if (error) throw error;
-      setMensajePassword('✅ Contraseña cambiada correctamente');
+      setMensajePassword(tr('contrasenaCambiada'));
       setPasswordNueva(''); setPasswordConfirm('');
     } catch (err: any) {
       setErrorPassword('❌ Error: ' + err.message);
@@ -167,7 +138,7 @@ export default function SettingsPage() {
         redirectTo: `${window.location.origin}/settings`,
       });
       if (error) throw error;
-      setMensajeReset('✅ Email enviado. Revisa tu bandeja de entrada.');
+      setMensajeReset(tr('emailEnviado'));
     } catch (err: any) {
       setMensajeReset('❌ Error: ' + err.message);
     } finally {
@@ -176,13 +147,11 @@ export default function SettingsPage() {
   };
 
   const solicitarNotificaciones = async () => {
-    if (!('Notification' in window)) { alert('Tu navegador no soporta notificaciones'); return; }
+    if (!('Notification' in window)) { alert('Not supported'); return; }
     const permiso = await Notification.requestPermission();
     if (permiso === 'granted') {
-      new Notification('JoseAnotaciones', { body: '✅ Notificaciones activadas.' });
+      new Notification('JoseAnotaciones', { body: tr('notifActivadas') });
       updateSettings({ notifAsignaciones: true, notifRacha: true, notifLogros: true });
-    } else {
-      alert('Permiso denegado. Activa las notificaciones en tu navegador.');
     }
   };
 
@@ -194,7 +163,7 @@ export default function SettingsPage() {
   if (cargando) {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ color: 'var(--text-muted)' }}>Cargando...</p>
+        <p style={{ color: 'var(--text-muted)' }}>{tr('cargando')}</p>
       </div>
     );
   }
@@ -203,12 +172,12 @@ export default function SettingsPage() {
   const inicial = nombre_usuario.charAt(0).toUpperCase();
 
   const secciones = [
-    { id: 'perfil', label: '👤 Perfil', desc: 'Nombre e imagen' },
-    { id: 'seguridad', label: '🔒 Seguridad', desc: 'Contraseña y acceso' },
-    { id: 'personalizacion', label: '🎨 Personalización', desc: 'Tema, colores y nombre' },
-    { id: 'notificaciones', label: '🔔 Notificaciones', desc: 'Alertas y recordatorios' },
-    { id: 'datos', label: '🗑️ Datos', desc: 'Limpiar y gestionar' },
-    { id: 'cuenta', label: '⚙️ Cuenta', desc: 'Información y sesión' },
+    { id: 'perfil', label: tr('perfilSettings'), desc: tr('nombreImagen') },
+    { id: 'seguridad', label: tr('seguridad'), desc: tr('contrasenaAcceso') },
+    { id: 'personalizacion', label: tr('personalizacion'), desc: tr('temaColoresNombre') },
+    { id: 'notificaciones', label: tr('notificaciones'), desc: tr('alertasRecordatorios') },
+    { id: 'datos', label: tr('datos'), desc: tr('limpiarGestionar') },
+    { id: 'cuenta', label: tr('cuenta'), desc: tr('infoSesion') },
   ] as const;
 
   const Alert = ({ msg }: { msg: string }) => {
@@ -245,15 +214,8 @@ export default function SettingsPage() {
 
   const InputField = ({ label, value, onChange, type = 'text', placeholder, disabled = false, focusColor = 'var(--gold)' }: any) => (
     <div>
-      <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-        {label}
-      </label>
-      <input
-        type={type}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        disabled={disabled}
+      <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>{label}</label>
+      <input type={type} value={value} onChange={onChange} placeholder={placeholder} disabled={disabled}
         style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: disabled ? 'var(--text-faint)' : 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box', transition: 'border 0.2s', cursor: disabled ? 'not-allowed' : 'text' }}
         onFocus={e => { if (!disabled) e.currentTarget.style.borderColor = focusColor; }}
         onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
@@ -270,11 +232,11 @@ export default function SettingsPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
               <button onClick={() => window.location.href = '/'}
                 style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-                ← Inicio
+                ← {tr('inicio')}
               </button>
               <div>
-                <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>⚙️ Configuración</h1>
-                <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>Ajustes de tu cuenta y app</p>
+                <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>⚙️ {tr('configuracion')}</h1>
+                <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>{tr('ajustesCuenta')}</p>
               </div>
             </div>
           </header>
@@ -297,16 +259,14 @@ export default function SettingsPage() {
               {settings.fotoPerfil ? (
                 <img src={settings.fotoPerfil} alt="Foto" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
-                <div style={{ width: '100%', height: '100%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', fontWeight: 900, color: '#000' }}>
-                  {inicial}
-                </div>
+                <div style={{ width: '100%', height: '100%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', fontWeight: 900, color: '#000' }}>{inicial}</div>
               )}
             </div>
             <input ref={fotoRef} type="file" accept="image/*" onChange={handleFotoPerfil} style={{ display: 'none' }} />
             <p style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px' }}>{nombre_usuario}</p>
             <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '0 0 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{usuario?.email}</p>
             <p style={{ fontSize: '10px', color: 'var(--gold)', margin: 0, cursor: 'pointer' }} onClick={() => fotoRef.current?.click()}>
-              📷 Cambiar foto
+              {tr('cambiarFoto')}
             </p>
           </div>
 
@@ -327,43 +287,39 @@ export default function SettingsPage() {
           {/* ===== PERFIL ===== */}
           {seccion === 'perfil' && (
             <Card color="var(--gold)">
-              <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>👤 Perfil</h2>
-
+              <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('perfilSettings')}</h2>
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '20px', background: 'var(--bg-secondary)', borderRadius: '14px', border: '1px solid var(--border-color)' }}>
                 <div onClick={() => fotoRef.current?.click()}
                   style={{ width: '80px', height: '80px', borderRadius: '50%', cursor: 'pointer', overflow: 'hidden', border: '3px solid var(--gold)', flexShrink: 0 }}>
                   {settings.fotoPerfil ? (
                     <img src={settings.fotoPerfil} alt="Foto" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (
-                    <div style={{ width: '100%', height: '100%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', fontWeight: 900, color: '#000' }}>
-                      {inicial}
-                    </div>
+                    <div style={{ width: '100%', height: '100%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', fontWeight: 900, color: '#000' }}>{inicial}</div>
                   )}
                 </div>
                 <div>
-                  <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>Foto de perfil</p>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px' }}>JPG, PNG · Máx 2MB</p>
+                  <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>{tr('fotoPerfil')}</p>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px' }}>JPG, PNG · Max 2MB</p>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button onClick={() => fotoRef.current?.click()}
                       style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                      📷 Cambiar
+                      {tr('cambiarFoto')}
                     </button>
                     {settings.fotoPerfil && (
                       <button onClick={() => updateSettings({ fotoPerfil: '' })}
                         style={{ padding: '7px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                        Quitar
+                        {tr('quitar')}
                       </button>
                     )}
                   </div>
                 </div>
               </div>
-
-              <InputField label="Nombre" value={nombre} onChange={(e: any) => setNombre(e.target.value)} placeholder="Tu nombre" />
-              <InputField label="Email" value={usuario?.email || ''} disabled />
+              <InputField label={tr('nombre')} value={nombre} onChange={(e: any) => setNombre(e.target.value)} placeholder={tr('nombre')} />
+              <InputField label={tr('email')} value={usuario?.email || ''} disabled />
               <Alert msg={mensajePerfil} />
               <button onClick={guardarPerfil} disabled={guardandoPerfil}
                 style={{ padding: '13px 24px', borderRadius: '10px', border: 'none', background: guardandoPerfil ? 'var(--bg-card2)' : 'var(--gold)', color: guardandoPerfil ? 'var(--text-faint)' : '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer', alignSelf: 'flex-start' }}>
-                {guardandoPerfil ? '⏳ Guardando...' : '💾 Guardar cambios'}
+                {guardandoPerfil ? tr('cargando') : tr('guardarCambios')}
               </button>
             </Card>
           )}
@@ -372,35 +328,33 @@ export default function SettingsPage() {
           {seccion === 'seguridad' && (
             <>
               <Card color="var(--blue)">
-                <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>🔑 Cambiar contraseña</h2>
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>Mínimo 6 caracteres</p>
-                <InputField label="Nueva contraseña" type="password" value={passwordNueva} onChange={(e: any) => setPasswordNueva(e.target.value)} placeholder="Mínimo 6 caracteres" focusColor="var(--blue)" />
+                <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('cambiarContrasena')}</h2>
+                <InputField label={tr('nuevaContrasena')} type="password" value={passwordNueva} onChange={(e: any) => setPasswordNueva(e.target.value)} placeholder="Min 6" focusColor="var(--blue)" />
                 <div>
-                  <InputField label="Confirmar contraseña" type="password" value={passwordConfirm} onChange={(e: any) => setPasswordConfirm(e.target.value)} placeholder="Repite la contraseña" focusColor="var(--blue)" />
+                  <InputField label={tr('confirmarContrasena')} type="password" value={passwordConfirm} onChange={(e: any) => setPasswordConfirm(e.target.value)} placeholder={tr('confirmarContrasena')} focusColor="var(--blue)" />
                   {passwordConfirm && passwordNueva !== passwordConfirm && (
-                    <p style={{ fontSize: '11px', color: 'var(--red)', margin: '4px 0 0' }}>Las contraseñas no coinciden</p>
+                    <p style={{ fontSize: '11px', color: 'var(--red)', margin: '4px 0 0' }}>{tr('noCoinciden')}</p>
                   )}
                   {passwordConfirm && passwordNueva === passwordConfirm && passwordNueva.length >= 6 && (
-                    <p style={{ fontSize: '11px', color: '#4ade80', margin: '4px 0 0' }}>✓ Coinciden</p>
+                    <p style={{ fontSize: '11px', color: '#4ade80', margin: '4px 0 0' }}>{tr('coinciden')}</p>
                   )}
                 </div>
                 <Alert msg={errorPassword} />
                 <Alert msg={mensajePassword} />
                 <button onClick={cambiarPassword} disabled={guardandoPassword || !passwordNueva || !passwordConfirm}
                   style={{ padding: '13px 24px', borderRadius: '10px', border: 'none', background: guardandoPassword || !passwordNueva || !passwordConfirm ? 'var(--bg-card2)' : 'var(--blue)', color: guardandoPassword || !passwordNueva || !passwordConfirm ? 'var(--text-faint)' : '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer', alignSelf: 'flex-start' }}>
-                  {guardandoPassword ? '⏳...' : '🔑 Cambiar contraseña'}
+                  {guardandoPassword ? tr('cargando') : tr('cambiarContrasena')}
                 </button>
               </Card>
-
               <Card color="var(--pink)">
-                <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>📧 Olvidaste tu contraseña</h2>
+                <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('olvidasteContrasena')}</h2>
                 <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
-                  Enviaremos un link a <strong style={{ color: 'var(--text-primary)' }}>{usuario?.email}</strong>
+                  {usuario?.email}
                 </p>
                 <Alert msg={mensajeReset} />
                 <button onClick={enviarReset} disabled={enviandoReset}
                   style={{ padding: '13px 24px', borderRadius: '10px', border: 'none', background: enviandoReset ? 'var(--bg-card2)' : 'var(--pink)', color: enviandoReset ? 'var(--text-faint)' : '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer', alignSelf: 'flex-start' }}>
-                  {enviandoReset ? '⏳ Enviando...' : '📧 Enviar email de reset'}
+                  {enviandoReset ? tr('cargando') : tr('enviarReset')}
                 </button>
               </Card>
             </>
@@ -409,45 +363,49 @@ export default function SettingsPage() {
           {/* ===== PERSONALIZACIÓN ===== */}
           {seccion === 'personalizacion' && (
             <>
-              {/* Nombre app - input NO controlado con ref */}
+              {/* IDIOMA */}
+              <Card color="#4ade80">
+                <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('idiomaApp')}</h2>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>{tr('cambiaIdioma')}</p>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {[
+                    { id: 'es' as const, label: '🇪🇸 Español', flag: '🇪🇸' },
+                    { id: 'en' as const, label: '🇺🇸 English', flag: '🇺🇸' },
+                  ].map(lang => (
+                    <button key={lang.id} onClick={() => { setIdioma(lang.id); window.location.reload(); }}
+                      style={{ flex: 1, padding: '16px', borderRadius: '12px', border: `2px solid ${idioma === lang.id ? '#4ade80' : 'var(--border-color)'}`, background: idioma === lang.id ? '#4ade8020' : 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'center', transition: 'all 0.2s' }}>
+                      <div style={{ fontSize: '32px', marginBottom: '8px' }}>{lang.flag}</div>
+                      <p style={{ fontSize: '14px', fontWeight: 800, color: idioma === lang.id ? '#4ade80' : 'var(--text-primary)', margin: 0 }}>{lang.label}</p>
+                      {idioma === lang.id && <p style={{ fontSize: '11px', color: '#4ade80', margin: '4px 0 0', fontWeight: 700 }}>✓ Active</p>}
+                    </button>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Nombre app */}
               <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                 <div style={{ height: '4px', background: 'var(--gold)' }} />
                 <div style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                    Nombre de la app
-                  </h2>
-                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
-                    Personaliza cómo se llama tu app en el navbar
-                  </p>
+                  <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('nombreApp')}</h2>
+                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>{tr('personalizaNombre')}</p>
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                      Nombre
-                    </label>
-                    <input
-                      ref={nombreAppRef}
-                      defaultValue={settings.nombreApp || 'JoseAnotaciones'}
-                      placeholder="JoseAnotaciones"
-                      type="text"
+                    <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>{tr('nombre')}</label>
+                    <input ref={nombreAppRef} defaultValue={settings.nombreApp || 'JoseAnotaciones'} placeholder="JoseAnotaciones" type="text"
                       style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '16px', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
                       onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
                       onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
                       onKeyDown={e => { if (e.key === 'Enter') guardarNombreApp(); }}
                     />
-                    <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: '8px 0 0' }}>
-                      Escribe el nombre y presiona Enter o toca "Guardar nombre"
-                    </p>
                   </div>
-
                   <Alert msg={mensajeNombreApp} />
-
                   <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                     <button onClick={guardarNombreApp}
                       style={{ padding: '11px 22px', borderRadius: '10px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-                      💾 Guardar nombre
+                      {tr('guardarNombre')}
                     </button>
                     <button onClick={restablecerNombreApp}
                       style={{ padding: '11px 18px', borderRadius: '10px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-                      Restablecer
+                      {tr('restablecer')}
                     </button>
                   </div>
                 </div>
@@ -457,44 +415,22 @@ export default function SettingsPage() {
               <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                 <div style={{ height: '4px', background: 'var(--pink)' }} />
                 <div style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>🎨 Tema de colores</h2>
-                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
-                    Toca un tema para aplicarlo inmediatamente
-                  </p>
+                  <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('temaColores')}</h2>
+                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>{tr('tocaTema')}</p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {TEMAS.map(tema => {
                       const isActive = settings.tema === tema.id;
                       return (
-                        <button
-                          key={tema.id}
-                          onClick={() => {
-                            const nuevas = { ...settings, tema: tema.id };
-                            setSettings(nuevas);
-                            saveSettings(nuevas);
-                            applyTheme(tema.id);
-                          }}
-                          style={{
-                            padding: '16px 18px',
-                            borderRadius: '12px',
-                            border: `2px solid ${isActive ? tema.colors[0] : 'var(--border-color)'}`,
-                            background: isActive ? tema.colors[0] + '25' : 'var(--bg-secondary)',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '14px',
-                            transition: 'all 0.2s',
-                            textAlign: 'left',
-                            width: '100%',
-                          }}>
+                        <button key={tema.id}
+                          onClick={() => { const nuevas = { ...settings, tema: tema.id }; setSettings(nuevas); saveSettings(nuevas); applyTheme(tema.id); }}
+                          style={{ padding: '16px 18px', borderRadius: '12px', border: `2px solid ${isActive ? tema.colors[0] : 'var(--border-color)'}`, background: isActive ? tema.colors[0] + '25' : 'var(--bg-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', transition: 'all 0.2s', textAlign: 'left', width: '100%' }}>
                           <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
                             {tema.colors.map((c, i) => (
                               <div key={i} style={{ width: '22px', height: '22px', borderRadius: '50%', background: c, border: '2px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
                             ))}
                           </div>
                           <div style={{ flex: 1 }}>
-                            <p style={{ fontSize: '14px', fontWeight: 800, color: isActive ? tema.colors[0] : 'var(--text-primary)', margin: '0 0 2px' }}>
-                              {tema.label}
-                            </p>
+                            <p style={{ fontSize: '14px', fontWeight: 800, color: isActive ? tema.colors[0] : 'var(--text-primary)', margin: '0 0 2px' }}>{tema.label}</p>
                             <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0 }}>{tema.desc}</p>
                           </div>
                           {isActive && <span style={{ fontSize: '20px', flexShrink: 0 }}>✓</span>}
@@ -507,16 +443,13 @@ export default function SettingsPage() {
 
               {/* Modo oscuro */}
               <Card color="#a78bfa">
-                <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>🌙 Modo de pantalla</h2>
+                <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('modoPantalla')}</h2>
                 <Toggle
-                  label={isDark ? '🌙 Modo oscuro activo' : '☀️ Modo claro activo'}
-                  desc="Cambia entre fondo negro y fondo blanco"
+                  label={isDark ? tr('modoOscuro') : tr('modoClaro')}
+                  desc={tr('cambiaFondo')}
                   value={isDark}
                   onChange={toggleDark}
                 />
-                <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>
-                  Por defecto la app usa modo oscuro. Se guarda automáticamente.
-                </p>
               </Card>
             </>
           )}
@@ -524,36 +457,30 @@ export default function SettingsPage() {
           {/* ===== NOTIFICACIONES ===== */}
           {seccion === 'notificaciones' && (
             <Card color="var(--blue)">
-              <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>🔔 Notificaciones</h2>
-
+              <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('notificaciones')}</h2>
               {'Notification' in window && Notification.permission !== 'granted' && (
                 <div style={{ padding: '16px', background: 'var(--blue-dim)', borderRadius: '12px', border: '1px solid var(--blue-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                   <div>
-                    <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--blue)', margin: '0 0 2px' }}>Activar notificaciones</p>
-                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Necesitas dar permiso al navegador</p>
+                    <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--blue)', margin: '0 0 2px' }}>{tr('activarNotif')}</p>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{tr('permisoNavegador')}</p>
                   </div>
                   <button onClick={solicitarNotificaciones}
                     style={{ padding: '9px 18px', borderRadius: '10px', border: 'none', background: 'var(--blue)', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer', flexShrink: 0 }}>
-                    Activar
+                    {tr('activar')}
                   </button>
                 </div>
               )}
-
               {'Notification' in window && Notification.permission === 'granted' && (
                 <div style={{ padding: '10px 14px', background: '#4ade8015', borderRadius: '10px', border: '1px solid #4ade8044' }}>
-                  <p style={{ fontSize: '13px', color: '#4ade80', margin: 0, fontWeight: 600 }}>✅ Notificaciones activadas</p>
+                  <p style={{ fontSize: '13px', color: '#4ade80', margin: 0, fontWeight: 600 }}>{tr('notifActivadas')}</p>
                 </div>
               )}
-
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <Toggle label="📅 Asignaciones pendientes" desc="Aviso cuando tienes tareas próximas" value={settings.notifAsignaciones} onChange={() => updateSettings({ notifAsignaciones: !settings.notifAsignaciones })} />
-                <Toggle label="🔥 Racha en riesgo" desc="Alerta si puedes perder tu racha hoy" value={settings.notifRacha} onChange={() => updateSettings({ notifRacha: !settings.notifRacha })} />
-                <Toggle label="🏆 Nuevos logros" desc="Cuando desbloqueas un logro" value={settings.notifLogros} onChange={() => updateSettings({ notifLogros: !settings.notifLogros })} />
+                <Toggle label={tr('asigPendientes')} desc={tr('avisoTareas')} value={settings.notifAsignaciones} onChange={() => updateSettings({ notifAsignaciones: !settings.notifAsignaciones })} />
+                <Toggle label={tr('rachaRiesgo')} desc={tr('alertaRacha')} value={settings.notifRacha} onChange={() => updateSettings({ notifRacha: !settings.notifRacha })} />
+                <Toggle label={tr('nuevosLogros')} desc={tr('cuandoDesbloqueas')} value={settings.notifLogros} onChange={() => updateSettings({ notifLogros: !settings.notifLogros })} />
               </div>
-
-              <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>
-                Solo funcionan con el navegador abierto
-              </p>
+              <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>{tr('soloNavegador')}</p>
             </Card>
           )}
 
@@ -561,14 +488,14 @@ export default function SettingsPage() {
           {seccion === 'datos' && (
             <>
               <Card color="var(--blue)">
-                <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>📊 Almacenamiento</h2>
+                <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('almacenamiento')}</h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {[
-                    { label: '☁️ Materias y apuntes', desc: 'Guardado en Supabase (nube)' },
-                    { label: '📊 Estadísticas de estudio', desc: 'Guardado en tu navegador (local)' },
-                    { label: '🔥 Racha de estudio', desc: 'Guardado en tu navegador (local)' },
-                    { label: '⚙️ Configuración', desc: 'Guardado en tu navegador (local)' },
-                    { label: '🎓 Quizzes y decks', desc: 'Guardado en tu navegador (local)' },
+                    { label: '☁️ ' + tr('materias'), desc: 'Supabase (cloud)' },
+                    { label: '📊 Stats', desc: 'localStorage' },
+                    { label: '🔥 Streak', desc: 'localStorage' },
+                    { label: '⚙️ Settings', desc: 'localStorage' },
+                    { label: '🎓 Quizzes & decks', desc: 'localStorage' },
                   ].map((item, i) => (
                     <div key={i} style={{ padding: '10px 14px', background: 'var(--bg-secondary)', borderRadius: '10px' }}>
                       <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 2px' }}>{item.label}</p>
@@ -582,12 +509,12 @@ export default function SettingsPage() {
                 <div style={{ height: '4px', background: 'var(--gold)' }} />
                 <div style={{ padding: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                   <div>
-                    <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>🗑️ Limpiar datos de estudio</h2>
-                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>Resetea racha y estadísticas. Tus materias NO se borran.</p>
+                    <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>{tr('limpiarDatosEstudio')}</h2>
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>{tr('resetRachaStats')}</p>
                   </div>
-                  <button onClick={() => { if (!confirm('¿Limpiar racha y estadísticas?')) return; limpiarDatosEstudio(); alert('✅ Datos de estudio limpiados.'); }}
+                  <button onClick={() => { if (!confirm(tr('limpiarRachaStats'))) return; limpiarDatosEstudio(); alert('✅'); }}
                     style={{ padding: '10px 20px', borderRadius: '10px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '13px', fontWeight: 800, cursor: 'pointer', flexShrink: 0 }}>
-                    Limpiar stats
+                    {tr('limpiarStats')}
                   </button>
                 </div>
               </div>
@@ -596,17 +523,12 @@ export default function SettingsPage() {
                 <div style={{ height: '4px', background: 'var(--blue)' }} />
                 <div style={{ padding: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                   <div>
-                    <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>🎓 Limpiar quizzes y decks</h2>
-                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>Elimina todos los quizzes y flashcard decks guardados</p>
+                    <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>{tr('limpiarQuizzesDecks')}</h2>
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>{tr('eliminarTodos')}</p>
                   </div>
-                  <button onClick={() => {
-                    if (!confirm('¿Eliminar todos los quizzes y decks?')) return;
-                    localStorage.removeItem('josea_quizzes_guardados');
-                    localStorage.removeItem('josea_flashcard_decks');
-                    alert('✅ Quizzes y decks eliminados.');
-                  }}
+                  <button onClick={() => { if (!confirm('?')) return; localStorage.removeItem('josea_quizzes_guardados'); localStorage.removeItem('josea_flashcard_decks'); alert('✅'); }}
                     style={{ padding: '10px 20px', borderRadius: '10px', border: '2px solid var(--blue)', background: 'transparent', color: 'var(--blue)', fontSize: '13px', fontWeight: 800, cursor: 'pointer', flexShrink: 0 }}>
-                    Limpiar
+                    {tr('limpiarStats')}
                   </button>
                 </div>
               </div>
@@ -617,13 +539,13 @@ export default function SettingsPage() {
           {seccion === 'cuenta' && (
             <>
               <Card color="var(--blue)">
-                <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>ℹ️ Información de cuenta</h2>
+                <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('infoCuenta')}</h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {[
                     { label: 'Email', value: usuario?.email },
                     { label: 'ID', value: usuario?.id?.substring(0, 12) + '...' },
-                    { label: 'Creada', value: usuario?.created_at ? new Date(usuario.created_at).toLocaleDateString('es-ES') : 'N/A' },
-                    { label: 'Último acceso', value: usuario?.last_sign_in_at ? new Date(usuario.last_sign_in_at).toLocaleDateString('es-ES') : 'N/A' },
+                    { label: idioma === 'en' ? 'Created' : 'Creada', value: usuario?.created_at ? new Date(usuario.created_at).toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES') : 'N/A' },
+                    { label: idioma === 'en' ? 'Last login' : 'Último acceso', value: usuario?.last_sign_in_at ? new Date(usuario.last_sign_in_at).toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES') : 'N/A' },
                   ].map((item, i) => (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-secondary)', borderRadius: '10px' }}>
                       <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>{item.label}</span>
@@ -637,12 +559,12 @@ export default function SettingsPage() {
                 <div style={{ height: '4px', background: 'var(--gold)' }} />
                 <div style={{ padding: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                   <div>
-                    <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>🚪 Cerrar sesión</h2>
-                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>Cierra tu sesión en este dispositivo</p>
+                    <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>{tr('cerrarSesionBtn')}</h2>
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>{tr('cierraSesion')}</p>
                   </div>
                   <button onClick={cerrarSesion}
                     style={{ padding: '10px 20px', borderRadius: '10px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
-                    Cerrar sesión
+                    {tr('cerrarSesion')}
                   </button>
                 </div>
               </div>
@@ -650,15 +572,15 @@ export default function SettingsPage() {
               <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '2px solid var(--red-border)', overflow: 'hidden' }}>
                 <div style={{ height: '4px', background: 'var(--red)' }} />
                 <div style={{ padding: '24px' }}>
-                  <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--red)', margin: '0 0 8px' }}>⚠️ Zona peligrosa</h2>
+                  <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--red)', margin: '0 0 8px' }}>{tr('zonaPeligrosa')}</h2>
                   <div style={{ padding: '14px 18px', background: 'var(--red-dim)', borderRadius: '12px', border: '1px solid var(--red-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                     <div>
-                      <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 2px' }}>Eliminar cuenta</p>
-                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Elimina tu cuenta permanentemente</p>
+                      <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 2px' }}>{tr('eliminarCuenta')}</p>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{tr('eliminaCuenta')}</p>
                     </div>
-                    <button onClick={() => alert('Para eliminar tu cuenta contacta soporte por seguridad.')}
+                    <button onClick={() => alert(tr('contactaSoporte'))}
                       style={{ padding: '9px 16px', borderRadius: '8px', border: 'none', background: 'var(--red)', color: '#fff', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
-                      Eliminar
+                      {tr('eliminar')}
                     </button>
                   </div>
                 </div>

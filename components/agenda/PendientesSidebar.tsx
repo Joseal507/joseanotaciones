@@ -1,13 +1,7 @@
 'use client';
 
 import { Asignacion, ObjetivoAgenda } from '../../lib/agenda';
-
-const TIPOS = [
-  { id: 'tarea', label: '📝 Tarea', color: '#38bdf8' },
-  { id: 'examen', label: '📋 Examen', color: '#ff4d6d' },
-  { id: 'proyecto', label: '🛠️ Proyecto', color: '#f5c842' },
-  { id: 'otro', label: '📌 Otro', color: '#a78bfa' },
-];
+import { useIdioma } from '../../hooks/useIdioma';
 
 interface Props {
   asignaciones: Asignacion[];
@@ -25,7 +19,23 @@ export default function PendientesSidebar({
   diaSeleccionado, onToggleAsig, onEliminarAsig,
   onNuevaAsig, onSelectDia,
 }: Props) {
+  const { tr, idioma } = useIdioma();
 
+  const TIPOS_ES = [
+    { id: 'tarea', label: '📝 Tarea', color: '#38bdf8' },
+    { id: 'examen', label: '📋 Examen', color: '#ff4d6d' },
+    { id: 'proyecto', label: '🛠️ Proyecto', color: '#f5c842' },
+    { id: 'otro', label: '📌 Otro', color: '#a78bfa' },
+  ];
+
+  const TIPOS_EN = [
+    { id: 'tarea', label: '📝 Homework', color: '#38bdf8' },
+    { id: 'examen', label: '📋 Exam', color: '#ff4d6d' },
+    { id: 'proyecto', label: '🛠️ Project', color: '#f5c842' },
+    { id: 'otro', label: '📌 Other', color: '#a78bfa' },
+  ];
+
+  const TIPOS = idioma === 'en' ? TIPOS_EN : TIPOS_ES;
   const tipoInfo = (tipo: string) => TIPOS.find(t => t.id === tipo) || TIPOS[3];
 
   const proximas = asignaciones
@@ -38,23 +48,20 @@ export default function PendientesSidebar({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-      {/* Botón nueva asignación */}
-      <button
-        onClick={onNuevaAsig}
+      <button onClick={onNuevaAsig}
         style={{ padding: '14px', borderRadius: '14px', border: 'none', background: 'var(--blue)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer', width: '100%' }}>
-        + Nueva asignación
+        + {tr('nuevaAsignacion')}
       </button>
 
-      {/* Día seleccionado */}
       {diaSeleccionado && (
         <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--blue-border)', overflow: 'hidden' }}>
           <div style={{ height: '3px', background: 'var(--blue)' }} />
           <div style={{ padding: '16px' }}>
             <h3 style={{ fontSize: '12px', fontWeight: 800, color: 'var(--blue)', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-              📅 {new Date(diaSeleccionado + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
+              📅 {new Date(diaSeleccionado + 'T12:00:00').toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
             </h3>
             {asignaciones.filter(a => a.fecha === diaSeleccionado).length === 0 ? (
-              <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>Sin asignaciones</p>
+              <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>{tr('sinAsignaciones')}</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {asignaciones.filter(a => a.fecha === diaSeleccionado).map(a => (
@@ -86,24 +93,21 @@ export default function PendientesSidebar({
         </div>
       )}
 
-      {/* Próximas asignaciones */}
       <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
         <div style={{ height: '3px', background: 'var(--red)' }} />
         <div style={{ padding: '16px' }}>
           <h3 style={{ fontSize: '12px', fontWeight: 800, color: 'var(--red)', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-            🔔 Próximas asignaciones
+            {tr('proximasAsig')}
           </h3>
           {proximas.length === 0 ? (
-            <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>Sin pendientes 🎉</p>
+            <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>{tr('sinPendientes')}</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {proximas.map(a => {
                 const fecha = new Date(a.fecha + 'T12:00:00');
                 const diff = Math.ceil((fecha.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
                 return (
-                  <div
-                    key={a.id}
-                    onClick={() => onSelectDia(a.fecha)}
+                  <div key={a.id} onClick={() => onSelectDia(a.fecha)}
                     style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', background: 'var(--bg-secondary)', borderRadius: '8px', cursor: 'pointer', border: `1px solid ${diff <= 2 ? 'var(--red)' : 'var(--border-color)'}`, transition: 'all 0.15s' }}>
                     <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: a.materiaColor, flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -111,7 +115,7 @@ export default function PendientesSidebar({
                       <p style={{ fontSize: '10px', color: 'var(--text-faint)', margin: 0 }}>{a.materia}</p>
                     </div>
                     <span style={{ fontSize: '10px', fontWeight: 800, color: diff <= 1 ? 'var(--red)' : diff <= 3 ? 'var(--gold)' : 'var(--text-faint)', flexShrink: 0, background: diff <= 1 ? 'var(--red-dim)' : diff <= 3 ? 'var(--gold-dim)' : 'transparent', padding: '2px 6px', borderRadius: '4px' }}>
-                      {diff === 0 ? '¡Hoy!' : diff === 1 ? 'Mañana' : `${diff}d`}
+                      {diff === 0 ? tr('hoy') : diff === 1 ? tr('manana') : `${diff}d`}
                     </span>
                   </div>
                 );
@@ -121,15 +125,14 @@ export default function PendientesSidebar({
         </div>
       </div>
 
-      {/* Objetivos pendientes */}
       <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
         <div style={{ height: '3px', background: 'var(--pink)' }} />
         <div style={{ padding: '16px' }}>
           <h3 style={{ fontSize: '12px', fontWeight: 800, color: 'var(--pink)', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-            🎯 Objetivos pendientes
+            {tr('objetivosPendientes')}
           </h3>
           {objPendientes.length === 0 ? (
-            <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>Todo completado 🏆</p>
+            <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>{tr('todoCompletado')}</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {objPendientes.map(o => (
@@ -138,14 +141,12 @@ export default function PendientesSidebar({
                   <p style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', margin: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {o.titulo}
                   </p>
-                  <span style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 800, flexShrink: 0 }}>
-                    ⭐{o.xp}
-                  </span>
+                  <span style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 800, flexShrink: 0 }}>⭐{o.xp}</span>
                 </div>
               ))}
               {objetivos.filter(o => !o.completado).length > 5 && (
                 <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '4px 0 0', textAlign: 'center' }}>
-                  +{objetivos.filter(o => !o.completado).length - 5} más pendientes
+                  +{objetivos.filter(o => !o.completado).length - 5} {idioma === 'en' ? 'more pending' : 'más pendientes'}
                 </p>
               )}
             </div>

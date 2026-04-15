@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { COLORES, EMOJIS } from '../../lib/storage';
+import { useIdioma } from '../../hooks/useIdioma';
 
 interface ModalProps {
   onClose: () => void;
@@ -12,19 +13,22 @@ export function ModalMateria({ onClose, onConfirm }: ModalProps) {
   const [nombre, setNombre] = useState('');
   const [color, setColor] = useState(COLORES[0]);
   const [emoji, setEmoji] = useState(EMOJIS[0]);
+  const { tr, idioma } = useIdioma();
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
       <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '440px', border: '1px solid var(--border-color)' }}>
         <div style={{ height: '4px', background: color, borderRadius: '2px', marginBottom: '24px' }} />
-        <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 24px 0' }}>Nueva Materia</h2>
+        <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 24px 0' }}>
+          {idioma === 'en' ? 'New Subject' : 'Nueva Materia'}
+        </h2>
 
-        <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>NOMBRE</label>
-        <input
-          value={nombre}
-          onChange={e => setNombre(e.target.value)}
+        <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
+          {tr('nombre').toUpperCase()}
+        </label>
+        <input value={nombre} onChange={e => setNombre(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && nombre.trim() && onConfirm({ nombre, color, emoji })}
-          placeholder="Ej: Matemáticas, Historia..."
+          placeholder={idioma === 'en' ? 'e.g. Math, History...' : 'Ej: Matemáticas, Historia...'}
           autoFocus
           style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', boxSizing: 'border-box', outline: 'none', marginBottom: '16px' }}
         />
@@ -39,7 +43,9 @@ export function ModalMateria({ onClose, onConfirm }: ModalProps) {
           ))}
         </div>
 
-        <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>COLOR</label>
+        <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
+          {tr('color').toUpperCase()}
+        </label>
         <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
           {COLORES.map(c => (
             <button key={c} onClick={() => setColor(c)}
@@ -50,11 +56,11 @@ export function ModalMateria({ onClose, onConfirm }: ModalProps) {
         <div style={{ display: 'flex', gap: '10px' }}>
           <button onClick={onClose}
             style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-            Cancelar
+            {tr('cancelar')}
           </button>
           <button onClick={() => nombre.trim() && onConfirm({ nombre, color, emoji })}
             style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: color, color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-            Crear Materia
+            {idioma === 'en' ? 'Create Subject' : 'Crear Materia'}
           </button>
         </div>
       </div>
@@ -65,24 +71,29 @@ export function ModalMateria({ onClose, onConfirm }: ModalProps) {
 export function ModalTema({ onClose, onConfirm, colorMateria }: ModalProps & { colorMateria: string }) {
   const [nombre, setNombre] = useState('');
   const [color, setColor] = useState(COLORES[2]);
+  const { tr, idioma } = useIdioma();
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
       <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '400px', border: '1px solid var(--border-color)' }}>
         <div style={{ height: '4px', background: colorMateria, borderRadius: '2px', marginBottom: '24px' }} />
-        <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 24px 0' }}>Nuevo Tema</h2>
+        <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 24px 0' }}>
+          {idioma === 'en' ? 'New Topic' : 'Nuevo Tema'}
+        </h2>
 
-        <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>NOMBRE</label>
-        <input
-          value={nombre}
-          onChange={e => setNombre(e.target.value)}
+        <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
+          {tr('nombre').toUpperCase()}
+        </label>
+        <input value={nombre} onChange={e => setNombre(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && nombre.trim() && onConfirm({ nombre, color })}
-          placeholder="Ej: Tema 1 - Introducción..."
+          placeholder={idioma === 'en' ? 'e.g. Topic 1 - Introduction...' : 'Ej: Tema 1 - Introducción...'}
           autoFocus
           style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', boxSizing: 'border-box', outline: 'none', marginBottom: '16px' }}
         />
 
-        <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>COLOR</label>
+        <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
+          {tr('color').toUpperCase()}
+        </label>
         <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
           {COLORES.map(c => (
             <button key={c} onClick={() => setColor(c)}
@@ -93,11 +104,11 @@ export function ModalTema({ onClose, onConfirm, colorMateria }: ModalProps & { c
         <div style={{ display: 'flex', gap: '10px' }}>
           <button onClick={onClose}
             style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-            Cancelar
+            {tr('cancelar')}
           </button>
           <button onClick={() => nombre.trim() && onConfirm({ nombre, color })}
             style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: color, color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-            Crear Tema
+            {idioma === 'en' ? 'Create Topic' : 'Crear Tema'}
           </button>
         </div>
       </div>
@@ -107,19 +118,22 @@ export function ModalTema({ onClose, onConfirm, colorMateria }: ModalProps & { c
 
 export function ModalApunte({ onClose, onConfirm, colorTema }: ModalProps & { colorTema: string }) {
   const [titulo, setTitulo] = useState('');
+  const { tr, idioma } = useIdioma();
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
       <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '400px', border: '1px solid var(--border-color)' }}>
         <div style={{ height: '4px', background: colorTema, borderRadius: '2px', marginBottom: '24px' }} />
-        <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 24px 0' }}>Nuevo Apunte</h2>
+        <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 24px 0' }}>
+          {idioma === 'en' ? 'New Note' : 'Nuevo Apunte'}
+        </h2>
 
-        <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>TÍTULO</label>
-        <input
-          value={titulo}
-          onChange={e => setTitulo(e.target.value)}
+        <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
+          {idioma === 'en' ? 'TITLE' : 'TÍTULO'}
+        </label>
+        <input value={titulo} onChange={e => setTitulo(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && titulo.trim() && onConfirm({ titulo })}
-          placeholder="Ej: Clase 1, Resumen..."
+          placeholder={idioma === 'en' ? 'e.g. Class 1, Summary...' : 'Ej: Clase 1, Resumen...'}
           autoFocus
           style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', boxSizing: 'border-box', outline: 'none', marginBottom: '24px' }}
         />
@@ -127,11 +141,11 @@ export function ModalApunte({ onClose, onConfirm, colorTema }: ModalProps & { co
         <div style={{ display: 'flex', gap: '10px' }}>
           <button onClick={onClose}
             style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-            Cancelar
+            {tr('cancelar')}
           </button>
           <button onClick={() => titulo.trim() && onConfirm({ titulo })}
             style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: colorTema, color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-            Crear Apunte
+            {idioma === 'en' ? 'Create Note' : 'Crear Apunte'}
           </button>
         </div>
       </div>

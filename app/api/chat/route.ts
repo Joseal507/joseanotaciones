@@ -8,17 +8,18 @@ const client = new OpenAI({
 
 export async function POST(request: NextRequest) {
   try {
-    const { mensaje, contexto, historial, perfil, todosDocumentos } = await request.json();
+    const { mensaje, contexto, historial, perfil, todosDocumentos, idioma } = await request.json();
+    const lang = idioma === 'en' ? 'en' : 'es';
+    const langInstruction = lang === 'en'
+      ? 'Always respond in English.'
+      : 'Responde siempre en español.';
 
     let systemPrompt = '';
 
     if (contexto) {
-      systemPrompt = `Eres AlciBot, un asistente de estudio inteligente.
-SOLO responde basándote en el siguiente documento. NO inventes información que no esté en el documento.
-
-DOCUMENTO:
-${contexto.substring(0, 6000)}`;
-
+      systemPrompt = lang === 'en'
+        ? `You are AlciBot, an intelligent study assistant. ONLY respond based on the following document. Do NOT invent information not in the document. ${langInstruction}\n\nDOCUMENT:\n${contexto.substring(0, 6000)}`
+        : `Eres AlciBot, un asistente de estudio inteligente. SOLO responde basándote en el siguiente documento. NO inventes información que no esté en el documento. ${langInstruction}\n\nDOCUMENTO:\n${contexto.substring(0, 6000)}`;
     } else if (todosDocumentos && todosDocumentos.length > 0) {
       const docsTexto = todosDocumentos
         .slice(0, 5)
@@ -26,60 +27,16 @@ ${contexto.substring(0, 6000)}`;
         .join('\n\n---\n\n');
 
       const materiaDificil = Object.entries(perfil?.materiasStats || {})
-        .sort((a: any, b: any) =>
-          (b[1].falladas / (b[1].totalFlashcards || 1)) -
-          (a[1].falladas / (a[1].totalFlashcards || 1))
-        )
-        .slice(0, 3)
-        .map((e: any) => e[1].nombre)
-        .join(', ') || 'Sin datos';
+        .sort((a: any, b: any) => (b[1].falladas / (b[1].totalFlashcards || 1)) - (a[1].falladas / (a[1].totalFlashcards || 1)))
+        .slice(0, 3).map((e: any) => e[1].nombre).join(', ') || (lang === 'en' ? 'No data' : 'Sin datos');
 
-      const temasQueFaila = Object.entries(perfil?.flashcardsFalladas || {})
-        .sort((a: any, b: any) => (b[1] as number) - (a[1] as number))
-        .slice(0, 3)
-        .map((e: any) => e[0].substring(0, 60))
-        .join('; ') || 'Sin datos';
-
-      systemPrompt = `Eres AlciBot, un asistente de estudio personal e inteligente.
-Tienes acceso a los apuntes y documentos del estudiante.
-Responde basándote en ellos cuando sea relevante. Si no hay info suficiente, usa tu conocimiento general.
-Responde siempre en español.
-
-DOCUMENTOS DEL ESTUDIANTE:
-${docsTexto}
-
-PERFIL DEL ESTUDIANTE:
-- Materias con más dificultad: ${materiaDificil}
-- Temas que más falla: ${temasQueFaila}
-- Total flashcards estudiadas: ${Object.values(perfil?.materiasStats || {}).reduce((acc: number, m: any) => acc + m.totalFlashcards, 0)}
-
-Usa este perfil para personalizar tus respuestas y dar consejos específicos cuando sea relevante.`;
-
+      systemPrompt = lang === 'en'
+        ? `You are AlciBot, a personal and intelligent study assistant. You have access to the student's notes and documents. Respond based on them when relevant. ${langInstruction}\n\nSTUDENT DOCUMENTS:\n${docsTexto}\n\nHARDEST SUBJECTS: ${materiaDificil}`
+        : `Eres AlciBot, un asistente de estudio personal e inteligente. Tienes acceso a los apuntes y documentos del estudiante. ${langInstruction}\n\nDOCUMENTOS:\n${docsTexto}\n\nMATERIAS DIFÍCILES: ${materiaDificil}`;
     } else {
-      const tieneStats = Object.keys(perfil?.materiasStats || {}).length > 0;
-
-      const perfilTexto = tieneStats ? `
-PERFIL DEL ESTUDIANTE:
-- Materias que estudia: ${Object.values(perfil.materiasStats).map((m: any) => m.nombre).join(', ')}
-- Materia con más dificultad: ${Object.entries(perfil.materiasStats)
-  .sort((a: any, b: any) => b[1].falladas - a[1].falladas)
-  .slice(0, 1)
-  .map((e: any) => e[1].nombre)
-  .join('') || 'Sin datos'}
-- Precisión global: ${(() => {
-  const acertadas = Object.values(perfil.flashcardsAcertadas || {}).reduce((a: number, b: any) => a + b, 0);
-  const falladas = Object.values(perfil.flashcardsFalladas || {}).reduce((a: number, b: any) => a + b, 0);
-  const total = acertadas + falladas;
-  return total > 0 ? Math.round((acertadas / total) * 100) + '%' : 'Sin datos';
-})()}
-- Total flashcards estudiadas: ${Object.values(perfil?.materiasStats || {}).reduce((acc: number, m: any) => acc + m.totalFlashcards, 0)}
-
-Usa este perfil para personalizar tus respuestas cuando sea relevante.` : '';
-
-      systemPrompt = `Eres AlciBot, un asistente de estudio personal inteligente y amigable.
-Ayuda al estudiante con preguntas de estudio, explica conceptos, da consejos de memorización y técnicas de estudio.
-Responde siempre en español. Sé conciso pero completo.
-${perfilTexto}`;
+      systemPrompt = lang === 'en'
+        ? `You are AlciBot, a personal and intelligent study assistant. Help the student with study questions, explain concepts, give memorization tips and study techniques. ${langInstruction}`
+        : `Eres AlciBot, un asistente de estudio personal inteligente y amigable. Ayuda al estudiante con preguntas de estudio, explica conceptos, da consejos de memorización y técnicas de estudio. ${langInstruction}`;
     }
 
     const messages: any[] = [
@@ -97,7 +54,6 @@ ${perfilTexto}`;
 
     const respuesta = completion.choices[0].message.content || '';
     return NextResponse.json({ success: true, respuesta });
-
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }

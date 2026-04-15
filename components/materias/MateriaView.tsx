@@ -1,6 +1,7 @@
 'use client';
 
 import { Materia, Tema } from '../../lib/storage';
+import { useIdioma } from '../../hooks/useIdioma';
 
 interface Props {
   materia: Materia;
@@ -11,12 +12,13 @@ interface Props {
 }
 
 export default function MateriaView({ materia, onBack, onAbrirTema, onEliminarTema, onNuevoTema }: Props) {
+  const { tr, idioma } = useIdioma();
+
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
-      {/* Breadcrumb */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '28px' }}>
         <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--gold)', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>
-          📚 Materias
+          📚 {tr('materias')}
         </button>
         <span style={{ color: 'var(--text-faint)' }}>/</span>
         <span style={{ color: materia.color, fontWeight: 700, fontSize: '14px' }}>{materia.emoji} {materia.nombre}</span>
@@ -29,22 +31,24 @@ export default function MateriaView({ materia, onBack, onAbrirTema, onEliminarTe
           </div>
           <div>
             <h1 style={{ fontSize: '28px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{materia.nombre}</h1>
-            <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>{materia.temas.length} temas</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>{materia.temas.length} {tr('temas')}</p>
           </div>
         </div>
         <button onClick={onNuevoTema}
           style={{ padding: '12px 24px', borderRadius: '12px', border: 'none', background: materia.color, color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-          + Nuevo Tema
+          + {idioma === 'en' ? 'New Topic' : 'Nuevo Tema'}
         </button>
       </div>
 
       {materia.temas.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 0' }}>
           <div style={{ fontSize: '60px', marginBottom: '16px' }}>📁</div>
-          <p style={{ fontSize: '18px', color: 'var(--text-faint)', fontWeight: 600, marginBottom: '24px' }}>No hay temas todavía</p>
+          <p style={{ fontSize: '18px', color: 'var(--text-faint)', fontWeight: 600, marginBottom: '24px' }}>
+            {idioma === 'en' ? 'No topics yet' : 'No hay temas todavía'}
+          </p>
           <button onClick={onNuevoTema}
             style={{ padding: '14px 32px', borderRadius: '12px', border: 'none', background: materia.color, color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>
-            + Crear primer tema
+            + {idioma === 'en' ? 'Create first topic' : 'Crear primer tema'}
           </button>
         </div>
       ) : (
@@ -64,7 +68,7 @@ export default function MateriaView({ materia, onBack, onAbrirTema, onEliminarTe
                       <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tema.nombre}</h3>
                     </div>
                     <div style={{ display: 'flex', gap: '12px' }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>✏️ {tema.apuntes.length} apuntes</span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>✏️ {tema.apuntes.length} {idioma === 'en' ? 'notes' : 'apuntes'}</span>
                       <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>📄 {tema.documentos.length} docs</span>
                     </div>
                   </div>
@@ -75,7 +79,7 @@ export default function MateriaView({ materia, onBack, onAbrirTema, onEliminarTe
                 </div>
                 <button onClick={() => onAbrirTema(tema)}
                   style={{ width: '100%', padding: '8px', borderRadius: '8px', border: `2px solid ${tema.color}`, background: 'transparent', color: tema.color, fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-                  Abrir →
+                  {idioma === 'en' ? 'Open →' : 'Abrir →'}
                 </button>
               </div>
             </div>

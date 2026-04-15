@@ -1,6 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { Document, Page, pdfjs } from 'react-pdf';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
+import 'react-pdf/dist/Page/TextLayer.css';
+
+pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 interface Analisis {
   keywords: string[];
@@ -13,33 +18,68 @@ interface Props {
   tipo: string;
   nombre: string;
   archivoUrl?: string;
+  archivoBase64?: string;
+  archivoMime?: string;
   analisis?: Analisis;
   temaColor: string;
 }
 
-export default function VisorDocumento({ contenido, tipo, nombre, archivoUrl, analisis, temaColor }: Props) {
-  const [vistaActiva, setVistaActiva] = useState<'original' | 'texto'>('original');
-  const [fontSize, setFontSize] = useState(15);
+export default function VisorDocumento({
+  contenido, tipo, nombre,
+  archivoBase64, archivoMime,
+  analisis, temaColor,
+}: Props) {
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [numPages, setNumPages] = useState(0);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [vistaActiva, setVistaActiva] = useState<'pdf' | 'texto'>('pdf');
+  const [fontSize, setFontSize] = useState(14);
   const [mostrarHighlights, setMostrarHighlights] = useState(true);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const tieneOriginal = !!archivoUrl;
-
-  // Si no tiene original, mostrar texto
   useEffect(() => {
-    if (!tieneOriginal) setVistaActiva('texto');
-  }, [tieneOriginal]);
+    if (archivoBase64 && archivoMime === 'application/pdf') {
+      try {
+        const byteCharacters = atob(archivoBase64);
+        const byteArray = new Uint8Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteArray[i] = byteCharacters.charCodeAt(i);
+        }
+        const blob = new Blob([byteArray], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        setPdfUrl(url);
+        return () => URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error(err);
+        setVistaActiva('texto');
+      }
+    } else {
+      setVistaActiva('texto');
+    }
+  }, [archivoBase64, archivoMime]);
+
+  const textRenderer = (textItem: any) => {
+    if (!analisis || !mostrarHighlights) return textItem.str;
+    const text = textItem.str;
+    if (!text.trim()) return text;
+
+    const isPhrase = analisis.important_phrases?.some(p =>
+      text.toLowerCase().includes(p.toLowerCase())
+    );
+    const isKeyword = analisis.keywords?.some(k =>
+      text.toLowerCase().includes(k.toLowerCase())
+    );
+
+    if (isPhrase) return `<mark class="hl-phrase">${text}</mark>`;
+    if (isKeyword) return `<mark class="hl-keyword">${text}</mark>`;
+    return text;
+  };
 
   const renderConHighlights = (texto: string) => {
-    if (!analisis || !mostrarHighlights) {
-      return <span style={{ color: '#333' }}>{texto}</span>;
-    }
-
+    if (!analisis || !mostrarHighlights) return <span>{texto}</span>;
     let remaining = texto;
     const phrases = [...(analisis.important_phrases || [])];
     const keywords = [...(analisis.keywords || [])];
     phrases.sort((a, b) => b.length - a.length);
-
     phrases.forEach(p => {
       try {
         remaining = remaining.replace(
@@ -48,7 +88,6 @@ export default function VisorDocumento({ contenido, tipo, nombre, archivoUrl, an
         );
       } catch {}
     });
-
     keywords.forEach(k => {
       try {
         remaining = remaining.replace(
@@ -57,140 +96,210 @@ export default function VisorDocumento({ contenido, tipo, nombre, archivoUrl, an
         );
       } catch {}
     });
-
     const parts: { text: string; type: string }[] = [];
     remaining.split('|||').forEach(seg => {
       if (seg.startsWith('PHRASE:')) parts.push({ text: seg.replace('PHRASE:', ''), type: 'phrase' });
       else if (seg.startsWith('KEYWORD:')) parts.push({ text: seg.replace('KEYWORD:', ''), type: 'keyword' });
       else if (seg) parts.push({ text: seg, type: 'normal' });
     });
-
     return (
-      <span>
+      <>
         {parts.map((p, i) => {
           if (p.type === 'phrase') return (
-            <mark key={i} style={{ background: temaColor, color: '#000', borderRadius: '3px', padding: '1px 4px', fontWeight: 700, textDecoration: 'none' }}>
+            <mark key={i} style={{ background: temaColor, color: '#000', borderRadius: '2px', padding: '0 2px', fontWeight: 700 }}>
               {p.text}
             </mark>
           );
           if (p.type === 'keyword') return (
-            <mark key={i} style={{ background: '#38bdf8', color: '#000', borderRadius: '3px', padding: '1px 4px', fontWeight: 600, textDecoration: 'none' }}>
+            <mark key={i} style={{ background: '#38bdf8', color: '#000', borderRadius: '2px', padding: '0 2px', fontWeight: 600 }}>
               {p.text}
             </mark>
           );
-          return <span key={i} style={{ color: '#333' }}>{p.text}</span>;
+          return <span key={i}>{p.text}</span>;
         })}
-      </span>
+      </>
     );
   };
 
+  const tienePdf = !!pdfUrl && tipo === 'pdf';
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
 
       {/* Toolbar */}
       <div style={{ padding: '10px 16px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-
-        {/* Tabs original / texto */}
-        {tieneOriginal && (
+        {tienePdf && (
           <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-card)', borderRadius: '10px', padding: '4px' }}>
-            {[
-              { id: 'original', label: tipo === 'pdf' ? '📄 PDF' : tipo === 'word' ? '📝 Word' : '📄 Original' },
-              { id: 'texto', label: '📖 Texto' },
-            ].map(v => (
-              <button key={v.id} onClick={() => setVistaActiva(v.id as any)}
-                style={{ padding: '6px 14px', borderRadius: '7px', border: 'none', background: vistaActiva === v.id ? temaColor : 'transparent', color: vistaActiva === v.id ? '#000' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>
-                {v.label}
-              </button>
-            ))}
+            <button onClick={() => setVistaActiva('pdf')}
+              style={{ padding: '6px 14px', borderRadius: '7px', border: 'none', background: vistaActiva === 'pdf' ? temaColor : 'transparent', color: vistaActiva === 'pdf' ? '#000' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+              ✨ PDF + Highlights
+            </button>
+            <button onClick={() => setVistaActiva('texto')}
+              style={{ padding: '6px 14px', borderRadius: '7px', border: 'none', background: vistaActiva === 'texto' ? temaColor : 'transparent', color: vistaActiva === 'texto' ? '#000' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+              📖 Solo texto
+            </button>
           </div>
         )}
 
-        {/* Controles */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          {/* Highlights toggle */}
-          {analisis && vistaActiva === 'texto' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {analisis && (
             <button onClick={() => setMostrarHighlights(!mostrarHighlights)}
-              style={{ padding: '6px 12px', borderRadius: '8px', border: `2px solid ${mostrarHighlights ? temaColor : 'var(--border-color)'}`, background: mostrarHighlights ? temaColor + '20' : 'transparent', color: mostrarHighlights ? temaColor : 'var(--text-muted)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
-              ✨ {mostrarHighlights ? 'Highlights ON' : 'Highlights OFF'}
+              style={{ padding: '5px 12px', borderRadius: '8px', border: `2px solid ${mostrarHighlights ? temaColor : 'var(--border-color)'}`, background: mostrarHighlights ? temaColor + '20' : 'transparent', color: mostrarHighlights ? temaColor : 'var(--text-muted)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
+              ✨ {mostrarHighlights ? 'ON' : 'OFF'}
             </button>
           )}
-
-          {/* Tamaño fuente - solo en vista texto */}
+          {vistaActiva === 'pdf' && numPages > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button onClick={() => setPageNumber(p => Math.max(1, p - 1))} disabled={pageNumber <= 1}
+                style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '13px', cursor: 'pointer' }}>
+                ←
+              </button>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{pageNumber} / {numPages}</span>
+              <button onClick={() => setPageNumber(p => Math.min(numPages, p + 1))} disabled={pageNumber >= numPages}
+                style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '13px', cursor: 'pointer' }}>
+                →
+              </button>
+            </div>
+          )}
           {vistaActiva === 'texto' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <button onClick={() => setFontSize(f => Math.max(11, f - 1))}
-                style={{ padding: '4px 9px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '13px', cursor: 'pointer', fontWeight: 700 }}>A−</button>
+                style={{ padding: '4px 9px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '13px', cursor: 'pointer', fontWeight: 700 }}>
+                A−
+              </button>
               <span style={{ fontSize: '11px', color: 'var(--text-faint)', minWidth: '28px', textAlign: 'center' }}>{fontSize}</span>
-              <button onClick={() => setFontSize(f => Math.min(24, f + 1))}
-                style={{ padding: '4px 9px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '13px', cursor: 'pointer', fontWeight: 700 }}>A+</button>
+              <button onClick={() => setFontSize(f => Math.min(22, f + 1))}
+                style={{ padding: '4px 9px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '13px', cursor: 'pointer', fontWeight: 700 }}>
+                A+
+              </button>
             </div>
           )}
-
-          <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>
-            {contenido.split(' ').length} palabras
-          </span>
         </div>
+        <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{contenido.split(' ').length} palabras</span>
       </div>
 
-      {/* Leyenda highlights */}
-      {analisis && mostrarHighlights && vistaActiva === 'texto' && (
-        <div style={{ padding: '8px 16px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+      {/* Leyenda */}
+      {analisis && mostrarHighlights && (
+        <div style={{ padding: '8px 16px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <div style={{ width: '16px', height: '10px', borderRadius: '3px', background: temaColor }} />
+            <div style={{ width: '20px', height: '10px', borderRadius: '3px', background: temaColor }} />
             <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Frases importantes</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <div style={{ width: '16px', height: '10px', borderRadius: '3px', background: '#38bdf8' }} />
+            <div style={{ width: '20px', height: '10px', borderRadius: '3px', background: '#38bdf8' }} />
             <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Palabras clave</span>
           </div>
         </div>
       )}
 
-      {/* Visor PDF/Word */}
-      {vistaActiva === 'original' && tieneOriginal && (
-        <div style={{ flex: 1, minHeight: '500px', background: '#525659' }}>
-          {tipo === 'pdf' ? (
-            <iframe
-              ref={iframeRef}
-              src={archivoUrl}
-              style={{ width: '100%', height: '100%', minHeight: '600px', border: 'none' }}
-              title={nombre}
-            />
-          ) : tipo === 'word' ? (
-            <div style={{ padding: '32px', background: '#fff', height: '100%', overflowY: 'auto' }}>
-              <div style={{ maxWidth: '700px', margin: '0 auto', background: '#fff', padding: '40px', boxShadow: '0 2px 20px rgba(0,0,0,0.1)', minHeight: '500px' }}>
-                <p style={{ fontSize: '13px', color: '#666', marginBottom: '24px', borderBottom: '1px solid #eee', paddingBottom: '12px' }}>
-                  📝 {nombre}
-                </p>
-                {contenido.split('\n').map((p, i) => (
-                  p.trim() && (
-                    <p key={i} style={{ fontSize: '15px', lineHeight: 1.8, color: '#222', margin: '0 0 14px', fontFamily: 'Georgia, serif' }}>
-                      {p}
-                    </p>
-                  )
-                ))}
+      {/* ===== PDF CON HIGHLIGHTS ===== */}
+      {vistaActiva === 'pdf' && tienePdf && (
+        <div style={{ background: '#525659', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', minHeight: '80vh', overflowY: 'auto' }}>
+          <Document
+            file={pdfUrl}
+            onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+            loading={
+              <div style={{ color: '#ccc', padding: '40px', textAlign: 'center' }}>
+                <p style={{ fontSize: '40px' }}>⏳</p>
+                <p>Cargando PDF...</p>
               </div>
-            </div>
-          ) : (
-            <div style={{ padding: '32px', background: '#fff', height: '100%', overflowY: 'auto', fontFamily: 'monospace', fontSize: '14px', color: '#333', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
-              {contenido}
+            }
+            error={
+              <div style={{ color: '#f87171', padding: '40px', textAlign: 'center' }}>
+                <p style={{ fontSize: '40px' }}>❌</p>
+                <p>Error cargando PDF</p>
+              </div>
+            }
+          >
+            <Page
+              pageNumber={pageNumber}
+              customTextRenderer={textRenderer}
+              renderAnnotationLayer={true}
+              renderTextLayer={true}
+              scale={1.4}
+            />
+          </Document>
+
+          {numPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '16px', background: 'rgba(0,0,0,0.6)', padding: '12px 24px', borderRadius: '14px' }}>
+              <button onClick={() => setPageNumber(p => Math.max(1, p - 1))} disabled={pageNumber <= 1}
+                style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: pageNumber <= 1 ? 'rgba(255,255,255,0.1)' : temaColor, color: pageNumber <= 1 ? '#666' : '#000', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
+                ← Anterior
+              </button>
+              <span style={{ color: '#fff', fontSize: '14px', fontWeight: 600 }}>{pageNumber} / {numPages}</span>
+              <button onClick={() => setPageNumber(p => Math.min(numPages, p + 1))} disabled={pageNumber >= numPages}
+                style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: pageNumber >= numPages ? 'rgba(255,255,255,0.1)' : temaColor, color: pageNumber >= numPages ? '#666' : '#000', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
+                Siguiente →
+              </button>
             </div>
           )}
         </div>
       )}
 
-      {/* Vista texto con highlights */}
-      {vistaActiva === 'texto' && (
-        <div style={{ flex: 1, padding: '28px 36px', background: '#ffffff', overflowY: 'auto', minHeight: '500px' }}>
-          {contenido.split('\n').map((parrafo, i) => (
-            parrafo.trim() && (
-              <p key={i} style={{ marginBottom: '16px', lineHeight: 1.9, fontSize: `${fontSize}px`, color: '#222', fontFamily: 'Georgia, serif' }}>
-                {renderConHighlights(parrafo)}
+      {/* ===== TEXTO CON HIGHLIGHTS ===== */}
+      {(vistaActiva === 'texto' || !tienePdf) && (
+        <div style={{ background: '#f5f5f0', padding: '40px 20px', minHeight: '70vh', overflowY: 'auto' }}>
+          <div style={{ maxWidth: '800px', margin: '0 auto', background: '#ffffff', padding: '50px 60px', boxShadow: '0 2px 20px rgba(0,0,0,0.12)', minHeight: '500px', fontFamily: tipo === 'pdf' ? '"Times New Roman", Times, serif' : 'sans-serif' }}>
+            <div style={{ marginBottom: '28px', paddingBottom: '16px', borderBottom: `3px solid ${temaColor}` }}>
+              <h1 style={{ fontSize: fontSize + 4, fontWeight: 900, color: '#111', margin: '0 0 4px' }}>
+                {nombre.replace(/\.(pdf|docx?|txt)$/i, '')}
+              </h1>
+              <p style={{ fontSize: 11, color: '#888', margin: 0 }}>
+                {tipo.toUpperCase()} · {contenido.split(' ').length} palabras
               </p>
-            )
-          ))}
+            </div>
+            {!analisis && (
+              <div style={{ background: '#fffbeb', border: '1px solid #f5c842', borderRadius: '8px', padding: '12px 16px', marginBottom: '24px' }}>
+                <p style={{ fontSize: '13px', color: '#7a5f00', margin: 0 }}>
+                  💡 Haz clic en &quot;🔍 Analizar&quot; para ver highlights
+                </p>
+              </div>
+            )}
+            {contenido.split('\n').map((parrafo, i) => (
+              parrafo.trim() ? (
+                <p key={i} style={{ fontSize, lineHeight: 1.85, color: '#111', margin: '0 0 14px', textAlign: 'justify' }}>
+                  {renderConHighlights(parrafo)}
+                </p>
+              ) : null
+            ))}
+          </div>
         </div>
       )}
+
+      <style>{`
+        .react-pdf__Page {
+          position: relative;
+        }
+        .react-pdf__Page__canvas {
+          display: block !important;
+          border-radius: 4px;
+          box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+        }
+        .react-pdf__Page__textContent {
+          position: absolute !important;
+          top: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          bottom: 0 !important;
+        }
+        .react-pdf__Page__textContent span {
+          color: transparent !important;
+        }
+        .react-pdf__Page__textContent .hl-phrase {
+          background: ${temaColor} !important;
+          color: transparent !important;
+          opacity: 0.5;
+          mix-blend-mode: multiply;
+          border-radius: 2px;
+        }
+        .react-pdf__Page__textContent .hl-keyword {
+          background: #38bdf8 !important;
+          color: transparent !important;
+          opacity: 0.5;
+          mix-blend-mode: multiply;
+          border-radius: 2px;
+        }
+      `}</style>
     </div>
   );
 }

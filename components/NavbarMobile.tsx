@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import UserMenu from './UserMenu';
 import RachaWidget from './RachaWidget';
 import { useDarkMode } from '../hooks/useDarkMode';
+import { useIdioma } from '../hooks/useIdioma';
 
 interface Props {
   darkMode?: boolean;
@@ -14,6 +15,7 @@ export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: P
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [appNombre, setAppNombre] = useState('JoseAnotaciones');
   const { darkMode: currentDark, toggle } = useDarkMode();
+  const { tr } = useIdioma();
 
   const isDark = darkModeProp !== undefined ? darkModeProp : currentDark;
   const handleToggle = onToggleDark || toggle;
@@ -29,14 +31,14 @@ export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: P
   }, []);
 
   const links = [
-    { label: '🏠 Inicio', href: '/' },
-    { label: '📚 Mis Materias', href: '/materias' },
-    { label: '🗓️ Horario', href: '/horario' },
-    { label: '📅 Agenda', href: '/agenda' },
+    { label: '🏠 ' + tr('inicio'), href: '/' },
+    { label: '📚 ' + tr('misMaterias'), href: '/materias' },
+    { label: '🗓️ ' + tr('horario'), href: '/horario' },
+    { label: '📅 ' + tr('agenda'), href: '/agenda' },
     { label: '🤖 AlciBot', href: '/chat' },
-    { label: '🎓 Quizzes y Decks', href: '/quizzes' },
-    { label: '📊 Mi Perfil', href: '/perfil' },
-    { label: '⚙️ Configuración', href: '/settings' },
+    { label: '🎓 ' + tr('quizzes'), href: '/quizzes' },
+    { label: '📊 ' + tr('perfil'), href: '/perfil' },
+    { label: '⚙️ ' + tr('configuracion'), href: '/settings' },
   ];
 
   return (

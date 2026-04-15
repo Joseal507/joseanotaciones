@@ -2,13 +2,7 @@
 
 import { useState } from 'react';
 import { Asignacion, ObjetivoAgenda, genId } from '../../lib/agenda';
-
-const TIPOS = [
-  { id: 'tarea', label: '📝 Tarea', color: '#38bdf8' },
-  { id: 'examen', label: '📋 Examen', color: '#ff4d6d' },
-  { id: 'proyecto', label: '🛠️ Proyecto', color: '#f5c842' },
-  { id: 'otro', label: '📌 Otro', color: '#a78bfa' },
-];
+import { useIdioma } from '../../hooks/useIdioma';
 
 interface ModalAsigProps {
   materias: any[];
@@ -22,6 +16,21 @@ export function ModalAsignacion({ materias, fechaInicial, onCrear, onClose }: Mo
   const [materia, setMateria] = useState('');
   const [fecha, setFecha] = useState(fechaInicial);
   const [tipo, setTipo] = useState<Asignacion['tipo']>('tarea');
+  const { tr, idioma } = useIdioma();
+
+  const TIPOS = idioma === 'en'
+    ? [
+        { id: 'tarea', label: '📝 Homework', color: '#38bdf8' },
+        { id: 'examen', label: '📋 Exam', color: '#ff4d6d' },
+        { id: 'proyecto', label: '🛠️ Project', color: '#f5c842' },
+        { id: 'otro', label: '📌 Other', color: '#a78bfa' },
+      ]
+    : [
+        { id: 'tarea', label: '📝 Tarea', color: '#38bdf8' },
+        { id: 'examen', label: '📋 Examen', color: '#ff4d6d' },
+        { id: 'proyecto', label: '🛠️ Proyecto', color: '#f5c842' },
+        { id: 'otro', label: '📌 Otro', color: '#a78bfa' },
+      ];
 
   const crear = () => {
     if (!titulo.trim() || !fecha) return;
@@ -29,7 +38,7 @@ export function ModalAsignacion({ materias, fechaInicial, onCrear, onClose }: Mo
     onCrear({
       id: genId(),
       titulo,
-      materia: mat?.nombre || 'Sin materia',
+      materia: mat?.nombre || (idioma === 'en' ? 'No subject' : 'Sin materia'),
       materiaColor: mat?.color || '#555',
       fecha,
       completada: false,
@@ -42,24 +51,22 @@ export function ModalAsignacion({ materias, fechaInicial, onCrear, onClose }: Mo
       <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '440px', border: '1px solid var(--border-color)' }}>
         <div style={{ height: '4px', background: 'var(--blue)', borderRadius: '2px', marginBottom: '24px' }} />
         <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 24px' }}>
-          Nueva Asignación
+          {tr('nuevaAsignacion')}
         </h2>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div>
-            <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>TÍTULO</label>
-            <input
-              value={titulo}
-              onChange={e => setTitulo(e.target.value)}
+            <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('titulo')}</label>
+            <input value={titulo} onChange={e => setTitulo(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && crear()}
-              placeholder="Ej: Examen de Cálculo..."
+              placeholder={idioma === 'en' ? 'e.g. Calculus exam...' : 'Ej: Examen de Cálculo...'}
               autoFocus
               style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', boxSizing: 'border-box', outline: 'none' }}
             />
           </div>
 
           <div>
-            <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>TIPO</label>
+            <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('tipo')}</label>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               {TIPOS.map(t => (
                 <button key={t.id} onClick={() => setTipo(t.id as any)}
@@ -71,16 +78,16 @@ export function ModalAsignacion({ materias, fechaInicial, onCrear, onClose }: Mo
           </div>
 
           <div>
-            <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>MATERIA</label>
+            <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('materia')}</label>
             <select value={materia} onChange={e => setMateria(e.target.value)}
               style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}>
-              <option value="">Sin materia</option>
+              <option value="">{tr('sinMateria')}</option>
               {materias.map(m => <option key={m.id} value={m.id}>{m.emoji} {m.nombre}</option>)}
             </select>
           </div>
 
           <div>
-            <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>FECHA</label>
+            <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('fecha')}</label>
             <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
               style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }} />
           </div>
@@ -89,11 +96,11 @@ export function ModalAsignacion({ materias, fechaInicial, onCrear, onClose }: Mo
         <div style={{ display: 'flex', gap: '10px', marginTop: '24px' }}>
           <button onClick={onClose}
             style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-            Cancelar
+            {tr('cancelar')}
           </button>
           <button onClick={crear}
             style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: 'var(--blue)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-            Crear
+            {tr('crear')}
           </button>
         </div>
       </div>
@@ -110,6 +117,7 @@ export function ModalObjetivo({ onCrear, onClose }: ModalObjProps) {
   const [titulo, setTitulo] = useState('');
   const [categoria, setCategoria] = useState<ObjetivoAgenda['categoria']>('estudio');
   const [xp, setXp] = useState(10);
+  const { tr, idioma } = useIdioma();
 
   const crear = () => {
     if (!titulo.trim()) return;
@@ -119,39 +127,39 @@ export function ModalObjetivo({ onCrear, onClose }: ModalObjProps) {
       completado: false,
       xp,
       categoria,
-      fechaCreacion: new Date().toLocaleDateString('es-ES'),
+      fechaCreacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
     });
   };
+
+  const CATS = [
+    { id: 'estudio', label: tr('estudio'), color: 'var(--blue)' },
+    { id: 'personal', label: tr('personal'), color: 'var(--gold)' },
+    { id: 'materia', label: tr('categoriaMateria'), color: 'var(--pink)' },
+  ];
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
       <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '400px', border: '1px solid var(--border-color)' }}>
         <div style={{ height: '4px', background: 'var(--pink)', borderRadius: '2px', marginBottom: '24px' }} />
         <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 24px' }}>
-          Nuevo Objetivo
+          {tr('nuevoObjetivo')}
         </h2>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div>
-            <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>OBJETIVO</label>
-            <input
-              value={titulo}
-              onChange={e => setTitulo(e.target.value)}
+            <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('objetivo')}</label>
+            <input value={titulo} onChange={e => setTitulo(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && crear()}
-              placeholder="Ej: Estudiar capítulo 3..."
+              placeholder={idioma === 'en' ? 'e.g. Study chapter 3...' : 'Ej: Estudiar capítulo 3...'}
               autoFocus
               style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', boxSizing: 'border-box', outline: 'none' }}
             />
           </div>
 
           <div>
-            <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>CATEGORÍA</label>
+            <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('categoria')}</label>
             <div style={{ display: 'flex', gap: '6px' }}>
-              {[
-                { id: 'estudio', label: '📚 Estudio', color: 'var(--blue)' },
-                { id: 'personal', label: '🌟 Personal', color: 'var(--gold)' },
-                { id: 'materia', label: '📖 Materia', color: 'var(--pink)' },
-              ].map(c => (
+              {CATS.map(c => (
                 <button key={c.id} onClick={() => setCategoria(c.id as any)}
                   style={{ flex: 1, padding: '8px', borderRadius: '8px', border: `2px solid ${categoria === c.id ? c.color : 'var(--border-color)'}`, background: categoria === c.id ? c.color + '25' : 'transparent', color: categoria === c.id ? c.color : 'var(--text-muted)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
                   {c.label}
@@ -178,11 +186,11 @@ export function ModalObjetivo({ onCrear, onClose }: ModalObjProps) {
         <div style={{ display: 'flex', gap: '10px', marginTop: '24px' }}>
           <button onClick={onClose}
             style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-            Cancelar
+            {tr('cancelar')}
           </button>
           <button onClick={crear}
             style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: 'var(--pink)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-            ⭐ Crear
+            ⭐ {tr('crear')}
           </button>
         </div>
       </div>

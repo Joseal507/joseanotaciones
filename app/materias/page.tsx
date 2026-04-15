@@ -2,13 +2,11 @@
 export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from 'react';
-import {
-  getMaterias, saveMaterias, generateId,
-  Materia, Tema, Apunte, Documento,
-} from '../../lib/storage';
+import { getMaterias, saveMaterias, generateId, Materia, Tema, Apunte, Documento } from '../../lib/storage';
 import { supabase } from '../../lib/supabase';
 import { getMateriasDB, saveMateriasDB } from '../../lib/db';
 import { useIsMobile } from '../../hooks/useIsMobile';
+import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
 import MateriasList from '../../components/materias/MateriasList';
 import MateriaView from '../../components/materias/MateriaView';
@@ -35,6 +33,7 @@ export default function MateriasPage() {
   const [cargando, setCargando] = useState(true);
   const [showBuscador, setShowBuscador] = useState(false);
   const isMobile = useIsMobile();
+  const { tr, idioma } = useIdioma();
 
   useEffect(() => {
     const cargar = async () => {
@@ -97,13 +96,6 @@ export default function MateriasPage() {
     setTemaActual(tema);
   };
 
-  const actualizarApunte = (apunte: Apunte) => {
-    if (!temaActual) return;
-    const nuevoTema = { ...temaActual, apuntes: temaActual.apuntes.map(a => a.id === apunte.id ? apunte : a) };
-    actualizarTema(nuevoTema);
-    setApunteActual(apunte);
-  };
-
   const actualizarDocumento = (doc: Documento) => {
     if (!temaActual) return;
     const nuevoTema = { ...temaActual, documentos: temaActual.documentos.map(d => d.id === doc.id ? doc : d) };
@@ -118,7 +110,7 @@ export default function MateriasPage() {
   };
 
   const eliminarMateria = (id: string) => {
-    if (!confirm('¿Eliminar esta materia y todo su contenido?')) return;
+    if (!confirm(idioma === 'en' ? 'Delete this subject and all its content?' : '¿Eliminar esta materia y todo su contenido?')) return;
     save(materias.filter(m => m.id !== id));
   };
 
@@ -130,7 +122,7 @@ export default function MateriasPage() {
   };
 
   const eliminarTema = (id: string) => {
-    if (!confirm('¿Eliminar este tema?')) return;
+    if (!confirm(idioma === 'en' ? 'Delete this topic?' : '¿Eliminar este tema?')) return;
     if (!materiaActual) return;
     actualizarMateria({ ...materiaActual, temas: materiaActual.temas.filter(t => t.id !== id) });
   };
@@ -139,8 +131,8 @@ export default function MateriasPage() {
     if (!temaActual) return;
     const nuevo: Apunte = {
       id: generateId(), titulo: data.titulo, contenido: '',
-      fechaCreacion: new Date().toLocaleDateString('es-ES'),
-      fechaModificacion: new Date().toLocaleDateString('es-ES'),
+      fechaCreacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
+      fechaModificacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
     };
     const nuevoTema = { ...temaActual, apuntes: [...temaActual.apuntes, nuevo] };
     actualizarTema(nuevoTema);
@@ -151,59 +143,64 @@ export default function MateriasPage() {
 
   const guardarApunte = (contenido: string) => {
     if (!apunteActual) return;
-    actualizarApunte({ ...apunteActual, contenido, fechaModificacion: new Date().toLocaleDateString('es-ES') });
+    const updated = { ...apunteActual, contenido, fechaModificacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES') };
+    if (!temaActual) return;
+    const nuevoTema = { ...temaActual, apuntes: temaActual.apuntes.map(a => a.id === updated.id ? updated : a) };
+    actualizarTema(nuevoTema);
+    setApunteActual(updated);
   };
 
   const eliminarApunte = (id: string) => {
-    if (!confirm('¿Eliminar este apunte?')) return;
+    if (!confirm(idioma === 'en' ? 'Delete this note?' : '¿Eliminar este apunte?')) return;
     if (!temaActual) return;
     actualizarTema({ ...temaActual, apuntes: temaActual.apuntes.filter(a => a.id !== id) });
     setVista('tema');
   };
 
   const subirDocumento = async (e: React.ChangeEvent<HTMLInputElement>) => {
-  if (!e.target.files?.[0] || !temaActual) return;
-  const file = e.target.files[0];
-  setSubiendoDoc(true);
-  const formData = new FormData();
-  formData.append('file', file);
-  try {
-    const res = await fetch('/api/upload', { method: 'POST', body: formData });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error);
+    if (!e.target.files?.[0] || !temaActual) return;
+    const file = e.target.files[0];
+    setSubiendoDoc(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
 
-    // Crear URL del archivo desde base64
-    let archivoUrl: string | undefined;
-    if (data.fileBase64 && data.mimeType) {
-      const blob = new Blob(
-        [Uint8Array.from(atob(data.fileBase64), c => c.charCodeAt(0))],
-        { type: data.mimeType }
-      );
-      archivoUrl = URL.createObjectURL(blob);
-      // Guardamos en sessionStorage para persistir en la sesión
-      sessionStorage.setItem(`doc_${file.name}_${Date.now()}`, data.fileBase64);
-      sessionStorage.setItem(`doc_mime_${file.name}_${Date.now()}`, data.mimeType);
+      let archivoUrl: string | undefined;
+      if (data.fileBase64 && data.mimeType) {
+        const byteCharacters = atob(data.fileBase64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: data.mimeType });
+        archivoUrl = URL.createObjectURL(blob);
+      }
+
+      const nuevoDoc: Documento = {
+        id: generateId(),
+        nombre: file.name,
+        contenido: data.content,
+        tipo: file.name.endsWith('.pdf') ? 'pdf' : file.name.endsWith('.docx') || file.name.endsWith('.doc') ? 'word' : 'txt',
+        fechaSubida: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
+        archivoUrl,
+        archivoBase64: data.fileBase64,
+        archivoMime: data.mimeType,
+      };
+      actualizarTema({ ...temaActual, documentos: [...temaActual.documentos, nuevoDoc] });
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setSubiendoDoc(false);
+      e.target.value = '';
     }
-
-    const nuevoDoc: Documento = {
-      id: generateId(),
-      nombre: file.name,
-      contenido: data.content,
-      tipo: file.name.endsWith('.pdf') ? 'pdf' : file.name.endsWith('.docx') || file.name.endsWith('.doc') ? 'word' : 'txt',
-      fechaSubida: new Date().toLocaleDateString('es-ES'),
-      archivoUrl,
-    };
-    actualizarTema({ ...temaActual, documentos: [...temaActual.documentos, nuevoDoc] });
-  } catch (err: any) {
-    alert('Error: ' + err.message);
-  } finally {
-    setSubiendoDoc(false);
-    e.target.value = '';
-  }
-};
+  };
 
   const eliminarDocumento = (id: string) => {
-    if (!confirm('¿Eliminar este documento?')) return;
+    if (!confirm(idioma === 'en' ? 'Delete this document?' : '¿Eliminar este documento?')) return;
     if (!temaActual) return;
     actualizarTema({ ...temaActual, documentos: temaActual.documentos.filter(d => d.id !== id) });
     setVista('tema');
@@ -213,7 +210,7 @@ export default function MateriasPage() {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px' }}>
         <div style={{ fontSize: '48px' }}>📚</div>
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>Cargando tus materias...</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>{tr('cargando')}</p>
       </div>
     );
   }
@@ -223,36 +220,32 @@ export default function MateriasPage() {
 
       {showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
 
-      {/* NAVBAR */}
       {isMobile ? (
         <NavbarMobile />
       ) : (
-        <>
-          <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '24px 40px 0' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button onClick={() => window.location.href = '/'}
-                  style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-                  ← Inicio
-                </button>
-                <button onClick={() => setShowBuscador(true)}
-                  style={{ background: 'none', border: '2px solid var(--border-color)', color: 'var(--text-muted)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  🔍 Buscar
-                  <span style={{ fontSize: '11px', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: '4px' }}>⌘K</span>
-                </button>
-              </div>
-              {userId && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-faint)' }}>
-                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80' }} />
-                  Sincronizado ☁️
-                </div>
-              )}
+        <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '24px 40px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={() => window.location.href = '/'}
+                style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                ← {tr('inicio')}
+              </button>
+              <button onClick={() => setShowBuscador(true)}
+                style={{ background: 'none', border: '2px solid var(--border-color)', color: 'var(--text-muted)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                🔍 {tr('buscar')}
+                <span style={{ fontSize: '11px', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: '4px' }}>⌘K</span>
+              </button>
             </div>
+            {userId && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-faint)' }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80' }} />
+                {tr('sincronizado')}
+              </div>
+            )}
           </div>
-        </>
+        </div>
       )}
 
-      {/* CONTENIDO */}
       <div style={{ padding: isMobile ? '16px' : '0 40px 40px' }}>
 
         {vista === 'materias' && (
@@ -314,16 +307,9 @@ export default function MateriasPage() {
           />
         )}
 
-        {/* MODALES */}
-        {modalMateria && (
-          <ModalMateria onClose={() => setModalMateria(false)} onConfirm={crearMateria} />
-        )}
-        {modalTema && materiaActual && (
-          <ModalTema onClose={() => setModalTema(false)} onConfirm={crearTema} colorMateria={materiaActual.color} />
-        )}
-        {modalApunte && temaActual && (
-          <ModalApunte onClose={() => setModalApunte(false)} onConfirm={crearApunte} colorTema={temaActual.color} />
-        )}
+        {modalMateria && <ModalMateria onClose={() => setModalMateria(false)} onConfirm={crearMateria} />}
+        {modalTema && materiaActual && <ModalTema onClose={() => setModalTema(false)} onConfirm={crearTema} colorMateria={materiaActual.color} />}
+        {modalApunte && temaActual && <ModalApunte onClose={() => setModalApunte(false)} onConfirm={crearApunte} colorTema={temaActual.color} />}
       </div>
     </div>
   );
