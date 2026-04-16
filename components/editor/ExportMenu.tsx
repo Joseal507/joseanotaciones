@@ -15,12 +15,10 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState<'pdf' | 'word' | null>(null);
 
-  // ✅ Obtener solo los dibujos del canvas (fondo transparente)
   const getCanvasDrawings = (): string | null => {
     try {
       const canvas = document.querySelector('.editor-area-principal canvas') as HTMLCanvasElement;
       if (!canvas) return null;
-      // Verificar si tiene trazos
       const hasStrokes = (window as any).__canvasHasStrokes?.();
       if (!hasStrokes) return null;
       return canvas.toDataURL('image/png');
@@ -55,7 +53,6 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
       pdf.line(margin, y, pageWidth - margin, y);
       y += 8;
 
-      // ===== PROCESAR BLOQUES CON TEXTO REAL =====
       const startY = y;
 
       for (const bloque of bloques) {
@@ -197,17 +194,13 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
         }
       }
 
-      // ✅ Superponer los dibujos del canvas encima del texto
-      // Solo en la primera página donde está el contenido
+      // Dibujos del canvas
       const canvasDrawings = getCanvasDrawings();
       if (canvasDrawings) {
         try {
           const contentHeight = y - startY;
           const drawingHeight = Math.min(contentHeight + 20, pageHeight - startY - margin);
           const drawingWidth = maxWidth;
-
-          // Superponer en la misma área donde está el texto
-          // Página 1 (donde empieza el contenido)
           pdf.setPage(1);
           pdf.addImage(
             canvasDrawings,
@@ -217,7 +210,7 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
             drawingWidth,
             drawingHeight,
             undefined,
-            'NONE', // Sin compresión para mantener transparencia
+            'NONE',
           );
         } catch (err) {
           console.error('Error adding canvas overlay:', err);
@@ -248,7 +241,17 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
     setOpen(false);
     try {
       const { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, AlignmentType } = await import('docx');
-      const { saveAs } = await import('file-saver');
+
+      const saveAs = (blob: Blob, filename: string) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
 
       const children: any[] = [];
 
@@ -259,7 +262,6 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
         spacing: { after: 400 },
       }));
 
-      // ===== PROCESAR BLOQUES CON TEXTO REAL =====
       for (const bloque of bloques) {
         if (bloque.tipo === 'texto') {
           const html = htmlCache.current[bloque.id] ?? textRefs.current[bloque.id]?.innerHTML ?? (bloque as any).html ?? '';
@@ -275,15 +277,31 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
             if (!text.trim() && !['hr', 'br'].includes(tagName)) return;
 
             if (tagName === 'h1') {
-              children.push(new Paragraph({ text, heading: HeadingLevel.HEADING_1, spacing: { before: 300, after: 150 } }));
+              children.push(new Paragraph({
+                text,
+                heading: HeadingLevel.HEADING_1,
+                spacing: { before: 300, after: 150 },
+              }));
             } else if (tagName === 'h2') {
-              children.push(new Paragraph({ text, heading: HeadingLevel.HEADING_2, spacing: { before: 200, after: 100 } }));
+              children.push(new Paragraph({
+                text,
+                heading: HeadingLevel.HEADING_2,
+                spacing: { before: 200, after: 100 },
+              }));
             } else if (tagName === 'h3') {
-              children.push(new Paragraph({ text, heading: HeadingLevel.HEADING_3, spacing: { before: 150, after: 100 } }));
+              children.push(new Paragraph({
+                text,
+                heading: HeadingLevel.HEADING_3,
+                spacing: { before: 150, after: 100 },
+              }));
             } else if (tagName === 'ul') {
               el.querySelectorAll('li').forEach(li => {
                 children.push(new Paragraph({
-                  children: [new TextRun({ text: '• ' + (li.textContent || ''), size: 22, color: '333333' })],
+                  children: [new TextRun({
+                    text: '• ' + (li.textContent || ''),
+                    size: 22,
+                    color: '333333',
+                  })],
                   spacing: { before: 60, after: 60 },
                 }));
               });
@@ -291,7 +309,11 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
               let count = 1;
               el.querySelectorAll('li').forEach(li => {
                 children.push(new Paragraph({
-                  children: [new TextRun({ text: `${count}. ${li.textContent || ''}`, size: 22, color: '333333' })],
+                  children: [new TextRun({
+                    text: `${count}. ${li.textContent || ''}`,
+                    size: 22,
+                    color: '333333',
+                  })],
                   spacing: { before: 60, after: 60 },
                 }));
                 count++;
@@ -313,8 +335,13 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
                   color: '333333',
                 }));
               });
-              if (runs.length === 0) runs.push(new TextRun({ text, size: 22, color: '333333' }));
-              children.push(new Paragraph({ children: runs, spacing: { before: 80, after: 80 } }));
+              if (runs.length === 0) {
+                runs.push(new TextRun({ text, size: 22, color: '333333' }));
+              }
+              children.push(new Paragraph({
+                children: runs,
+                spacing: { before: 80, after: 80 },
+              }));
             }
           });
 
@@ -328,21 +355,28 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
               for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
               const imgWidth = Math.min((bloque as BloqueImagen).width, 500);
               const scale = imgWidth / (bloque as BloqueImagen).width;
+
+              // ✅ API correcta para docx v9
               children.push(new Paragraph({
                 alignment: AlignmentType.CENTER,
                 children: [new ImageRun({
                   data: bytes,
-                  transformation: { width: imgWidth, height: Math.round(300 * scale) },
+                  transformation: {
+                    width: imgWidth,
+                    height: Math.round(300 * scale),
+                  },
                   type: 'png',
-                })],
+                } as any)],
                 spacing: { before: 200, after: 200 },
               }));
             }
-          } catch {}
+          } catch (e) {
+            console.error('Error adding image to Word:', e);
+          }
         }
       }
 
-      // ✅ Agregar dibujos del canvas al final si existen
+      // Dibujos del canvas al final
       const canvasDrawings = getCanvasDrawings();
       if (canvasDrawings) {
         try {
@@ -373,7 +407,7 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
               data: bytes,
               transformation: { width: 550, height: 350 },
               type: 'png',
-            })],
+            } as any)],
             spacing: { before: 100, after: 200 },
           }));
         } catch (err) {
@@ -381,7 +415,8 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
         }
       }
 
-      const document = new Document({
+      // ✅ Variable renombrada para no pisar document del navegador
+      const docxDoc = new Document({
         sections: [{
           children,
           properties: {
@@ -390,8 +425,9 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
         }],
       });
 
-      const buffer = await Packer.toBlob(document);
-      saveAs(buffer, `${titulo}.docx`);
+      const blob = await Packer.toBlob(docxDoc);
+      saveAs(blob, `${titulo}.docx`);
+
     } catch (err) {
       console.error(err);
       alert('Error exporting Word');
@@ -406,16 +442,29 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
         onClick={() => setOpen(!open)}
         disabled={!!loading}
         style={{
-          padding: '9px 18px', borderRadius: '10px',
+          padding: '9px 18px',
+          borderRadius: '10px',
           border: '2px solid var(--border-color)',
-          background: 'transparent', color: 'var(--text-muted)',
-          fontSize: '13px', fontWeight: 700,
+          background: 'transparent',
+          color: 'var(--text-muted)',
+          fontSize: '13px',
+          fontWeight: 700,
           cursor: loading ? 'not-allowed' : 'pointer',
-          display: 'flex', alignItems: 'center', gap: '6px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
           transition: 'all 0.2s',
         }}
-        onMouseEnter={(e: any) => { if (!loading) { e.currentTarget.style.borderColor = temaColor; e.currentTarget.style.color = temaColor; } }}
-        onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+        onMouseEnter={(e: any) => {
+          if (!loading) {
+            e.currentTarget.style.borderColor = temaColor;
+            e.currentTarget.style.color = temaColor;
+          }
+        }}
+        onMouseLeave={(e: any) => {
+          e.currentTarget.style.borderColor = 'var(--border-color)';
+          e.currentTarget.style.color = 'var(--text-muted)';
+        }}
       >
         {loading ? '⏳ Exporting...' : '📤 Export'}
         {!loading && <span style={{ fontSize: '10px' }}>▼</span>}
@@ -423,15 +472,44 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
 
       {open && (
         <div style={{
-          position: 'absolute', top: '100%', right: 0, marginTop: '8px',
-          background: 'var(--bg-card)', border: `2px solid ${temaColor}`,
-          borderRadius: '14px', padding: '8px', zIndex: 9999,
-          minWidth: '210px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          position: 'absolute',
+          top: '100%',
+          right: 0,
+          marginTop: '8px',
+          background: 'var(--bg-card)',
+          border: `2px solid ${temaColor}`,
+          borderRadius: '14px',
+          padding: '8px',
+          zIndex: 9999,
+          minWidth: '210px',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
         }}>
-          <button onClick={exportPDF}
-            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}
-            onMouseEnter={(e: any) => { e.currentTarget.style.background = 'var(--red-dim)'; e.currentTarget.style.color = 'var(--red)'; }}
-            onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-primary)'; }}>
+          <button
+            onClick={exportPDF}
+            style={{
+              width: '100%',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--text-primary)',
+              fontSize: '13px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e: any) => {
+              e.currentTarget.style.background = 'var(--red-dim)';
+              e.currentTarget.style.color = 'var(--red)';
+            }}
+            onMouseLeave={(e: any) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'var(--text-primary)';
+            }}
+          >
             <span style={{ fontSize: '18px' }}>📄</span>
             <div>
               <div style={{ fontWeight: 800 }}>Export PDF</div>
@@ -439,10 +517,32 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
             </div>
           </button>
 
-          <button onClick={exportWord}
-            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}
-            onMouseEnter={(e: any) => { e.currentTarget.style.background = 'var(--blue-dim)'; e.currentTarget.style.color = 'var(--blue)'; }}
-            onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-primary)'; }}>
+          <button
+            onClick={exportWord}
+            style={{
+              width: '100%',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--text-primary)',
+              fontSize: '13px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e: any) => {
+              e.currentTarget.style.background = 'var(--blue-dim)';
+              e.currentTarget.style.color = 'var(--blue)';
+            }}
+            onMouseLeave={(e: any) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'var(--text-primary)';
+            }}
+          >
             <span style={{ fontSize: '18px' }}>📝</span>
             <div>
               <div style={{ fontWeight: 800 }}>Export Word</div>

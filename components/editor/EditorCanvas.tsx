@@ -1,10 +1,12 @@
 'use client';
 
-import { useRef, useCallback, useEffect } from 'react';
+import { useRef, useCallback, useEffect, useState } from 'react';
 import { Herramienta } from './types';
-
-interface Point { x: number; y: number; }
-interface Stroke { points: Point[]; color: string; size: number; tipo: Herramienta; }
+import {
+  Point, Stroke, SelectionRect, genStrokeId, calcBounds,
+  applyStrokeStyle, drawStrokeOnCtx, drawSelectionRect, getPosFromPointer
+} from './canvasUtils';
+import SelectionMenu from './SelectionMenu';
 
 interface Props {
   herramienta: Herramienta;
@@ -12,127 +14,205 @@ interface Props {
   brushSize: number;
   temaColor: string;
   onChange: () => void;
+  onTextInsert?: (text: string, canvasY: number) => void;
   initialCanvasData?: string | null;
 }
 
 export default function EditorCanvas({
-  herramienta, brushColor, brushSize, temaColor, onChange, initialCanvasData
+  herramienta, brushColor, brushSize, temaColor, onChange, onTextInsert, initialCanvasData
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const strokesRef = useRef<Stroke[]>([]);
   const redoRef = useRef<Stroke[][]>([]);
   const currentStroke = useRef<Stroke | null>(null);
   const drawing = useRef(false);
   const lastPoint = useRef<Point | null>(null);
+  const activePenId = useRef<number | null>(null);
   const initialized = useRef(false);
 
+  const selecting = useRef(false);
+  const selectionStart = useRef<{ x: number; y: number } | null>(null);
+  const movingRef = useRef(false);
+  const moveStart = useRef<{ x: number; y: number } | null>(null);
+  const strokesBeforeMove = useRef<Stroke[]>([]);
+
+  const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null);
+  const selectionRectRef = useRef<SelectionRect | null>(null);
+  const [selectedStrokes, setSelectedStrokes] = useState<string[]>([]);
+  const selectedStrokesRef = useRef<string[]>([]);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [converting, setConverting] = useState(false);
+  const [strokeCount, setStrokeCount] = useState(0);
+
   const isDrawingTool = ['boligrafo', 'marcador', 'lapiz', 'borrador'].includes(herramienta);
+  const isSelecting = herramienta === 'seleccion';
+  // ✅ CLAVE: saber si estamos en modo activo de canvas
+  const isCanvasActive = isDrawingTool || isSelecting;
+
+  const updateSelectionRect = (r: SelectionRect | null) => {
+    selectionRectRef.current = r;
+    setSelectionRect(r);
+  };
+  const updateSelectedStrokes = (ids: string[]) => {
+    selectedStrokesRef.current = ids;
+    setSelectedStrokes(ids);
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
+    const overlay = overlayRef.current;
     const container = containerRef.current;
-    if (!canvas || !container) return;
+    if (!canvas || !container || !overlay) return;
 
     const w = container.clientWidth || 800;
     const h = container.clientHeight || 600;
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = w; canvas.height = h;
+    overlay.width = w; overlay.height = h;
 
-    // Cargar imagen guardada
     if (initialCanvasData && !initialized.current) {
       initialized.current = true;
       const img = new Image();
-      img.onload = () => {
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, w, h);
-          strokesRef.current = [{ points: [{ x: 0, y: 0 }, { x: 1, y: 1 }], color: '#000', size: 1, tipo: 'boligrafo' as Herramienta }];
-        }
-      };
+      img.onload = () => { canvasRef.current?.getContext('2d')?.drawImage(img, 0, 0, w, h); };
       img.src = initialCanvasData;
     }
 
     const observer = new ResizeObserver(() => {
-      const newW = container.clientWidth;
-      const newH = container.clientHeight;
-      if (newW === canvas.width && newH === canvas.height) return;
-
+      const nW = container.clientWidth;
+      const nH = container.clientHeight;
+      if (nW === canvas.width && nH === canvas.height) return;
       const ctx = canvas.getContext('2d');
-      let imageData: ImageData | null = null;
-      if (ctx && canvas.width > 0 && canvas.height > 0) {
-        try { imageData = ctx.getImageData(0, 0, canvas.width, canvas.height); } catch {}
-      }
-
-      canvas.width = newW;
-      canvas.height = newH;
-
-      if (ctx && imageData) {
-        ctx.putImageData(imageData, 0, 0);
-      }
+      let data: ImageData | null = null;
+      if (ctx && canvas.width > 0) try { data = ctx.getImageData(0, 0, canvas.width, canvas.height); } catch {}
+      canvas.width = nW; canvas.height = nH;
+      overlay.width = nW; overlay.height = nH;
+      if (ctx && data) ctx.putImageData(data, 0, 0);
     });
-
     observer.observe(container);
     return () => observer.disconnect();
   }, [initialCanvasData]);
 
-  const applyStyle = (ctx: CanvasRenderingContext2D) => {
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    if (herramienta === 'borrador') {
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.strokeStyle = 'rgba(0,0,0,1)';
-      ctx.lineWidth = brushSize * 6;
-      ctx.globalAlpha = 1;
-    } else if (herramienta === 'marcador') {
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = 0.35;
-      ctx.strokeStyle = brushColor;
-      ctx.lineWidth = brushSize * 4;
-    } else if (herramienta === 'lapiz') {
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = 0.75;
-      ctx.strokeStyle = brushColor;
-      ctx.lineWidth = brushSize;
-    } else {
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = brushColor;
-      ctx.lineWidth = brushSize;
-    }
-  };
-
-  const getPos = (e: React.MouseEvent | React.TouchEvent): Point => {
+  const redraw = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    if ('touches' in e) {
-      return {
-        x: (e.touches[0].clientX - rect.left) * scaleX,
-        y: (e.touches[0].clientY - rect.top) * scaleY,
-      };
-    }
-    return {
-      x: ((e as React.MouseEvent).clientX - rect.left) * scaleX,
-      y: ((e as React.MouseEvent).clientY - rect.top) * scaleY,
-    };
+    const ctx = canvas?.getContext('2d');
+    if (!ctx || !canvas) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    strokesRef.current.forEach(s => drawStrokeOnCtx(ctx, s, selectedStrokesRef.current.includes(s.id)));
+  }, []);
+
+  const redrawOverlay = useCallback((rect: SelectionRect | null) => {
+    const canvas = overlayRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!ctx || !canvas) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (rect) drawSelectionRect(ctx, rect);
+  }, []);
+
+  const getPos = (e: PointerEvent): Point => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0, pressure: 1 };
+    return getPosFromPointer(e, canvas);
   };
 
-  const startDraw = (e: React.MouseEvent | React.TouchEvent) => {
+  const shouldIgnore = (e: PointerEvent) => {
+    if (activePenId.current !== null && e.pointerId !== activePenId.current && e.pointerType === 'touch') return true;
+    return false;
+  };
+
+  const startDraw = useCallback((e: PointerEvent) => {
+    if (!isDrawingTool && !isSelecting) return;
+    const isEraserBtn = e.button === 5 || e.buttons === 32;
+    const efectiveTool = isEraserBtn ? 'borrador' : herramienta;
+
+    if (e.pointerType === 'pen') activePenId.current = e.pointerId;
+    else if (shouldIgnore(e)) return;
+
     e.preventDefault();
     const pos = getPos(e);
+
+    if (isSelecting) {
+      const rect = selectionRectRef.current;
+      if (rect && selectedStrokesRef.current.length > 0) {
+        if (pos.x >= rect.x && pos.x <= rect.x + rect.w &&
+          pos.y >= rect.y && pos.y <= rect.y + rect.h) {
+          movingRef.current = true;
+          moveStart.current = pos;
+          strokesBeforeMove.current = strokesRef.current.map(s => ({ ...s, points: [...s.points] }));
+          return;
+        }
+      }
+      updateSelectionRect(null);
+      updateSelectedStrokes([]);
+      setMenuPos(null);
+      redrawOverlay(null);
+      movingRef.current = false;
+      moveStart.current = null;
+      selecting.current = true;
+      selectionStart.current = pos;
+      return;
+    }
+
+    updateSelectionRect(null);
+    updateSelectedStrokes([]);
+    setMenuPos(null);
+    redrawOverlay(null);
     drawing.current = true;
     lastPoint.current = pos;
     redoRef.current = [];
-    currentStroke.current = { points: [pos], color: brushColor, size: brushSize, tipo: herramienta };
-  };
 
-  const draw = (e: React.MouseEvent | React.TouchEvent) => {
+    currentStroke.current = {
+      id: genStrokeId(),
+      points: [pos],
+      color: brushColor,
+      size: brushSize,
+      tipo: efectiveTool,
+    };
+    try { (e.target as HTMLElement).setPointerCapture?.(e.pointerId); } catch {}
+  }, [isDrawingTool, isSelecting, herramienta, brushColor, brushSize, redrawOverlay]);
+
+  const drawMove = useCallback((e: PointerEvent) => {
+    if (shouldIgnore(e)) return;
     e.preventDefault();
-    if (!drawing.current || !currentStroke.current) return;
     const pos = getPos(e);
+
+    if (movingRef.current && moveStart.current) {
+      const rect = selectionRectRef.current;
+      if (!rect) return;
+      const dx = pos.x - moveStart.current.x;
+      const dy = pos.y - moveStart.current.y;
+      moveStart.current = pos;
+
+      strokesRef.current = strokesRef.current.map(s => {
+        if (!selectedStrokesRef.current.includes(s.id)) return s;
+        return {
+          ...s,
+          points: s.points.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })),
+          bounds: s.bounds ? { x: s.bounds.x + dx, y: s.bounds.y + dy, w: s.bounds.w, h: s.bounds.h } : undefined,
+        };
+      });
+
+      const newRect = { x: rect.x + dx, y: rect.y + dy, w: rect.w, h: rect.h };
+      updateSelectionRect(newRect);
+      redrawOverlay(newRect);
+      redraw();
+      return;
+    }
+
+    if (selecting.current && selectionStart.current) {
+      const start = selectionStart.current;
+      const rect: SelectionRect = {
+        x: Math.min(start.x, pos.x),
+        y: Math.min(start.y, pos.y),
+        w: Math.abs(pos.x - start.x),
+        h: Math.abs(pos.y - start.y),
+      };
+      updateSelectionRect(rect);
+      redrawOverlay(rect);
+      return;
+    }
+
+    if (!drawing.current || !currentStroke.current) return;
     const last = lastPoint.current;
     if (!last) return;
     const dist = Math.sqrt((pos.x - last.x) ** 2 + (pos.y - last.y) ** 2);
@@ -147,8 +227,7 @@ export default function EditorCanvas({
 
     const pts = currentStroke.current.points;
     ctx.save();
-    applyStyle(ctx);
-
+    applyStrokeStyle(ctx, currentStroke.current.tipo, currentStroke.current.color, currentStroke.current.size, pos.pressure);
     if (pts.length >= 3) {
       const p1 = pts[pts.length - 3];
       const p2 = pts[pts.length - 2];
@@ -164,76 +243,178 @@ export default function EditorCanvas({
       ctx.stroke();
     }
     ctx.restore();
-  };
+  }, [redraw, redrawOverlay]);
 
-  const stopDraw = () => {
+  const stopDraw = useCallback((e: PointerEvent) => {
+    if (e.pointerId === activePenId.current) activePenId.current = null;
+
+    if (movingRef.current) {
+      movingRef.current = false;
+      moveStart.current = null;
+      redoRef.current = [];
+      onChange();
+      return;
+    }
+
+    if (selecting.current) {
+      selecting.current = false;
+      const rect = selectionRectRef.current;
+      selectionStart.current = null;
+
+      if (!rect || rect.w < 8 || rect.h < 8) {
+        updateSelectionRect(null);
+        updateSelectedStrokes([]);
+        setMenuPos(null);
+        redrawOverlay(null);
+        return;
+      }
+
+      const found = strokesRef.current
+        .filter(s => {
+          const b = s.bounds || calcBounds(s.points);
+          return (
+            b.x < rect.x + rect.w &&
+            b.x + b.w > rect.x &&
+            b.y < rect.y + rect.h &&
+            b.y + b.h > rect.y
+          );
+        })
+        .map(s => s.id);
+
+      updateSelectedStrokes(found);
+
+      if (found.length > 0) {
+        setMenuPos({ x: rect.x + rect.w / 2, y: rect.y + rect.h + 14 });
+      } else {
+        updateSelectionRect(null);
+        setMenuPos(null);
+        redrawOverlay(null);
+      }
+      return;
+    }
+
     if (!drawing.current || !currentStroke.current) return;
     drawing.current = false;
+
     if (currentStroke.current.points.length > 1) {
-      strokesRef.current.push({ ...currentStroke.current });
+      const stroke = { ...currentStroke.current, bounds: calcBounds(currentStroke.current.points) };
+      strokesRef.current.push(stroke);
+      setStrokeCount(strokesRef.current.length);
       onChange();
     }
     currentStroke.current = null;
     lastPoint.current = null;
-  };
+    redraw();
+  }, [redraw, redrawOverlay, onChange]);
 
-  const redraw = useCallback(() => {
+  useEffect(() => {
     const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!ctx || !canvas) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    strokesRef.current.forEach(stroke => {
-      if (stroke.points.length < 2) return;
-      ctx.save();
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      if (stroke.tipo === 'borrador') {
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.strokeStyle = 'rgba(0,0,0,1)';
-        ctx.lineWidth = stroke.size * 6;
-        ctx.globalAlpha = 1;
-      } else if (stroke.tipo === 'marcador') {
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = 0.35;
-        ctx.strokeStyle = stroke.color;
-        ctx.lineWidth = stroke.size * 4;
-      } else if (stroke.tipo === 'lapiz') {
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = 0.75;
-        ctx.strokeStyle = stroke.color;
-        ctx.lineWidth = stroke.size;
-      } else {
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = stroke.color;
-        ctx.lineWidth = stroke.size;
-      }
-      ctx.beginPath();
-      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-      for (let i = 1; i < stroke.points.length - 1; i++) {
-        const midX = (stroke.points[i].x + stroke.points[i + 1].x) / 2;
-        const midY = (stroke.points[i].y + stroke.points[i + 1].y) / 2;
-        ctx.quadraticCurveTo(stroke.points[i].x, stroke.points[i].y, midX, midY);
-      }
-      const last = stroke.points[stroke.points.length - 1];
-      const prev = stroke.points[stroke.points.length - 2];
-      ctx.quadraticCurveTo(prev.x, prev.y, last.x, last.y);
-      ctx.stroke();
-      ctx.restore();
-    });
-  }, []);
+    const overlay = overlayRef.current;
+    if (!canvas || !overlay) return;
+
+    const target = isSelecting ? overlay : canvas;
+    const onDown = (e: PointerEvent) => startDraw(e);
+    const onMove = (e: PointerEvent) => drawMove(e);
+    const onUp = (e: PointerEvent) => stopDraw(e);
+    const onCancel = (e: PointerEvent) => {
+      movingRef.current = false;
+      selecting.current = false;
+      drawing.current = false;
+      stopDraw(e);
+    };
+
+    target.addEventListener('pointerdown', onDown, { passive: false });
+    target.addEventListener('pointermove', onMove, { passive: false });
+    target.addEventListener('pointerup', onUp);
+    target.addEventListener('pointercancel', onCancel);
+    return () => {
+      target.removeEventListener('pointerdown', onDown);
+      target.removeEventListener('pointermove', onMove);
+      target.removeEventListener('pointerup', onUp);
+      target.removeEventListener('pointercancel', onCancel);
+    };
+  }, [startDraw, drawMove, stopDraw, isSelecting]);
 
   const undo = useCallback(() => {
     if (strokesRef.current.length === 0) return;
     redoRef.current.push([strokesRef.current.pop()!]);
-    redraw(); onChange();
-  }, [redraw, onChange]);
+    setStrokeCount(strokesRef.current.length);
+    updateSelectionRect(null);
+    updateSelectedStrokes([]);
+    setMenuPos(null);
+    redrawOverlay(null);
+    redraw();
+    onChange();
+  }, [redraw, redrawOverlay, onChange]);
 
   const redo = useCallback(() => {
     if (redoRef.current.length === 0) return;
     strokesRef.current.push(...redoRef.current.pop()!);
-    redraw(); onChange();
+    setStrokeCount(strokesRef.current.length);
+    redraw();
+    onChange();
   }, [redraw, onChange]);
+
+  const deleteSelection = useCallback(() => {
+    strokesRef.current = strokesRef.current.filter(s => !selectedStrokesRef.current.includes(s.id));
+    updateSelectedStrokes([]);
+    updateSelectionRect(null);
+    setMenuPos(null);
+    redrawOverlay(null);
+    redraw();
+    setStrokeCount(strokesRef.current.length);
+    onChange();
+  }, [redraw, redrawOverlay, onChange]);
+
+  const getCroppedCanvas = (): string | null => {
+    const rect = selectionRectRef.current;
+    if (!rect || !canvasRef.current) return null;
+    const src = canvasRef.current;
+    const crop = document.createElement('canvas');
+    const pad = 12;
+    crop.width = rect.w + pad * 2;
+    crop.height = rect.h + pad * 2;
+    const ctx = crop.getContext('2d')!;
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, crop.width, crop.height);
+    ctx.drawImage(src, rect.x - pad, rect.y - pad, rect.w + pad * 2, rect.h + pad * 2, 0, 0, crop.width, crop.height);
+    return crop.toDataURL('image/png');
+  };
+
+  const convertToText = async () => {
+    const imageData = getCroppedCanvas();
+    const rect = selectionRectRef.current;
+    if (!imageData || !rect) return;
+
+    setConverting(true);
+    try {
+      const base64 = imageData.split(',')[1];
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mensaje: 'Read and transcribe EXACTLY all the handwritten text in this image. Return ONLY the transcribed text, nothing else. Preserve line breaks. If unclear write [illegible].',
+          contexto: null,
+          historial: [],
+          perfil: null,
+          todosDocumentos: [],
+          idioma: 'en',
+          imageBase64: base64,
+          imageMime: 'image/png',
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.respuesta) {
+        const text = data.respuesta.trim();
+        onTextInsert?.(text, rect.y);
+        deleteSelection();
+      }
+    } catch (err) {
+      console.error('Error converting:', err);
+    } finally {
+      setConverting(false);
+    }
+  };
 
   useEffect(() => {
     (window as any).__editorUndo = undo;
@@ -248,51 +429,102 @@ export default function EditorCanvas({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (!isDrawingTool) return;
+      if (!isDrawingTool && !isSelecting) return;
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); undo(); }
       if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); e.stopPropagation(); redo(); }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedStrokesRef.current.length > 0) {
+        const active = document.activeElement;
+        const isEditable = active?.getAttribute('contenteditable') === 'true' || ['INPUT', 'TEXTAREA'].includes(active?.tagName || '');
+        if (!isEditable) { e.preventDefault(); deleteSelection(); }
+      }
+      if (e.key === 'Escape') {
+        updateSelectionRect(null);
+        updateSelectedStrokes([]);
+        setMenuPos(null);
+        redrawOverlay(null);
+        movingRef.current = false;
+      }
     };
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [isDrawingTool, undo, redo]);
+  }, [isDrawingTool, isSelecting, undo, redo, deleteSelection, redrawOverlay]);
+
+  useEffect(() => { redraw(); }, [selectedStrokes, redraw]);
+
+  const getCursor = () => {
+    if (movingRef.current) return 'grabbing';
+    if (isSelecting && selectionRect && selectedStrokes.length > 0) return 'grab';
+    if (isSelecting) return 'crosshair';
+    if (herramienta === 'borrador') return `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='20' viewBox='0 0 28 20'%3E%3Crect x='1' y='1' width='26' height='18' rx='3' fill='white' stroke='%23d1d5db' stroke-width='1.5'/%3E%3Crect x='1' y='1' width='9' height='18' rx='3' fill='%23f3f4f6' stroke='%23d1d5db' stroke-width='1.5'/%3E%3C/svg%3E") 14 10, cell`;
+    if (isDrawingTool) return 'crosshair';
+    return 'default';
+  };
 
   return (
     <div ref={containerRef} style={{
-      position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
-      pointerEvents: isDrawingTool ? 'all' : 'none',
-      zIndex: isDrawingTool ? 20 : 5,
-      cursor: isDrawingTool ? (herramienta === 'borrador' ? 'cell' : 'crosshair') : 'default',
+      position: 'absolute', top: 0, left: 0,
+      width: '100%', height: '100%',
+      // ✅ FIX: TODO el contenedor es 'none' cuando NO estamos dibujando/seleccionando
+      pointerEvents: isCanvasActive ? 'all' : 'none',
+      zIndex: isCanvasActive ? 20 : 1,
+      touchAction: 'none',
     }}>
-      {isDrawingTool && (
+      <canvas ref={canvasRef} style={{
+        position: 'absolute', top: 0, left: 0,
+        width: '100%', height: '100%',
+        touchAction: 'none', background: 'transparent',
+        cursor: isSelecting ? 'default' : getCursor(),
+        // ✅ FIX: canvas SIEMPRE 'none' cuando no estamos en modo canvas activo
+        // Cuando está activo, solo el canvas de dibujo recibe eventos (no el overlay)
+        pointerEvents: (!isCanvasActive) ? 'none' : (isSelecting ? 'none' : 'all'),
+      }} />
+
+      <canvas ref={overlayRef} style={{
+        position: 'absolute', top: 0, left: 0,
+        width: '100%', height: '100%',
+        touchAction: 'none', background: 'transparent',
+        cursor: getCursor(),
+        // ✅ FIX: overlay solo recibe eventos cuando estamos seleccionando
+        pointerEvents: (!isCanvasActive) ? 'none' : (isSelecting ? 'all' : 'none'),
+      }} />
+
+      {menuPos && selectedStrokes.length > 0 && (
+        <SelectionMenu
+          menuPos={menuPos}
+          converting={converting}
+          onMove={() => { movingRef.current = true; moveStart.current = null; setMenuPos(null); }}
+          onConvert={convertToText}
+          onSave={() => {
+            const img = getCroppedCanvas();
+            if (!img) return;
+            const a = document.createElement('a');
+            a.download = 'dibujo.png';
+            a.href = img;
+            a.click();
+          }}
+          onDelete={deleteSelection}
+        />
+      )}
+
+      {(isDrawingTool || isSelecting) && (
         <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: '6px', zIndex: 30 }}>
-          <button onClick={undo}
-            style={{ padding: '6px 12px', borderRadius: '8px', border: `1px solid ${temaColor}`, background: 'rgba(255,255,255,0.95)', color: '#333', fontSize: '13px', fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
-            ↩️
+          <button onClick={undo} title="Undo"
+            style={{ padding: '7px 10px', borderRadius: '8px', border: '1.5px solid #e5e7eb', background: 'rgba(255,255,255,0.96)', color: '#374151', cursor: 'pointer', backdropFilter: 'blur(8px)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg>
           </button>
-          <button onClick={redo}
-            style={{ padding: '6px 12px', borderRadius: '8px', border: `1px solid ${temaColor}`, background: 'rgba(255,255,255,0.95)', color: '#333', fontSize: '13px', fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
-            ↪️
+          <button onClick={redo} title="Redo"
+            style={{ padding: '7px 10px', borderRadius: '8px', border: '1.5px solid #e5e7eb', background: 'rgba(255,255,255,0.96)', color: '#374151', cursor: 'pointer', backdropFilter: 'blur(8px)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 000 11H13"/></svg>
           </button>
-          <span style={{ padding: '6px 10px', borderRadius: '8px', background: 'rgba(255,255,255,0.95)', color: '#666', fontSize: '11px', display: 'flex', alignItems: 'center' }}>
-            {strokesRef.current.length} trazos
-          </span>
+          {strokeCount > 0 && (
+            <div style={{ padding: '7px 10px', borderRadius: '8px', background: 'rgba(255,255,255,0.96)', color: '#9ca3af', fontSize: '11px', backdropFilter: 'blur(8px)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center' }}>
+              {strokeCount}
+            </div>
+          )}
         </div>
       )}
-      <canvas
-        ref={canvasRef}
-        onMouseDown={isDrawingTool ? startDraw : undefined}
-        onMouseMove={isDrawingTool ? draw : undefined}
-        onMouseUp={isDrawingTool ? stopDraw : undefined}
-        onMouseLeave={isDrawingTool ? stopDraw : undefined}
-        onTouchStart={isDrawingTool ? startDraw : undefined}
-        onTouchMove={isDrawingTool ? draw : undefined}
-        onTouchEnd={isDrawingTool ? stopDraw : undefined}
-        style={{
-          position: 'absolute', top: 0, left: 0,
-          width: '100%', height: '100%',
-          touchAction: 'none', background: 'transparent',
-        }}
-      />
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

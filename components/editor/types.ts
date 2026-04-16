@@ -2,6 +2,9 @@ export type BloqueTexto = {
   id: string;
   tipo: 'texto';
   html: string;
+  x: number;
+  y: number;
+  width: number;
 };
 
 export type BloqueImagen = {
@@ -9,10 +12,10 @@ export type BloqueImagen = {
   tipo: 'imagen';
   src: string;
   width: number;
-  align: 'left' | 'center' | 'right';
+  x: number;
+  y: number;
   label?: string;
-  x?: number;
-  y?: number;
+  align: 'left' | 'center' | 'right';
   floating?: boolean;
   zIndex?: number;
 };
