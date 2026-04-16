@@ -34,6 +34,42 @@ export const calcBounds = (points: Point[]) => {
   return { x: minX - 4, y: minY - 4, w: maxX - minX + 8, h: maxY - minY + 8 };
 };
 
+// ✅ Detectar si un punto está cerca de un trazo (para borrador por trazo)
+export const isPointNearStroke = (px: number, py: number, stroke: Stroke, threshold: number = 15): boolean => {
+  for (let i = 0; i < stroke.points.length - 1; i++) {
+    const a = stroke.points[i];
+    const b = stroke.points[i + 1];
+    const dist = pointToSegmentDistance(px, py, a.x, a.y, b.x, b.y);
+    if (dist < threshold) return true;
+  }
+  // También checar punto individual (para trazos de un solo punto)
+  if (stroke.points.length === 1) {
+    const p = stroke.points[0];
+    const dist = Math.sqrt((px - p.x) ** 2 + (py - p.y) ** 2);
+    if (dist < threshold) return true;
+  }
+  return false;
+};
+
+// ✅ Distancia de un punto a un segmento de línea
+const pointToSegmentDistance = (
+  px: number, py: number,
+  ax: number, ay: number,
+  bx: number, by: number,
+): number => {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.sqrt((px - ax) ** 2 + (py - ay) ** 2);
+
+  let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+
+  const projX = ax + t * dx;
+  const projY = ay + t * dy;
+  return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+};
+
 export const applyStrokeStyle = (
   ctx: CanvasRenderingContext2D,
   tipo: string,
@@ -73,6 +109,42 @@ export const drawStrokeOnCtx = (ctx: CanvasRenderingContext2D, stroke: Stroke, i
   if (stroke.points.length < 2) return;
   ctx.save();
   applyStrokeStyle(ctx, stroke.tipo, stroke.color, stroke.size, 1, isSelected);
+  ctx.beginPath();
+  ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+  for (let i = 1; i < stroke.points.length - 1; i++) {
+    const midX = (stroke.points[i].x + stroke.points[i + 1].x) / 2;
+    const midY = (stroke.points[i].y + stroke.points[i + 1].y) / 2;
+    ctx.quadraticCurveTo(stroke.points[i].x, stroke.points[i].y, midX, midY);
+  }
+  const last = stroke.points[stroke.points.length - 1];
+  const prev = stroke.points[stroke.points.length - 2];
+  ctx.quadraticCurveTo(prev.x, prev.y, last.x, last.y);
+  ctx.stroke();
+
+  // ✅ Highlight de trazo seleccionado
+  if (isSelected) {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = '#6366f1';
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.5;
+    ctx.setLineDash([4, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  ctx.restore();
+};
+
+// ✅ Dibujar trazo con preview de borrado (rojo semi-transparente)
+export const drawStrokeErasePreview = (ctx: CanvasRenderingContext2D, stroke: Stroke) => {
+  if (stroke.points.length < 2) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 0.4;
+  ctx.strokeStyle = '#ff4d6d';
+  ctx.lineWidth = stroke.size + 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
   ctx.beginPath();
   ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
   for (let i = 1; i < stroke.points.length - 1; i++) {

@@ -4,7 +4,8 @@ import { useRef, useCallback, useEffect, useState } from 'react';
 import { Herramienta } from './types';
 import {
   Point, Stroke, SelectionRect, genStrokeId, calcBounds,
-  applyStrokeStyle, drawStrokeOnCtx, drawSelectionRect, getPosFromPointer
+  applyStrokeStyle, drawStrokeOnCtx, drawSelectionRect, getPosFromPointer,
+  isPointNearStroke, drawStrokeErasePreview
 } from './canvasUtils';
 import SelectionMenu from './SelectionMenu';
 
@@ -16,11 +17,11 @@ interface Props {
   onChange: () => void;
   onTextInsert?: (text: string, canvasY: number) => void;
   initialCanvasData?: string | null;
-  onRegisterExport?: (fn: () => string | null) => void;  // ✅ NUEVO
+  onRegisterExport?: (fn: () => string | null) => void;
 }
 
 export default function EditorCanvas({
-  herramienta, brushColor, brushSize, temaColor, onChange, onTextInsert, initialCanvasData, onRegisterExport  // ✅ NUEVO
+  herramienta, brushColor, brushSize, temaColor, onChange, onTextInsert, initialCanvasData, onRegisterExport
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -32,6 +33,14 @@ export default function EditorCanvas({
   const lastPoint = useRef<Point | null>(null);
   const activePenId = useRef<number | null>(null);
   const initialized = useRef(false);
+
+  // ✅ Borrador por trazo
+  const erasingStrokes = useRef<Set<string>>(new Set());
+  const isErasingMode = useRef(false);
+
+  // ✅ Pinch-to-zoom / palm rejection
+  const activeTouches = useRef<number>(0);
+  const isPinching = useRef(false);
 
   const selecting = useRef(false);
   const selectionStart = useRef<{ x: number; y: number } | null>(null);
@@ -49,7 +58,6 @@ export default function EditorCanvas({
 
   const isDrawingTool = ['boligrafo', 'marcador', 'lapiz', 'borrador'].includes(herramienta);
   const isSelecting = herramienta === 'seleccion';
-  // ✅ CLAVE: saber si estamos en modo activo de canvas
   const isCanvasActive = isDrawingTool || isSelecting;
 
   const updateSelectionRect = (r: SelectionRect | null) => {
@@ -99,7 +107,14 @@ export default function EditorCanvas({
     const ctx = canvas?.getContext('2d');
     if (!ctx || !canvas) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    strokesRef.current.forEach(s => drawStrokeOnCtx(ctx, s, selectedStrokesRef.current.includes(s.id)));
+    strokesRef.current.forEach(s => {
+      // ✅ Si el trazo está marcado para borrar, mostrar preview rojo
+      if (erasingStrokes.current.has(s.id)) {
+        drawStrokeErasePreview(ctx, s);
+      } else {
+        drawStrokeOnCtx(ctx, s, selectedStrokesRef.current.includes(s.id));
+      }
+    });
   }, []);
 
   const redrawOverlay = useCallback((rect: SelectionRect | null) => {
@@ -116,21 +131,52 @@ export default function EditorCanvas({
     return getPosFromPointer(e, canvas);
   };
 
+  // ✅ MEJORADO: Rechazar toques de dedo cuando hay stylus activo
   const shouldIgnore = (e: PointerEvent) => {
+    // Si estamos haciendo pinch, ignorar todo
+    if (isPinching.current) return true;
+
+    // ✅ PALM REJECTION: si es touch (dedo) y estamos en modo dibujo, ignorar
+    // Solo permitir stylus/pen para dibujar
+    if (e.pointerType === 'touch' && isDrawingTool) return true;
+
+    // Si ya hay un pen activo, ignorar otros touches
     if (activePenId.current !== null && e.pointerId !== activePenId.current && e.pointerType === 'touch') return true;
+
     return false;
   };
 
   const startDraw = useCallback((e: PointerEvent) => {
     if (!isDrawingTool && !isSelecting) return;
+
+    // ✅ Ignorar dedos cuando se dibuja (palm rejection)
+    if (shouldIgnore(e)) return;
+
     const isEraserBtn = e.button === 5 || e.buttons === 32;
     const efectiveTool = isEraserBtn ? 'borrador' : herramienta;
 
     if (e.pointerType === 'pen') activePenId.current = e.pointerId;
-    else if (shouldIgnore(e)) return;
 
     e.preventDefault();
     const pos = getPos(e);
+
+    // ✅ BORRADOR POR TRAZO (como GoodNotes)
+    if (efectiveTool === 'borrador') {
+      isErasingMode.current = true;
+      erasingStrokes.current = new Set();
+
+      // Buscar trazo bajo el cursor
+      const found = strokesRef.current.find(s =>
+        s.tipo !== 'borrador' && isPointNearStroke(pos.x, pos.y, s, brushSize * 3 + 10)
+      );
+      if (found) {
+        erasingStrokes.current.add(found.id);
+        redraw();
+      }
+
+      try { (e.target as HTMLElement).setPointerCapture?.(e.pointerId); } catch {}
+      return;
+    }
 
     if (isSelecting) {
       const rect = selectionRectRef.current;
@@ -170,12 +216,24 @@ export default function EditorCanvas({
       tipo: efectiveTool,
     };
     try { (e.target as HTMLElement).setPointerCapture?.(e.pointerId); } catch {}
-  }, [isDrawingTool, isSelecting, herramienta, brushColor, brushSize, redrawOverlay]);
+  }, [isDrawingTool, isSelecting, herramienta, brushColor, brushSize, redrawOverlay, redraw]);
 
   const drawMove = useCallback((e: PointerEvent) => {
     if (shouldIgnore(e)) return;
     e.preventDefault();
     const pos = getPos(e);
+
+    // ✅ BORRADOR POR TRAZO: marcar trazos mientras se arrastra
+    if (isErasingMode.current) {
+      const found = strokesRef.current.find(s =>
+        s.tipo !== 'borrador' && isPointNearStroke(pos.x, pos.y, s, brushSize * 3 + 10)
+      );
+      if (found && !erasingStrokes.current.has(found.id)) {
+        erasingStrokes.current.add(found.id);
+        redraw();
+      }
+      return;
+    }
 
     if (movingRef.current && moveStart.current) {
       const rect = selectionRectRef.current;
@@ -244,10 +302,25 @@ export default function EditorCanvas({
       ctx.stroke();
     }
     ctx.restore();
-  }, [redraw, redrawOverlay]);
+  }, [redraw, redrawOverlay, brushSize]);
 
   const stopDraw = useCallback((e: PointerEvent) => {
     if (e.pointerId === activePenId.current) activePenId.current = null;
+
+    // ✅ BORRADOR POR TRAZO: borrar los trazos marcados
+    if (isErasingMode.current) {
+      isErasingMode.current = false;
+      if (erasingStrokes.current.size > 0) {
+        const toDelete = new Set(erasingStrokes.current);
+        strokesRef.current = strokesRef.current.filter(s => !toDelete.has(s.id));
+        erasingStrokes.current = new Set();
+        setStrokeCount(strokesRef.current.length);
+        redraw();
+        onChange();
+      }
+      erasingStrokes.current = new Set();
+      return;
+    }
 
     if (movingRef.current) {
       movingRef.current = false;
@@ -308,6 +381,41 @@ export default function EditorCanvas({
     redraw();
   }, [redraw, redrawOverlay, onChange]);
 
+  // ✅ PINCH-TO-ZOOM: detectar multi-touch y dejar que el navegador haga zoom/scroll
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      activeTouches.current = e.touches.length;
+      if (e.touches.length >= 2) {
+        // ✅ Multi-touch detectado: cancelar dibujo, permitir zoom/scroll
+        isPinching.current = true;
+        drawing.current = false;
+        isErasingMode.current = false;
+        currentStroke.current = null;
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      activeTouches.current = e.touches.length;
+      if (e.touches.length < 2) {
+        // Delay para evitar que el último dedo dibuje
+        setTimeout(() => { isPinching.current = false; }, 100);
+      }
+    };
+
+    container.addEventListener('touchstart', onTouchStart, { passive: true });
+    container.addEventListener('touchend', onTouchEnd, { passive: true });
+    container.addEventListener('touchcancel', onTouchEnd, { passive: true });
+
+    return () => {
+      container.removeEventListener('touchstart', onTouchStart);
+      container.removeEventListener('touchend', onTouchEnd);
+      container.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const overlay = overlayRef.current;
@@ -321,6 +429,8 @@ export default function EditorCanvas({
       movingRef.current = false;
       selecting.current = false;
       drawing.current = false;
+      isErasingMode.current = false;
+      erasingStrokes.current = new Set();
       stopDraw(e);
     };
 
@@ -417,7 +527,7 @@ export default function EditorCanvas({
     }
   };
 
-    useEffect(() => {
+  useEffect(() => {
     (window as any).__editorUndo = undo;
     (window as any).__editorRedo = redo;
     (window as any).__canvasHasStrokes = () => strokesRef.current.length > 0;
@@ -427,7 +537,6 @@ export default function EditorCanvas({
       return canvas.toDataURL('image/png');
     };
 
-    // ✅ NUEVO: registrar exportador para sistema de páginas
     if (onRegisterExport) {
       onRegisterExport(() => {
         const canvas = canvasRef.current;
@@ -474,18 +583,16 @@ export default function EditorCanvas({
     <div ref={containerRef} style={{
       position: 'absolute', top: 0, left: 0,
       width: '100%', height: '100%',
-      // ✅ FIX: TODO el contenedor es 'none' cuando NO estamos dibujando/seleccionando
       pointerEvents: isCanvasActive ? 'all' : 'none',
       zIndex: isCanvasActive ? 20 : 1,
-      touchAction: 'none',
+      // ✅ Permitir pinch-to-zoom cuando hay multi-touch
+      touchAction: isPinching.current ? 'auto' : 'none',
     }}>
       <canvas ref={canvasRef} style={{
         position: 'absolute', top: 0, left: 0,
         width: '100%', height: '100%',
         touchAction: 'none', background: 'transparent',
         cursor: isSelecting ? 'default' : getCursor(),
-        // ✅ FIX: canvas SIEMPRE 'none' cuando no estamos en modo canvas activo
-        // Cuando está activo, solo el canvas de dibujo recibe eventos (no el overlay)
         pointerEvents: (!isCanvasActive) ? 'none' : (isSelecting ? 'none' : 'all'),
       }} />
 
@@ -494,7 +601,6 @@ export default function EditorCanvas({
         width: '100%', height: '100%',
         touchAction: 'none', background: 'transparent',
         cursor: getCursor(),
-        // ✅ FIX: overlay solo recibe eventos cuando estamos seleccionando
         pointerEvents: (!isCanvasActive) ? 'none' : (isSelecting ? 'all' : 'none'),
       }} />
 
