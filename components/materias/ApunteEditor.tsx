@@ -73,9 +73,13 @@ const parsePaginas = (contenido: string): Pagina[] => {
   return [{ id: genId(), bloques: [], canvasData: null }];
 };
 
-// ✅ Hook pinch-zoom: SOLO funciona cuando NO estamos dibujando
+// ✅ Hook pinch-zoom mejorado
+// - Solo activo cuando NO dibujamos
+// - 1 dedo: scroll normal del navegador
+// - 2 dedos: zoom
 function usePinchZoom(
   containerRef: React.RefObject<HTMLDivElement>,
+  wrapperRef: React.RefObject<HTMLDivElement>,
   isDrawingMode: boolean,
 ) {
   const scale = useRef(1);
@@ -94,7 +98,7 @@ function usePinchZoom(
   }, [containerRef]);
 
   useEffect(() => {
-    const wrapper = containerRef.current?.parentElement;
+    const wrapper = wrapperRef.current;
     if (!wrapper) return;
 
     const getDist = (t: TouchList) => {
@@ -109,11 +113,10 @@ function usePinchZoom(
     });
 
     const onTouchStart = (e: TouchEvent) => {
-      // ✅ En modo dibujo: ignorar TODOS los toques con dedos
+      // ✅ En modo dibujo: no hacer nada (el canvas maneja el pencil)
       if (isDrawingMode) return;
-
+      // Solo activar pinch con 2 dedos
       if (e.touches.length === 2) {
-        e.preventDefault();
         lastDist.current = getDist(e.touches);
         const mid = getMid(e.touches);
         lastMidX.current = mid.x;
@@ -122,11 +125,12 @@ function usePinchZoom(
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      // ✅ En modo dibujo: no hacer nada con dedos
       if (isDrawingMode) return;
 
       if (e.touches.length === 2 && lastDist.current !== null) {
+        // ✅ Solo prevenir default en pinch (2 dedos), no en scroll (1 dedo)
         e.preventDefault();
+
         const newDist = getDist(e.touches);
         const mid = getMid(e.touches);
 
@@ -138,7 +142,6 @@ function usePinchZoom(
         const originX = mid.x - rect.left;
         const originY = mid.y - rect.top;
 
-        // Zoom centrado en el punto medio de los dedos
         translateX.current = originX - (originX - translateX.current) * (scale.current / prevScale);
         translateY.current = originY - (originY - translateY.current) * (scale.current / prevScale);
 
@@ -160,11 +163,11 @@ function usePinchZoom(
       }
     };
 
-    // ✅ Doble tap con 2 dedos = reset zoom a 1x
+    // ✅ Doble tap con 2 dedos = reset zoom
     let lastTap = 0;
     const onTouchEndDouble = (e: TouchEvent) => {
       onTouchEnd(e);
-      if (!isDrawingMode && e.touches.length === 0) {
+      if (!isDrawingMode && e.changedTouches.length >= 1) {
         const now = Date.now();
         if (now - lastTap < 300) {
           scale.current = 1;
@@ -176,7 +179,9 @@ function usePinchZoom(
       }
     };
 
-    wrapper.addEventListener('touchstart', onTouchStart, { passive: false });
+    // ✅ passive: false SOLO para touchmove (para poder preventDefault en pinch)
+    // touchstart: passive: true → permite scroll de 1 dedo sin bloquear
+    wrapper.addEventListener('touchstart', onTouchStart, { passive: true });
     wrapper.addEventListener('touchmove', onTouchMove, { passive: false });
     wrapper.addEventListener('touchend', onTouchEndDouble, { passive: true });
     wrapper.addEventListener('touchcancel', onTouchEnd, { passive: true });
@@ -187,10 +192,9 @@ function usePinchZoom(
       wrapper.removeEventListener('touchend', onTouchEndDouble);
       wrapper.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [isDrawingMode, applyTransform, containerRef]);
+  }, [isDrawingMode, applyTransform, wrapperRef]);
 }
 
-// ✅ Componente para UNA página
 function PaginaEditor({
   pagina, paginaIdx, totalPaginas, temaColor, paperStyle,
   herramienta, brushColor, brushSize, isDrawingMode, isDrawing, isSelecting,
@@ -198,19 +202,10 @@ function PaginaEditor({
   onFinishNew, onEliminarPagina, onAgregarPagina, onClickEditor,
   onTextInsert, registerCanvasExport, textRefs, htmlCache,
 }: {
-  pagina: Pagina;
-  paginaIdx: number;
-  totalPaginas: number;
-  temaColor: string;
-  paperStyle: PaperStyle;
-  herramienta: Herramienta;
-  brushColor: string;
-  brushSize: number;
-  isDrawingMode: boolean;
-  isDrawing: boolean;
-  isSelecting: boolean;
-  newBlockId: string | null;
-  isMobile: boolean;
+  pagina: Pagina; paginaIdx: number; totalPaginas: number;
+  temaColor: string; paperStyle: PaperStyle; herramienta: Herramienta;
+  brushColor: string; brushSize: number; isDrawingMode: boolean;
+  isDrawing: boolean; isSelecting: boolean; newBlockId: string | null; isMobile: boolean;
   onBloques: (id: string, bloques: Bloque[]) => void;
   onCanvasChange: () => void;
   onEliminarBloque: (paginaId: string, bloqueId: string) => void;
@@ -227,23 +222,18 @@ function PaginaEditor({
 
   return (
     <div style={{ marginBottom: '0px' }}>
-
-      {/* Número de página + botón eliminar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', paddingLeft: '4px' }}>
         <span style={{ fontSize: '11px', color: 'var(--text-faint)', fontWeight: 600, letterSpacing: '1px' }}>
           Página {paginaIdx + 1}
         </span>
         {totalPaginas > 1 && (
-          <button
-            onClick={() => onEliminarPagina(pagina.id)}
-            style={{ background: 'none', border: '1px solid #fca5a5', color: '#ef4444', borderRadius: '6px', padding: '1px 8px', fontSize: '10px', cursor: 'pointer', fontWeight: 700 }}
-          >
+          <button onClick={() => onEliminarPagina(pagina.id)}
+            style={{ background: 'none', border: '1px solid #fca5a5', color: '#ef4444', borderRadius: '6px', padding: '1px 8px', fontSize: '10px', cursor: 'pointer', fontWeight: 700 }}>
             ✕ Eliminar
           </button>
         )}
       </div>
 
-      {/* Área de la página */}
       <div
         className="editor-area-principal"
         style={{
@@ -253,19 +243,13 @@ function PaginaEditor({
           borderRadius: '12px',
           border: isSelecting ? '2px solid #6366f1' : isDrawing ? `2px solid ${temaColor}` : '1px solid #e5e7eb',
           overflow: 'hidden',
-          boxShadow: isSelecting
-            ? '0 0 0 3px #6366f120'
-            : isDrawing
-              ? `0 0 0 3px ${temaColor}20`
-              : '0 2px 8px rgba(0,0,0,0.06)',
+          boxShadow: isSelecting ? '0 0 0 3px #6366f120' : isDrawing ? `0 0 0 3px ${temaColor}20` : '0 2px 8px rgba(0,0,0,0.06)',
         }}
       >
-        {/* Fondo papel */}
         <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
           <PaperBackground style={paperStyle} temaColor={temaColor} />
         </div>
 
-        {/* Canvas dibujo */}
         <EditorCanvas
           herramienta={herramienta}
           brushColor={brushColor}
@@ -277,21 +261,14 @@ function PaginaEditor({
           onRegisterExport={(fn) => registerCanvasExport(pagina.id, fn)}
         />
 
-        {/* Capa bloques */}
         <div
-          style={{
-            position: 'absolute', inset: 0, zIndex: 10,
-            pointerEvents: isDrawingMode ? 'none' : 'all',
-          }}
+          style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: isDrawingMode ? 'none' : 'all' }}
           onClick={(e) => onClickEditor(e, pagina.id)}
         >
           {pagina.bloques.map(b => {
             if (b.tipo === 'texto') {
               return (
-                <TextBlock
-                  key={b.id}
-                  bloque={b as BloqueTexto}
-                  temaColor={temaColor}
+                <TextBlock key={b.id} bloque={b as BloqueTexto} temaColor={temaColor}
                   isNew={newBlockId === b.id}
                   onUpdate={(changes) => {
                     onBloques(pagina.id, pagina.bloques.map(bl =>
@@ -322,24 +299,16 @@ function PaginaEditor({
           })}
         </div>
 
-        {/* Número de página en esquina */}
         <div style={{ position: 'absolute', bottom: 8, right: 12, fontSize: '11px', color: '#d1d5db', fontWeight: 600, pointerEvents: 'none', zIndex: 5 }}>
           {paginaIdx + 1} / {totalPaginas}
         </div>
       </div>
 
-      {/* Botón agregar página */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '12px 0' }}>
         <div style={{ flex: 1, height: '1px', background: '#e5e7eb' }} />
         <button
           onClick={() => onAgregarPagina(paginaIdx)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '6px',
-            padding: '6px 16px', borderRadius: '20px',
-            border: `2px dashed ${temaColor}`, background: 'transparent',
-            color: temaColor, fontSize: '12px', fontWeight: 700,
-            cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap',
-          }}
+          style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 16px', borderRadius: '20px', border: `2px dashed ${temaColor}`, background: 'transparent', color: temaColor, fontSize: '12px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap' }}
           onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = temaColor + '15'; }}
           onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
         >
@@ -368,14 +337,16 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
   const autoSaveTimer = useRef<any>(null);
   const canvasExporters = useRef<{ [paginaId: string]: () => string | null }>({});
   const paginasContainerRef = useRef<HTMLDivElement>(null);
+  // ✅ Ref separado para el wrapper (donde se escuchan los touch events)
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
 
   const isDrawing = ['boligrafo', 'marcador', 'lapiz', 'borrador'].includes(herramienta);
   const isSelecting = herramienta === 'seleccion';
   const isDrawingMode = isDrawing || isSelecting;
 
-  // ✅ Pinch-zoom solo cuando NO se dibuja
-  usePinchZoom(paginasContainerRef, isDrawingMode);
+  // ✅ Pinch zoom con refs separados
+  usePinchZoom(paginasContainerRef, wrapperRef, isDrawingMode);
 
   const syncCache = useCallback(() => {
     Object.keys(textRefs.current).forEach(id => {
@@ -421,9 +392,7 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
 
   const handleEliminarBloque = useCallback((paginaId: string, bloqueId: string) => {
     setPaginas(prev => prev.map(pg =>
-      pg.id === paginaId
-        ? { ...pg, bloques: pg.bloques.filter(b => b.id !== bloqueId) }
-        : pg
+      pg.id === paginaId ? { ...pg, bloques: pg.bloques.filter(b => b.id !== bloqueId) } : pg
     ));
     setNewBlockId(null);
     triggerAutoSave();
@@ -456,19 +425,13 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
       target.closest('[data-image]') || target.closest('button') ||
       target.closest('canvas') || target.closest('img')
     ) return;
-
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const id = genId();
     setPaginas(prev => prev.map(pg =>
       pg.id === paginaId
-        ? {
-          ...pg, bloques: [...pg.bloques, {
-            id, tipo: 'texto' as const, html: '',
-            x: Math.max(4, x), y: Math.max(4, y), width: 300,
-          }],
-        }
+        ? { ...pg, bloques: [...pg.bloques, { id, tipo: 'texto' as const, html: '', x: Math.max(4, x), y: Math.max(4, y), width: 300 }] }
         : pg
     ));
     setNewBlockId(id);
@@ -491,13 +454,7 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
     const paginaId = paginas[paginas.length - 1].id;
     setPaginas(prev => prev.map(pg =>
       pg.id === paginaId
-        ? {
-          ...pg, bloques: [...pg.bloques, {
-            id: genId(), tipo: 'imagen' as const, src,
-            width: isMobile ? 280 : 400, x: 100, y: 100,
-            label, align: 'center' as const, floating: false, zIndex: 2,
-          }],
-        }
+        ? { ...pg, bloques: [...pg.bloques, { id: genId(), tipo: 'imagen' as const, src, width: isMobile ? 280 : 400, x: 100, y: 100, label, align: 'center' as const, floating: false, zIndex: 2 }] }
         : pg
     ));
     triggerAutoSave();
@@ -513,18 +470,10 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
   return (
     <>
       {showDrawingCanvas && (
-        <DrawingCanvas
-          color={tema.color}
-          onSave={(d) => addImagen(d, '🎨 Dibujo')}
-          onClose={() => setShowDrawingCanvas(false)}
-        />
+        <DrawingCanvas color={tema.color} onSave={(d) => addImagen(d, '🎨 Dibujo')} onClose={() => setShowDrawingCanvas(false)} />
       )}
       {showImage && (
-        <ImageInserter
-          color={tema.color}
-          onInsert={(src) => addImagen(src)}
-          onClose={() => setShowImage(false)}
-        />
+        <ImageInserter color={tema.color} onInsert={(src) => addImagen(src)} onClose={() => setShowImage(false)} />
       )}
 
       <div style={{ maxWidth: '1080px', margin: '0 auto' }}>
@@ -560,7 +509,6 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
           </div>
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
             <PaperStyleSelector value={paperStyle} onChange={setPaperStyle} />
-
             {isDrawingMode && (
               <div style={{ background: isSelecting ? '#eef2ff' : tema.color + '18', padding: '5px 10px', borderRadius: '8px', border: `1.5px solid ${isSelecting ? '#6366f1' : tema.color}`, display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ fontSize: '11px', color: isSelecting ? '#6366f1' : tema.color, fontWeight: 700 }}>
@@ -569,21 +517,12 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
                 <button onClick={() => handleHerramienta('texto')} style={{ background: isSelecting ? '#6366f1' : tema.color, border: 'none', color: '#fff', padding: '2px 8px', borderRadius: '5px', fontWeight: 700, fontSize: '11px', cursor: 'pointer' }}>✕</button>
               </div>
             )}
-
             <span style={{ fontSize: '11px', color: guardando ? 'var(--gold)' : guardado ? '#22c55e' : 'var(--gold)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
               {guardando
                 ? <><div style={{ width: '8px', height: '8px', border: '1.5px solid var(--gold)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /> Guardando</>
                 : guardado ? '✓' : '●'}
             </span>
-
-            <ExportMenu
-              bloques={todosLosBloques}
-              titulo={apunte.titulo}
-              temaColor={tema.color}
-              textRefs={textRefs}
-              htmlCache={htmlCache}
-            />
-
+            <ExportMenu bloques={todosLosBloques} titulo={apunte.titulo} temaColor={tema.color} textRefs={textRefs} htmlCache={htmlCache} />
             <button onClick={guardar} style={{ padding: isMobile ? '8px 14px' : '9px 18px', borderRadius: '10px', border: 'none', background: tema.color, color: '#000', fontSize: isMobile ? '12px' : '13px', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
@@ -596,24 +535,15 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
         </div>
 
         {/* TOOLBAR sticky */}
-        <div style={{
-          position: 'sticky', top: 0, zIndex: 100,
-          background: 'var(--bg-primary)', borderRadius: '12px',
-          border: '1px solid #e5e7eb', marginBottom: '12px', overflow: 'hidden',
-        }}>
+        <div style={{ position: 'sticky', top: 0, zIndex: 100, background: 'var(--bg-primary)', borderRadius: '12px', border: '1px solid #e5e7eb', marginBottom: '12px', overflow: 'hidden' }}>
           <div style={{ height: '3px', background: isSelecting ? '#6366f1' : tema.color }} />
           <div style={{ overflowX: isMobile ? 'auto' : 'visible' }}>
             <div style={{ minWidth: isMobile ? 'max-content' : 'auto' }}>
               <Toolbar
-                temaColor={tema.color}
-                herramientaActiva={herramienta}
-                onHerramienta={handleHerramienta}
-                brushColor={brushColor}
-                onBrushColor={setBrushColor}
-                brushSize={brushSize}
-                onBrushSize={setBrushSize}
-                onExecCmd={exec}
-                onInsertHtml={insertHtml}
+                temaColor={tema.color} herramientaActiva={herramienta} onHerramienta={handleHerramienta}
+                brushColor={brushColor} onBrushColor={setBrushColor}
+                brushSize={brushSize} onBrushSize={setBrushSize}
+                onExecCmd={exec} onInsertHtml={insertHtml}
                 onInsertImagen={() => { syncCache(); setShowImage(true); }}
                 onInsertDibujo={() => { syncCache(); setShowDrawingCanvas(true); }}
                 onUndo={() => (window as any).__editorUndo?.()}
@@ -643,16 +573,19 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
           @keyframes spin { to { transform: rotate(360deg); } }
         `}</style>
 
-        {/* ✅ Wrapper: controla touchAction según modo */}
-        <div style={{
-          position: 'relative',
-          borderRadius: '12px',
-          // ✅ En modo dibujo: bloquear todo touch (solo Pencil)
-          // En modo normal: scroll y pinch-zoom nativos
-          touchAction: isDrawingMode ? 'none' : 'auto',
-          overflow: isDrawingMode ? 'hidden' : 'visible',
-        }}>
-          {/* ✅ Contenedor escalable con transform */}
+        {/* ✅ Wrapper con ref separado para capturar touch events */}
+        {/* touchAction: auto → permite scroll de 1 dedo Y pinch nativo */}
+        {/* El hook intercepta el pinch de 2 dedos para hacer zoom custom */}
+        <div
+          ref={wrapperRef}
+          style={{
+            position: 'relative',
+            // ✅ CLAVE: 'auto' permite scroll nativo con 1 dedo
+            // El hook solo intercepta 2 dedos para zoom
+            touchAction: isDrawingMode ? 'none' : 'auto',
+          }}
+        >
+          {/* Contenedor escalable */}
           <div
             ref={paginasContainerRef}
             style={{
