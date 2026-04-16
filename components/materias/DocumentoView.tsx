@@ -143,7 +143,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
     <div>
       {showChat && <ChatDocumento contexto={documento.contenido} nombreDoc={documento.nombre} temaColor={tema.color} onClose={() => setShowChat(false)} />}
       {showEstudio && flashcards.length > 0 && (
-        <EstudioModal flashcards={flashcards} temaColor={tema.color} onClose={() => setShowEstudio(false)} onModoExamen={() => { setShowEstudio(false); setShowModoExamen(true); }} />
+        <EstudioModal flashcards={flashcards} temaColor={tema.color} materiaId={materia.id} materiaNombre={materia.nombre} materiaColor={materia.color} onClose={() => setShowEstudio(false)} onModoExamen={() => { setShowEstudio(false); setShowModoExamen(true); }} />
       )}
       {showEditor && (
         <FlashcardEditor flashcards={flashcards} temaColor={tema.color}

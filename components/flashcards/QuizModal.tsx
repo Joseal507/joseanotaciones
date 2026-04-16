@@ -77,8 +77,26 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
   };
 
   const siguiente = () => {
-    if (idx + 1 >= preguntas.length) { setFase('fin'); }
-    else { setIdx(i => i + 1); setSeleccionada(null); setRespondida(false); }
+    if (idx + 1 >= preguntas.length) {
+      // ✅ Registrar quiz en perfil al terminar
+      const porcentajeFinal = preguntas.length > 0 ? Math.round((puntos / preguntas.length) * 100) : 0;
+      try {
+        const materiaId = materiaNombre?.toLowerCase().replace(/\s+/g, '_') || 'sin_materia';
+        import('../../lib/storage').then(({ registrarQuiz }) => {
+          registrarQuiz(
+            materiaId,
+            materiaNombre || 'Quiz',
+            materiaColor || '#f5c842',
+            porcentajeFinal,
+          );
+        });
+      } catch {}
+      setFase('fin');
+    } else {
+      setIdx(i => i + 1);
+      setSeleccionada(null);
+      setRespondida(false);
+    }
   };
 
   const handleGuardarQuiz = () => {

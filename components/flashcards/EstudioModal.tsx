@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { registrarEstudioHoy } from '../../lib/racha';
+import { registrarResultado } from '../../lib/storage';
 import { useIdioma } from '../../hooks/useIdioma';
 import { getIdioma } from '../../lib/i18n';
 
@@ -24,6 +25,9 @@ interface Props {
   onClose: () => void;
   temaColor: string;
   onModoExamen?: () => void;
+  materiaId?: string;
+  materiaNombre?: string;
+  materiaColor?: string;
 }
 
 const getNivelInfo = (idioma: string) => ({
@@ -37,14 +41,13 @@ const getNivelInfo = (idioma: string) => ({
 type Modo = 'seleccionar' | 'estudio' | 'repaso' | 'fin';
 type ModoEstudio = 'lineal' | 'bucle';
 
-export default function EstudioModal({ flashcards, onClose, temaColor, onModoExamen }: Props) {
+export default function EstudioModal({ flashcards, onClose, temaColor, onModoExamen, materiaId, materiaNombre, materiaColor }: Props) {
   const { tr, idioma } = useIdioma();
   const NIVEL_INFO = getNivelInfo(idioma);
 
   const [modo, setModo] = useState<Modo>('seleccionar');
   const [modoEstudio, setModoEstudio] = useState<ModoEstudio>('lineal');
 
-  // Estudio con escritura
   const [orden, setOrden] = useState<number[]>([]);
   const [cola, setCola] = useState<number[]>([]);
   const [idx, setIdx] = useState(0);
@@ -57,7 +60,6 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
     INSANE: 0, correcta: 0, medio_correcta: 0, incorrecta: 0, muy_incorrecta: 0,
   });
 
-  // Repaso rápido
   const [repasoIdx, setRepasoIdx] = useState(0);
   const [repasoOrden, setRepasoOrden] = useState<number[]>([]);
   const [repasoRespuesta, setRepasoRespuesta] = useState('');
@@ -106,7 +108,6 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
     setModo('repaso');
   };
 
-  // ===== ESTUDIO =====
   const cardActual = () => {
     if (cola.length > 0) return flashcards[cola[0]];
     if (idx < orden.length) return flashcards[orden[idx]];
@@ -119,6 +120,19 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
   };
 
   const completados = Object.values(stats).reduce((a, b) => a + b, 0);
+
+  // ✅ Helper para registrar resultado en perfil
+  const registrarEnPerfil = (pregunta: string, nivel: string) => {
+    if (!materiaId) return;
+    const acerto = nivel === 'INSANE' || nivel === 'correcta' || nivel === 'medio_correcta';
+    registrarResultado(
+      pregunta,
+      acerto,
+      materiaId,
+      materiaNombre || 'Estudio',
+      materiaColor || temaColor,
+    );
+  };
 
   const evaluar = async () => {
     const card = cardActual();
@@ -141,6 +155,9 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
         setResultado(r);
         setStats(prev => ({ ...prev, [r.nivel]: (prev[r.nivel] || 0) + 1 }));
         setFase('resultado');
+
+        // ✅ Registrar en perfil
+        registrarEnPerfil(card.question, r.nivel);
       }
     } catch (err) { console.error(err); }
     finally { setCargando(false); }
@@ -171,7 +188,6 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
     setFase('pregunta');
   };
 
-  // ===== REPASO RÁPIDO =====
   const repasoCardActual = () => {
     if (repasoIdx < repasoOrden.length) return flashcards[repasoOrden[repasoIdx]];
     return null;
@@ -200,6 +216,9 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
         setRepasoResultado(r);
         setRepasoStats(prev => ({ ...prev, [r.nivel]: (prev[r.nivel] || 0) + 1 }));
         setRepasoFase('resultado');
+
+        // ✅ Registrar en perfil
+        registrarEnPerfil(card.question, r.nivel);
       }
     } catch (err) { console.error(err); }
     finally { setRepasoCargando(false); }
@@ -246,7 +265,6 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
 
-            {/* ===== ESTUDIO CON ESCRITURA ===== */}
             <div style={{ background: '#0d0d1a', borderRadius: '20px', border: `2px solid ${temaColor}44`, overflow: 'hidden' }}>
               <div style={{ height: '4px', background: temaColor }} />
               <div style={{ padding: '20px' }}>
@@ -286,7 +304,6 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
               </div>
             </div>
 
-            {/* ===== REPASO RÁPIDO - escrito 1 vez ===== */}
             <div style={{ background: '#0d0d1a', borderRadius: '20px', border: '2px solid #38bdf844', overflow: 'hidden' }}>
               <div style={{ height: '4px', background: '#38bdf8' }} />
               <div style={{ padding: '20px' }}>
@@ -315,7 +332,6 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
               </div>
             </div>
 
-            {/* ===== MODO EXAMEN ===== */}
             {onModoExamen && (
               <div style={{ background: '#0d0d1a', borderRadius: '20px', border: '2px solid #a78bfa44', overflow: 'hidden' }}>
                 <div style={{ height: '4px', background: '#a78bfa' }} />
@@ -355,7 +371,7 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
     );
   }
 
-  // ===== REPASO RÁPIDO - escrito =====
+  // ===== REPASO RÁPIDO =====
   if (modo === 'repaso') {
     return (
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.97)', display: 'flex', flexDirection: 'column', zIndex: 2000 }}>
