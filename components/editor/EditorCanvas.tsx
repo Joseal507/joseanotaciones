@@ -34,18 +34,13 @@ export default function EditorCanvas({
   const activePenId = useRef<number | null>(null);
   const initialized = useRef(false);
 
-  // Borrador por trazo
   const erasingStrokes = useRef<Set<string>>(new Set());
   const isErasingMode = useRef(false);
-
-  // Pinch detectado desde afuera (el wrapper lo maneja)
-  const isPinching = useRef(false);
 
   const selecting = useRef(false);
   const selectionStart = useRef<{ x: number; y: number } | null>(null);
   const movingRef = useRef(false);
   const moveStart = useRef<{ x: number; y: number } | null>(null);
-  const strokesBeforeMove = useRef<Stroke[]>([]);
 
   const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null);
   const selectionRectRef = useRef<SelectionRect | null>(null);
@@ -129,13 +124,11 @@ export default function EditorCanvas({
     return getPosFromPointer(e, canvas);
   };
 
-  // ✅ Solo el stylus/pen dibuja. Dedos y palma = ignorar.
-  // El pan y zoom con dedos lo maneja el wrapper (usePinchZoom en ApunteEditor)
+  // ✅ CLAVE: solo ignorar touch (dedos/palma)
+  // El pencil SIEMPRE dibuja
+  // Los dedos SIEMPRE van al wrapper para scroll/zoom
   const shouldIgnore = (e: PointerEvent) => {
-    if (isPinching.current) return true;
-    // ✅ PALM REJECTION: touch = dedo o palma, nunca dibuja
     if (e.pointerType === 'touch') return true;
-    // Si hay otro pen activo, ignorar
     if (activePenId.current !== null && e.pointerId !== activePenId.current) return true;
     return false;
   };
@@ -152,12 +145,12 @@ export default function EditorCanvas({
     e.preventDefault();
     const pos = getPos(e);
 
-    // ✅ Borrador por trazo (como GoodNotes)
+    // ✅ Borrador por trazo - SIN confirmación, borra inmediatamente
     if (efectiveTool === 'borrador') {
       isErasingMode.current = true;
       erasingStrokes.current = new Set();
       const found = strokesRef.current.find(s =>
-        s.tipo !== 'borrador' && isPointNearStroke(pos.x, pos.y, s, brushSize * 3 + 10)
+        isPointNearStroke(pos.x, pos.y, s, brushSize * 3 + 10)
       );
       if (found) {
         erasingStrokes.current.add(found.id);
@@ -174,7 +167,6 @@ export default function EditorCanvas({
           pos.y >= rect.y && pos.y <= rect.y + rect.h) {
           movingRef.current = true;
           moveStart.current = pos;
-          strokesBeforeMove.current = strokesRef.current.map(s => ({ ...s, points: [...s.points] }));
           return;
         }
       }
@@ -212,10 +204,10 @@ export default function EditorCanvas({
     e.preventDefault();
     const pos = getPos(e);
 
-    // Borrador por trazo: marcar trazos mientras se arrastra
+    // Borrador: marcar trazos mientras se arrastra
     if (isErasingMode.current) {
       const found = strokesRef.current.find(s =>
-        s.tipo !== 'borrador' && isPointNearStroke(pos.x, pos.y, s, brushSize * 3 + 10)
+        isPointNearStroke(pos.x, pos.y, s, brushSize * 3 + 10)
       );
       if (found && !erasingStrokes.current.has(found.id)) {
         erasingStrokes.current.add(found.id);
@@ -294,7 +286,7 @@ export default function EditorCanvas({
   const stopDraw = useCallback((e: PointerEvent) => {
     if (e.pointerId === activePenId.current) activePenId.current = null;
 
-    // Borrador por trazo: borrar los trazos marcados
+    // ✅ Borrador: borra SIN confirmación
     if (isErasingMode.current) {
       isErasingMode.current = false;
       if (erasingStrokes.current.size > 0) {
@@ -334,10 +326,8 @@ export default function EditorCanvas({
         .filter(s => {
           const b = s.bounds || calcBounds(s.points);
           return (
-            b.x < rect.x + rect.w &&
-            b.x + b.w > rect.x &&
-            b.y < rect.y + rect.h &&
-            b.y + b.h > rect.y
+            b.x < rect.x + rect.w && b.x + b.w > rect.x &&
+            b.y < rect.y + rect.h && b.y + b.h > rect.y
           );
         })
         .map(s => s.id);
@@ -367,39 +357,6 @@ export default function EditorCanvas({
     redraw();
   }, [redraw, redrawOverlay, onChange]);
 
-  // ✅ Detectar multi-touch para cancelar dibujo
-  // El zoom/pan real lo maneja usePinchZoom en ApunteEditor
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length >= 2) {
-        isPinching.current = true;
-        drawing.current = false;
-        isErasingMode.current = false;
-        currentStroke.current = null;
-        erasingStrokes.current = new Set();
-      }
-    };
-
-    const onTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) {
-        setTimeout(() => { isPinching.current = false; }, 150);
-      }
-    };
-
-    container.addEventListener('touchstart', onTouchStart, { passive: true });
-    container.addEventListener('touchend', onTouchEnd, { passive: true });
-    container.addEventListener('touchcancel', onTouchEnd, { passive: true });
-
-    return () => {
-      container.removeEventListener('touchstart', onTouchStart);
-      container.removeEventListener('touchend', onTouchEnd);
-      container.removeEventListener('touchcancel', onTouchEnd);
-    };
-  }, []);
-
   useEffect(() => {
     const canvas = canvasRef.current;
     const overlay = overlayRef.current;
@@ -415,7 +372,7 @@ export default function EditorCanvas({
       drawing.current = false;
       isErasingMode.current = false;
       erasingStrokes.current = new Set();
-      stopDraw(e);
+      if (e.pointerId === activePenId.current) activePenId.current = null;
     };
 
     target.addEventListener('pointerdown', onDown, { passive: false });
@@ -555,7 +512,9 @@ export default function EditorCanvas({
       width: '100%', height: '100%',
       pointerEvents: isCanvasActive ? 'all' : 'none',
       zIndex: isCanvasActive ? 20 : 1,
-      // ✅ none para capturar Pencil. Pan/zoom lo maneja el wrapper.
+      // ✅ CLAVE: none para capturar Pencil
+      // Los dedos (touch) son ignorados en shouldIgnore
+      // y pasan al wrapper para scroll/zoom
       touchAction: 'none',
     }}>
       <canvas ref={canvasRef} style={{

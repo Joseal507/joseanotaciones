@@ -73,14 +73,13 @@ const parsePaginas = (contenido: string): Pagina[] => {
   return [{ id: genId(), bloques: [], canvasData: null }];
 };
 
-// ✅ Hook pinch-zoom mejorado
-// - Solo activo cuando NO dibujamos
-// - 1 dedo: scroll normal del navegador
-// - 2 dedos: zoom
+// ✅ Pinch-zoom SIEMPRE activo (como OneNote)
+// 1 dedo → scroll normal
+// 2 dedos → zoom
+// Pencil → dibuja (manejado en EditorCanvas)
 function usePinchZoom(
   containerRef: React.RefObject<HTMLDivElement>,
   wrapperRef: React.RefObject<HTMLDivElement>,
-  isDrawingMode: boolean,
 ) {
   const scale = useRef(1);
   const translateX = useRef(0);
@@ -92,7 +91,7 @@ function usePinchZoom(
   const applyTransform = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    scale.current = Math.min(4, Math.max(0.3, scale.current));
+    scale.current = Math.min(5, Math.max(0.2, scale.current));
     el.style.transform = `translate(${translateX.current}px, ${translateY.current}px) scale(${scale.current})`;
     el.style.transformOrigin = '0 0';
   }, [containerRef]);
@@ -113,10 +112,8 @@ function usePinchZoom(
     });
 
     const onTouchStart = (e: TouchEvent) => {
-      // ✅ En modo dibujo: no hacer nada (el canvas maneja el pencil)
-      if (isDrawingMode) return;
-      // Solo activar pinch con 2 dedos
       if (e.touches.length === 2) {
+        // ✅ 2 dedos siempre = pinch zoom
         lastDist.current = getDist(e.touches);
         const mid = getMid(e.touches);
         lastMidX.current = mid.x;
@@ -125,10 +122,8 @@ function usePinchZoom(
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      if (isDrawingMode) return;
-
       if (e.touches.length === 2 && lastDist.current !== null) {
-        // ✅ Solo prevenir default en pinch (2 dedos), no en scroll (1 dedo)
+        // ✅ Prevenir scroll solo cuando hay pinch
         e.preventDefault();
 
         const newDist = getDist(e.touches);
@@ -136,12 +131,13 @@ function usePinchZoom(
 
         const ratio = newDist / lastDist.current;
         const prevScale = scale.current;
-        scale.current = Math.min(4, Math.max(0.3, scale.current * ratio));
+        scale.current = Math.min(5, Math.max(0.2, scale.current * ratio));
 
         const rect = wrapper.getBoundingClientRect();
         const originX = mid.x - rect.left;
         const originY = mid.y - rect.top;
 
+        // Zoom centrado en punto medio de dedos
         translateX.current = originX - (originX - translateX.current) * (scale.current / prevScale);
         translateY.current = originY - (originY - translateY.current) * (scale.current / prevScale);
 
@@ -167,7 +163,7 @@ function usePinchZoom(
     let lastTap = 0;
     const onTouchEndDouble = (e: TouchEvent) => {
       onTouchEnd(e);
-      if (!isDrawingMode && e.changedTouches.length >= 1) {
+      if (e.touches.length === 0) {
         const now = Date.now();
         if (now - lastTap < 300) {
           scale.current = 1;
@@ -179,8 +175,8 @@ function usePinchZoom(
       }
     };
 
-    // ✅ passive: false SOLO para touchmove (para poder preventDefault en pinch)
-    // touchstart: passive: true → permite scroll de 1 dedo sin bloquear
+    // passive: true en touchstart para no bloquear scroll de 1 dedo
+    // passive: false en touchmove para poder preventDefault en pinch
     wrapper.addEventListener('touchstart', onTouchStart, { passive: true });
     wrapper.addEventListener('touchmove', onTouchMove, { passive: false });
     wrapper.addEventListener('touchend', onTouchEndDouble, { passive: true });
@@ -192,7 +188,7 @@ function usePinchZoom(
       wrapper.removeEventListener('touchend', onTouchEndDouble);
       wrapper.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [isDrawingMode, applyTransform, wrapperRef]);
+  }, [applyTransform, wrapperRef]);
 }
 
 function PaginaEditor({
@@ -262,7 +258,10 @@ function PaginaEditor({
         />
 
         <div
-          style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: isDrawingMode ? 'none' : 'all' }}
+          style={{
+            position: 'absolute', inset: 0, zIndex: 10,
+            pointerEvents: isDrawingMode ? 'none' : 'all',
+          }}
           onClick={(e) => onClickEditor(e, pagina.id)}
         >
           {pagina.bloques.map(b => {
@@ -337,7 +336,6 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
   const autoSaveTimer = useRef<any>(null);
   const canvasExporters = useRef<{ [paginaId: string]: () => string | null }>({});
   const paginasContainerRef = useRef<HTMLDivElement>(null);
-  // ✅ Ref separado para el wrapper (donde se escuchan los touch events)
   const wrapperRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
 
@@ -345,8 +343,8 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
   const isSelecting = herramienta === 'seleccion';
   const isDrawingMode = isDrawing || isSelecting;
 
-  // ✅ Pinch zoom con refs separados
-  usePinchZoom(paginasContainerRef, wrapperRef, isDrawingMode);
+  // ✅ Pinch zoom SIEMPRE activo
+  usePinchZoom(paginasContainerRef, wrapperRef);
 
   const syncCache = useCallback(() => {
     Object.keys(textRefs.current).forEach(id => {
@@ -573,16 +571,14 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
           @keyframes spin { to { transform: rotate(360deg); } }
         `}</style>
 
-        {/* ✅ Wrapper con ref separado para capturar touch events */}
-        {/* touchAction: auto → permite scroll de 1 dedo Y pinch nativo */}
-        {/* El hook intercepta el pinch de 2 dedos para hacer zoom custom */}
+        {/* ✅ Wrapper: touch auto SIEMPRE para scroll de 1 dedo */}
+        {/* El hook intercepta SOLO 2 dedos para zoom */}
+        {/* El canvas ignora touch en shouldIgnore */}
         <div
           ref={wrapperRef}
           style={{
             position: 'relative',
-            // ✅ CLAVE: 'auto' permite scroll nativo con 1 dedo
-            // El hook solo intercepta 2 dedos para zoom
-            touchAction: isDrawingMode ? 'none' : 'auto',
+            touchAction: 'pan-x pan-y', // ✅ 1 dedo scrollea siempre
           }}
         >
           {/* Contenedor escalable */}
