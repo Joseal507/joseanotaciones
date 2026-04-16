@@ -15,6 +15,13 @@ import { useIsMobile } from '../../hooks/useIsMobile';
 
 type PaperStyle = 'blank' | 'lined' | 'grid' | 'dotted';
 
+// ✅ Cada página tiene sus propios bloques y canvas
+interface Pagina {
+  id: string;
+  bloques: Bloque[];
+  canvasData: string | null;
+}
+
 interface Props {
   apunte: Apunte;
   materia: Materia;
@@ -25,39 +32,323 @@ interface Props {
   onGuardar: (contenido: string) => void;
 }
 
-const parseBloques = (contenido: string): Bloque[] => {
-  if (!contenido) return [];
+const parsePaginas = (contenido: string): Pagina[] => {
+  if (!contenido) return [{ id: genId(), bloques: [], canvasData: null }];
   try {
     const p = JSON.parse(contenido);
-    if (p && p.bloques && Array.isArray(p.bloques)) {
-      return p.bloques.map((b: any) => ({
-        ...b,
+
+    // ✅ Nuevo formato: array de páginas
+    if (p && p.paginas && Array.isArray(p.paginas)) {
+      return p.paginas.map((pg: any) => ({
         id: genId(),
-        x: b.x ?? 80,
-        y: b.y ?? 20,
-        width: b.width ?? 600,
+        canvasData: pg.canvasData || null,
+        bloques: (pg.bloques || []).map((b: any) => ({
+          ...b,
+          id: genId(),
+          x: b.x ?? 80,
+          y: b.y ?? 20,
+          width: b.width ?? 600,
+        })),
       }));
     }
-    if (Array.isArray(p)) return p.map(b => ({ ...b, id: genId(), x: b.x ?? 80, y: b.y ?? 20, width: b.width ?? 600 }));
+
+    // ✅ Formato viejo: { bloques, canvasData } → convertir a 1 página
+    if (p && p.bloques && Array.isArray(p.bloques)) {
+      return [{
+        id: genId(),
+        canvasData: p.canvasData || null,
+        bloques: p.bloques.map((b: any) => ({
+          ...b,
+          id: genId(),
+          x: b.x ?? 80,
+          y: b.y ?? 20,
+          width: b.width ?? 600,
+        })),
+      }];
+    }
+
+    // ✅ Formato muy viejo: array de bloques
+    if (Array.isArray(p)) {
+      return [{
+        id: genId(),
+        canvasData: null,
+        bloques: p.map((b: any) => ({
+          ...b,
+          id: genId(),
+          x: b.x ?? 80,
+          y: b.y ?? 20,
+          width: b.width ?? 600,
+        })),
+      }];
+    }
   } catch {}
+
+  // ✅ Texto plano
   if (contenido.trim()) {
-    return [{ id: genId(), tipo: 'texto', html: contenido, x: 80, y: 20, width: 600 }];
+    return [{
+      id: genId(),
+      canvasData: null,
+      bloques: [{ id: genId(), tipo: 'texto', html: contenido, x: 80, y: 20, width: 600 }],
+    }];
   }
-  return [];
+
+  return [{ id: genId(), bloques: [], canvasData: null }];
 };
 
-const parseCanvasData = (contenido: string): string | null => {
-  if (!contenido) return null;
-  try {
-    const p = JSON.parse(contenido);
-    if (p && p.canvasData) return p.canvasData;
-  } catch {}
-  return null;
-};
+// ✅ Componente para UNA página
+function PaginaEditor({
+  pagina,
+  paginaIdx,
+  totalPaginas,
+  temaColor,
+  paperStyle,
+  herramienta,
+  brushColor,
+  brushSize,
+  isDrawingMode,
+  isDrawing,
+  isSelecting,
+  newBlockId,
+  isMobile,
+  onBloques,
+  onCanvasChange,
+  onEliminarBloque,
+  onFinishNew,
+  onEliminarPagina,
+  onAgregarPagina,
+  onClickEditor,
+  onTextInsert,
+  registerCanvasExport,
+  textRefs,
+  htmlCache,
+}: {
+  pagina: Pagina;
+  paginaIdx: number;
+  totalPaginas: number;
+  temaColor: string;
+  paperStyle: PaperStyle;
+  herramienta: Herramienta;
+  brushColor: string;
+  brushSize: number;
+  isDrawingMode: boolean;
+  isDrawing: boolean;
+  isSelecting: boolean;
+  newBlockId: string | null;
+  isMobile: boolean;
+  onBloques: (id: string, bloques: Bloque[]) => void;
+  onCanvasChange: () => void;
+  onEliminarBloque: (paginaId: string, bloqueId: string) => void;
+  onFinishNew: () => void;
+  onEliminarPagina: (id: string) => void;
+  onAgregarPagina: (despuesDeIdx: number) => void;
+  onClickEditor: (e: React.MouseEvent<HTMLDivElement>, paginaId: string) => void;
+  onTextInsert: (text: string, canvasY: number, paginaId: string) => void;
+  registerCanvasExport: (paginaId: string, fn: () => string | null) => void;
+  textRefs: React.MutableRefObject<{ [id: string]: HTMLDivElement | null }>;
+  htmlCache: React.MutableRefObject<{ [id: string]: string }>;
+}) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const PAGE_HEIGHT = isMobile ? 600 : 900;
+
+  return (
+    <div style={{ marginBottom: '0px' }}>
+
+      {/* Número de página */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        marginBottom: '6px',
+        paddingLeft: '4px',
+      }}>
+        <span style={{
+          fontSize: '11px',
+          color: 'var(--text-faint)',
+          fontWeight: 600,
+          letterSpacing: '1px',
+        }}>
+          Página {paginaIdx + 1}
+        </span>
+        {totalPaginas > 1 && (
+          <button
+            onClick={() => onEliminarPagina(pagina.id)}
+            style={{
+              background: 'none',
+              border: '1px solid #fca5a5',
+              color: '#ef4444',
+              borderRadius: '6px',
+              padding: '1px 8px',
+              fontSize: '10px',
+              cursor: 'pointer',
+              fontWeight: 700,
+            }}
+          >
+            ✕ Eliminar
+          </button>
+        )}
+      </div>
+
+      {/* Área de la página */}
+      <div
+        ref={editorRef}
+        className="editor-area-principal"
+        style={{
+          position: 'relative',
+          height: `${PAGE_HEIGHT}px`,
+          background: 'white',
+          borderRadius: '12px',
+          border: isSelecting ? '2px solid #6366f1' : isDrawing ? `2px solid ${temaColor}` : '1px solid #e5e7eb',
+          overflow: 'hidden',
+          boxShadow: isSelecting
+            ? '0 0 0 3px #6366f120'
+            : isDrawing
+              ? `0 0 0 3px ${temaColor}20`
+              : '0 2px 8px rgba(0,0,0,0.06)',
+        }}
+      >
+        {/* Fondo papel */}
+        <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
+          <PaperBackground style={paperStyle} temaColor={temaColor} />
+        </div>
+
+        {/* Canvas dibujo */}
+        <EditorCanvas
+          herramienta={herramienta}
+          brushColor={brushColor}
+          brushSize={brushSize}
+          temaColor={temaColor}
+          onChange={onCanvasChange}
+          initialCanvasData={pagina.canvasData}
+          onTextInsert={(text, y) => onTextInsert(text, y, pagina.id)}
+          onRegisterExport={(fn) => registerCanvasExport(pagina.id, fn)}
+        />
+
+        {/* Capa bloques */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 10,
+            pointerEvents: isDrawingMode ? 'none' : 'all',
+          }}
+          onClick={(e) => onClickEditor(e, pagina.id)}
+        >
+          {pagina.bloques.map(b => {
+            if (b.tipo === 'texto') {
+              return (
+                <TextBlock
+                  key={b.id}
+                  bloque={b as BloqueTexto}
+                  temaColor={temaColor}
+                  isNew={newBlockId === b.id}
+                  onUpdate={(changes) => {
+                    onBloques(pagina.id, pagina.bloques.map(bl =>
+                      bl.id === b.id ? { ...bl, ...changes } as Bloque : bl
+                    ));
+                  }}
+                  onDelete={() => onEliminarBloque(pagina.id, b.id)}
+                  onFinishNew={onFinishNew}
+                />
+              );
+            }
+            if (b.tipo === 'imagen') {
+              const img = b as BloqueImagen;
+              return (
+                <div
+                  key={b.id}
+                  data-image="true"
+                  style={{
+                    position: 'absolute',
+                    left: img.x,
+                    top: img.y,
+                    zIndex: img.zIndex ?? 2,
+                  }}
+                >
+                  <img
+                    src={img.src}
+                    draggable={false}
+                    style={{
+                      width: img.width,
+                      maxWidth: '100%',
+                      borderRadius: '10px',
+                      border: '1px solid #e5e7eb',
+                      display: 'block',
+                    }}
+                  />
+                  {img.label && (
+                    <div style={{
+                      position: 'absolute', top: 8, left: 8,
+                      background: temaColor, color: '#000',
+                      padding: '2px 8px', borderRadius: '6px',
+                      fontSize: '10px', fontWeight: 800,
+                    }}>
+                      {img.label}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            return null;
+          })}
+        </div>
+
+        {/* Número de página en esquina */}
+        <div style={{
+          position: 'absolute',
+          bottom: 8,
+          right: 12,
+          fontSize: '11px',
+          color: '#d1d5db',
+          fontWeight: 600,
+          pointerEvents: 'none',
+          zIndex: 5,
+        }}>
+          {paginaIdx + 1} / {totalPaginas}
+        </div>
+      </div>
+
+      {/* ✅ Botón agregar página ENTRE páginas */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+        margin: '12px 0',
+      }}>
+        <div style={{ flex: 1, height: '1px', background: '#e5e7eb' }} />
+        <button
+          onClick={() => onAgregarPagina(paginaIdx)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '6px 16px',
+            borderRadius: '20px',
+            border: `2px dashed ${temaColor}`,
+            background: 'transparent',
+            color: temaColor,
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            whiteSpace: 'nowrap',
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLButtonElement).style.background = temaColor + '15';
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+          }}
+        >
+          + Agregar página
+        </button>
+        <div style={{ flex: 1, height: '1px', background: '#e5e7eb' }} />
+      </div>
+    </div>
+  );
+}
 
 export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMateria, onBackTema, onGuardar }: Props) {
-  const [bloques, setBloques] = useState<Bloque[]>(() => parseBloques(apunte.contenido));
-  const [initialCanvasData] = useState<string | null>(() => parseCanvasData(apunte.contenido));
+  const [paginas, setPaginas] = useState<Pagina[]>(() => parsePaginas(apunte.contenido));
   const [guardando, setGuardando] = useState(false);
   const [guardado, setGuardado] = useState(true);
   const [herramienta, setHerramienta] = useState<Herramienta>('texto');
@@ -70,8 +361,8 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
 
   const textRefs = useRef<{ [id: string]: HTMLDivElement | null }>({});
   const htmlCache = useRef<{ [id: string]: string }>({});
-  const editorRef = useRef<HTMLDivElement>(null);
   const autoSaveTimer = useRef<any>(null);
+  const canvasExporters = useRef<{ [paginaId: string]: () => string | null }>({});
   const isMobile = useIsMobile();
 
   const isDrawing = ['boligrafo', 'marcador', 'lapiz', 'borrador'].includes(herramienta);
@@ -87,12 +378,15 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
 
   const guardar = useCallback(() => {
     syncCache();
-    const canvasData = (window as any).__canvasExport?.() || null;
-    const contenidoFinal = JSON.stringify({ bloques, canvasData });
+    const paginasConCanvas = paginas.map(pg => ({
+      bloques: pg.bloques,
+      canvasData: canvasExporters.current[pg.id]?.() || pg.canvasData || null,
+    }));
+    const contenidoFinal = JSON.stringify({ paginas: paginasConCanvas });
     setGuardando(true);
     onGuardar(contenidoFinal);
     setTimeout(() => { setGuardando(false); setGuardado(true); }, 600);
-  }, [bloques, onGuardar, syncCache]);
+  }, [paginas, onGuardar, syncCache]);
 
   const triggerAutoSave = useCallback(() => {
     setGuardado(false);
@@ -104,23 +398,56 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
   }, []);
 
-  const eliminarBloque = useCallback((id: string) => {
-    setBloques(prev => prev.filter(b => b.id !== id));
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); guardar(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [guardar]);
+
+  // ✅ Actualizar bloques de una página
+  const handleBloques = useCallback((paginaId: string, bloques: Bloque[]) => {
+    setPaginas(prev => prev.map(pg => pg.id === paginaId ? { ...pg, bloques } : pg));
+    triggerAutoSave();
+  }, [triggerAutoSave]);
+
+  // ✅ Eliminar bloque de una página
+  const handleEliminarBloque = useCallback((paginaId: string, bloqueId: string) => {
+    setPaginas(prev => prev.map(pg =>
+      pg.id === paginaId
+        ? { ...pg, bloques: pg.bloques.filter(b => b.id !== bloqueId) }
+        : pg
+    ));
     setNewBlockId(null);
     triggerAutoSave();
   }, [triggerAutoSave]);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); guardar(); }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !isDrawingMode) (window as any).__editorUndo?.();
-      if ((e.metaKey || e.ctrlKey) && e.key === 'y' && !isDrawingMode) (window as any).__editorRedo?.();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [guardar, isDrawingMode]);
+  // ✅ Agregar página después de un índice
+  const handleAgregarPagina = useCallback((despuesDeIdx: number) => {
+    const nueva: Pagina = { id: genId(), bloques: [], canvasData: null };
+    setPaginas(prev => {
+      const nuevas = [...prev];
+      nuevas.splice(despuesDeIdx + 1, 0, nueva);
+      return nuevas;
+    });
+    triggerAutoSave();
+    // Scroll a la nueva página
+    setTimeout(() => {
+      window.scrollBy({ top: 960, behavior: 'smooth' });
+    }, 100);
+  }, [triggerAutoSave]);
 
-  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  // ✅ Eliminar página
+  const handleEliminarPagina = useCallback((paginaId: string) => {
+    if (paginas.length <= 1) return;
+    if (!confirm('¿Eliminar esta página? Se perderá el contenido.')) return;
+    setPaginas(prev => prev.filter(pg => pg.id !== paginaId));
+    triggerAutoSave();
+  }, [paginas.length, triggerAutoSave]);
+
+  // ✅ Click en área de una página para crear bloque
+  const handleClickEditor = useCallback((e: React.MouseEvent<HTMLDivElement>, paginaId: string) => {
     if (isDrawingMode) return;
     if (newBlockId) return;
     const target = e.target as HTMLElement;
@@ -133,55 +460,63 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
       target.closest('img')
     ) return;
 
-    const editorEl = editorRef.current;
-    if (!editorEl) return;
-    const rect = editorEl.getBoundingClientRect();
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
     const id = genId();
-    setBloques(prev => [...prev, {
-      id,
-      tipo: 'texto' as const,
-      html: '',
-      x: Math.max(4, x),
-      y: Math.max(4, y),
-      width: 300,
-    }]);
+    setPaginas(prev => prev.map(pg =>
+      pg.id === paginaId
+        ? {
+          ...pg, bloques: [...pg.bloques, {
+            id,
+            tipo: 'texto' as const,
+            html: '',
+            x: Math.max(4, x),
+            y: Math.max(4, y),
+            width: 300,
+          }]
+        }
+        : pg
+    ));
     setNewBlockId(id);
     triggerAutoSave();
   }, [isDrawingMode, newBlockId, triggerAutoSave]);
 
-  const handleTextInsert = useCallback((text: string, canvasY: number) => {
+  // ✅ Insertar texto desde canvas en una página
+  const handleTextInsert = useCallback((text: string, canvasY: number, paginaId: string) => {
     if (!text.trim()) return;
     const htmlContent = text.split('\n').filter(l => l.trim()).map(l => `<p>${l}</p>`).join('');
     const id = genId();
-    setBloques(prev => [...prev, {
-      id,
-      tipo: 'texto' as const,
-      html: htmlContent,
-      x: 80,
-      y: canvasY,
-      width: 500,
-    }]);
+    setPaginas(prev => prev.map(pg =>
+      pg.id === paginaId
+        ? { ...pg, bloques: [...pg.bloques, { id, tipo: 'texto' as const, html: htmlContent, x: 80, y: canvasY, width: 500 }] }
+        : pg
+    ));
     triggerAutoSave();
   }, [triggerAutoSave]);
 
+  // ✅ Agregar imagen a la página activa (última o primera)
   const addImagen = (src: string, label?: string) => {
-    const editorEl = editorRef.current;
-    const centerX = editorEl ? editorEl.clientWidth / 2 - 150 : 100;
-    setBloques(prev => [...prev, {
-      id: genId(),
-      tipo: 'imagen' as const,
-      src,
-      width: isMobile ? 280 : 400,
-      x: centerX,
-      y: 100,
-      label,
-      align: 'center' as const,
-      floating: false,
-      zIndex: 2,
-    }]);
+    const paginaId = paginas[paginas.length - 1].id;
+    setPaginas(prev => prev.map(pg =>
+      pg.id === paginaId
+        ? {
+          ...pg, bloques: [...pg.bloques, {
+            id: genId(),
+            tipo: 'imagen' as const,
+            src,
+            width: isMobile ? 280 : 400,
+            x: 100,
+            y: 100,
+            label,
+            align: 'center' as const,
+            floating: false,
+            zIndex: 2,
+          }]
+        }
+        : pg
+    ));
     triggerAutoSave();
     setShowImage(false);
     setShowDrawingCanvas(false);
@@ -190,6 +525,9 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
   const exec = (cmd: string, val?: string) => { document.execCommand(cmd, false, val); triggerAutoSave(); };
   const insertHtml = (html: string) => { document.execCommand('insertHTML', false, html); triggerAutoSave(); };
   const handleHerramienta = (h: Herramienta) => { syncCache(); setHerramienta(h); };
+
+  // Para ExportMenu - aplanar todos los bloques
+  const todosLosBloques = paginas.flatMap(pg => pg.bloques);
 
   return (
     <>
@@ -258,7 +596,7 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
             </span>
 
             <ExportMenu
-              bloques={bloques}
+              bloques={todosLosBloques}
               titulo={apunte.titulo}
               temaColor={tema.color}
               textRefs={textRefs}
@@ -276,18 +614,18 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
           </div>
         </div>
 
-        {/* EDITOR CARD */}
+        {/* TOOLBAR - sticky */}
         <div style={{
-          background: 'white',
-          borderRadius: '16px',
-          border: isSelecting ? '2px solid #6366f1' : isDrawing ? `2px solid ${tema.color}` : '1px solid #e5e7eb',
+          position: 'sticky',
+          top: 0,
+          zIndex: 100,
+          background: 'var(--bg-primary)',
+          borderRadius: '12px',
+          border: '1px solid #e5e7eb',
+          marginBottom: '12px',
           overflow: 'hidden',
-          boxShadow: isSelecting ? '0 0 0 3px #6366f120' : isDrawing ? `0 0 0 3px ${tema.color}20` : '0 1px 4px rgba(0,0,0,0.06)',
-          transition: 'border 0.2s, box-shadow 0.2s',
         }}>
           <div style={{ height: '3px', background: isSelecting ? '#6366f1' : tema.color }} />
-
-          {/* TOOLBAR */}
           <div style={{ overflowX: isMobile ? 'auto' : 'visible' }}>
             <div style={{ minWidth: isMobile ? 'max-content' : 'auto' }}>
               <Toolbar
@@ -307,135 +645,59 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
               />
             </div>
           </div>
+        </div>
 
-          <style>{`
-            .ebloque { outline: none; }
-            .ebloque:empty:before { content: 'Escribe aquí...'; color: #d1d5db; font-style: italic; pointer-events: none; }
-            .ebloque h1 { font-size: ${isMobile ? '22px' : '28px'}; font-weight: 900; color: ${tema.color}; margin: 0; }
-            .ebloque h2 { font-size: ${isMobile ? '18px' : '22px'}; font-weight: 800; color: #111827; margin: 0; }
-            .ebloque h3 { font-size: ${isMobile ? '15px' : '17px'}; font-weight: 700; color: #1f2937; margin: 0; }
-            .ebloque p { color: #1f2937; font-size: ${isMobile ? '15px' : '16px'}; margin: 0; }
-            .ebloque ul { list-style-type: disc; padding-left: 20px; margin: 0; }
-            .ebloque ol { list-style-type: decimal; padding-left: 20px; margin: 0; }
-            .ebloque li { color: #1f2937 !important; }
-            .ebloque li::marker { color: ${tema.color}; font-weight: 700; }
-            .ebloque b, .ebloque strong { color: #111827; font-weight: 800; }
-            .ebloque i, .ebloque em { color: #374151; }
-            .ebloque u { text-decoration-color: ${tema.color}; }
-            .ebloque s { color: #9ca3af; }
-            .ebloque blockquote { border-left: 3px solid ${tema.color}; padding: 4px 12px; margin: 4px 0; color: #6b7280; font-style: italic; background: ${tema.color}08; }
-            .ebloque a { color: #2563eb; text-decoration: underline; }
-            @keyframes spin { to { transform: rotate(360deg); } }
-          `}</style>
+        <style>{`
+          .ebloque { outline: none; }
+          .ebloque:empty:before { content: 'Escribe aquí...'; color: #d1d5db; font-style: italic; pointer-events: none; }
+          .ebloque h1 { font-size: ${isMobile ? '22px' : '28px'}; font-weight: 900; color: ${tema.color}; margin: 0; }
+          .ebloque h2 { font-size: ${isMobile ? '18px' : '22px'}; font-weight: 800; color: #111827; margin: 0; }
+          .ebloque h3 { font-size: ${isMobile ? '15px' : '17px'}; font-weight: 700; color: #1f2937; margin: 0; }
+          .ebloque p { color: #1f2937; font-size: ${isMobile ? '15px' : '16px'}; margin: 0; }
+          .ebloque ul { list-style-type: disc; padding-left: 20px; margin: 0; }
+          .ebloque ol { list-style-type: decimal; padding-left: 20px; margin: 0; }
+          .ebloque li { color: #1f2937 !important; }
+          .ebloque li::marker { color: ${tema.color}; font-weight: 700; }
+          .ebloque b, .ebloque strong { color: #111827; font-weight: 800; }
+          .ebloque i, .ebloque em { color: #374151; }
+          .ebloque u { text-decoration-color: ${tema.color}; }
+          .ebloque s { color: #9ca3af; }
+          .ebloque blockquote { border-left: 3px solid ${tema.color}; padding: 4px 12px; margin: 4px 0; color: #6b7280; font-style: italic; background: ${tema.color}08; }
+          .ebloque a { color: #2563eb; text-decoration: underline; }
+          @keyframes spin { to { transform: rotate(360deg); } }
+        `}</style>
 
-          {/* ÁREA PRINCIPAL */}
-          <div
-            ref={editorRef}
-            className="editor-area-principal"
-            style={{
-              position: 'relative',
-              minHeight: isMobile ? '60vh' : '700px',
-              background: 'white',
-            }}
-          >
-            {/* Fondo papel */}
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 0, pointerEvents: 'none' }}>
-              <PaperBackground style={paperStyle} temaColor={tema.color} />
-            </div>
-
-            {/* Canvas dibujo */}
-            <EditorCanvas
+        {/* ✅ PÁGINAS */}
+        <div>
+          {paginas.map((pagina, idx) => (
+            <PaginaEditor
+              key={pagina.id}
+              pagina={pagina}
+              paginaIdx={idx}
+              totalPaginas={paginas.length}
+              temaColor={tema.color}
+              paperStyle={paperStyle}
               herramienta={herramienta}
               brushColor={brushColor}
               brushSize={brushSize}
-              temaColor={tema.color}
-              onChange={() => triggerAutoSave()}
-              initialCanvasData={initialCanvasData}
+              isDrawingMode={isDrawingMode}
+              isDrawing={isDrawing}
+              isSelecting={isSelecting}
+              newBlockId={newBlockId}
+              isMobile={isMobile}
+              onBloques={handleBloques}
+              onCanvasChange={triggerAutoSave}
+              onEliminarBloque={handleEliminarBloque}
+              onFinishNew={() => setNewBlockId(null)}
+              onEliminarPagina={handleEliminarPagina}
+              onAgregarPagina={handleAgregarPagina}
+              onClickEditor={handleClickEditor}
               onTextInsert={handleTextInsert}
+              registerCanvasExport={(paginaId, fn) => { canvasExporters.current[paginaId] = fn; }}
+              textRefs={textRefs}
+              htmlCache={htmlCache}
             />
-
-            {/* CAPA BLOQUES + CLICK */}
-            <div
-              style={{
-                position: 'absolute',
-                top: 0, left: 0,
-                width: '100%', height: '100%',
-                zIndex: 10,
-                pointerEvents: isDrawingMode ? 'none' : 'all',
-              }}
-              onClick={handleClick}
-            >
-              {bloques.map(b => {
-                if (b.tipo === 'texto') {
-                  return (
-                    <TextBlock
-                      key={b.id}
-                      bloque={b as BloqueTexto}
-                      temaColor={tema.color}
-                      isNew={newBlockId === b.id}
-                      onUpdate={(changes) => {
-                        // ✅ FIX: cast explícito a Bloque para evitar error de tipos
-                        setBloques(prev => prev.map(bl =>
-                          bl.id === b.id ? { ...bl, ...changes } as Bloque : bl
-                        ));
-                        triggerAutoSave();
-                      }}
-                      onDelete={() => eliminarBloque(b.id)}
-                      onFinishNew={() => setNewBlockId(null)}
-                    />
-                  );
-                }
-                if (b.tipo === 'imagen') {
-                  const img = b as BloqueImagen;
-                  return (
-                    <div
-                      key={b.id}
-                      data-image="true"
-                      style={{
-                        position: 'absolute',
-                        left: img.x,
-                        top: img.y,
-                        zIndex: img.zIndex ?? 2,
-                      }}
-                    >
-                      <img
-                        src={img.src}
-                        draggable={false}
-                        style={{
-                          width: img.width,
-                          maxWidth: '100%',
-                          borderRadius: '10px',
-                          border: '1px solid #e5e7eb',
-                          display: 'block',
-                        }}
-                      />
-                      {img.label && (
-                        <div style={{
-                          position: 'absolute', top: 8, left: 8,
-                          background: tema.color, color: '#000',
-                          padding: '2px 8px', borderRadius: '6px',
-                          fontSize: '10px', fontWeight: 800,
-                        }}>
-                          {img.label}
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
-                return null;
-              })}
-            </div>
-          </div>
-
-          {/* FOOTER */}
-          <div style={{ padding: '8px 16px', borderTop: '1px solid #f3f4f6', background: '#fafafa', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', color: '#9ca3af' }}>
-              {bloques.length} bloques · {paperStyle === 'lined' ? '📋 Rayado' : paperStyle === 'grid' ? '⊞ Grid' : paperStyle === 'dotted' ? '⁚ Puntos' : '⬜ Libre'}
-            </span>
-            <span style={{ fontSize: '11px', color: '#9ca3af' }}>
-              {isSelecting ? '🎯 Selecciona trazos' : isDrawing ? '🎨 Dibujando' : 'Click para escribir'}
-            </span>
-          </div>
+          ))}
         </div>
       </div>
     </>

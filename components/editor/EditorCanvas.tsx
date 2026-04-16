@@ -16,10 +16,11 @@ interface Props {
   onChange: () => void;
   onTextInsert?: (text: string, canvasY: number) => void;
   initialCanvasData?: string | null;
+  onRegisterExport?: (fn: () => string | null) => void;  // ✅ NUEVO
 }
 
 export default function EditorCanvas({
-  herramienta, brushColor, brushSize, temaColor, onChange, onTextInsert, initialCanvasData
+  herramienta, brushColor, brushSize, temaColor, onChange, onTextInsert, initialCanvasData, onRegisterExport  // ✅ NUEVO
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -416,7 +417,7 @@ export default function EditorCanvas({
     }
   };
 
-  useEffect(() => {
+    useEffect(() => {
     (window as any).__editorUndo = undo;
     (window as any).__editorRedo = redo;
     (window as any).__canvasHasStrokes = () => strokesRef.current.length > 0;
@@ -425,7 +426,16 @@ export default function EditorCanvas({
       if (!canvas || strokesRef.current.length === 0) return null;
       return canvas.toDataURL('image/png');
     };
-  }, [undo, redo]);
+
+    // ✅ NUEVO: registrar exportador para sistema de páginas
+    if (onRegisterExport) {
+      onRegisterExport(() => {
+        const canvas = canvasRef.current;
+        if (!canvas || strokesRef.current.length === 0) return null;
+        return canvas.toDataURL('image/png');
+      });
+    }
+  }, [undo, redo, onRegisterExport]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
