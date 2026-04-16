@@ -34,11 +34,8 @@ export default function EditorCanvas({
   const activePenId = useRef<number | null>(null);
   const initialized = useRef(false);
 
-  // Borrador por trazo
   const erasingStrokes = useRef<Set<string>>(new Set());
   const isErasingMode = useRef(false);
-
-  // Pinch / multi-touch
   const isPinching = useRef(false);
 
   const selecting = useRef(false);
@@ -129,18 +126,12 @@ export default function EditorCanvas({
     return getPosFromPointer(e, canvas);
   };
 
-  // ✅ PALM REJECTION + FINGER REJECTION
-  // Solo stylus/pen puede dibujar. Dedos SIEMPRE hacen scroll/zoom.
+  // ✅ Solo ignorar dedos/palma. Pencil siempre pasa.
   const shouldIgnore = (e: PointerEvent) => {
     if (isPinching.current) return true;
-
-    // ✅ CLAVE: Si es touch (dedo/palma), SIEMPRE ignorar para dibujo
-    // Los dedos hacen scroll/zoom nativamente gracias a touchAction
+    // Dedos y palma = ignorar para dibujo
     if (e.pointerType === 'touch') return true;
-
-    // Si ya hay un pen activo, ignorar otros punteros
     if (activePenId.current !== null && e.pointerId !== activePenId.current) return true;
-
     return false;
   };
 
@@ -156,11 +147,9 @@ export default function EditorCanvas({
     e.preventDefault();
     const pos = getPos(e);
 
-    // Borrador por trazo (como GoodNotes)
     if (efectiveTool === 'borrador') {
       isErasingMode.current = true;
       erasingStrokes.current = new Set();
-
       const found = strokesRef.current.find(s =>
         s.tipo !== 'borrador' && isPointNearStroke(pos.x, pos.y, s, brushSize * 3 + 10)
       );
@@ -168,7 +157,6 @@ export default function EditorCanvas({
         erasingStrokes.current.add(found.id);
         redraw();
       }
-
       try { (e.target as HTMLElement).setPointerCapture?.(e.pointerId); } catch {}
       return;
     }
@@ -218,7 +206,6 @@ export default function EditorCanvas({
     e.preventDefault();
     const pos = getPos(e);
 
-    // Borrador por trazo: marcar trazos mientras se arrastra
     if (isErasingMode.current) {
       const found = strokesRef.current.find(s =>
         s.tipo !== 'borrador' && isPointNearStroke(pos.x, pos.y, s, brushSize * 3 + 10)
@@ -236,7 +223,6 @@ export default function EditorCanvas({
       const dx = pos.x - moveStart.current.x;
       const dy = pos.y - moveStart.current.y;
       moveStart.current = pos;
-
       strokesRef.current = strokesRef.current.map(s => {
         if (!selectedStrokesRef.current.includes(s.id)) return s;
         return {
@@ -245,7 +231,6 @@ export default function EditorCanvas({
           bounds: s.bounds ? { x: s.bounds.x + dx, y: s.bounds.y + dy, w: s.bounds.w, h: s.bounds.h } : undefined,
         };
       });
-
       const newRect = { x: rect.x + dx, y: rect.y + dy, w: rect.w, h: rect.h };
       updateSelectionRect(newRect);
       redrawOverlay(newRect);
@@ -302,7 +287,6 @@ export default function EditorCanvas({
   const stopDraw = useCallback((e: PointerEvent) => {
     if (e.pointerId === activePenId.current) activePenId.current = null;
 
-    // Borrador por trazo: borrar los trazos marcados
     if (isErasingMode.current) {
       isErasingMode.current = false;
       if (erasingStrokes.current.size > 0) {
@@ -351,7 +335,6 @@ export default function EditorCanvas({
         .map(s => s.id);
 
       updateSelectedStrokes(found);
-
       if (found.length > 0) {
         setMenuPos({ x: rect.x + rect.w / 2, y: rect.y + rect.h + 14 });
       } else {
@@ -376,17 +359,38 @@ export default function EditorCanvas({
     redraw();
   }, [redraw, redrawOverlay, onChange]);
 
-  // ✅ Detectar multi-touch para cancelar dibujo
+  // ✅ Scroll manual con dedos + pinch zoom
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    let startY = 0;
+    let startX = 0;
+    let startScrollY = 0;
+    let startScrollX = 0;
+
     const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        startY = e.touches[0].clientY;
+        startX = e.touches[0].clientX;
+        startScrollY = window.scrollY;
+        startScrollX = window.scrollX;
+      }
       if (e.touches.length >= 2) {
         isPinching.current = true;
         drawing.current = false;
         isErasingMode.current = false;
         currentStroke.current = null;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (isPinching.current) return;
+      if (e.touches.length === 1) {
+        // ✅ Scroll manual con 1 dedo
+        const dy = startY - e.touches[0].clientY;
+        const dx = startX - e.touches[0].clientX;
+        window.scrollTo(startScrollX + dx, startScrollY + dy);
       }
     };
 
@@ -397,15 +401,17 @@ export default function EditorCanvas({
     };
 
     container.addEventListener('touchstart', onTouchStart, { passive: true });
+    container.addEventListener('touchmove', onTouchMove, { passive: true });
     container.addEventListener('touchend', onTouchEnd, { passive: true });
     container.addEventListener('touchcancel', onTouchEnd, { passive: true });
 
     return () => {
       container.removeEventListener('touchstart', onTouchStart);
+      container.removeEventListener('touchmove', onTouchMove);
       container.removeEventListener('touchend', onTouchEnd);
       container.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, []);
+  }, [isCanvasActive]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -487,7 +493,6 @@ export default function EditorCanvas({
     const imageData = getCroppedCanvas();
     const rect = selectionRectRef.current;
     if (!imageData || !rect) return;
-
     setConverting(true);
     try {
       const base64 = imageData.split(',')[1];
@@ -496,26 +501,17 @@ export default function EditorCanvas({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mensaje: 'Read and transcribe EXACTLY all the handwritten text in this image. Return ONLY the transcribed text, nothing else. Preserve line breaks. If unclear write [illegible].',
-          contexto: null,
-          historial: [],
-          perfil: null,
-          todosDocumentos: [],
-          idioma: 'en',
-          imageBase64: base64,
-          imageMime: 'image/png',
+          contexto: null, historial: [], perfil: null, todosDocumentos: [],
+          idioma: 'en', imageBase64: base64, imageMime: 'image/png',
         }),
       });
       const data = await res.json();
       if (data.success && data.respuesta) {
-        const text = data.respuesta.trim();
-        onTextInsert?.(text, rect.y);
+        onTextInsert?.(data.respuesta.trim(), rect.y);
         deleteSelection();
       }
-    } catch (err) {
-      console.error('Error converting:', err);
-    } finally {
-      setConverting(false);
-    }
+    } catch (err) { console.error('Error converting:', err); }
+    finally { setConverting(false); }
   };
 
   useEffect(() => {
@@ -527,7 +523,6 @@ export default function EditorCanvas({
       if (!canvas || strokesRef.current.length === 0) return null;
       return canvas.toDataURL('image/png');
     };
-
     if (onRegisterExport) {
       onRegisterExport(() => {
         const canvas = canvasRef.current;
@@ -548,11 +543,8 @@ export default function EditorCanvas({
         if (!isEditable) { e.preventDefault(); deleteSelection(); }
       }
       if (e.key === 'Escape') {
-        updateSelectionRect(null);
-        updateSelectedStrokes([]);
-        setMenuPos(null);
-        redrawOverlay(null);
-        movingRef.current = false;
+        updateSelectionRect(null); updateSelectedStrokes([]);
+        setMenuPos(null); redrawOverlay(null); movingRef.current = false;
       }
     };
     window.addEventListener('keydown', handler, true);
@@ -576,14 +568,14 @@ export default function EditorCanvas({
       width: '100%', height: '100%',
       pointerEvents: isCanvasActive ? 'all' : 'none',
       zIndex: isCanvasActive ? 20 : 1,
-      // ✅ Dedos SIEMPRE hacen scroll y zoom nativo
-      touchAction: 'pan-x pan-y pinch-zoom',
+      // ✅ none para capturar pointer events del Pencil
+      // El scroll con dedos se hace manualmente en touchmove
+      touchAction: 'none',
     }}>
       <canvas ref={canvasRef} style={{
         position: 'absolute', top: 0, left: 0,
         width: '100%', height: '100%',
-        // ✅ Dedos pasan al navegador para scroll/zoom
-        touchAction: 'pan-x pan-y pinch-zoom',
+        touchAction: 'none',
         background: 'transparent',
         cursor: isSelecting ? 'default' : getCursor(),
         pointerEvents: (!isCanvasActive) ? 'none' : (isSelecting ? 'none' : 'all'),
@@ -592,8 +584,7 @@ export default function EditorCanvas({
       <canvas ref={overlayRef} style={{
         position: 'absolute', top: 0, left: 0,
         width: '100%', height: '100%',
-        // ✅ Dedos pasan al navegador para scroll/zoom
-        touchAction: 'pan-x pan-y pinch-zoom',
+        touchAction: 'none',
         background: 'transparent',
         cursor: getCursor(),
         pointerEvents: (!isCanvasActive) ? 'none' : (isSelecting ? 'all' : 'none'),
@@ -609,9 +600,7 @@ export default function EditorCanvas({
             const img = getCroppedCanvas();
             if (!img) return;
             const a = document.createElement('a');
-            a.download = 'dibujo.png';
-            a.href = img;
-            a.click();
+            a.download = 'dibujo.png'; a.href = img; a.click();
           }}
           onDelete={deleteSelection}
         />
@@ -634,7 +623,6 @@ export default function EditorCanvas({
           )}
         </div>
       )}
-
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
