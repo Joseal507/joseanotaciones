@@ -34,12 +34,11 @@ export default function EditorCanvas({
   const activePenId = useRef<number | null>(null);
   const initialized = useRef(false);
 
-  // ✅ Borrador por trazo
+  // Borrador por trazo
   const erasingStrokes = useRef<Set<string>>(new Set());
   const isErasingMode = useRef(false);
 
-  // ✅ Pinch-to-zoom / palm rejection
-  const activeTouches = useRef<number>(0);
+  // Pinch / multi-touch
   const isPinching = useRef(false);
 
   const selecting = useRef(false);
@@ -108,7 +107,6 @@ export default function EditorCanvas({
     if (!ctx || !canvas) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     strokesRef.current.forEach(s => {
-      // ✅ Si el trazo está marcado para borrar, mostrar preview rojo
       if (erasingStrokes.current.has(s.id)) {
         drawStrokeErasePreview(ctx, s);
       } else {
@@ -131,25 +129,23 @@ export default function EditorCanvas({
     return getPosFromPointer(e, canvas);
   };
 
-  // ✅ MEJORADO: Rechazar toques de dedo cuando hay stylus activo
+  // ✅ PALM REJECTION + FINGER REJECTION
+  // Solo stylus/pen puede dibujar. Dedos SIEMPRE hacen scroll/zoom.
   const shouldIgnore = (e: PointerEvent) => {
-    // Si estamos haciendo pinch, ignorar todo
     if (isPinching.current) return true;
 
-    // ✅ PALM REJECTION: si es touch (dedo) y estamos en modo dibujo, ignorar
-    // Solo permitir stylus/pen para dibujar
-    if (e.pointerType === 'touch' && isDrawingTool) return true;
+    // ✅ CLAVE: Si es touch (dedo/palma), SIEMPRE ignorar para dibujo
+    // Los dedos hacen scroll/zoom nativamente gracias a touchAction
+    if (e.pointerType === 'touch') return true;
 
-    // Si ya hay un pen activo, ignorar otros touches
-    if (activePenId.current !== null && e.pointerId !== activePenId.current && e.pointerType === 'touch') return true;
+    // Si ya hay un pen activo, ignorar otros punteros
+    if (activePenId.current !== null && e.pointerId !== activePenId.current) return true;
 
     return false;
   };
 
   const startDraw = useCallback((e: PointerEvent) => {
     if (!isDrawingTool && !isSelecting) return;
-
-    // ✅ Ignorar dedos cuando se dibuja (palm rejection)
     if (shouldIgnore(e)) return;
 
     const isEraserBtn = e.button === 5 || e.buttons === 32;
@@ -160,12 +156,11 @@ export default function EditorCanvas({
     e.preventDefault();
     const pos = getPos(e);
 
-    // ✅ BORRADOR POR TRAZO (como GoodNotes)
+    // Borrador por trazo (como GoodNotes)
     if (efectiveTool === 'borrador') {
       isErasingMode.current = true;
       erasingStrokes.current = new Set();
 
-      // Buscar trazo bajo el cursor
       const found = strokesRef.current.find(s =>
         s.tipo !== 'borrador' && isPointNearStroke(pos.x, pos.y, s, brushSize * 3 + 10)
       );
@@ -223,7 +218,7 @@ export default function EditorCanvas({
     e.preventDefault();
     const pos = getPos(e);
 
-    // ✅ BORRADOR POR TRAZO: marcar trazos mientras se arrastra
+    // Borrador por trazo: marcar trazos mientras se arrastra
     if (isErasingMode.current) {
       const found = strokesRef.current.find(s =>
         s.tipo !== 'borrador' && isPointNearStroke(pos.x, pos.y, s, brushSize * 3 + 10)
@@ -307,7 +302,7 @@ export default function EditorCanvas({
   const stopDraw = useCallback((e: PointerEvent) => {
     if (e.pointerId === activePenId.current) activePenId.current = null;
 
-    // ✅ BORRADOR POR TRAZO: borrar los trazos marcados
+    // Borrador por trazo: borrar los trazos marcados
     if (isErasingMode.current) {
       isErasingMode.current = false;
       if (erasingStrokes.current.size > 0) {
@@ -381,15 +376,13 @@ export default function EditorCanvas({
     redraw();
   }, [redraw, redrawOverlay, onChange]);
 
-  // ✅ PINCH-TO-ZOOM: detectar multi-touch y dejar que el navegador haga zoom/scroll
+  // ✅ Detectar multi-touch para cancelar dibujo
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const onTouchStart = (e: TouchEvent) => {
-      activeTouches.current = e.touches.length;
       if (e.touches.length >= 2) {
-        // ✅ Multi-touch detectado: cancelar dibujo, permitir zoom/scroll
         isPinching.current = true;
         drawing.current = false;
         isErasingMode.current = false;
@@ -398,9 +391,7 @@ export default function EditorCanvas({
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      activeTouches.current = e.touches.length;
       if (e.touches.length < 2) {
-        // Delay para evitar que el último dedo dibuje
         setTimeout(() => { isPinching.current = false; }, 100);
       }
     };
@@ -585,13 +576,15 @@ export default function EditorCanvas({
       width: '100%', height: '100%',
       pointerEvents: isCanvasActive ? 'all' : 'none',
       zIndex: isCanvasActive ? 20 : 1,
-      // ✅ Permitir pinch-to-zoom cuando hay multi-touch
-      touchAction: isPinching.current ? 'auto' : 'none',
+      // ✅ Dedos SIEMPRE hacen scroll y zoom nativo
+      touchAction: 'pan-x pan-y pinch-zoom',
     }}>
       <canvas ref={canvasRef} style={{
         position: 'absolute', top: 0, left: 0,
         width: '100%', height: '100%',
-        touchAction: 'none', background: 'transparent',
+        // ✅ Dedos pasan al navegador para scroll/zoom
+        touchAction: 'pan-x pan-y pinch-zoom',
+        background: 'transparent',
         cursor: isSelecting ? 'default' : getCursor(),
         pointerEvents: (!isCanvasActive) ? 'none' : (isSelecting ? 'none' : 'all'),
       }} />
@@ -599,7 +592,9 @@ export default function EditorCanvas({
       <canvas ref={overlayRef} style={{
         position: 'absolute', top: 0, left: 0,
         width: '100%', height: '100%',
-        touchAction: 'none', background: 'transparent',
+        // ✅ Dedos pasan al navegador para scroll/zoom
+        touchAction: 'pan-x pan-y pinch-zoom',
+        background: 'transparent',
         cursor: getCursor(),
         pointerEvents: (!isCanvasActive) ? 'none' : (isSelecting ? 'all' : 'none'),
       }} />
