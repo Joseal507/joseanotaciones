@@ -104,7 +104,6 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
   }, []);
 
-  // ✅ Siempre limpia newBlockId al eliminar
   const eliminarBloque = useCallback((id: string) => {
     setBloques(prev => prev.filter(b => b.id !== id));
     setNewBlockId(null);
@@ -157,7 +156,14 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
     if (!text.trim()) return;
     const htmlContent = text.split('\n').filter(l => l.trim()).map(l => `<p>${l}</p>`).join('');
     const id = genId();
-    setBloques(prev => [...prev, { id, tipo: 'texto' as const, html: htmlContent, x: 80, y: canvasY, width: 500 }]);
+    setBloques(prev => [...prev, {
+      id,
+      tipo: 'texto' as const,
+      html: htmlContent,
+      x: 80,
+      y: canvasY,
+      width: 500,
+    }]);
     triggerAutoSave();
   }, [triggerAutoSave]);
 
@@ -165,10 +171,16 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
     const editorEl = editorRef.current;
     const centerX = editorEl ? editorEl.clientWidth / 2 - 150 : 100;
     setBloques(prev => [...prev, {
-      id: genId(), tipo: 'imagen' as const, src,
+      id: genId(),
+      tipo: 'imagen' as const,
+      src,
       width: isMobile ? 280 : 400,
-      x: centerX, y: 100, label,
-      align: 'center' as const, floating: false, zIndex: 2,
+      x: centerX,
+      y: 100,
+      label,
+      align: 'center' as const,
+      floating: false,
+      zIndex: 2,
     }]);
     triggerAutoSave();
     setShowImage(false);
@@ -182,10 +194,18 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
   return (
     <>
       {showDrawingCanvas && (
-        <DrawingCanvas color={tema.color} onSave={(d) => addImagen(d, '🎨 Dibujo')} onClose={() => setShowDrawingCanvas(false)} />
+        <DrawingCanvas
+          color={tema.color}
+          onSave={(d) => addImagen(d, '🎨 Dibujo')}
+          onClose={() => setShowDrawingCanvas(false)}
+        />
       )}
       {showImage && (
-        <ImageInserter color={tema.color} onInsert={(src) => addImagen(src)} onClose={() => setShowImage(false)} />
+        <ImageInserter
+          color={tema.color}
+          onInsert={(src) => addImagen(src)}
+          onClose={() => setShowImage(false)}
+        />
       )}
 
       <div style={{ maxWidth: '1080px', margin: '0 auto' }}>
@@ -237,7 +257,13 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
                 : guardado ? '✓' : '●'}
             </span>
 
-            <ExportMenu bloques={bloques} titulo={apunte.titulo} temaColor={tema.color} textRefs={textRefs} htmlCache={htmlCache} />
+            <ExportMenu
+              bloques={bloques}
+              titulo={apunte.titulo}
+              temaColor={tema.color}
+              textRefs={textRefs}
+              htmlCache={htmlCache}
+            />
 
             <button onClick={guardar} style={{ padding: isMobile ? '8px 14px' : '9px 18px', borderRadius: '10px', border: 'none', background: tema.color, color: '#000', fontSize: isMobile ? '12px' : '13px', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -328,7 +354,7 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
               onTextInsert={handleTextInsert}
             />
 
-            {/* ✅ CAPA BLOQUES + CLICK */}
+            {/* CAPA BLOQUES + CLICK */}
             <div
               style={{
                 position: 'absolute',
@@ -348,8 +374,9 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
                       temaColor={tema.color}
                       isNew={newBlockId === b.id}
                       onUpdate={(changes) => {
+                        // ✅ FIX: cast explícito a Bloque para evitar error de tipos
                         setBloques(prev => prev.map(bl =>
-                          bl.id === b.id ? { ...bl, ...changes } : bl
+                          bl.id === b.id ? { ...bl, ...changes } as Bloque : bl
                         ));
                         triggerAutoSave();
                       }}
