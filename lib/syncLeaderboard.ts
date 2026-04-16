@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { getPerfil } from './storage';
 import { verificarRacha } from './racha';
+import { savePerfilDB } from './db';
 
 export const syncLeaderboard = async () => {
   try {
@@ -15,12 +16,27 @@ export const syncLeaderboard = async () => {
     const racha = verificarRacha();
     const nombre = session.user.user_metadata?.nombre || session.user.email?.split('@')[0] || 'Usuario';
 
-    const totalAcertadas = Object.values(perfil.flashcardsAcertadas || {}).reduce((a: number, b: any) => a + b, 0);
-    const totalFalladas = Object.values(perfil.flashcardsFalladas || {}).reduce((a: number, b: any) => a + b, 0);
-    const total = totalAcertadas + totalFalladas;
-    const precision = total > 0 ? Math.round((totalAcertadas / total) * 100) : 0;
-    const xpTotal = Object.values(perfil.materiasStats || {}).reduce((acc: number, m: any) => acc + m.totalFlashcards, 0);
+    // ✅ Calcular stats reales
+    const totalAcertadas = Object.values(perfil.flashcardsAcertadas || {}).reduce(
+      (a: number, b: any) => a + (typeof b === 'number' ? b : 0), 0
+    );
+    const totalFalladas = Object.values(perfil.flashcardsFalladas || {}).reduce(
+      (a: number, b: any) => a + (typeof b === 'number' ? b : 0), 0
+    );
+    const totalEstudiadas = totalAcertadas + totalFalladas;
+    const precision = totalEstudiadas > 0 ? Math.round((totalAcertadas / totalEstudiadas) * 100) : 0;
 
+    // ✅ XP real: acertadas valen más, quizzes dan bonus
+    const totalQuizzes = Object.values(perfil.materiasStats || {}).reduce(
+      (acc: number, m: any) => acc + (m.quizzes || 0), 0
+    );
+    const totalQuizPuntuacion = Object.values(perfil.materiasStats || {}).reduce(
+      (acc: number, m: any) => acc + (m.quizPuntuacion || 0), 0
+    );
+
+    const xpTotal = (totalAcertadas * 10) + (totalFalladas * 2) + (totalQuizzes * 25) + Math.round(totalQuizPuntuacion * 5) + (racha.mejorRacha * 15);
+
+    // ✅ Sync leaderboard
     await fetch('/api/leaderboard', {
       method: 'POST',
       headers: {
@@ -30,12 +46,16 @@ export const syncLeaderboard = async () => {
       body: JSON.stringify({
         nombre,
         xp_total: xpTotal,
-        flashcards_estudiadas: total,
+        flashcards_estudiadas: totalEstudiadas,
         racha_actual: racha.rachaActual,
         mejor_racha: racha.mejorRacha,
         precision_global: precision,
       }),
     });
+
+    // ✅ También sync perfil a Supabase (para que no esté vacío)
+    await savePerfilDB(session.user.id, perfil);
+
   } catch (err) {
     console.error('Leaderboard sync error:', err);
   }

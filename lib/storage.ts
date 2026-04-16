@@ -74,7 +74,6 @@ export const getMaterias = (): Materia[] => {
   } catch { return []; }
 };
 
-// ✅ No guardar base64 en localStorage - ahorra espacio
 export const saveMaterias = (materias: Materia[]) => {
   if (!isBrowser()) return;
   try {
@@ -124,6 +123,59 @@ export const getPerfil = (): PerfilEstudio => {
 export const savePerfil = (perfil: PerfilEstudio) => {
   if (!isBrowser()) return;
   localStorage.setItem(KEY_PERFIL, JSON.stringify(perfil));
+
+  // ✅ Sync a Supabase en background (no bloquea)
+  syncPerfilToSupabase(perfil);
+};
+
+// ✅ NUEVO: Sync perfil a Supabase sin bloquear
+const syncPerfilToSupabase = async (perfil: PerfilEstudio) => {
+  try {
+    const { supabase } = await import('./supabase');
+    const { savePerfilDB } = await import('./db');
+
+    let session = (await supabase.auth.getSession()).data.session;
+    if (!session) {
+      const { data } = await supabase.auth.refreshSession();
+      session = data.session;
+    }
+    if (!session) return;
+
+    await savePerfilDB(session.user.id, perfil);
+  } catch (err) {
+    console.error('Perfil sync error (non-blocking):', err);
+  }
+};
+
+// ✅ NUEVO: Cargar perfil desde Supabase (para cuando localStorage está vacío)
+export const cargarPerfilDesdeDB = async (): Promise<PerfilEstudio | null> => {
+  try {
+    const { supabase } = await import('./supabase');
+    const { getPerfilDB } = await import('./db');
+
+    let session = (await supabase.auth.getSession()).data.session;
+    if (!session) {
+      const { data } = await supabase.auth.refreshSession();
+      session = data.session;
+    }
+    if (!session) return null;
+
+    const perfilDB = await getPerfilDB(session.user.id);
+
+    // Si tiene datos reales, guardar en localStorage
+    const tieneData = Object.keys(perfilDB.flashcardsAcertadas || {}).length > 0
+      || Object.keys(perfilDB.flashcardsFalladas || {}).length > 0
+      || Object.keys(perfilDB.materiasStats || {}).length > 0;
+
+    if (tieneData) {
+      localStorage.setItem(KEY_PERFIL, JSON.stringify(perfilDB));
+      return perfilDB;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
 };
 
 export const registrarResultado = (
@@ -161,6 +213,7 @@ export const registrarResultado = (
   }
   perfil.materiasStats[materiaId].totalFlashcards++;
 
+  // ✅ Esto ahora también sync a Supabase automáticamente
   savePerfil(perfil);
 };
 
@@ -195,5 +248,6 @@ export const registrarQuiz = (
     puntuacion,
   });
 
+  // ✅ Esto ahora también sync a Supabase automáticamente
   savePerfil(perfil);
 };

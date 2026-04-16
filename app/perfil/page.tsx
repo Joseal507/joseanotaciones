@@ -12,10 +12,36 @@ export default function PerfilPage() {
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
 
-  useEffect(() => {
-    setPerfil(getPerfil());
-    getMaterias();
-  }, []);
+ useEffect(() => {
+  const cargar = async () => {
+    // Primero intentar localStorage
+    let perfilLocal = getPerfil();
+
+    const tieneDataLocal = Object.keys(perfilLocal.flashcardsAcertadas || {}).length > 0
+      || Object.keys(perfilLocal.flashcardsFalladas || {}).length > 0
+      || Object.keys(perfilLocal.materiasStats || {}).length > 0;
+
+    if (tieneDataLocal) {
+      setPerfil(perfilLocal);
+    } else {
+      // Si localStorage vacío, intentar cargar de Supabase
+      try {
+        const { cargarPerfilDesdeDB } = await import('../../lib/storage');
+        const perfilDB = await cargarPerfilDesdeDB();
+        if (perfilDB) {
+          setPerfil(perfilDB);
+        } else {
+          setPerfil(perfilLocal);
+        }
+      } catch {
+        setPerfil(perfilLocal);
+      }
+    }
+  };
+
+  cargar();
+  getMaterias();
+}, []);
 
   if (!perfil) return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
