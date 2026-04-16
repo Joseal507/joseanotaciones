@@ -73,10 +73,7 @@ const parsePaginas = (contenido: string): Pagina[] => {
   return [{ id: genId(), bloques: [], canvasData: null }];
 };
 
-// ✅ Pinch-zoom SIEMPRE activo (como OneNote)
-// 1 dedo → scroll normal
-// 2 dedos → zoom
-// Pencil → dibuja (manejado en EditorCanvas)
+// ✅ Pinch-zoom SIEMPRE activo como OneNote
 function usePinchZoom(
   containerRef: React.RefObject<HTMLDivElement>,
   wrapperRef: React.RefObject<HTMLDivElement>,
@@ -113,7 +110,6 @@ function usePinchZoom(
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
-        // ✅ 2 dedos siempre = pinch zoom
         lastDist.current = getDist(e.touches);
         const mid = getMid(e.touches);
         lastMidX.current = mid.x;
@@ -123,43 +119,30 @@ function usePinchZoom(
 
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length === 2 && lastDist.current !== null) {
-        // ✅ Prevenir scroll solo cuando hay pinch
         e.preventDefault();
-
         const newDist = getDist(e.touches);
         const mid = getMid(e.touches);
-
         const ratio = newDist / lastDist.current;
         const prevScale = scale.current;
         scale.current = Math.min(5, Math.max(0.2, scale.current * ratio));
-
         const rect = wrapper.getBoundingClientRect();
         const originX = mid.x - rect.left;
         const originY = mid.y - rect.top;
-
-        // Zoom centrado en punto medio de dedos
         translateX.current = originX - (originX - translateX.current) * (scale.current / prevScale);
         translateY.current = originY - (originY - translateY.current) * (scale.current / prevScale);
-
-        // Pan con 2 dedos
         translateX.current += mid.x - lastMidX.current;
         translateY.current += mid.y - lastMidY.current;
-
         lastDist.current = newDist;
         lastMidX.current = mid.x;
         lastMidY.current = mid.y;
-
         applyTransform();
       }
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) {
-        lastDist.current = null;
-      }
+      if (e.touches.length < 2) lastDist.current = null;
     };
 
-    // ✅ Doble tap con 2 dedos = reset zoom
     let lastTap = 0;
     const onTouchEndDouble = (e: TouchEvent) => {
       onTouchEnd(e);
@@ -175,8 +158,6 @@ function usePinchZoom(
       }
     };
 
-    // passive: true en touchstart para no bloquear scroll de 1 dedo
-    // passive: false en touchmove para poder preventDefault en pinch
     wrapper.addEventListener('touchstart', onTouchStart, { passive: true });
     wrapper.addEventListener('touchmove', onTouchMove, { passive: false });
     wrapper.addEventListener('touchend', onTouchEndDouble, { passive: true });
@@ -230,6 +211,7 @@ function PaginaEditor({
         )}
       </div>
 
+      {/* ✅ Área de la página - sin selección de texto */}
       <div
         className="editor-area-principal"
         style={{
@@ -240,6 +222,9 @@ function PaginaEditor({
           border: isSelecting ? '2px solid #6366f1' : isDrawing ? `2px solid ${temaColor}` : '1px solid #e5e7eb',
           overflow: 'hidden',
           boxShadow: isSelecting ? '0 0 0 3px #6366f120' : isDrawing ? `0 0 0 3px ${temaColor}20` : '0 2px 8px rgba(0,0,0,0.06)',
+          // ✅ Nunca seleccionar texto en el área del editor
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
         }}
       >
         <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
@@ -343,7 +328,6 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
   const isSelecting = herramienta === 'seleccion';
   const isDrawingMode = isDrawing || isSelecting;
 
-  // ✅ Pinch zoom SIEMPRE activo
   usePinchZoom(paginasContainerRef, wrapperRef);
 
   const syncCache = useCallback(() => {
@@ -569,16 +553,37 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
           .ebloque blockquote { border-left: 3px solid ${tema.color}; padding: 4px 12px; margin: 4px 0; color: #6b7280; font-style: italic; background: ${tema.color}08; }
           .ebloque a { color: #2563eb; text-decoration: underline; }
           @keyframes spin { to { transform: rotate(360deg); } }
+
+          /* ✅ Nunca seleccionar texto en el área del editor */
+          .editor-area-principal {
+            -webkit-user-select: none !important;
+            user-select: none !important;
+            -webkit-touch-callout: none !important;
+          }
+          /* ✅ Pero SÍ permitir selección en bloques de texto editables */
+          .editor-area-principal [contenteditable="true"] {
+            -webkit-user-select: text !important;
+            user-select: text !important;
+          }
+          /* ✅ Evitar highlight azul en iOS al tocar */
+          .editor-area-principal canvas {
+            -webkit-tap-highlight-color: transparent !important;
+          }
+          * {
+            -webkit-tap-highlight-color: transparent;
+          }
         `}</style>
 
-        {/* ✅ Wrapper: touch auto SIEMPRE para scroll de 1 dedo */}
-        {/* El hook intercepta SOLO 2 dedos para zoom */}
-        {/* El canvas ignora touch en shouldIgnore */}
+        {/* ✅ Wrapper con pan-x pan-y para scroll de 1 dedo */}
+        {/* Hook intercepta 2 dedos para zoom */}
         <div
           ref={wrapperRef}
           style={{
             position: 'relative',
-            touchAction: 'pan-x pan-y', // ✅ 1 dedo scrollea siempre
+            touchAction: 'pan-x pan-y',
+            // ✅ Sin selección de texto en el wrapper
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
           }}
         >
           {/* Contenedor escalable */}
