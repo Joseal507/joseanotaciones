@@ -18,10 +18,12 @@ interface Props {
   onTextInsert?: (text: string, canvasY: number) => void;
   initialCanvasData?: string | null;
   onRegisterExport?: (fn: () => string | null) => void;
+  // ✅ NUEVO: registrar undo/redo para que el toolbar los llame
+  onRegisterUndoRedo?: (undo: () => void, redo: () => void) => void;
 }
 
 export default function EditorCanvas({
-  herramienta, brushColor, brushSize, temaColor, onChange, onTextInsert, initialCanvasData, onRegisterExport
+  herramienta, brushColor, brushSize, temaColor, onChange, onTextInsert, initialCanvasData, onRegisterExport, onRegisterUndoRedo
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -124,9 +126,6 @@ export default function EditorCanvas({
     return getPosFromPointer(e, canvas);
   };
 
-  // ✅ CLAVE: solo ignorar touch (dedos/palma)
-  // El pencil SIEMPRE dibuja
-  // Los dedos SIEMPRE van al wrapper para scroll/zoom
   const shouldIgnore = (e: PointerEvent) => {
     if (e.pointerType === 'touch') return true;
     if (activePenId.current !== null && e.pointerId !== activePenId.current) return true;
@@ -145,7 +144,6 @@ export default function EditorCanvas({
     e.preventDefault();
     const pos = getPos(e);
 
-    // ✅ Borrador por trazo - SIN confirmación, borra inmediatamente
     if (efectiveTool === 'borrador') {
       isErasingMode.current = true;
       erasingStrokes.current = new Set();
@@ -204,7 +202,6 @@ export default function EditorCanvas({
     e.preventDefault();
     const pos = getPos(e);
 
-    // Borrador: marcar trazos mientras se arrastra
     if (isErasingMode.current) {
       const found = strokesRef.current.find(s =>
         isPointNearStroke(pos.x, pos.y, s, brushSize * 3 + 10)
@@ -286,7 +283,6 @@ export default function EditorCanvas({
   const stopDraw = useCallback((e: PointerEvent) => {
     if (e.pointerId === activePenId.current) activePenId.current = null;
 
-    // ✅ Borrador: borra SIN confirmación
     if (isErasingMode.current) {
       isErasingMode.current = false;
       if (erasingStrokes.current.size > 0) {
@@ -458,7 +454,9 @@ export default function EditorCanvas({
     finally { setConverting(false); }
   };
 
+  // ✅ Registrar undo/redo + export
   useEffect(() => {
+    // Global fallback (para la última página)
     (window as any).__editorUndo = undo;
     (window as any).__editorRedo = redo;
     (window as any).__canvasHasStrokes = () => strokesRef.current.length > 0;
@@ -467,6 +465,12 @@ export default function EditorCanvas({
       if (!canvas || strokesRef.current.length === 0) return null;
       return canvas.toDataURL('image/png');
     };
+
+    // ✅ Registrar undo/redo por página
+    if (onRegisterUndoRedo) {
+      onRegisterUndoRedo(undo, redo);
+    }
+
     if (onRegisterExport) {
       onRegisterExport(() => {
         const canvas = canvasRef.current;
@@ -474,8 +478,9 @@ export default function EditorCanvas({
         return canvas.toDataURL('image/png');
       });
     }
-  }, [undo, redo, onRegisterExport]);
+  }, [undo, redo, onRegisterExport, onRegisterUndoRedo]);
 
+  // ✅ Keyboard undo/redo solo cuando el canvas está activo
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!isDrawingTool && !isSelecting) return;
@@ -512,9 +517,6 @@ export default function EditorCanvas({
       width: '100%', height: '100%',
       pointerEvents: isCanvasActive ? 'all' : 'none',
       zIndex: isCanvasActive ? 20 : 1,
-      // ✅ CLAVE: none para capturar Pencil
-      // Los dedos (touch) son ignorados en shouldIgnore
-      // y pasan al wrapper para scroll/zoom
       touchAction: 'none',
     }}>
       <canvas ref={canvasRef} style={{

@@ -9,22 +9,49 @@ interface Props {
   temaColor: string;
   textRefs: React.MutableRefObject<{ [id: string]: HTMLDivElement | null }>;
   htmlCache: React.MutableRefObject<{ [id: string]: string }>;
+  // ✅ NUEVO: recibir todos los canvas exporters de cada página
+  canvasExporters?: React.MutableRefObject<{ [paginaId: string]: () => string | null }>;
 }
 
-export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlCache }: Props) {
+export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlCache, canvasExporters }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState<'pdf' | 'word' | null>(null);
 
-  const getCanvasDrawings = (): string | null => {
-    try {
-      const canvas = document.querySelector('.editor-area-principal canvas') as HTMLCanvasElement;
-      if (!canvas) return null;
-      const hasStrokes = (window as any).__canvasHasStrokes?.();
-      if (!hasStrokes) return null;
-      return canvas.toDataURL('image/png');
-    } catch {
-      return null;
+  // ✅ Obtener TODOS los dibujos de TODAS las páginas
+  const getAllCanvasDrawings = (): string[] => {
+    const drawings: string[] = [];
+
+    // Método 1: usar los exporters registrados por cada página
+    if (canvasExporters?.current) {
+      Object.values(canvasExporters.current).forEach(exportFn => {
+        try {
+          const data = exportFn();
+          if (data) drawings.push(data);
+        } catch {}
+      });
     }
+
+    // Método 2: fallback - buscar todos los canvas en el DOM
+    if (drawings.length === 0) {
+      try {
+        const canvases = document.querySelectorAll('.editor-area-principal canvas');
+        canvases.forEach(canvas => {
+          const c = canvas as HTMLCanvasElement;
+          try {
+            const ctx = c.getContext('2d');
+            if (!ctx) return;
+            // Verificar si tiene contenido (no está vacío)
+            const data = ctx.getImageData(0, 0, c.width, c.height);
+            const hasContent = data.data.some((v, i) => i % 4 === 3 && v > 0); // check alpha
+            if (hasContent) {
+              drawings.push(c.toDataURL('image/png'));
+            }
+          } catch {}
+        });
+      } catch {}
+    }
+
+    return drawings;
   };
 
   const exportPDF = async () => {
@@ -53,8 +80,7 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
       pdf.line(margin, y, pageWidth - margin, y);
       y += 8;
 
-      const startY = y;
-
+      // Procesar bloques de texto
       for (const bloque of bloques) {
         if (bloque.tipo === 'texto') {
           const html = htmlCache.current[bloque.id] ?? textRefs.current[bloque.id]?.innerHTML ?? (bloque as any).html ?? '';
@@ -194,26 +220,30 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
         }
       }
 
-      // Dibujos del canvas
-      const canvasDrawings = getCanvasDrawings();
-      if (canvasDrawings) {
-        try {
-          const contentHeight = y - startY;
-          const drawingHeight = Math.min(contentHeight + 20, pageHeight - startY - margin);
-          const drawingWidth = maxWidth;
-          pdf.setPage(1);
-          pdf.addImage(
-            canvasDrawings,
-            'PNG',
-            margin,
-            startY,
-            drawingWidth,
-            drawingHeight,
-            undefined,
-            'NONE',
-          );
-        } catch (err) {
-          console.error('Error adding canvas overlay:', err);
+      // ✅ Agregar TODOS los dibujos de TODAS las páginas
+      const allDrawings = getAllCanvasDrawings();
+      if (allDrawings.length > 0) {
+        // Separador
+        if (y > margin + 20) {
+          y += 5;
+          if (y > pageHeight - margin - 40) { pdf.addPage(); y = margin; }
+          pdf.setFont('helvetica', 'italic');
+          pdf.setFontSize(9);
+          pdf.setTextColor(160, 160, 160);
+          pdf.text('── Anotaciones ──', pageWidth / 2, y, { align: 'center' });
+          y += 8;
+        }
+
+        for (const drawing of allDrawings) {
+          try {
+            const drawW = maxWidth;
+            const drawH = drawW * 0.55;
+            if (y + drawH > pageHeight - margin) { pdf.addPage(); y = margin; }
+            pdf.addImage(drawing, 'PNG', margin, y, drawW, drawH);
+            y += drawH + 8;
+          } catch (err) {
+            console.error('Error adding drawing to PDF:', err);
+          }
         }
       }
 
@@ -255,7 +285,6 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
 
       const children: any[] = [];
 
-      // Título
       children.push(new Paragraph({
         text: titulo,
         heading: HeadingLevel.TITLE,
@@ -277,31 +306,15 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
             if (!text.trim() && !['hr', 'br'].includes(tagName)) return;
 
             if (tagName === 'h1') {
-              children.push(new Paragraph({
-                text,
-                heading: HeadingLevel.HEADING_1,
-                spacing: { before: 300, after: 150 },
-              }));
+              children.push(new Paragraph({ text, heading: HeadingLevel.HEADING_1, spacing: { before: 300, after: 150 } }));
             } else if (tagName === 'h2') {
-              children.push(new Paragraph({
-                text,
-                heading: HeadingLevel.HEADING_2,
-                spacing: { before: 200, after: 100 },
-              }));
+              children.push(new Paragraph({ text, heading: HeadingLevel.HEADING_2, spacing: { before: 200, after: 100 } }));
             } else if (tagName === 'h3') {
-              children.push(new Paragraph({
-                text,
-                heading: HeadingLevel.HEADING_3,
-                spacing: { before: 150, after: 100 },
-              }));
+              children.push(new Paragraph({ text, heading: HeadingLevel.HEADING_3, spacing: { before: 150, after: 100 } }));
             } else if (tagName === 'ul') {
               el.querySelectorAll('li').forEach(li => {
                 children.push(new Paragraph({
-                  children: [new TextRun({
-                    text: '• ' + (li.textContent || ''),
-                    size: 22,
-                    color: '333333',
-                  })],
+                  children: [new TextRun({ text: '• ' + (li.textContent || ''), size: 22, color: '333333' })],
                   spacing: { before: 60, after: 60 },
                 }));
               });
@@ -309,11 +322,7 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
               let count = 1;
               el.querySelectorAll('li').forEach(li => {
                 children.push(new Paragraph({
-                  children: [new TextRun({
-                    text: `${count}. ${li.textContent || ''}`,
-                    size: 22,
-                    color: '333333',
-                  })],
+                  children: [new TextRun({ text: `${count}. ${li.textContent || ''}`, size: 22, color: '333333' })],
                   spacing: { before: 60, after: 60 },
                 }));
                 count++;
@@ -335,13 +344,8 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
                   color: '333333',
                 }));
               });
-              if (runs.length === 0) {
-                runs.push(new TextRun({ text, size: 22, color: '333333' }));
-              }
-              children.push(new Paragraph({
-                children: runs,
-                spacing: { before: 80, after: 80 },
-              }));
+              if (runs.length === 0) runs.push(new TextRun({ text, size: 22, color: '333333' }));
+              children.push(new Paragraph({ children: runs, spacing: { before: 80, after: 80 } }));
             }
           });
 
@@ -355,79 +359,50 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
               for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
               const imgWidth = Math.min((bloque as BloqueImagen).width, 500);
               const scale = imgWidth / (bloque as BloqueImagen).width;
-
-              // ✅ API correcta para docx v9
               children.push(new Paragraph({
                 alignment: AlignmentType.CENTER,
-                children: [new ImageRun({
-                  data: bytes,
-                  transformation: {
-                    width: imgWidth,
-                    height: Math.round(300 * scale),
-                  },
-                  type: 'png',
-                } as any)],
+                children: [new ImageRun({ data: bytes, transformation: { width: imgWidth, height: Math.round(300 * scale) }, type: 'png' } as any)],
                 spacing: { before: 200, after: 200 },
               }));
             }
-          } catch (e) {
-            console.error('Error adding image to Word:', e);
-          }
+          } catch (e) { console.error('Error adding image to Word:', e); }
         }
       }
 
-      // Dibujos del canvas al final
-      const canvasDrawings = getCanvasDrawings();
-      if (canvasDrawings) {
-        try {
-          children.push(new Paragraph({
-            children: [new TextRun({ text: '', size: 22 })],
-            spacing: { before: 200 },
-          }));
+      // ✅ Agregar TODOS los dibujos de TODAS las páginas
+      const allDrawings = getAllCanvasDrawings();
+      if (allDrawings.length > 0) {
+        children.push(new Paragraph({ children: [new TextRun({ text: '', size: 22 })], spacing: { before: 200 } }));
+        children.push(new Paragraph({
+          children: [new TextRun({ text: '── Anotaciones / Annotations ──', size: 18, color: '999999', italics: true })],
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 100, after: 200 },
+        }));
 
-          children.push(new Paragraph({
-            children: [new TextRun({
-              text: '── Anotaciones / Annotations ──',
-              size: 18,
-              color: '999999',
-              italics: true,
-            })],
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 100, after: 200 },
-          }));
-
-          const base64Data = canvasDrawings.split(',')[1];
-          const binaryString = atob(base64Data);
-          const bytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-
-          children.push(new Paragraph({
-            alignment: AlignmentType.CENTER,
-            children: [new ImageRun({
-              data: bytes,
-              transformation: { width: 550, height: 350 },
-              type: 'png',
-            } as any)],
-            spacing: { before: 100, after: 200 },
-          }));
-        } catch (err) {
-          console.error('Error adding canvas to Word:', err);
+        for (const drawing of allDrawings) {
+          try {
+            const base64Data = drawing.split(',')[1];
+            const binaryString = atob(base64Data);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+            children.push(new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new ImageRun({ data: bytes, transformation: { width: 550, height: 350 }, type: 'png' } as any)],
+              spacing: { before: 100, after: 200 },
+            }));
+          } catch (err) { console.error('Error adding canvas to Word:', err); }
         }
       }
 
-      // ✅ Variable renombrada para no pisar document del navegador
       const docxDoc = new Document({
         sections: [{
           children,
-          properties: {
-            page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } },
-          },
+          properties: { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } },
         }],
       });
 
       const blob = await Packer.toBlob(docxDoc);
       saveAs(blob, `${titulo}.docx`);
-
     } catch (err) {
       console.error(err);
       alert('Error exporting Word');
@@ -442,29 +417,16 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
         onClick={() => setOpen(!open)}
         disabled={!!loading}
         style={{
-          padding: '9px 18px',
-          borderRadius: '10px',
+          padding: '9px 18px', borderRadius: '10px',
           border: '2px solid var(--border-color)',
-          background: 'transparent',
-          color: 'var(--text-muted)',
-          fontSize: '13px',
-          fontWeight: 700,
+          background: 'transparent', color: 'var(--text-muted)',
+          fontSize: '13px', fontWeight: 700,
           cursor: loading ? 'not-allowed' : 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
+          display: 'flex', alignItems: 'center', gap: '6px',
           transition: 'all 0.2s',
         }}
-        onMouseEnter={(e: any) => {
-          if (!loading) {
-            e.currentTarget.style.borderColor = temaColor;
-            e.currentTarget.style.color = temaColor;
-          }
-        }}
-        onMouseLeave={(e: any) => {
-          e.currentTarget.style.borderColor = 'var(--border-color)';
-          e.currentTarget.style.color = 'var(--text-muted)';
-        }}
+        onMouseEnter={(e: any) => { if (!loading) { e.currentTarget.style.borderColor = temaColor; e.currentTarget.style.color = temaColor; } }}
+        onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
       >
         {loading ? '⏳ Exporting...' : '📤 Export'}
         {!loading && <span style={{ fontSize: '10px' }}>▼</span>}
@@ -472,81 +434,30 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
 
       {open && (
         <div style={{
-          position: 'absolute',
-          top: '100%',
-          right: 0,
-          marginTop: '8px',
-          background: 'var(--bg-card)',
-          border: `2px solid ${temaColor}`,
-          borderRadius: '14px',
-          padding: '8px',
-          zIndex: 9999,
-          minWidth: '210px',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          position: 'absolute', top: '100%', right: 0, marginTop: '8px',
+          background: 'var(--bg-card)', border: `2px solid ${temaColor}`,
+          borderRadius: '14px', padding: '8px', zIndex: 9999,
+          minWidth: '210px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
         }}>
-          <button
-            onClick={exportPDF}
-            style={{
-              width: '100%',
-              padding: '10px 14px',
-              borderRadius: '8px',
-              border: 'none',
-              background: 'transparent',
-              color: 'var(--text-primary)',
-              fontSize: '13px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              textAlign: 'left',
-            }}
-            onMouseEnter={(e: any) => {
-              e.currentTarget.style.background = 'var(--red-dim)';
-              e.currentTarget.style.color = 'var(--red)';
-            }}
-            onMouseLeave={(e: any) => {
-              e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }}
-          >
+          <button onClick={exportPDF}
+            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}
+            onMouseEnter={(e: any) => { e.currentTarget.style.background = 'var(--red-dim)'; e.currentTarget.style.color = 'var(--red)'; }}
+            onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-primary)'; }}>
             <span style={{ fontSize: '18px' }}>📄</span>
             <div>
               <div style={{ fontWeight: 800 }}>Export PDF</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Real text + drawings overlay</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Text + drawings from all pages</div>
             </div>
           </button>
 
-          <button
-            onClick={exportWord}
-            style={{
-              width: '100%',
-              padding: '10px 14px',
-              borderRadius: '8px',
-              border: 'none',
-              background: 'transparent',
-              color: 'var(--text-primary)',
-              fontSize: '13px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              textAlign: 'left',
-            }}
-            onMouseEnter={(e: any) => {
-              e.currentTarget.style.background = 'var(--blue-dim)';
-              e.currentTarget.style.color = 'var(--blue)';
-            }}
-            onMouseLeave={(e: any) => {
-              e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }}
-          >
+          <button onClick={exportWord}
+            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}
+            onMouseEnter={(e: any) => { e.currentTarget.style.background = 'var(--blue-dim)'; e.currentTarget.style.color = 'var(--blue)'; }}
+            onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-primary)'; }}>
             <span style={{ fontSize: '18px' }}>📝</span>
             <div>
               <div style={{ fontWeight: 800 }}>Export Word</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Real text + drawings at end</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Text + drawings from all pages</div>
             </div>
           </button>
         </div>

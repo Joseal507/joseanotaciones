@@ -172,12 +172,13 @@ function usePinchZoom(
   }, [applyTransform, wrapperRef]);
 }
 
+// ✅ Componente de una página
 function PaginaEditor({
   pagina, paginaIdx, totalPaginas, temaColor, paperStyle,
   herramienta, brushColor, brushSize, isDrawingMode, isDrawing, isSelecting,
   newBlockId, isMobile, onBloques, onCanvasChange, onEliminarBloque,
   onFinishNew, onEliminarPagina, onAgregarPagina, onClickEditor,
-  onTextInsert, registerCanvasExport, textRefs, htmlCache,
+  onTextInsert, registerCanvasExport, registerUndoRedo, textRefs, htmlCache,
 }: {
   pagina: Pagina; paginaIdx: number; totalPaginas: number;
   temaColor: string; paperStyle: PaperStyle; herramienta: Herramienta;
@@ -192,6 +193,8 @@ function PaginaEditor({
   onClickEditor: (e: React.MouseEvent<HTMLDivElement>, paginaId: string) => void;
   onTextInsert: (text: string, canvasY: number, paginaId: string) => void;
   registerCanvasExport: (paginaId: string, fn: () => string | null) => void;
+  // ✅ NUEVO: registrar undo/redo por página
+  registerUndoRedo: (paginaId: string, undo: () => void, redo: () => void) => void;
   textRefs: React.MutableRefObject<{ [id: string]: HTMLDivElement | null }>;
   htmlCache: React.MutableRefObject<{ [id: string]: string }>;
 }) {
@@ -199,6 +202,8 @@ function PaginaEditor({
 
   return (
     <div style={{ marginBottom: '0px' }}>
+
+      {/* Número + eliminar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', paddingLeft: '4px' }}>
         <span style={{ fontSize: '11px', color: 'var(--text-faint)', fontWeight: 600, letterSpacing: '1px' }}>
           Página {paginaIdx + 1}
@@ -211,7 +216,7 @@ function PaginaEditor({
         )}
       </div>
 
-      {/* ✅ Área de la página - sin selección de texto */}
+      {/* Área de la página */}
       <div
         className="editor-area-principal"
         style={{
@@ -222,15 +227,16 @@ function PaginaEditor({
           border: isSelecting ? '2px solid #6366f1' : isDrawing ? `2px solid ${temaColor}` : '1px solid #e5e7eb',
           overflow: 'hidden',
           boxShadow: isSelecting ? '0 0 0 3px #6366f120' : isDrawing ? `0 0 0 3px ${temaColor}20` : '0 2px 8px rgba(0,0,0,0.06)',
-          // ✅ Nunca seleccionar texto en el área del editor
           userSelect: 'none',
           WebkitUserSelect: 'none',
         }}
       >
+        {/* Fondo papel */}
         <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
           <PaperBackground style={paperStyle} temaColor={temaColor} />
         </div>
 
+        {/* Canvas dibujo */}
         <EditorCanvas
           herramienta={herramienta}
           brushColor={brushColor}
@@ -240,8 +246,11 @@ function PaginaEditor({
           initialCanvasData={pagina.canvasData}
           onTextInsert={(text, y) => onTextInsert(text, y, pagina.id)}
           onRegisterExport={(fn) => registerCanvasExport(pagina.id, fn)}
+          // ✅ Registrar undo/redo de esta página
+          onRegisterUndoRedo={(undo, redo) => registerUndoRedo(pagina.id, undo, redo)}
         />
 
+        {/* Capa de bloques */}
         <div
           style={{
             position: 'absolute', inset: 0, zIndex: 10,
@@ -283,11 +292,13 @@ function PaginaEditor({
           })}
         </div>
 
+        {/* Número de página en esquina */}
         <div style={{ position: 'absolute', bottom: 8, right: 12, fontSize: '11px', color: '#d1d5db', fontWeight: 600, pointerEvents: 'none', zIndex: 5 }}>
           {paginaIdx + 1} / {totalPaginas}
         </div>
       </div>
 
+      {/* Botón agregar página */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '12px 0' }}>
         <div style={{ flex: 1, height: '1px', background: '#e5e7eb' }} />
         <button
@@ -320,6 +331,8 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
   const htmlCache = useRef<{ [id: string]: string }>({});
   const autoSaveTimer = useRef<any>(null);
   const canvasExporters = useRef<{ [paginaId: string]: () => string | null }>({});
+  // ✅ Guardar undo/redo de cada página
+  const canvasUndoRedo = useRef<{ [paginaId: string]: { undo: () => void; redo: () => void } }>({});
   const paginasContainerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
@@ -367,6 +380,20 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
     return () => window.removeEventListener('keydown', handler);
   }, [guardar]);
 
+  // ✅ Undo global: llama al undo de TODAS las páginas
+  // (solo la que tiene strokes recientes hará algo)
+  const handleGlobalUndo = useCallback(() => {
+    Object.values(canvasUndoRedo.current).forEach(({ undo }) => {
+      try { undo(); } catch {}
+    });
+  }, []);
+
+  const handleGlobalRedo = useCallback(() => {
+    Object.values(canvasUndoRedo.current).forEach(({ redo }) => {
+      try { redo(); } catch {}
+    });
+  }, []);
+
   const handleBloques = useCallback((paginaId: string, bloques: Bloque[]) => {
     setPaginas(prev => prev.map(pg => pg.id === paginaId ? { ...pg, bloques } : pg));
     triggerAutoSave();
@@ -395,6 +422,8 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
     if (paginas.length <= 1) return;
     if (!confirm('¿Eliminar esta página? Se perderá el contenido.')) return;
     setPaginas(prev => prev.filter(pg => pg.id !== paginaId));
+    delete canvasUndoRedo.current[paginaId];
+    delete canvasExporters.current[paginaId];
     triggerAutoSave();
   }, [paginas.length, triggerAutoSave]);
 
@@ -504,7 +533,14 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
                 ? <><div style={{ width: '8px', height: '8px', border: '1.5px solid var(--gold)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /> Guardando</>
                 : guardado ? '✓' : '●'}
             </span>
-            <ExportMenu bloques={todosLosBloques} titulo={apunte.titulo} temaColor={tema.color} textRefs={textRefs} htmlCache={htmlCache} />
+            <ExportMenu
+              bloques={todosLosBloques}
+              titulo={apunte.titulo}
+              temaColor={tema.color}
+              textRefs={textRefs}
+              htmlCache={htmlCache}
+              canvasExporters={canvasExporters}
+            />
             <button onClick={guardar} style={{ padding: isMobile ? '8px 14px' : '9px 18px', borderRadius: '10px', border: 'none', background: tema.color, color: '#000', fontSize: isMobile ? '12px' : '13px', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
@@ -522,14 +558,20 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
           <div style={{ overflowX: isMobile ? 'auto' : 'visible' }}>
             <div style={{ minWidth: isMobile ? 'max-content' : 'auto' }}>
               <Toolbar
-                temaColor={tema.color} herramientaActiva={herramienta} onHerramienta={handleHerramienta}
-                brushColor={brushColor} onBrushColor={setBrushColor}
-                brushSize={brushSize} onBrushSize={setBrushSize}
-                onExecCmd={exec} onInsertHtml={insertHtml}
+                temaColor={tema.color}
+                herramientaActiva={herramienta}
+                onHerramienta={handleHerramienta}
+                brushColor={brushColor}
+                onBrushColor={setBrushColor}
+                brushSize={brushSize}
+                onBrushSize={setBrushSize}
+                onExecCmd={exec}
+                onInsertHtml={insertHtml}
                 onInsertImagen={() => { syncCache(); setShowImage(true); }}
                 onInsertDibujo={() => { syncCache(); setShowDrawingCanvas(true); }}
-                onUndo={() => (window as any).__editorUndo?.()}
-                onRedo={() => (window as any).__editorRedo?.()}
+                // ✅ Undo/Redo llaman a TODAS las páginas
+                onUndo={handleGlobalUndo}
+                onRedo={handleGlobalRedo}
               />
             </div>
           </div>
@@ -553,35 +595,27 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
           .ebloque blockquote { border-left: 3px solid ${tema.color}; padding: 4px 12px; margin: 4px 0; color: #6b7280; font-style: italic; background: ${tema.color}08; }
           .ebloque a { color: #2563eb; text-decoration: underline; }
           @keyframes spin { to { transform: rotate(360deg); } }
-
-          /* ✅ Nunca seleccionar texto en el área del editor */
           .editor-area-principal {
             -webkit-user-select: none !important;
             user-select: none !important;
             -webkit-touch-callout: none !important;
           }
-          /* ✅ Pero SÍ permitir selección en bloques de texto editables */
           .editor-area-principal [contenteditable="true"] {
             -webkit-user-select: text !important;
             user-select: text !important;
           }
-          /* ✅ Evitar highlight azul en iOS al tocar */
           .editor-area-principal canvas {
             -webkit-tap-highlight-color: transparent !important;
           }
-          * {
-            -webkit-tap-highlight-color: transparent;
-          }
+          * { -webkit-tap-highlight-color: transparent; }
         `}</style>
 
-        {/* ✅ Wrapper con pan-x pan-y para scroll de 1 dedo */}
-        {/* Hook intercepta 2 dedos para zoom */}
+        {/* Wrapper zoom/pan */}
         <div
           ref={wrapperRef}
           style={{
             position: 'relative',
             touchAction: 'pan-x pan-y',
-            // ✅ Sin selección de texto en el wrapper
             userSelect: 'none',
             WebkitUserSelect: 'none',
           }}
@@ -589,10 +623,7 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
           {/* Contenedor escalable */}
           <div
             ref={paginasContainerRef}
-            style={{
-              transformOrigin: '0 0',
-              willChange: 'transform',
-            }}
+            style={{ transformOrigin: '0 0', willChange: 'transform' }}
           >
             {paginas.map((pagina, idx) => (
               <PaginaEditor
@@ -619,6 +650,10 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
                 onClickEditor={handleClickEditor}
                 onTextInsert={handleTextInsert}
                 registerCanvasExport={(paginaId, fn) => { canvasExporters.current[paginaId] = fn; }}
+                // ✅ Registrar undo/redo de cada página
+                registerUndoRedo={(paginaId, undo, redo) => {
+                  canvasUndoRedo.current[paginaId] = { undo, redo };
+                }}
                 textRefs={textRefs}
                 htmlCache={htmlCache}
               />
