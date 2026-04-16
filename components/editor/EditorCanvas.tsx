@@ -18,12 +18,12 @@ interface Props {
   onTextInsert?: (text: string, canvasY: number) => void;
   initialCanvasData?: string | null;
   onRegisterExport?: (fn: () => string | null) => void;
-  // ✅ NUEVO: registrar undo/redo para que el toolbar los llame
   onRegisterUndoRedo?: (undo: () => void, redo: () => void) => void;
 }
 
 export default function EditorCanvas({
-  herramienta, brushColor, brushSize, temaColor, onChange, onTextInsert, initialCanvasData, onRegisterExport, onRegisterUndoRedo
+  herramienta, brushColor, brushSize, temaColor, onChange, onTextInsert,
+  initialCanvasData, onRegisterExport, onRegisterUndoRedo
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -35,6 +35,8 @@ export default function EditorCanvas({
   const lastPoint = useRef<Point | null>(null);
   const activePenId = useRef<number | null>(null);
   const initialized = useRef(false);
+  // ✅ Guardar el DPR para escalar correctamente
+  const dprRef = useRef(1);
 
   const erasingStrokes = useRef<Set<string>>(new Set());
   const isErasingMode = useRef(false);
@@ -65,6 +67,26 @@ export default function EditorCanvas({
     setSelectedStrokes(ids);
   };
 
+  // ✅ Función para configurar canvas con DPR correcto
+  const setupCanvas = useCallback((canvas: HTMLCanvasElement, w: number, h: number) => {
+    const dpr = window.devicePixelRatio || 1;
+    dprRef.current = dpr;
+    // Tamaño físico real (píxeles reales de la pantalla)
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    // Tamaño CSS (lo que se ve)
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+    // Escalar el contexto para que todo se dibuje a la resolución real
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.scale(dpr, dpr);
+      // Configuración para trazo suave
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+    }
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const overlay = overlayRef.current;
@@ -73,36 +95,67 @@ export default function EditorCanvas({
 
     const w = container.clientWidth || 800;
     const h = container.clientHeight || 600;
-    canvas.width = w; canvas.height = h;
-    overlay.width = w; overlay.height = h;
+
+    // ✅ Setup con DPR para nitidez
+    setupCanvas(canvas, w, h);
+    setupCanvas(overlay, w, h);
 
     if (initialCanvasData && !initialized.current) {
       initialized.current = true;
       const img = new Image();
-      img.onload = () => { canvasRef.current?.getContext('2d')?.drawImage(img, 0, 0, w, h); };
+      img.onload = () => {
+        const ctx = canvasRef.current?.getContext('2d');
+        if (ctx && canvasRef.current) {
+          // Dibujar imagen a resolución completa
+          ctx.drawImage(img, 0, 0, w, h);
+        }
+      };
       img.src = initialCanvasData;
     }
 
     const observer = new ResizeObserver(() => {
       const nW = container.clientWidth;
       const nH = container.clientHeight;
-      if (nW === canvas.width && nH === canvas.height) return;
+      const dpr = window.devicePixelRatio || 1;
+
+      if (Math.round(nW * dpr) === canvas.width && Math.round(nH * dpr) === canvas.height) return;
+
+      // Guardar contenido actual antes de redimensionar
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = canvas.width;
+      tempCanvas.height = canvas.height;
+      const tempCtx = tempCanvas.getContext('2d');
+      if (tempCtx) tempCtx.drawImage(canvas, 0, 0);
+
+      setupCanvas(canvas, nW, nH);
+      setupCanvas(overlay, nW, nH);
+
+      // Restaurar contenido
       const ctx = canvas.getContext('2d');
-      let data: ImageData | null = null;
-      if (ctx && canvas.width > 0) try { data = ctx.getImageData(0, 0, canvas.width, canvas.height); } catch {}
-      canvas.width = nW; canvas.height = nH;
-      overlay.width = nW; overlay.height = nH;
-      if (ctx && data) ctx.putImageData(data, 0, 0);
+      if (ctx) ctx.drawImage(tempCanvas, 0, 0, nW, nH);
+
+      // Redibujar todos los strokes
+      redraw();
     });
     observer.observe(container);
     return () => observer.disconnect();
-  }, [initialCanvasData]);
+  }, [initialCanvasData, setupCanvas]);
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!ctx || !canvas) return;
+    const dpr = dprRef.current;
+    // Limpiar a resolución real
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    // Configurar escala DPR
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
     strokesRef.current.forEach(s => {
       if (erasingStrokes.current.has(s.id)) {
         drawStrokeErasePreview(ctx, s);
@@ -116,14 +169,25 @@ export default function EditorCanvas({
     const canvas = overlayRef.current;
     const ctx = canvas?.getContext('2d');
     if (!ctx || !canvas) return;
+    const dpr = dprRef.current;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (rect) drawSelectionRect(ctx, rect);
   }, []);
 
   const getPos = (e: PointerEvent): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0, pressure: 1 };
-    return getPosFromPointer(e, canvas);
+    // ✅ Usar getBoundingClientRect para coordenadas CSS (no físicas)
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      pressure: e.pressure > 0 ? e.pressure : 1,
+    };
   };
 
   const shouldIgnore = (e: PointerEvent) => {
@@ -251,7 +315,7 @@ export default function EditorCanvas({
     const last = lastPoint.current;
     if (!last) return;
     const dist = Math.sqrt((pos.x - last.x) ** 2 + (pos.y - last.y) ** 2);
-    if (dist < 1) return;
+    if (dist < 0.5) return; // ✅ Umbral más bajo para trazos más suaves
 
     currentStroke.current.points.push(pos);
     lastPoint.current = pos;
@@ -262,7 +326,11 @@ export default function EditorCanvas({
 
     const pts = currentStroke.current.points;
     ctx.save();
+    // ✅ Aplicar DPR y anti-aliasing
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     applyStrokeStyle(ctx, currentStroke.current.tipo, currentStroke.current.color, currentStroke.current.size, pos.pressure);
+
     if (pts.length >= 3) {
       const p1 = pts[pts.length - 3];
       const p2 = pts[pts.length - 2];
@@ -271,10 +339,10 @@ export default function EditorCanvas({
       ctx.moveTo((p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
       ctx.quadraticCurveTo(p2.x, p2.y, (p2.x + p3.x) / 2, (p2.y + p3.y) / 2);
       ctx.stroke();
-    } else {
+    } else if (pts.length === 2) {
       ctx.beginPath();
-      ctx.moveTo(pts[pts.length - 2].x, pts[pts.length - 2].y);
-      ctx.lineTo(pos.x, pos.y);
+      ctx.moveTo(pts[0].x, pts[0].y);
+      ctx.lineTo(pts[1].x, pts[1].y);
       ctx.stroke();
     }
     ctx.restore();
@@ -342,15 +410,16 @@ export default function EditorCanvas({
     if (!drawing.current || !currentStroke.current) return;
     drawing.current = false;
 
-    if (currentStroke.current.points.length > 1) {
+    if (currentStroke.current.points.length >= 1) {
       const stroke = { ...currentStroke.current, bounds: calcBounds(currentStroke.current.points) };
       strokesRef.current.push(stroke);
       setStrokeCount(strokesRef.current.length);
       onChange();
+      // ✅ Redibujar todo para máxima calidad al terminar el trazo
+      redraw();
     }
     currentStroke.current = null;
     lastPoint.current = null;
-    redraw();
   }, [redraw, redrawOverlay, onChange]);
 
   useEffect(() => {
@@ -418,14 +487,23 @@ export default function EditorCanvas({
     const rect = selectionRectRef.current;
     if (!rect || !canvasRef.current) return null;
     const src = canvasRef.current;
+    const dpr = dprRef.current;
     const crop = document.createElement('canvas');
     const pad = 12;
-    crop.width = rect.w + pad * 2;
-    crop.height = rect.h + pad * 2;
+    // ✅ Crop a resolución real
+    crop.width = Math.round((rect.w + pad * 2) * dpr);
+    crop.height = Math.round((rect.h + pad * 2) * dpr);
+    crop.style.width = `${rect.w + pad * 2}px`;
+    crop.style.height = `${rect.h + pad * 2}px`;
     const ctx = crop.getContext('2d')!;
     ctx.fillStyle = 'white';
     ctx.fillRect(0, 0, crop.width, crop.height);
-    ctx.drawImage(src, rect.x - pad, rect.y - pad, rect.w + pad * 2, rect.h + pad * 2, 0, 0, crop.width, crop.height);
+    ctx.drawImage(
+      src,
+      Math.round((rect.x - pad) * dpr), Math.round((rect.y - pad) * dpr),
+      Math.round((rect.w + pad * 2) * dpr), Math.round((rect.h + pad * 2) * dpr),
+      0, 0, crop.width, crop.height
+    );
     return crop.toDataURL('image/png');
   };
 
@@ -454,9 +532,7 @@ export default function EditorCanvas({
     finally { setConverting(false); }
   };
 
-  // ✅ Registrar undo/redo + export
   useEffect(() => {
-    // Global fallback (para la última página)
     (window as any).__editorUndo = undo;
     (window as any).__editorRedo = redo;
     (window as any).__canvasHasStrokes = () => strokesRef.current.length > 0;
@@ -465,12 +541,7 @@ export default function EditorCanvas({
       if (!canvas || strokesRef.current.length === 0) return null;
       return canvas.toDataURL('image/png');
     };
-
-    // ✅ Registrar undo/redo por página
-    if (onRegisterUndoRedo) {
-      onRegisterUndoRedo(undo, redo);
-    }
-
+    if (onRegisterUndoRedo) onRegisterUndoRedo(undo, redo);
     if (onRegisterExport) {
       onRegisterExport(() => {
         const canvas = canvasRef.current;
@@ -480,7 +551,6 @@ export default function EditorCanvas({
     }
   }, [undo, redo, onRegisterExport, onRegisterUndoRedo]);
 
-  // ✅ Keyboard undo/redo solo cuando el canvas está activo
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!isDrawingTool && !isSelecting) return;
@@ -519,22 +589,24 @@ export default function EditorCanvas({
       zIndex: isCanvasActive ? 20 : 1,
       touchAction: 'none',
     }}>
+      {/* ✅ Canvas sin width/height en CSS - se maneja via setupCanvas */}
       <canvas ref={canvasRef} style={{
         position: 'absolute', top: 0, left: 0,
-        width: '100%', height: '100%',
         touchAction: 'none',
         background: 'transparent',
         cursor: isSelecting ? 'default' : getCursor(),
         pointerEvents: (!isCanvasActive) ? 'none' : (isSelecting ? 'none' : 'all'),
+        // ✅ Render nítido en retina
+        imageRendering: 'auto',
       }} />
 
       <canvas ref={overlayRef} style={{
         position: 'absolute', top: 0, left: 0,
-        width: '100%', height: '100%',
         touchAction: 'none',
         background: 'transparent',
         cursor: getCursor(),
         pointerEvents: (!isCanvasActive) ? 'none' : (isSelecting ? 'all' : 'none'),
+        imageRendering: 'auto',
       }} />
 
       {menuPos && selectedStrokes.length > 0 && (
