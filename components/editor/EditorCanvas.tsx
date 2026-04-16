@@ -34,8 +34,11 @@ export default function EditorCanvas({
   const activePenId = useRef<number | null>(null);
   const initialized = useRef(false);
 
+  // Borrador por trazo
   const erasingStrokes = useRef<Set<string>>(new Set());
   const isErasingMode = useRef(false);
+
+  // Pinch detectado desde afuera (el wrapper lo maneja)
   const isPinching = useRef(false);
 
   const selecting = useRef(false);
@@ -126,11 +129,13 @@ export default function EditorCanvas({
     return getPosFromPointer(e, canvas);
   };
 
-  // ✅ Solo ignorar dedos/palma. Pencil siempre pasa.
+  // ✅ Solo el stylus/pen dibuja. Dedos y palma = ignorar.
+  // El pan y zoom con dedos lo maneja el wrapper (usePinchZoom en ApunteEditor)
   const shouldIgnore = (e: PointerEvent) => {
     if (isPinching.current) return true;
-    // Dedos y palma = ignorar para dibujo
+    // ✅ PALM REJECTION: touch = dedo o palma, nunca dibuja
     if (e.pointerType === 'touch') return true;
+    // Si hay otro pen activo, ignorar
     if (activePenId.current !== null && e.pointerId !== activePenId.current) return true;
     return false;
   };
@@ -147,6 +152,7 @@ export default function EditorCanvas({
     e.preventDefault();
     const pos = getPos(e);
 
+    // ✅ Borrador por trazo (como GoodNotes)
     if (efectiveTool === 'borrador') {
       isErasingMode.current = true;
       erasingStrokes.current = new Set();
@@ -206,6 +212,7 @@ export default function EditorCanvas({
     e.preventDefault();
     const pos = getPos(e);
 
+    // Borrador por trazo: marcar trazos mientras se arrastra
     if (isErasingMode.current) {
       const found = strokesRef.current.find(s =>
         s.tipo !== 'borrador' && isPointNearStroke(pos.x, pos.y, s, brushSize * 3 + 10)
@@ -287,6 +294,7 @@ export default function EditorCanvas({
   const stopDraw = useCallback((e: PointerEvent) => {
     if (e.pointerId === activePenId.current) activePenId.current = null;
 
+    // Borrador por trazo: borrar los trazos marcados
     if (isErasingMode.current) {
       isErasingMode.current = false;
       if (erasingStrokes.current.size > 0) {
@@ -359,59 +367,38 @@ export default function EditorCanvas({
     redraw();
   }, [redraw, redrawOverlay, onChange]);
 
-  // ✅ Scroll manual con dedos + pinch zoom
+  // ✅ Detectar multi-touch para cancelar dibujo
+  // El zoom/pan real lo maneja usePinchZoom en ApunteEditor
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    let startY = 0;
-    let startX = 0;
-    let startScrollY = 0;
-    let startScrollX = 0;
-
     const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 1) {
-        startY = e.touches[0].clientY;
-        startX = e.touches[0].clientX;
-        startScrollY = window.scrollY;
-        startScrollX = window.scrollX;
-      }
       if (e.touches.length >= 2) {
         isPinching.current = true;
         drawing.current = false;
         isErasingMode.current = false;
         currentStroke.current = null;
-      }
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (isPinching.current) return;
-      if (e.touches.length === 1) {
-        // ✅ Scroll manual con 1 dedo
-        const dy = startY - e.touches[0].clientY;
-        const dx = startX - e.touches[0].clientX;
-        window.scrollTo(startScrollX + dx, startScrollY + dy);
+        erasingStrokes.current = new Set();
       }
     };
 
     const onTouchEnd = (e: TouchEvent) => {
       if (e.touches.length < 2) {
-        setTimeout(() => { isPinching.current = false; }, 100);
+        setTimeout(() => { isPinching.current = false; }, 150);
       }
     };
 
     container.addEventListener('touchstart', onTouchStart, { passive: true });
-    container.addEventListener('touchmove', onTouchMove, { passive: true });
     container.addEventListener('touchend', onTouchEnd, { passive: true });
     container.addEventListener('touchcancel', onTouchEnd, { passive: true });
 
     return () => {
       container.removeEventListener('touchstart', onTouchStart);
-      container.removeEventListener('touchmove', onTouchMove);
       container.removeEventListener('touchend', onTouchEnd);
       container.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [isCanvasActive]);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -568,8 +555,7 @@ export default function EditorCanvas({
       width: '100%', height: '100%',
       pointerEvents: isCanvasActive ? 'all' : 'none',
       zIndex: isCanvasActive ? 20 : 1,
-      // ✅ none para capturar pointer events del Pencil
-      // El scroll con dedos se hace manualmente en touchmove
+      // ✅ none para capturar Pencil. Pan/zoom lo maneja el wrapper.
       touchAction: 'none',
     }}>
       <canvas ref={canvasRef} style={{
