@@ -27,45 +27,60 @@ export default function ExportMenu({
 
   // ✅ Capturar cada página del editor como imagen usando html2canvas
   const capturarPaginas = async (): Promise<string[]> => {
-    const html2canvas = (await import('html2canvas')).default;
-    const paginaElements = document.querySelectorAll('.editor-area-principal');
-    const imagenes: string[] = [];
+  const html2canvas = (await import('html2canvas')).default;
+  const paginaElements = document.querySelectorAll('.editor-area-principal');
+  const imagenes: string[] = [];
 
-    for (let i = 0; i < paginaElements.length; i++) {
-      const el = paginaElements[i] as HTMLElement;
+  for (let i = 0; i < paginaElements.length; i++) {
+    const el = paginaElements[i] as HTMLElement;
 
-      // Guardar estado original
-      const originalOverflow = el.style.overflow;
-      el.style.overflow = 'visible';
+    // Guardar scroll actual
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
 
-      try {
-        const canvas = await html2canvas(el, {
-          scale: 2, // alta resolución
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: '#ffffff',
-          logging: false,
-          // Ignorar los botones de undo/redo del canvas
-          ignoreElements: (element) => {
-            const style = window.getComputedStyle(element);
-            if (element.tagName === 'BUTTON') return true;
-            if (element.getAttribute('title') === 'Undo') return true;
-            if (element.getAttribute('title') === 'Redo') return true;
-            return false;
-          },
-        });
+    // Scroll al elemento para que esté visible
+    el.scrollIntoView({ block: 'start' });
+    await new Promise(r => setTimeout(r, 100));
 
-        imagenes.push(canvas.toDataURL('image/png'));
-      } catch (err) {
-        console.error(`Error capturando página ${i + 1}:`, err);
-      }
+    try {
+      const rect = el.getBoundingClientRect();
 
-      // Restaurar
-      el.style.overflow = originalOverflow;
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        width: el.scrollWidth,
+        height: el.scrollHeight,
+        x: 0,
+        y: 0,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: el.scrollWidth,
+        windowHeight: el.scrollHeight,
+        ignoreElements: (element) => {
+          // Ignorar botones de undo/redo y contadores
+          if (element.tagName === 'BUTTON') return true;
+          if (element.tagName === 'STYLE') return true;
+          // Ignorar el número de página
+          const text = element.textContent || '';
+          if (text.match(/^\d+ \/ \d+$/)) return true;
+          return false;
+        },
+      });
+
+      imagenes.push(canvas.toDataURL('image/png'));
+    } catch (err) {
+      console.error(`Error capturando página ${i + 1}:`, err);
     }
 
-    return imagenes;
-  };
+    // Restaurar scroll
+    window.scrollTo(scrollX, scrollY);
+  }
+
+  return imagenes;
+};
 
   const addWatermark = async (pdf: any, pageWidth: number, pageHeight: number, margin: number) => {
     try {
