@@ -45,39 +45,20 @@ const parsePaginas = (contenido: string): Pagina[] => {
       }));
     }
     if (p && p.bloques && Array.isArray(p.bloques)) {
-      return [{
-        id: genId(),
-        canvasData: p.canvasData || null,
-        bloques: p.bloques.map((b: any) => ({
-          ...b, id: genId(), x: b.x ?? 80, y: b.y ?? 20, width: b.width ?? 600,
-        })),
-      }];
+      return [{ id: genId(), canvasData: p.canvasData || null, bloques: p.bloques.map((b: any) => ({ ...b, id: genId(), x: b.x ?? 80, y: b.y ?? 20, width: b.width ?? 600 })) }];
     }
     if (Array.isArray(p)) {
-      return [{
-        id: genId(),
-        canvasData: null,
-        bloques: p.map((b: any) => ({
-          ...b, id: genId(), x: b.x ?? 80, y: b.y ?? 20, width: b.width ?? 600,
-        })),
-      }];
+      return [{ id: genId(), canvasData: null, bloques: p.map((b: any) => ({ ...b, id: genId(), x: b.x ?? 80, y: b.y ?? 20, width: b.width ?? 600 })) }];
     }
   } catch {}
-  if (contenido.trim()) {
-    return [{
-      id: genId(),
-      canvasData: null,
-      bloques: [{ id: genId(), tipo: 'texto', html: contenido, x: 80, y: 20, width: 600 }],
-    }];
-  }
+  if (contenido.trim()) return [{ id: genId(), canvasData: null, bloques: [{ id: genId(), tipo: 'texto', html: contenido, x: 80, y: 20, width: 600 }] }];
   return [{ id: genId(), bloques: [], canvasData: null }];
 };
 
-// ✅ Pinch-zoom SIEMPRE activo como OneNote
 function usePinchZoom(
-  containerRef: React.RefObject<HTMLDivElement>,
   wrapperRef: React.RefObject<HTMLDivElement>,
-) {
+  onScaleChange: (scale: number, tx: number, ty: number) => void,
+): React.MutableRefObject<number> {
   const scale = useRef(1);
   const translateX = useRef(0);
   const translateY = useRef(0);
@@ -85,28 +66,12 @@ function usePinchZoom(
   const lastMidX = useRef(0);
   const lastMidY = useRef(0);
 
-  const applyTransform = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    scale.current = Math.min(5, Math.max(0.2, scale.current));
-    el.style.transform = `translate(${translateX.current}px, ${translateY.current}px) scale(${scale.current})`;
-    el.style.transformOrigin = '0 0';
-  }, [containerRef]);
-
   useEffect(() => {
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
 
-    const getDist = (t: TouchList) => {
-      const dx = t[0].clientX - t[1].clientX;
-      const dy = t[0].clientY - t[1].clientY;
-      return Math.sqrt(dx * dx + dy * dy);
-    };
-
-    const getMid = (t: TouchList) => ({
-      x: (t[0].clientX + t[1].clientX) / 2,
-      y: (t[0].clientY + t[1].clientY) / 2,
-    });
+    const getDist = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const getMid = (t: TouchList) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
@@ -118,25 +83,24 @@ function usePinchZoom(
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2 && lastDist.current !== null) {
-        e.preventDefault();
-        const newDist = getDist(e.touches);
-        const mid = getMid(e.touches);
-        const ratio = newDist / lastDist.current;
-        const prevScale = scale.current;
-        scale.current = Math.min(5, Math.max(0.2, scale.current * ratio));
-        const rect = wrapper.getBoundingClientRect();
-        const originX = mid.x - rect.left;
-        const originY = mid.y - rect.top;
-        translateX.current = originX - (originX - translateX.current) * (scale.current / prevScale);
-        translateY.current = originY - (originY - translateY.current) * (scale.current / prevScale);
-        translateX.current += mid.x - lastMidX.current;
-        translateY.current += mid.y - lastMidY.current;
-        lastDist.current = newDist;
-        lastMidX.current = mid.x;
-        lastMidY.current = mid.y;
-        applyTransform();
-      }
+      if (e.touches.length !== 2 || lastDist.current === null) return;
+      e.preventDefault();
+      const newDist = getDist(e.touches);
+      const mid = getMid(e.touches);
+      const ratio = newDist / lastDist.current;
+      const prevScale = scale.current;
+      scale.current = Math.min(5, Math.max(0.3, scale.current * ratio));
+      const rect = wrapper.getBoundingClientRect();
+      const ox = mid.x - rect.left;
+      const oy = mid.y - rect.top;
+      translateX.current = ox - (ox - translateX.current) * (scale.current / prevScale);
+      translateY.current = oy - (oy - translateY.current) * (scale.current / prevScale);
+      translateX.current += mid.x - lastMidX.current;
+      translateY.current += mid.y - lastMidY.current;
+      lastDist.current = newDist;
+      lastMidX.current = mid.x;
+      lastMidY.current = mid.y;
+      onScaleChange(scale.current, translateX.current, translateY.current);
     };
 
     const onTouchEnd = (e: TouchEvent) => {
@@ -152,7 +116,7 @@ function usePinchZoom(
           scale.current = 1;
           translateX.current = 0;
           translateY.current = 0;
-          applyTransform();
+          onScaleChange(1, 0, 0);
         }
         lastTap = now;
       }
@@ -169,16 +133,18 @@ function usePinchZoom(
       wrapper.removeEventListener('touchend', onTouchEndDouble);
       wrapper.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [applyTransform, wrapperRef]);
+  }, [wrapperRef, onScaleChange]);
+
+  return scale;
 }
 
-// ✅ Componente de una página
 function PaginaEditor({
   pagina, paginaIdx, totalPaginas, temaColor, paperStyle,
   herramienta, brushColor, brushSize, isDrawingMode, isDrawing, isSelecting,
   newBlockId, isMobile, onBloques, onCanvasChange, onEliminarBloque,
   onFinishNew, onEliminarPagina, onAgregarPagina, onClickEditor,
   onTextInsert, registerCanvasExport, registerUndoRedo, textRefs, htmlCache,
+  externalScale, pageWidth, pageHeight,
 }: {
   pagina: Pagina; paginaIdx: number; totalPaginas: number;
   temaColor: string; paperStyle: PaperStyle; herramienta: Herramienta;
@@ -193,35 +159,35 @@ function PaginaEditor({
   onClickEditor: (e: React.MouseEvent<HTMLDivElement>, paginaId: string) => void;
   onTextInsert: (text: string, canvasY: number, paginaId: string) => void;
   registerCanvasExport: (paginaId: string, fn: () => string | null) => void;
-  // ✅ NUEVO: registrar undo/redo por página
   registerUndoRedo: (paginaId: string, undo: () => void, redo: () => void) => void;
   textRefs: React.MutableRefObject<{ [id: string]: HTMLDivElement | null }>;
   htmlCache: React.MutableRefObject<{ [id: string]: string }>;
+  externalScale: React.MutableRefObject<number>;
+  pageWidth: number;
+  pageHeight: number;
 }) {
-  const PAGE_HEIGHT = isMobile ? 600 : 900;
-
   return (
     <div style={{ marginBottom: '0px' }}>
-
-      {/* Número + eliminar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', paddingLeft: '4px' }}>
         <span style={{ fontSize: '11px', color: 'var(--text-faint)', fontWeight: 600, letterSpacing: '1px' }}>
           Página {paginaIdx + 1}
         </span>
         {totalPaginas > 1 && (
-          <button onClick={() => onEliminarPagina(pagina.id)}
-            style={{ background: 'none', border: '1px solid #fca5a5', color: '#ef4444', borderRadius: '6px', padding: '1px 8px', fontSize: '10px', cursor: 'pointer', fontWeight: 700 }}>
+          <button
+            onClick={() => onEliminarPagina(pagina.id)}
+            style={{ background: 'none', border: '1px solid #fca5a5', color: '#ef4444', borderRadius: '6px', padding: '1px 8px', fontSize: '10px', cursor: 'pointer', fontWeight: 700 }}
+          >
             ✕ Eliminar
           </button>
         )}
       </div>
 
-      {/* Área de la página */}
       <div
         className="editor-area-principal"
         style={{
           position: 'relative',
-          height: `${PAGE_HEIGHT}px`,
+          width: `${pageWidth}px`,
+          height: `${pageHeight}px`,
           background: 'white',
           borderRadius: '12px',
           border: isSelecting ? '2px solid #6366f1' : isDrawing ? `2px solid ${temaColor}` : '1px solid #e5e7eb',
@@ -231,12 +197,10 @@ function PaginaEditor({
           WebkitUserSelect: 'none',
         }}
       >
-        {/* Fondo papel */}
         <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
           <PaperBackground style={paperStyle} temaColor={temaColor} />
         </div>
 
-        {/* Canvas dibujo */}
         <EditorCanvas
           herramienta={herramienta}
           brushColor={brushColor}
@@ -246,22 +210,21 @@ function PaginaEditor({
           initialCanvasData={pagina.canvasData}
           onTextInsert={(text, y) => onTextInsert(text, y, pagina.id)}
           onRegisterExport={(fn) => registerCanvasExport(pagina.id, fn)}
-          // ✅ Registrar undo/redo de esta página
           onRegisterUndoRedo={(undo, redo) => registerUndoRedo(pagina.id, undo, redo)}
+          externalScale={externalScale}
         />
 
-        {/* Capa de bloques */}
         <div
-          style={{
-            position: 'absolute', inset: 0, zIndex: 10,
-            pointerEvents: isDrawingMode ? 'none' : 'all',
-          }}
+          style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: isDrawingMode ? 'none' : 'all' }}
           onClick={(e) => onClickEditor(e, pagina.id)}
         >
           {pagina.bloques.map(b => {
             if (b.tipo === 'texto') {
               return (
-                <TextBlock key={b.id} bloque={b as BloqueTexto} temaColor={temaColor}
+                <TextBlock
+                  key={b.id}
+                  bloque={b as BloqueTexto}
+                  temaColor={temaColor}
                   isNew={newBlockId === b.id}
                   onUpdate={(changes) => {
                     onBloques(pagina.id, pagina.bloques.map(bl =>
@@ -276,10 +239,8 @@ function PaginaEditor({
             if (b.tipo === 'imagen') {
               const img = b as BloqueImagen;
               return (
-                <div key={b.id} data-image="true"
-                  style={{ position: 'absolute', left: img.x, top: img.y, zIndex: img.zIndex ?? 2 }}>
-                  <img src={img.src} draggable={false}
-                    style={{ width: img.width, maxWidth: '100%', borderRadius: '10px', border: '1px solid #e5e7eb', display: 'block' }} />
+                <div key={b.id} data-image="true" style={{ position: 'absolute', left: img.x, top: img.y, zIndex: img.zIndex ?? 2 }}>
+                  <img src={img.src} draggable={false} style={{ width: img.width, maxWidth: '100%', borderRadius: '10px', border: '1px solid #e5e7eb', display: 'block' }} />
                   {img.label && (
                     <div style={{ position: 'absolute', top: 8, left: 8, background: temaColor, color: '#000', padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 800 }}>
                       {img.label}
@@ -292,13 +253,11 @@ function PaginaEditor({
           })}
         </div>
 
-        {/* Número de página en esquina */}
         <div style={{ position: 'absolute', bottom: 8, right: 12, fontSize: '11px', color: '#d1d5db', fontWeight: 600, pointerEvents: 'none', zIndex: 5 }}>
           {paginaIdx + 1} / {totalPaginas}
         </div>
       </div>
 
-      {/* Botón agregar página */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '12px 0' }}>
         <div style={{ flex: 1, height: '1px', background: '#e5e7eb' }} />
         <button
@@ -326,14 +285,14 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
   const [showImage, setShowImage] = useState(false);
   const [paperStyle, setPaperStyle] = useState<PaperStyle>('lined');
   const [newBlockId, setNewBlockId] = useState<string | null>(null);
+  const [zoomState, setZoomState] = useState({ scale: 1, tx: 0, ty: 0 });
 
+  const zoomScaleRef = useRef(1);
   const textRefs = useRef<{ [id: string]: HTMLDivElement | null }>({});
   const htmlCache = useRef<{ [id: string]: string }>({});
   const autoSaveTimer = useRef<any>(null);
   const canvasExporters = useRef<{ [paginaId: string]: () => string | null }>({});
-  // ✅ Guardar undo/redo de cada página
   const canvasUndoRedo = useRef<{ [paginaId: string]: { undo: () => void; redo: () => void } }>({});
-  const paginasContainerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
 
@@ -341,7 +300,17 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
   const isSelecting = herramienta === 'seleccion';
   const isDrawingMode = isDrawing || isSelecting;
 
-  usePinchZoom(paginasContainerRef, wrapperRef);
+  const BASE_PAGE_WIDTH = isMobile ? 390 : 1000;
+  const BASE_PAGE_HEIGHT = isMobile ? 600 : 900;
+  const pageWidth = BASE_PAGE_WIDTH * zoomState.scale;
+  const pageHeight = BASE_PAGE_HEIGHT * zoomState.scale;
+
+  const handleScaleChange = useCallback((scale: number, tx: number, ty: number) => {
+    zoomScaleRef.current = scale;
+    setZoomState({ scale, tx, ty });
+  }, []);
+
+  usePinchZoom(wrapperRef, handleScaleChange);
 
   const syncCache = useCallback(() => {
     Object.keys(textRefs.current).forEach(id => {
@@ -368,9 +337,7 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
     autoSaveTimer.current = setTimeout(() => guardar(), 3000);
   }, [guardar]);
 
-  useEffect(() => {
-    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
-  }, []);
+  useEffect(() => { return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); }; }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -380,18 +347,12 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
     return () => window.removeEventListener('keydown', handler);
   }, [guardar]);
 
-  // ✅ Undo global: llama al undo de TODAS las páginas
-  // (solo la que tiene strokes recientes hará algo)
   const handleGlobalUndo = useCallback(() => {
-    Object.values(canvasUndoRedo.current).forEach(({ undo }) => {
-      try { undo(); } catch {}
-    });
+    Object.values(canvasUndoRedo.current).forEach(({ undo }) => { try { undo(); } catch {} });
   }, []);
 
   const handleGlobalRedo = useCallback(() => {
-    Object.values(canvasUndoRedo.current).forEach(({ redo }) => {
-      try { redo(); } catch {}
-    });
+    Object.values(canvasUndoRedo.current).forEach(({ redo }) => { try { redo(); } catch {} });
   }, []);
 
   const handleBloques = useCallback((paginaId: string, bloques: Bloque[]) => {
@@ -409,18 +370,14 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
 
   const handleAgregarPagina = useCallback((despuesDeIdx: number) => {
     const nueva: Pagina = { id: genId(), bloques: [], canvasData: null };
-    setPaginas(prev => {
-      const nuevas = [...prev];
-      nuevas.splice(despuesDeIdx + 1, 0, nueva);
-      return nuevas;
-    });
+    setPaginas(prev => { const n = [...prev]; n.splice(despuesDeIdx + 1, 0, nueva); return n; });
     triggerAutoSave();
-    setTimeout(() => { window.scrollBy({ top: 960, behavior: 'smooth' }); }, 100);
-  }, [triggerAutoSave]);
+    setTimeout(() => { window.scrollBy({ top: pageHeight + 60, behavior: 'smooth' }); }, 100);
+  }, [triggerAutoSave, pageHeight]);
 
   const handleEliminarPagina = useCallback((paginaId: string) => {
     if (paginas.length <= 1) return;
-    if (!confirm('¿Eliminar esta página? Se perderá el contenido.')) return;
+    if (!confirm('¿Eliminar esta página?')) return;
     setPaginas(prev => prev.filter(pg => pg.id !== paginaId));
     delete canvasUndoRedo.current[paginaId];
     delete canvasExporters.current[paginaId];
@@ -428,26 +385,49 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
   }, [paginas.length, triggerAutoSave]);
 
   const handleClickEditor = useCallback((e: React.MouseEvent<HTMLDivElement>, paginaId: string) => {
-    if (isDrawingMode) return;
-    if (newBlockId) return;
-    const target = e.target as HTMLElement;
-    if (
-      target.closest('[contenteditable="true"]') || target.closest('[data-textblock]') ||
-      target.closest('[data-image]') || target.closest('button') ||
-      target.closest('canvas') || target.closest('img')
-    ) return;
-    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const id = genId();
-    setPaginas(prev => prev.map(pg =>
-      pg.id === paginaId
-        ? { ...pg, bloques: [...pg.bloques, { id, tipo: 'texto' as const, html: '', x: Math.max(4, x), y: Math.max(4, y), width: 300 }] }
-        : pg
-    ));
-    setNewBlockId(id);
-    triggerAutoSave();
-  }, [isDrawingMode, newBlockId, triggerAutoSave]);
+  if (isDrawingMode) return;
+  if (newBlockId) return;
+  const target = e.target as HTMLElement;
+
+  // ✅ Si el click vino de un textblock, imagen, button, canvas o img → no crear nuevo bloque
+  if (
+    target.closest('[data-textblock]') ||
+    target.closest('[contenteditable="true"]') ||
+    target.closest('[data-image]') ||
+    target.closest('button') ||
+    target.closest('canvas') ||
+    target.closest('img') ||
+    target.closest('svg')
+  ) return;
+
+  // ✅ Si el target mismo tiene data-textblock en algún ancestro → salir
+  if ((e.target as HTMLElement).getAttribute('data-textblock') !== null) return;
+
+  const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+  const x = (e.clientX - rect.left) / zoomState.scale;
+  const y = (e.clientY - rect.top) / zoomState.scale;
+
+  // ✅ Verificar que no hay un bloque existente muy cerca del click
+  const paginaActual = paginas.find(pg => pg.id === paginaId);
+  if (paginaActual) {
+    const bloquesCerca = paginaActual.bloques.filter(b => {
+      if (b.tipo !== 'texto') return false;
+      const dx = Math.abs(b.x - x);
+      const dy = Math.abs(b.y - y);
+      return dx < 300 && dy < 40; // si hay un bloque de texto cerca no crear nuevo
+    });
+    if (bloquesCerca.length > 0) return;
+  }
+
+  const id = genId();
+  setPaginas(prev => prev.map(pg =>
+    pg.id === paginaId
+      ? { ...pg, bloques: [...pg.bloques, { id, tipo: 'texto' as const, html: '', x: Math.max(4, x), y: Math.max(4, y), width: 300 }] }
+      : pg
+  ));
+  setNewBlockId(id);
+  triggerAutoSave();
+}, [isDrawingMode, newBlockId, triggerAutoSave, zoomState.scale, paginas]);
 
   const handleTextInsert = useCallback((text: string, canvasY: number, paginaId: string) => {
     if (!text.trim()) return;
@@ -455,11 +435,11 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
     const id = genId();
     setPaginas(prev => prev.map(pg =>
       pg.id === paginaId
-        ? { ...pg, bloques: [...pg.bloques, { id, tipo: 'texto' as const, html: htmlContent, x: 80, y: canvasY, width: 500 }] }
+        ? { ...pg, bloques: [...pg.bloques, { id, tipo: 'texto' as const, html: htmlContent, x: 80, y: canvasY / zoomState.scale, width: 500 }] }
         : pg
     ));
     triggerAutoSave();
-  }, [triggerAutoSave]);
+  }, [triggerAutoSave, zoomState.scale]);
 
   const addImagen = (src: string, label?: string) => {
     const paginaId = paginas[paginas.length - 1].id;
@@ -520,19 +500,23 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
           </div>
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
             <PaperStyleSelector value={paperStyle} onChange={setPaperStyle} />
-            {isDrawingMode && (
-              <div style={{ background: isSelecting ? '#eef2ff' : tema.color + '18', padding: '5px 10px', borderRadius: '8px', border: `1.5px solid ${isSelecting ? '#6366f1' : tema.color}`, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '11px', color: isSelecting ? '#6366f1' : tema.color, fontWeight: 700 }}>
-                  {isSelecting ? '🎯 Seleccionando' : '🎨 Dibujando'}
-                </span>
-                <button onClick={() => handleHerramienta('texto')} style={{ background: isSelecting ? '#6366f1' : tema.color, border: 'none', color: '#fff', padding: '2px 8px', borderRadius: '5px', fontWeight: 700, fontSize: '11px', cursor: 'pointer' }}>✕</button>
-              </div>
+
+            {/* Indicador zoom */}
+            {zoomState.scale !== 1 && (
+              <button
+                onClick={() => handleScaleChange(1, 0, 0)}
+                style={{ padding: '4px 10px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-muted)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+              >
+                {Math.round(zoomState.scale * 100)}% ✕
+              </button>
             )}
+
             <span style={{ fontSize: '11px', color: guardando ? 'var(--gold)' : guardado ? '#22c55e' : 'var(--gold)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
               {guardando
                 ? <><div style={{ width: '8px', height: '8px', border: '1.5px solid var(--gold)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /> Guardando</>
                 : guardado ? '✓' : '●'}
             </span>
+
             <ExportMenu
               bloques={todosLosBloques}
               titulo={apunte.titulo}
@@ -541,6 +525,7 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
               htmlCache={htmlCache}
               canvasExporters={canvasExporters}
             />
+
             <button onClick={guardar} style={{ padding: isMobile ? '8px 14px' : '9px 18px', borderRadius: '10px', border: 'none', background: tema.color, color: '#000', fontSize: isMobile ? '12px' : '13px', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
@@ -569,7 +554,6 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
                 onInsertHtml={insertHtml}
                 onInsertImagen={() => { syncCache(); setShowImage(true); }}
                 onInsertDibujo={() => { syncCache(); setShowDrawingCanvas(true); }}
-                // ✅ Undo/Redo llaman a TODAS las páginas
                 onUndo={handleGlobalUndo}
                 onRedo={handleGlobalRedo}
               />
@@ -595,18 +579,8 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
           .ebloque blockquote { border-left: 3px solid ${tema.color}; padding: 4px 12px; margin: 4px 0; color: #6b7280; font-style: italic; background: ${tema.color}08; }
           .ebloque a { color: #2563eb; text-decoration: underline; }
           @keyframes spin { to { transform: rotate(360deg); } }
-          .editor-area-principal {
-            -webkit-user-select: none !important;
-            user-select: none !important;
-            -webkit-touch-callout: none !important;
-          }
-          .editor-area-principal [contenteditable="true"] {
-            -webkit-user-select: text !important;
-            user-select: text !important;
-          }
-          .editor-area-principal canvas {
-            -webkit-tap-highlight-color: transparent !important;
-          }
+          .editor-area-principal { -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; }
+          .editor-area-principal [contenteditable="true"] { -webkit-user-select: text !important; user-select: text !important; }
           * { -webkit-tap-highlight-color: transparent; }
         `}</style>
 
@@ -618,12 +592,15 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
             touchAction: 'pan-x pan-y',
             userSelect: 'none',
             WebkitUserSelect: 'none',
+            overflow: 'hidden',
           }}
         >
-          {/* Contenedor escalable */}
           <div
-            ref={paginasContainerRef}
-            style={{ transformOrigin: '0 0', willChange: 'transform' }}
+            style={{
+              transform: `translate(${zoomState.tx}px, ${zoomState.ty}px)`,
+              transformOrigin: '0 0',
+              willChange: 'transform',
+            }}
           >
             {paginas.map((pagina, idx) => (
               <PaginaEditor
@@ -650,12 +627,12 @@ export default function ApunteEditor({ apunte, materia, tema, onBack, onBackMate
                 onClickEditor={handleClickEditor}
                 onTextInsert={handleTextInsert}
                 registerCanvasExport={(paginaId, fn) => { canvasExporters.current[paginaId] = fn; }}
-                // ✅ Registrar undo/redo de cada página
-                registerUndoRedo={(paginaId, undo, redo) => {
-                  canvasUndoRedo.current[paginaId] = { undo, redo };
-                }}
+                registerUndoRedo={(paginaId, undo, redo) => { canvasUndoRedo.current[paginaId] = { undo, redo }; }}
                 textRefs={textRefs}
                 htmlCache={htmlCache}
+                externalScale={zoomScaleRef}
+                pageWidth={pageWidth}
+                pageHeight={pageHeight}
               />
             ))}
           </div>

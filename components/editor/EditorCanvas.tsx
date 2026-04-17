@@ -35,7 +35,6 @@ export default function EditorCanvas({
   const lastPoint = useRef<Point | null>(null);
   const activePenId = useRef<number | null>(null);
   const initialized = useRef(false);
-  // ✅ Guardar el DPR para escalar correctamente
   const dprRef = useRef(1);
 
   const erasingStrokes = useRef<Set<string>>(new Set());
@@ -67,24 +66,33 @@ export default function EditorCanvas({
     setSelectedStrokes(ids);
   };
 
-  // ✅ Función para configurar canvas con DPR correcto
-  const setupCanvas = useCallback((canvas: HTMLCanvasElement, w: number, h: number) => {
-    const dpr = window.devicePixelRatio || 1;
+ const setupCanvas = useCallback((canvas: HTMLCanvasElement, w: number, h: number) => {
+    const dpr = (window.devicePixelRatio || 1) * 2; // ✅ 2x extra = ultra nítido
     dprRef.current = dpr;
-    // Tamaño físico real (píxeles reales de la pantalla)
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
-    // Tamaño CSS (lo que se ve)
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;
-    // Escalar el contexto para que todo se dibuje a la resolución real
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      ctx.scale(dpr, dpr);
-      // Configuración para trazo suave
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
     }
+  }, []);
+
+  const applyDpr = useCallback((ctx: CanvasRenderingContext2D) => {
+    const dpr = dprRef.current;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+  }, []);
+
+  const clearCanvas = useCallback((canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) => {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
   }, []);
 
   useEffect(() => {
@@ -96,7 +104,6 @@ export default function EditorCanvas({
     const w = container.clientWidth || 800;
     const h = container.clientHeight || 600;
 
-    // ✅ Setup con DPR para nitidez
     setupCanvas(canvas, w, h);
     setupCanvas(overlay, w, h);
 
@@ -106,7 +113,7 @@ export default function EditorCanvas({
       img.onload = () => {
         const ctx = canvasRef.current?.getContext('2d');
         if (ctx && canvasRef.current) {
-          // Dibujar imagen a resolución completa
+          applyDpr(ctx);
           ctx.drawImage(img, 0, 0, w, h);
         }
       };
@@ -117,10 +124,8 @@ export default function EditorCanvas({
       const nW = container.clientWidth;
       const nH = container.clientHeight;
       const dpr = window.devicePixelRatio || 1;
-
       if (Math.round(nW * dpr) === canvas.width && Math.round(nH * dpr) === canvas.height) return;
 
-      // Guardar contenido actual antes de redimensionar
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = canvas.width;
       tempCanvas.height = canvas.height;
@@ -130,31 +135,39 @@ export default function EditorCanvas({
       setupCanvas(canvas, nW, nH);
       setupCanvas(overlay, nW, nH);
 
-      // Restaurar contenido
       const ctx = canvas.getContext('2d');
-      if (ctx) ctx.drawImage(tempCanvas, 0, 0, nW, nH);
-
-      // Redibujar todos los strokes
+      if (ctx) {
+        applyDpr(ctx);
+        ctx.drawImage(tempCanvas, 0, 0, nW, nH);
+      }
       redraw();
     });
     observer.observe(container);
-    return () => observer.disconnect();
-  }, [initialCanvasData, setupCanvas]);
+
+    // ✅ Redibujar cuando cambia el zoom del navegador
+    const dprMedia = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    const onDprChange = () => {
+      const nW = container.clientWidth;
+      const nH = container.clientHeight;
+      setupCanvas(canvas, nW, nH);
+      setupCanvas(overlay, nW, nH);
+      redraw();
+    };
+    dprMedia.addEventListener('change', onDprChange);
+
+    return () => {
+      observer.disconnect();
+      dprMedia.removeEventListener('change', onDprChange);
+    };
+  }, [initialCanvasData, setupCanvas, applyDpr]);
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!ctx || !canvas) return;
-    const dpr = dprRef.current;
-    // Limpiar a resolución real
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.restore();
-    // Configurar escala DPR
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
+
+    clearCanvas(canvas, ctx);
+    applyDpr(ctx);
 
     strokesRef.current.forEach(s => {
       if (erasingStrokes.current.has(s.id)) {
@@ -163,25 +176,22 @@ export default function EditorCanvas({
         drawStrokeOnCtx(ctx, s, selectedStrokesRef.current.includes(s.id));
       }
     });
-  }, []);
+  }, [applyDpr, clearCanvas]);
 
   const redrawOverlay = useCallback((rect: SelectionRect | null) => {
     const canvas = overlayRef.current;
     const ctx = canvas?.getContext('2d');
     if (!ctx || !canvas) return;
-    const dpr = dprRef.current;
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.restore();
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    clearCanvas(canvas, ctx);
+    applyDpr(ctx);
+
     if (rect) drawSelectionRect(ctx, rect);
-  }, []);
+  }, [applyDpr, clearCanvas]);
 
   const getPos = (e: PointerEvent): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0, pressure: 1 };
-    // ✅ Usar getBoundingClientRect para coordenadas CSS (no físicas)
     const rect = canvas.getBoundingClientRect();
     return {
       x: e.clientX - rect.left,
@@ -204,7 +214,6 @@ export default function EditorCanvas({
     const efectiveTool = isEraserBtn ? 'borrador' : herramienta;
 
     if (e.pointerType === 'pen') activePenId.current = e.pointerId;
-
     e.preventDefault();
     const pos = getPos(e);
 
@@ -214,10 +223,7 @@ export default function EditorCanvas({
       const found = strokesRef.current.find(s =>
         isPointNearStroke(pos.x, pos.y, s, brushSize * 3 + 10)
       );
-      if (found) {
-        erasingStrokes.current.add(found.id);
-        redraw();
-      }
+      if (found) { erasingStrokes.current.add(found.id); redraw(); }
       try { (e.target as HTMLElement).setPointerCapture?.(e.pointerId); } catch {}
       return;
     }
@@ -288,7 +294,9 @@ export default function EditorCanvas({
         return {
           ...s,
           points: s.points.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })),
-          bounds: s.bounds ? { x: s.bounds.x + dx, y: s.bounds.y + dy, w: s.bounds.w, h: s.bounds.h } : undefined,
+          bounds: s.bounds
+            ? { x: s.bounds.x + dx, y: s.bounds.y + dy, w: s.bounds.w, h: s.bounds.h }
+            : undefined,
         };
       });
       const newRect = { x: rect.x + dx, y: rect.y + dy, w: rect.w, h: rect.h };
@@ -315,7 +323,7 @@ export default function EditorCanvas({
     const last = lastPoint.current;
     if (!last) return;
     const dist = Math.sqrt((pos.x - last.x) ** 2 + (pos.y - last.y) ** 2);
-    if (dist < 0.5) return; // ✅ Umbral más bajo para trazos más suaves
+    if (dist < 0.5) return;
 
     currentStroke.current.points.push(pos);
     lastPoint.current = pos;
@@ -325,11 +333,17 @@ export default function EditorCanvas({
     if (!ctx) return;
 
     const pts = currentStroke.current.points;
+
     ctx.save();
-    // ✅ Aplicar DPR y anti-aliasing
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    applyStrokeStyle(ctx, currentStroke.current.tipo, currentStroke.current.color, currentStroke.current.size, pos.pressure);
+    // ✅ Aplicar DPR en tiempo real para nitidez mientras dibujas
+    applyDpr(ctx);
+    applyStrokeStyle(
+      ctx,
+      currentStroke.current.tipo,
+      currentStroke.current.color,
+      currentStroke.current.size,
+      pos.pressure
+    );
 
     if (pts.length >= 3) {
       const p1 = pts[pts.length - 3];
@@ -346,7 +360,7 @@ export default function EditorCanvas({
       ctx.stroke();
     }
     ctx.restore();
-  }, [redraw, redrawOverlay, brushSize]);
+  }, [redraw, redrawOverlay, brushSize, applyDpr]);
 
   const stopDraw = useCallback((e: PointerEvent) => {
     if (e.pointerId === activePenId.current) activePenId.current = null;
@@ -411,11 +425,13 @@ export default function EditorCanvas({
     drawing.current = false;
 
     if (currentStroke.current.points.length >= 1) {
-      const stroke = { ...currentStroke.current, bounds: calcBounds(currentStroke.current.points) };
+      const stroke = {
+        ...currentStroke.current,
+        bounds: calcBounds(currentStroke.current.points),
+      };
       strokesRef.current.push(stroke);
       setStrokeCount(strokesRef.current.length);
       onChange();
-      // ✅ Redibujar todo para máxima calidad al terminar el trazo
       redraw();
     }
     currentStroke.current = null;
@@ -473,7 +489,9 @@ export default function EditorCanvas({
   }, [redraw, onChange]);
 
   const deleteSelection = useCallback(() => {
-    strokesRef.current = strokesRef.current.filter(s => !selectedStrokesRef.current.includes(s.id));
+    strokesRef.current = strokesRef.current.filter(
+      s => !selectedStrokesRef.current.includes(s.id)
+    );
     updateSelectedStrokes([]);
     updateSelectionRect(null);
     setMenuPos(null);
@@ -490,7 +508,6 @@ export default function EditorCanvas({
     const dpr = dprRef.current;
     const crop = document.createElement('canvas');
     const pad = 12;
-    // ✅ Crop a resolución real
     crop.width = Math.round((rect.w + pad * 2) * dpr);
     crop.height = Math.round((rect.h + pad * 2) * dpr);
     crop.style.width = `${rect.w + pad * 2}px`;
@@ -500,8 +517,10 @@ export default function EditorCanvas({
     ctx.fillRect(0, 0, crop.width, crop.height);
     ctx.drawImage(
       src,
-      Math.round((rect.x - pad) * dpr), Math.round((rect.y - pad) * dpr),
-      Math.round((rect.w + pad * 2) * dpr), Math.round((rect.h + pad * 2) * dpr),
+      Math.round((rect.x - pad) * dpr),
+      Math.round((rect.y - pad) * dpr),
+      Math.round((rect.w + pad * 2) * dpr),
+      Math.round((rect.h + pad * 2) * dpr),
       0, 0, crop.width, crop.height
     );
     return crop.toDataURL('image/png');
@@ -554,16 +573,25 @@ export default function EditorCanvas({
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!isDrawingTool && !isSelecting) return;
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); undo(); }
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); e.stopPropagation(); redo(); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault(); e.stopPropagation(); undo();
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault(); e.stopPropagation(); redo();
+      }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedStrokesRef.current.length > 0) {
         const active = document.activeElement;
-        const isEditable = active?.getAttribute('contenteditable') === 'true' || ['INPUT', 'TEXTAREA'].includes(active?.tagName || '');
+        const isEditable =
+          active?.getAttribute('contenteditable') === 'true' ||
+          ['INPUT', 'TEXTAREA'].includes(active?.tagName || '');
         if (!isEditable) { e.preventDefault(); deleteSelection(); }
       }
       if (e.key === 'Escape') {
-        updateSelectionRect(null); updateSelectedStrokes([]);
-        setMenuPos(null); redrawOverlay(null); movingRef.current = false;
+        updateSelectionRect(null);
+        updateSelectedStrokes([]);
+        setMenuPos(null);
+        redrawOverlay(null);
+        movingRef.current = false;
       }
     };
     window.addEventListener('keydown', handler, true);
@@ -576,7 +604,8 @@ export default function EditorCanvas({
     if (movingRef.current) return 'grabbing';
     if (isSelecting && selectionRect && selectedStrokes.length > 0) return 'grab';
     if (isSelecting) return 'crosshair';
-    if (herramienta === 'borrador') return `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='20' viewBox='0 0 28 20'%3E%3Crect x='1' y='1' width='26' height='18' rx='3' fill='white' stroke='%23d1d5db' stroke-width='1.5'/%3E%3Crect x='1' y='1' width='9' height='18' rx='3' fill='%23f3f4f6' stroke='%23d1d5db' stroke-width='1.5'/%3E%3C/svg%3E") 14 10, cell`;
+    if (herramienta === 'borrador')
+      return `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='20' viewBox='0 0 28 20'%3E%3Crect x='1' y='1' width='26' height='18' rx='3' fill='white' stroke='%23d1d5db' stroke-width='1.5'/%3E%3Crect x='1' y='1' width='9' height='18' rx='3' fill='%23f3f4f6' stroke='%23d1d5db' stroke-width='1.5'/%3E%3C/svg%3E") 14 10, cell`;
     if (isDrawingTool) return 'crosshair';
     return 'default';
   };
@@ -589,23 +618,20 @@ export default function EditorCanvas({
       zIndex: isCanvasActive ? 20 : 1,
       touchAction: 'none',
     }}>
-      {/* ✅ Canvas sin width/height en CSS - se maneja via setupCanvas */}
       <canvas ref={canvasRef} style={{
         position: 'absolute', top: 0, left: 0,
         touchAction: 'none',
         background: 'transparent',
         cursor: isSelecting ? 'default' : getCursor(),
-        pointerEvents: (!isCanvasActive) ? 'none' : (isSelecting ? 'none' : 'all'),
-        // ✅ Render nítido en retina
+        pointerEvents: !isCanvasActive ? 'none' : isSelecting ? 'none' : 'all',
         imageRendering: 'auto',
       }} />
-
       <canvas ref={overlayRef} style={{
         position: 'absolute', top: 0, left: 0,
         touchAction: 'none',
         background: 'transparent',
         cursor: getCursor(),
-        pointerEvents: (!isCanvasActive) ? 'none' : (isSelecting ? 'all' : 'none'),
+        pointerEvents: !isCanvasActive ? 'none' : isSelecting ? 'all' : 'none',
         imageRendering: 'auto',
       }} />
 
@@ -626,17 +652,37 @@ export default function EditorCanvas({
       )}
 
       {(isDrawingTool || isSelecting) && (
-        <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: '6px', zIndex: 30 }}>
-          <button onClick={undo} title="Undo"
-            style={{ padding: '7px 10px', borderRadius: '8px', border: '1.5px solid #e5e7eb', background: 'rgba(255,255,255,0.96)', color: '#374151', cursor: 'pointer', backdropFilter: 'blur(8px)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg>
+        <div style={{
+          position: 'absolute', top: 12, right: 12,
+          display: 'flex', gap: '6px', zIndex: 30,
+        }}>
+          <button onClick={undo} title="Undo" style={{
+            padding: '7px 10px', borderRadius: '8px', border: '1.5px solid #e5e7eb',
+            background: 'rgba(255,255,255,0.96)', color: '#374151', cursor: 'pointer',
+            backdropFilter: 'blur(8px)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            display: 'flex', alignItems: 'center',
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M9 14L4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 010 11H11" />
+            </svg>
           </button>
-          <button onClick={redo} title="Redo"
-            style={{ padding: '7px 10px', borderRadius: '8px', border: '1.5px solid #e5e7eb', background: 'rgba(255,255,255,0.96)', color: '#374151', cursor: 'pointer', backdropFilter: 'blur(8px)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 000 11H13"/></svg>
+          <button onClick={redo} title="Redo" style={{
+            padding: '7px 10px', borderRadius: '8px', border: '1.5px solid #e5e7eb',
+            background: 'rgba(255,255,255,0.96)', color: '#374151', cursor: 'pointer',
+            backdropFilter: 'blur(8px)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            display: 'flex', alignItems: 'center',
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M15 14l5-5-5-5" /><path d="M20 9H9.5a5.5 5.5 0 000 11H13" />
+            </svg>
           </button>
           {strokeCount > 0 && (
-            <div style={{ padding: '7px 10px', borderRadius: '8px', background: 'rgba(255,255,255,0.96)', color: '#9ca3af', fontSize: '11px', backdropFilter: 'blur(8px)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center' }}>
+            <div style={{
+              padding: '7px 10px', borderRadius: '8px',
+              background: 'rgba(255,255,255,0.96)', color: '#9ca3af', fontSize: '11px',
+              backdropFilter: 'blur(8px)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+              display: 'flex', alignItems: 'center',
+            }}>
               {strokeCount}
             </div>
           )}
