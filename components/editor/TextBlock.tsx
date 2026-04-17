@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { BloqueTexto } from './types';
 
 interface Props {
@@ -26,36 +26,72 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
   const dragStart = useRef({ mx: 0, my: 0, ex: 0, ey: 0 });
   const resizeStart = useRef({ mx: 0, w: 0 });
   const justCreated = useRef(!!isNew);
+  // ✅ Guardamos el HTML internamente para no perderlo
+  const htmlRef = useRef(bloque.html || '');
 
   useEffect(() => { posRef.current = pos; }, [pos]);
   useEffect(() => { widthRef.current = width; }, [width]);
 
+  // ✅ Sincronizar cuando el bloque cambia desde fuera
+  useEffect(() => {
+    htmlRef.current = bloque.html || '';
+    // Solo actualizar el DOM si NO estamos editando
+    if (!editing && ref.current) {
+      ref.current.innerHTML = htmlRef.current;
+    }
+  }, [bloque.html, editing]);
+
+  // ✅ Al montar o cuando isNew, poner el HTML inicial
+  useEffect(() => {
+    if (ref.current && !editing) {
+      ref.current.innerHTML = htmlRef.current;
+    }
+  }, []);
+
+  // Auto focus cuando es nuevo
   useEffect(() => {
     if (isNew && ref.current) {
+      ref.current.innerHTML = '';
       setTimeout(() => ref.current?.focus(), 30);
     }
   }, [isNew]);
 
+  const saveContent = useCallback(() => {
+    if (ref.current) {
+      htmlRef.current = ref.current.innerHTML || '';
+      onUpdate({ html: htmlRef.current });
+    }
+  }, [onUpdate]);
+
+  const exitEditing = useCallback(() => {
+    const text = ref.current?.innerText?.trim() || '';
+    if (!text) {
+      onDelete();
+      return;
+    }
+    saveContent();
+    setEditing(false);
+    if (justCreated.current) {
+      justCreated.current = false;
+      onFinishNew();
+    }
+  }, [onDelete, saveContent, onFinishNew]);
+
+  // Click fuera
   useEffect(() => {
     const handler = (ev: MouseEvent) => {
       if (!containerRef.current?.contains(ev.target as Node)) {
-        const text = ref.current?.innerText?.trim() || '';
         if (editing) {
-          if (!text) { onDelete(); return; }
-          onUpdate({ html: ref.current?.innerHTML || '' });
-          if (justCreated.current) {
-            justCreated.current = false;
-            onFinishNew();
-          }
+          exitEditing();
         }
-        setEditing(false);
         setSelected(false);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [editing, onDelete, onUpdate, onFinishNew]);
+  }, [editing, exitEditing]);
 
+  // Drag + resize global
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (dragging.current) {
@@ -68,7 +104,6 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
         setWidth(Math.max(100, resizeStart.current.w + e.clientX - resizeStart.current.mx));
       }
     };
-
     const onUp = () => {
       if (dragging.current) {
         dragging.current = false;
@@ -79,7 +114,6 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
         onUpdate({ width: widthRef.current });
       }
     };
-
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
     return () => {
@@ -92,27 +126,26 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
     if (editing) return;
     e.stopPropagation();
     setSelected(true);
-
     const target = e.target as HTMLElement;
     if (target.getAttribute('data-drag') === 'true') {
       e.preventDefault();
       dragging.current = true;
       dragStart.current = {
-        mx: e.clientX,
-        my: e.clientY,
-        ex: posRef.current.x,
-        ey: posRef.current.y,
+        mx: e.clientX, my: e.clientY,
+        ex: posRef.current.x, ey: posRef.current.y,
       };
     }
   };
 
-  const startEdit = () => {
+  const startEdit = useCallback(() => {
     setEditing(true);
     setSelected(true);
     setTimeout(() => {
       if (!ref.current) return;
+      // ✅ CLAVE: poner el HTML guardado antes de hacer focus
+      ref.current.innerHTML = htmlRef.current;
       ref.current.focus();
-
+      // Poner cursor al final
       const sel = window.getSelection();
       const range = document.createRange();
       range.selectNodeContents(ref.current);
@@ -120,37 +153,23 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
       sel?.removeAllRanges();
       sel?.addRange(range);
     }, 20);
-  };
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     e.stopPropagation();
     if (e.key === 'Escape') {
-      const text = ref.current?.innerText?.trim() || '';
-      if (!text) { onDelete(); return; }
-      onUpdate({ html: ref.current?.innerHTML || '' });
-      setEditing(false);
-      if (justCreated.current) {
-        justCreated.current = false;
-        onFinishNew();
-      }
+      exitEditing();
     }
   };
 
   const handleBlur = () => {
     setTimeout(() => {
       if (containerRef.current?.contains(document.activeElement)) return;
-      const text = ref.current?.innerText?.trim() || '';
-      if (!text) { onDelete(); return; }
-      onUpdate({ html: ref.current?.innerHTML || '' });
-      setEditing(false);
-      if (justCreated.current) {
-        justCreated.current = false;
-        onFinishNew();
-      }
+      exitEditing();
     }, 150);
   };
 
-  const hasContent = !!(bloque.html?.trim());
+  const hasContent = !!(htmlRef.current?.trim());
   const showBox = editing || selected || hasContent;
 
   return (
@@ -158,10 +177,7 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
       ref={containerRef}
       data-textblock="true"
       onMouseDown={handleMouseDown}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (!editing) startEdit();
-      }}
+      onDoubleClick={(e) => { e.stopPropagation(); if (!editing) startEdit(); }}
       style={{
         position: 'absolute',
         left: pos.x,
@@ -174,14 +190,13 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
         visibility: showBox ? 'visible' : 'hidden',
       }}
     >
+      {/* Drag handle */}
       {(selected || editing) && (
         <div
           data-drag="true"
           style={{
             position: 'absolute',
-            top: -14,
-            left: 0,
-            right: 0,
+            top: -14, left: 0, right: 0,
             height: '14px',
             cursor: 'grab',
             display: 'flex',
@@ -190,8 +205,7 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
           }}
         >
           <div style={{
-            width: '40px',
-            height: '4px',
+            width: '40px', height: '4px',
             background: temaColor,
             borderRadius: '2px',
             opacity: 0.5,
@@ -200,7 +214,11 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
       )}
 
       <div style={{
-        border: editing ? `2px solid ${temaColor}` : selected ? `1.5px solid ${temaColor}66` : '1.5px solid transparent',
+        border: editing
+          ? `2px solid ${temaColor}`
+          : selected
+            ? `1.5px solid ${temaColor}66`
+            : '1.5px solid transparent',
         borderRadius: '4px',
         background: editing ? 'rgba(255,255,255,0.97)' : 'transparent',
         boxShadow: editing ? `0 2px 12px ${temaColor}22` : 'none',
@@ -212,8 +230,11 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
           suppressContentEditableWarning
           onKeyDown={handleKeyDown}
           onBlur={handleBlur}
-          onInput={() => onUpdate({ html: ref.current?.innerHTML || '' })}
-          dangerouslySetInnerHTML={!editing ? { __html: bloque.html || '' } : undefined}
+          onInput={() => {
+            // ✅ Guardar cada cambio en htmlRef
+            htmlRef.current = ref.current?.innerHTML || '';
+            onUpdate({ html: htmlRef.current });
+          }}
           className="ebloque"
           style={{
             minHeight: editing ? '24px' : 'auto',
@@ -229,51 +250,38 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
         />
       </div>
 
+      {/* Resize handle */}
       {selected && (
         <div
           onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
+            e.preventDefault(); e.stopPropagation();
             resizing.current = true;
             resizeStart.current = { mx: e.clientX, w: widthRef.current };
           }}
           style={{
-            position: 'absolute',
-            right: -8,
-            top: '50%',
-            transform: 'translateY(-50%)',
-            width: '14px',
-            height: '30px',
-            background: temaColor,
-            borderRadius: '7px',
-            cursor: 'ew-resize',
-            zIndex: 60,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '3px',
+            position: 'absolute', right: -8, top: '50%', transform: 'translateY(-50%)',
+            width: '14px', height: '30px', background: temaColor, borderRadius: '7px',
+            cursor: 'ew-resize', zIndex: 60,
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', gap: '3px',
           }}
         >
           {[0, 1, 2].map(i => (
-            <div key={i} style={{ width: '2px', height: '2px', borderRadius: '50%', background: '#000' }} />
+            <div key={i} style={{
+              width: '2px', height: '2px', borderRadius: '50%', background: '#000',
+            }} />
           ))}
         </div>
       )}
 
+      {/* Delete */}
       {selected && !editing && (
         <div
           onMouseDown={e => e.stopPropagation()}
           style={{
-            position: 'absolute',
-            top: -14,
-            right: -8,
-            background: '#fef2f2',
-            border: '1px solid #fca5a5',
-            borderRadius: '6px',
-            padding: '2px 6px',
-            cursor: 'pointer',
-            zIndex: 9999,
+            position: 'absolute', top: -14, right: -8,
+            background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px',
+            padding: '2px 6px', cursor: 'pointer', zIndex: 9999,
           }}
           onClick={() => onDelete()}
         >

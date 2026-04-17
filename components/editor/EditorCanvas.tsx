@@ -67,7 +67,8 @@ export default function EditorCanvas({
   };
 
  const setupCanvas = useCallback((canvas: HTMLCanvasElement, w: number, h: number) => {
-    const dpr = (window.devicePixelRatio || 1) * 2; // ✅ 2x extra = ultra nítido
+    const baseDpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(baseDpr * 2, 4); // ✅ Ultra nítido pero max 4x para no crashear
     dprRef.current = dpr;
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
