@@ -246,7 +246,15 @@ export default function ApunteEditor({
                 ? <><div style={{ width: '8px', height: '8px', border: '1.5px solid var(--gold)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />Guardando</>
                 : guardado ? '✓' : '●'}
             </span>
-            <ExportMenu bloques={todosLosBloques} titulo={apunte.titulo} temaColor={tema.color} textRefs={textRefs} htmlCache={htmlCache} canvasExporters={canvasExporters} />
+           <ExportMenu
+  bloques={todosLosBloques}
+  paginas={paginas}
+  titulo={apunte.titulo}
+  temaColor={tema.color}
+  textRefs={textRefs}
+  htmlCache={htmlCache}
+  canvasExporters={canvasExporters}
+/>
             <button onClick={guardar} style={{ padding: isMobile ? '8px 14px' : '9px 18px', borderRadius: '10px', border: 'none', background: tema.color, color: '#000', fontSize: isMobile ? '12px' : '13px', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
