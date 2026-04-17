@@ -15,13 +15,16 @@ export async function POST(request: NextRequest) {
     let content = '';
     let esImagen = false;
     let esAudio = false;
+    let esPPT = false;
     let mimeType = '';
     const nombre = file.name.toLowerCase();
 
+    // ─── TXT ───
     if (nombre.endsWith('.txt')) {
       content = buffer.toString('utf-8');
       mimeType = 'text/plain';
 
+    // ─── PDF ───
     } else if (nombre.endsWith('.pdf')) {
       try {
         const pdfParse = (await import('pdf-parse')).default;
@@ -32,6 +35,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: 'No se pudo leer el PDF' }, { status: 400 });
       }
 
+    // ─── WORD ───
     } else if (nombre.endsWith('.docx') || nombre.endsWith('.doc')) {
       try {
         const mammoth = (await import('mammoth')).default;
@@ -42,6 +46,66 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: 'No se pudo leer el Word' }, { status: 400 });
       }
 
+    // ─── POWERPOINT ───
+    } else if (nombre.endsWith('.pptx') || nombre.endsWith('.ppt')) {
+      try {
+        esPPT = true;
+        mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+
+        // Intentar con officeparser
+        try {
+          const officeParser = await import('officeparser');
+          content = await officeParser.parseOfficeAsync(buffer as any);
+        } catch {
+          // Fallback: leer XML del PPTX manualmente
+          try {
+            const JSZip = (await import('jszip')).default;
+            const zip = await JSZip.loadAsync(buffer);
+            const slideTexts: string[] = [];
+            let slideNum = 1;
+
+            while (true) {
+              const slideFile = zip.file(`ppt/slides/slide${slideNum}.xml`);
+              if (!slideFile) break;
+
+              const xml = await slideFile.async('string');
+              // Extraer texto del XML de la diapositiva
+              const textMatches = xml.match(/<a:t[^>]*>([^<]+)<\/a:t>/g) || [];
+              const slideText = textMatches
+                .map(t => t.replace(/<[^>]+>/g, '').trim())
+                .filter(t => t.length > 0)
+                .join(' ');
+
+              if (slideText) {
+                slideTexts.push(`[Diapositiva ${slideNum}]: ${slideText}`);
+              }
+              slideNum++;
+            }
+
+            content = slideTexts.join('\n\n');
+          } catch (zipErr) {
+            return NextResponse.json({
+              success: false,
+              error: 'No se pudo leer el PowerPoint. Intenta guardarlo como .pptx',
+            }, { status: 400 });
+          }
+        }
+
+        if (!content || content.trim().length === 0) {
+          return NextResponse.json({
+            success: false,
+            error: 'El PowerPoint parece estar vacío o solo tiene imágenes sin texto.',
+          }, { status: 400 });
+        }
+
+      } catch (err: any) {
+        return NextResponse.json({
+          success: false,
+          error: 'Error procesando PowerPoint: ' + err.message,
+        }, { status: 400 });
+      }
+
+    // ─── IMÁGENES ───
     } else if (nombre.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
       esImagen = true;
       mimeType = nombre.endsWith('.png') ? 'image/png'
@@ -58,8 +122,14 @@ export async function POST(request: NextRequest) {
             {
               role: 'user',
               content: [
-                { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}` } },
-                { type: 'text', text: 'Extract ALL text visible in this image. Also describe any diagrams, charts, tables or visual elements. Be thorough and detailed. If there are formulas or equations, write them out. Output everything you see.' },
+                {
+                  type: 'image_url',
+                  image_url: { url: `data:${mimeType};base64,${base64Image}` },
+                },
+                {
+                  type: 'text',
+                  text: 'Extract ALL text visible in this image. Also describe any diagrams, charts, tables or visual elements. Be thorough and detailed. If there are formulas or equations, write them out. Output everything you see.',
+                },
               ] as any,
             },
           ],
@@ -67,14 +137,20 @@ export async function POST(request: NextRequest) {
         });
         content = visionRes.choices[0]?.message?.content || '';
         if (!content) {
-          return NextResponse.json({ success: false, error: 'No se pudo extraer contenido de la imagen' }, { status: 400 });
+          return NextResponse.json({
+            success: false,
+            error: 'No se pudo extraer contenido de la imagen',
+          }, { status: 400 });
         }
       } catch (err: any) {
-        return NextResponse.json({ success: false, error: 'Error procesando imagen: ' + err.message }, { status: 400 });
+        return NextResponse.json({
+          success: false,
+          error: 'Error procesando imagen: ' + err.message,
+        }, { status: 400 });
       }
 
+    // ─── AUDIO ───
     } else if (nombre.match(/\.(mp3|mp4|wav|m4a|ogg|webm|flac|aac)$/i)) {
-      // ✅ AUDIO
       esAudio = true;
       mimeType = nombre.endsWith('.mp3') ? 'audio/mpeg'
         : nombre.endsWith('.wav') ? 'audio/wav'
@@ -98,21 +174,31 @@ export async function POST(request: NextRequest) {
 
         content = transcription.text || '';
         if (!content) {
-          return NextResponse.json({ success: false, error: 'No se pudo transcribir el audio' }, { status: 400 });
+          return NextResponse.json({
+            success: false,
+            error: 'No se pudo transcribir el audio',
+          }, { status: 400 });
         }
       } catch (err: any) {
-        return NextResponse.json({ success: false, error: 'Error transcribiendo audio: ' + err.message }, { status: 400 });
+        return NextResponse.json({
+          success: false,
+          error: 'Error transcribiendo audio: ' + err.message,
+        }, { status: 400 });
       }
 
+    // ─── FORMATO NO SOPORTADO ───
     } else {
       return NextResponse.json({
         success: false,
-        error: 'Formato no soportado. Usa PDF, Word, TXT, JPG, PNG, WebP, MP3, WAV, M4A, OGG.',
+        error: 'Formato no soportado. Usa PDF, Word, PowerPoint (.pptx), TXT, JPG, PNG, WebP, MP3, WAV, M4A.',
       }, { status: 400 });
     }
 
     if (!content || content.trim().length === 0) {
-      return NextResponse.json({ success: false, error: 'El archivo está vacío o no tiene contenido legible.' }, { status: 400 });
+      return NextResponse.json({
+        success: false,
+        error: 'El archivo está vacío o no tiene contenido legible.',
+      }, { status: 400 });
     }
 
     const fileBase64 = buffer.toString('base64');
@@ -125,6 +211,7 @@ export async function POST(request: NextRequest) {
       mimeType,
       esImagen,
       esAudio,
+      esPPT,
       words: content.trim().split(' ').length,
     });
 

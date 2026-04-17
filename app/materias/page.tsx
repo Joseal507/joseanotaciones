@@ -240,11 +240,12 @@ export default function MateriasPage() {
       }
 
       const nombre = file.name.toLowerCase();
-      const esImagen = nombre.match(/\.(jpg|jpeg|png|webp|gif)$/i);
-      const tipo = esImagen ? 'imagen'
-        : nombre.endsWith('.pdf') ? 'pdf'
-          : nombre.endsWith('.docx') || nombre.endsWith('.doc') ? 'word'
-            : 'txt';
+const esImagen = nombre.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+const tipo = esImagen ? 'imagen'
+  : nombre.endsWith('.pdf') ? 'pdf'
+  : nombre.endsWith('.docx') || nombre.endsWith('.doc') ? 'word'
+  : nombre.endsWith('.pptx') || nombre.endsWith('.ppt') ? 'ppt'  // ✅ NUEVO
+  : 'txt';
 
       const nuevoDoc: Documento = {
         id: generateId(),
