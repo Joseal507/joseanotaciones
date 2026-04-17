@@ -19,11 +19,12 @@ interface Props {
   initialCanvasData?: string | null;
   onRegisterExport?: (fn: () => string | null) => void;
   onRegisterUndoRedo?: (undo: () => void, redo: () => void) => void;
+  externalScale?: { current: number };
 }
 
 export default function EditorCanvas({
   herramienta, brushColor, brushSize, temaColor, onChange, onTextInsert,
-  initialCanvasData, onRegisterExport, onRegisterUndoRedo
+  initialCanvasData, onRegisterExport, onRegisterUndoRedo, externalScale
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -190,16 +191,18 @@ export default function EditorCanvas({
     if (rect) drawSelectionRect(ctx, rect);
   }, [applyDpr, clearCanvas]);
 
-  const getPos = (e: PointerEvent): Point => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0, pressure: 1 };
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-      pressure: e.pressure > 0 ? e.pressure : 1,
-    };
+ const getPos = (e: PointerEvent): Point => {
+  const canvas = canvasRef.current;
+  if (!canvas) return { x: 0, y: 0, pressure: 1 };
+  const rect = canvas.getBoundingClientRect();
+  const scale = externalScale?.current || 1;
+
+  return {
+    x: (e.clientX - rect.left) / scale,
+    y: (e.clientY - rect.top) / scale,
+    pressure: e.pressure > 0 ? e.pressure : 1,
   };
+};
 
   const shouldIgnore = (e: PointerEvent) => {
     if (e.pointerType === 'touch') return true;
