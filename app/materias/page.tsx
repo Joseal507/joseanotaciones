@@ -4,7 +4,6 @@ export const dynamic = 'force-dynamic';
 import { useState, useEffect } from 'react';
 import { getMaterias, saveMaterias, generateId, Materia, Tema, Apunte, Documento } from '../../lib/storage';
 import { supabase } from '../../lib/supabase';
-import { syncSave } from '../../lib/sync';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
@@ -32,7 +31,6 @@ export default function MateriasPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
   const [showBuscador, setShowBuscador] = useState(false);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
 
@@ -56,7 +54,6 @@ export default function MateriasPage() {
         const uid = session.user.id;
         const token = session.access_token;
         setUserId(uid);
-        setAccessToken(token);
 
         const lastUserId = localStorage.getItem('josea_last_user');
         if (lastUserId !== uid) {
@@ -113,10 +110,10 @@ export default function MateriasPage() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const save = async (m: Materia[]) => {
+  // ✅ save sincroniza con Supabase automáticamente via saveMaterias
+  const save = (m: Materia[]) => {
     setMaterias(m);
     saveMaterias(m);
-    syncSave('materias', m);
   };
 
   const actualizarMateria = (materia: Materia) => {
@@ -146,7 +143,13 @@ export default function MateriasPage() {
   };
 
   const crearMateria = (data: { nombre: string; color: string; emoji: string }) => {
-    const nueva: Materia = { id: generateId(), nombre: data.nombre, color: data.color, emoji: data.emoji, temas: [] };
+    const nueva: Materia = {
+      id: generateId(),
+      nombre: data.nombre,
+      color: data.color,
+      emoji: data.emoji,
+      temas: [],
+    };
     save([...materias, nueva]);
     setModalMateria(false);
   };
@@ -158,7 +161,13 @@ export default function MateriasPage() {
 
   const crearTema = (data: { nombre: string; color: string }) => {
     if (!materiaActual) return;
-    const nuevo: Tema = { id: generateId(), nombre: data.nombre, color: data.color, apuntes: [], documentos: [] };
+    const nuevo: Tema = {
+      id: generateId(),
+      nombre: data.nombre,
+      color: data.color,
+      apuntes: [],
+      documentos: [],
+    };
     actualizarMateria({ ...materiaActual, temas: [...materiaActual.temas, nuevo] });
     setModalTema(false);
   };
@@ -172,7 +181,9 @@ export default function MateriasPage() {
   const crearApunte = (data: { titulo: string }) => {
     if (!temaActual) return;
     const nuevo: Apunte = {
-      id: generateId(), titulo: data.titulo, contenido: '',
+      id: generateId(),
+      titulo: data.titulo,
+      contenido: '',
       fechaCreacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
       fechaModificacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
     };
@@ -228,13 +239,12 @@ export default function MateriasPage() {
         archivoUrl = URL.createObjectURL(blob);
       }
 
-      // ✅ Detectar tipo incluyendo imágenes
       const nombre = file.name.toLowerCase();
       const esImagen = nombre.match(/\.(jpg|jpeg|png|webp|gif)$/i);
       const tipo = esImagen ? 'imagen'
         : nombre.endsWith('.pdf') ? 'pdf'
-        : nombre.endsWith('.docx') || nombre.endsWith('.doc') ? 'word'
-        : 'txt';
+          : nombre.endsWith('.docx') || nombre.endsWith('.doc') ? 'word'
+            : 'txt';
 
       const nuevoDoc: Documento = {
         id: generateId(),
@@ -303,7 +313,6 @@ export default function MateriasPage() {
       )}
 
       <div style={{ padding: isMobile ? '16px' : '0 40px 40px' }}>
-
         {vista === 'materias' && (
           <MateriasList
             materias={materias}
