@@ -5,7 +5,10 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+// ✅ Solo configurar en el cliente
+if (typeof window !== 'undefined' && pdfjs?.GlobalWorkerOptions) {
+  pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+}
 
 interface Analisis {
   keywords: string[];
@@ -61,14 +64,12 @@ export default function VisorDocumento({
     if (!analisis || !mostrarHighlights) return textItem.str;
     const text = textItem.str;
     if (!text.trim()) return text;
-
     const isPhrase = analisis.important_phrases?.some(p =>
       text.toLowerCase().includes(p.toLowerCase())
     );
     const isKeyword = analisis.keywords?.some(k =>
       text.toLowerCase().includes(k.toLowerCase())
     );
-
     if (isPhrase) return `<mark class="hl-phrase">${text}</mark>`;
     if (isKeyword) return `<mark class="hl-keyword">${text}</mark>`;
     return text;
@@ -192,7 +193,7 @@ export default function VisorDocumento({
         </div>
       )}
 
-      {/* ===== PDF CON HIGHLIGHTS ===== */}
+      {/* PDF CON HIGHLIGHTS */}
       {vistaActiva === 'pdf' && tienePdf && (
         <div style={{ background: '#525659', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', minHeight: '80vh', overflowY: 'auto' }}>
           <Document
@@ -236,13 +237,13 @@ export default function VisorDocumento({
         </div>
       )}
 
-      {/* ===== TEXTO CON HIGHLIGHTS ===== */}
+      {/* TEXTO CON HIGHLIGHTS */}
       {(vistaActiva === 'texto' || !tienePdf) && (
         <div style={{ background: '#f5f5f0', padding: '40px 20px', minHeight: '70vh', overflowY: 'auto' }}>
           <div style={{ maxWidth: '800px', margin: '0 auto', background: '#ffffff', padding: '50px 60px', boxShadow: '0 2px 20px rgba(0,0,0,0.12)', minHeight: '500px', fontFamily: tipo === 'pdf' ? '"Times New Roman", Times, serif' : 'sans-serif' }}>
             <div style={{ marginBottom: '28px', paddingBottom: '16px', borderBottom: `3px solid ${temaColor}` }}>
               <h1 style={{ fontSize: fontSize + 4, fontWeight: 900, color: '#111', margin: '0 0 4px' }}>
-                {nombre.replace(/\.(pdf|docx?|txt)$/i, '')}
+                {nombre.replace(/\.(pdf|docx?|txt|pptx?)$/i, '')}
               </h1>
               <p style={{ fontSize: 11, color: '#888', margin: 0 }}>
                 {tipo.toUpperCase()} · {contenido.split(' ').length} palabras
@@ -267,38 +268,12 @@ export default function VisorDocumento({
       )}
 
       <style>{`
-        .react-pdf__Page {
-          position: relative;
-        }
-        .react-pdf__Page__canvas {
-          display: block !important;
-          border-radius: 4px;
-          box-shadow: 0 4px 24px rgba(0,0,0,0.4);
-        }
-        .react-pdf__Page__textContent {
-          position: absolute !important;
-          top: 0 !important;
-          left: 0 !important;
-          right: 0 !important;
-          bottom: 0 !important;
-        }
-        .react-pdf__Page__textContent span {
-          color: transparent !important;
-        }
-        .react-pdf__Page__textContent .hl-phrase {
-          background: ${temaColor} !important;
-          color: transparent !important;
-          opacity: 0.5;
-          mix-blend-mode: multiply;
-          border-radius: 2px;
-        }
-        .react-pdf__Page__textContent .hl-keyword {
-          background: #38bdf8 !important;
-          color: transparent !important;
-          opacity: 0.5;
-          mix-blend-mode: multiply;
-          border-radius: 2px;
-        }
+        .react-pdf__Page { position: relative; }
+        .react-pdf__Page__canvas { display: block !important; border-radius: 4px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
+        .react-pdf__Page__textContent { position: absolute !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; }
+        .react-pdf__Page__textContent span { color: transparent !important; }
+        .react-pdf__Page__textContent .hl-phrase { background: ${temaColor} !important; color: transparent !important; opacity: 0.5; mix-blend-mode: multiply; border-radius: 2px; }
+        .react-pdf__Page__textContent .hl-keyword { background: #38bdf8 !important; color: transparent !important; opacity: 0.5; mix-blend-mode: multiply; border-radius: 2px; }
       `}</style>
     </div>
   );

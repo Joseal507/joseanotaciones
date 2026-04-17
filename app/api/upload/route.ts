@@ -47,63 +47,102 @@ export async function POST(request: NextRequest) {
       }
 
     // ─── POWERPOINT ───
-    } else if (nombre.endsWith('.pptx') || nombre.endsWith('.ppt')) {
-      try {
-        esPPT = true;
-        mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+} else if (nombre.endsWith('.pptx') || nombre.endsWith('.ppt')) {
+  try {
+    esPPT = true;
+    mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
-        // Intentar con officeparser
-        try {
-          const officeParser = await import('officeparser');
-          content = await officeParser.parseOfficeAsync(buffer as any);
-        } catch {
-          // Fallback: leer XML del PPTX manualmente
-          try {
-            const JSZip = (await import('jszip')).default;
-            const zip = await JSZip.loadAsync(buffer);
-            const slideTexts: string[] = [];
-            let slideNum = 1;
+    // ✅ Usar JSZip directamente para leer el XML del PPTX
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(buffer);
+    const slideTexts: string[] = [];
+    let slideNum = 1;
 
-            while (true) {
-              const slideFile = zip.file(`ppt/slides/slide${slideNum}.xml`);
-              if (!slideFile) break;
+    while (slideNum <= 100) {
+      const slideFile = zip.file(`ppt/slides/slide${slideNum}.xml`);
+      if (!slideFile) break;
 
-              const xml = await slideFile.async('string');
-              // Extraer texto del XML de la diapositiva
-              const textMatches = xml.match(/<a:t[^>]*>([^<]+)<\/a:t>/g) || [];
-              const slideText = textMatches
-                .map(t => t.replace(/<[^>]+>/g, '').trim())
-                .filter(t => t.length > 0)
-                .join(' ');
+      const xml = await slideFile.async('string');
 
-              if (slideText) {
-                slideTexts.push(`[Diapositiva ${slideNum}]: ${slideText}`);
-              }
-              slideNum++;
-            }
+      // Extraer todo el texto del XML de la diapositiva
+      const textos: string[] = [];
 
-            content = slideTexts.join('\n\n');
-          } catch (zipErr) {
-            return NextResponse.json({
-              success: false,
-              error: 'No se pudo leer el PowerPoint. Intenta guardarlo como .pptx',
-            }, { status: 400 });
+      // Método 1: tags <a:t>
+      const matches1 = xml.match(/<a:t[^>]*>([^<]+)<\/a:t>/g) || [];
+      matches1.forEach(t => {
+        const texto = t.replace(/<[^>]+>/g, '').trim();
+        if (texto) textos.push(texto);
+      });
+
+      // Método 2: cualquier texto entre tags (más agresivo)
+      if (textos.length === 0) {
+        const matches2 = xml.match(/>([^<]{2,})</g) || [];
+        matches2.forEach(t => {
+          const texto = t.replace(/^>|<$/g, '').trim();
+          if (texto && !texto.startsWith('<?') && texto.length > 1) {
+            textos.push(texto);
           }
-        }
-
-        if (!content || content.trim().length === 0) {
-          return NextResponse.json({
-            success: false,
-            error: 'El PowerPoint parece estar vacío o solo tiene imágenes sin texto.',
-          }, { status: 400 });
-        }
-
-      } catch (err: any) {
-        return NextResponse.json({
-          success: false,
-          error: 'Error procesando PowerPoint: ' + err.message,
-        }, { status: 400 });
+        });
       }
+
+      if (textos.length > 0) {
+        slideTexts.push(`[Diapositiva ${slideNum}]\n${textos.join(' ')}`);
+      }
+
+      slideNum++;
+    }
+
+    // Si no encontró slides, buscar en notesSlides también
+    if (slideTexts.length === 0) {
+      const files = Object.keys(zip.files);
+      const slideFiles = files.filter(f => f.match(/ppt\/slides\/slide\d+\.xml/));
+
+      for (const slideFile of slideFiles) {
+        const xml = await zip.files[slideFile].async('string');
+        const matches = xml.match(/<a:t[^>]*>([^<]+)<\/a:t>/g) || [];
+        const textos = matches
+          .map(t => t.replace(/<[^>]+>/g, '').trim())
+          .filter(t => t.length > 0);
+
+        if (textos.length > 0) {
+          const num = slideFile.match(/slide(\d+)/)?.[1] || '?';
+          slideTexts.push(`[Diapositiva ${num}]\n${textos.join(' ')}`);
+        }
+      }
+    }
+
+    content = slideTexts.join('\n\n');
+
+    // Si sigue vacío, intentar con officeparser como último recurso
+    if (!content || content.trim().length === 0) {
+      try {
+        const op = await import('officeparser');
+        // v6 API
+        if (typeof (op as any).parseOfficeAsync === 'function') {
+          content = await (op as any).parseOfficeAsync(buffer);
+        } else if (typeof (op as any).default?.parseOfficeAsync === 'function') {
+          content = await (op as any).default.parseOfficeAsync(buffer);
+        } else if (typeof (op as any).extractText === 'function') {
+          content = await (op as any).extractText(buffer);
+        }
+      } catch (opErr) {
+        console.log('officeparser también falló:', opErr);
+      }
+    }
+
+    if (!content || content.trim().length === 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'El PowerPoint parece estar vacío o solo contiene imágenes sin texto. Prueba exportándolo a PDF primero.',
+      }, { status: 400 });
+    }
+
+  } catch (err: any) {
+    return NextResponse.json({
+      success: false,
+      error: 'Error procesando PowerPoint: ' + err.message,
+    }, { status: 400 });
+  }
 
     // ─── IMÁGENES ───
     } else if (nombre.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {

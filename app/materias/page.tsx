@@ -74,7 +74,10 @@ export default function MateriasPage() {
         } else if (materiasLocal.length > 0) {
           await fetch('/api/materias', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
             body: JSON.stringify({ materias: materiasLocal }),
           });
         } else {
@@ -110,7 +113,6 @@ export default function MateriasPage() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // ✅ save sincroniza con Supabase automáticamente via saveMaterias
   const save = (m: Materia[]) => {
     setMaterias(m);
     saveMaterias(m);
@@ -155,7 +157,9 @@ export default function MateriasPage() {
   };
 
   const eliminarMateria = (id: string) => {
-    if (!confirm(idioma === 'en' ? 'Delete this subject and all its content?' : '¿Eliminar esta materia y todo su contenido?')) return;
+    if (!confirm(idioma === 'en'
+      ? 'Delete this subject and all its content?'
+      : '¿Eliminar esta materia y todo su contenido?')) return;
     save(materias.filter(m => m.id !== id));
   };
 
@@ -175,7 +179,10 @@ export default function MateriasPage() {
   const eliminarTema = (id: string) => {
     if (!confirm(idioma === 'en' ? 'Delete this topic?' : '¿Eliminar este tema?')) return;
     if (!materiaActual) return;
-    actualizarMateria({ ...materiaActual, temas: materiaActual.temas.filter(t => t.id !== id) });
+    actualizarMateria({
+      ...materiaActual,
+      temas: materiaActual.temas.filter(t => t.id !== id),
+    });
   };
 
   const crearApunte = (data: { titulo: string }) => {
@@ -212,7 +219,10 @@ export default function MateriasPage() {
   const eliminarApunte = (id: string) => {
     if (!confirm(idioma === 'en' ? 'Delete this note?' : '¿Eliminar este apunte?')) return;
     if (!temaActual) return;
-    actualizarTema({ ...temaActual, apuntes: temaActual.apuntes.filter(a => a.id !== id) });
+    actualizarTema({
+      ...temaActual,
+      apuntes: temaActual.apuntes.filter(a => a.id !== id),
+    });
     setVista('tema');
   };
 
@@ -222,6 +232,7 @@ export default function MateriasPage() {
     setSubiendoDoc(true);
     const formData = new FormData();
     formData.append('file', file);
+
     try {
       const res = await fetch('/api/upload', { method: 'POST', body: formData });
       const data = await res.json();
@@ -240,12 +251,12 @@ export default function MateriasPage() {
       }
 
       const nombre = file.name.toLowerCase();
-const esImagen = nombre.match(/\.(jpg|jpeg|png|webp|gif)$/i);
-const tipo = esImagen ? 'imagen'
-  : nombre.endsWith('.pdf') ? 'pdf'
-  : nombre.endsWith('.docx') || nombre.endsWith('.doc') ? 'word'
-  : nombre.endsWith('.pptx') || nombre.endsWith('.ppt') ? 'ppt'  // ✅ NUEVO
-  : 'txt';
+      const esImagen = nombre.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+      const tipo = esImagen ? 'imagen'
+        : nombre.endsWith('.pdf') ? 'pdf'
+        : nombre.endsWith('.docx') || nombre.endsWith('.doc') ? 'word'
+        : nombre.endsWith('.pptx') || nombre.endsWith('.ppt') ? 'ppt'
+        : 'txt';
 
       const nuevoDoc: Documento = {
         id: generateId(),
@@ -257,7 +268,11 @@ const tipo = esImagen ? 'imagen'
         archivoBase64: data.fileBase64,
         archivoMime: data.mimeType,
       };
-      actualizarTema({ ...temaActual, documentos: [...temaActual.documentos, nuevoDoc] });
+
+      actualizarTema({
+        ...temaActual,
+        documentos: [...temaActual.documentos, nuevoDoc],
+      });
     } catch (err: any) {
       alert('Error: ' + err.message);
     } finally {
@@ -269,15 +284,28 @@ const tipo = esImagen ? 'imagen'
   const eliminarDocumento = (id: string) => {
     if (!confirm(idioma === 'en' ? 'Delete this file?' : '¿Eliminar este archivo?')) return;
     if (!temaActual) return;
-    actualizarTema({ ...temaActual, documentos: temaActual.documentos.filter(d => d.id !== id) });
+    actualizarTema({
+      ...temaActual,
+      documentos: temaActual.documentos.filter(d => d.id !== id),
+    });
     setVista('tema');
   };
 
   if (cargando) {
     return (
-      <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px' }}>
+      <div style={{
+        minHeight: '100vh',
+        background: 'var(--bg-primary)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'column',
+        gap: '16px',
+      }}>
         <div style={{ fontSize: '48px' }}>📚</div>
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>{tr('cargando')}</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>
+          {tr('cargando')}
+        </p>
       </div>
     );
   }
@@ -293,19 +321,60 @@ const tipo = esImagen ? 'imagen'
         <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '24px 40px 0' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={() => window.location.href = '/'}
-                style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+              <button
+                onClick={() => window.location.href = '/'}
+                style={{
+                  background: 'none',
+                  border: '2px solid var(--gold)',
+                  color: 'var(--gold)',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  fontWeight: 700,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                }}
+              >
                 ← {tr('inicio')}
               </button>
-              <button onClick={() => setShowBuscador(true)}
-                style={{ background: 'none', border: '2px solid var(--border-color)', color: 'var(--text-muted)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                onClick={() => setShowBuscador(true)}
+                style={{
+                  background: 'none',
+                  border: '2px solid var(--border-color)',
+                  color: 'var(--text-muted)',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  fontWeight: 700,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
                 🔍 {tr('buscar')}
-                <span style={{ fontSize: '11px', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: '4px' }}>⌘K</span>
+                <span style={{
+                  fontSize: '11px',
+                  background: 'var(--bg-secondary)',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                }}>⌘K</span>
               </button>
             </div>
             {userId && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-faint)' }}>
-                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80' }} />
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '12px',
+                color: 'var(--text-faint)',
+              }}>
+                <div style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: '#4ade80',
+                }} />
                 {tr('sincronizado')}
               </div>
             )}
@@ -314,6 +383,7 @@ const tipo = esImagen ? 'imagen'
       )}
 
       <div style={{ padding: isMobile ? '16px' : '0 40px 40px' }}>
+
         {vista === 'materias' && (
           <MateriasList
             materias={materias}
@@ -373,9 +443,26 @@ const tipo = esImagen ? 'imagen'
           />
         )}
 
-        {modalMateria && <ModalMateria onClose={() => setModalMateria(false)} onConfirm={crearMateria} />}
-        {modalTema && materiaActual && <ModalTema onClose={() => setModalTema(false)} onConfirm={crearTema} colorMateria={materiaActual.color} />}
-        {modalApunte && temaActual && <ModalApunte onClose={() => setModalApunte(false)} onConfirm={crearApunte} colorTema={temaActual.color} />}
+        {modalMateria && (
+          <ModalMateria
+            onClose={() => setModalMateria(false)}
+            onConfirm={crearMateria}
+          />
+        )}
+        {modalTema && materiaActual && (
+          <ModalTema
+            onClose={() => setModalTema(false)}
+            onConfirm={crearTema}
+            colorMateria={materiaActual.color}
+          />
+        )}
+        {modalApunte && temaActual && (
+          <ModalApunte
+            onClose={() => setModalApunte(false)}
+            onConfirm={crearApunte}
+            colorTema={temaActual.color}
+          />
+        )}
       </div>
     </div>
   );

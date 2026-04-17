@@ -26,11 +26,15 @@ export default function TemaView({
   const { idioma } = useIdioma();
 
   const getTipoIcon = (doc: Documento) => {
-    if (doc.tipo === 'imagen') return '🖼️';
-    if (doc.tipo === 'pdf') return '📄';
-    if (doc.tipo === 'word') return '📝';
-    return '📄';
-  };
+  if (doc.tipo === 'imagen') return '🖼️';
+  if (doc.tipo === 'pdf') return '📄';
+  if (doc.tipo === 'word') return '📝';
+  if (doc.tipo === 'ppt') return '📊';
+  if (doc.tipo === 'audio') return '🎵';
+  return '📄';
+};
+
+  const ACCEPT = '.pdf,.doc,.docx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.webp,.mp3,.wav,.m4a,.ogg,.webm,.mp4';
 
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
@@ -70,12 +74,12 @@ export default function TemaView({
               ? (idioma === 'en' ? '⏳ Uploading...' : '⏳ Subiendo...')
               : (idioma === 'en' ? '📤 Upload File' : '📤 Subir Archivo')}
             <input
-  id="doc-upload"
-  type="file"
-  accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.webp,.mp3,.wav,.m4a,.ogg,.webm,.mp4"
-  onChange={onSubirDocumento}
-  style={{ display: 'none' }}
-/>
+              id="doc-upload"
+              type="file"
+              accept={ACCEPT}
+              onChange={onSubirDocumento}
+              style={{ display: 'none' }}
+            />
           </label>
         </div>
       </div>
@@ -85,8 +89,8 @@ export default function TemaView({
         <span style={{ fontSize: '16px' }}>📁</span>
         <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>
           {idioma === 'en'
-            ? 'Supported: PDF, Word, TXT, JPG, PNG, WebP — AI analyzes all formats'
-            : 'Soportado: PDF, Word, TXT, JPG, PNG, WebP — la AI analiza todos los formatos'}
+            ? 'Supported: PDF, Word, PowerPoint (.pptx), TXT, JPG, PNG, WebP, Audio — AI analyzes all formats'
+            : 'Soportado: PDF, Word, PowerPoint (.pptx), TXT, JPG, PNG, WebP, Audio — la AI analiza todos los formatos'}
         </p>
       </div>
 
@@ -130,7 +134,10 @@ export default function TemaView({
                             try {
                               const parsed = JSON.parse(apunte.contenido);
                               if (parsed.bloques) {
-                                const texto = parsed.bloques.filter((b: any) => b.tipo === 'texto').map((b: any) => b.html?.replace(/<[^>]*>/g, '') || '').join(' ');
+                                const texto = parsed.bloques
+                                  .filter((b: any) => b.tipo === 'texto')
+                                  .map((b: any) => b.html?.replace(/<[^>]*>/g, '') || '')
+                                  .join(' ');
                                 return `${texto.split(' ').filter(Boolean).length} ${idioma === 'en' ? 'words' : 'palabras'}`;
                               }
                             } catch {}
@@ -165,12 +172,18 @@ export default function TemaView({
                 {idioma === 'en' ? 'No files yet' : 'No hay archivos'}
               </p>
               <p style={{ color: 'var(--text-faint)', fontSize: '12px', marginBottom: '12px' }}>
-                PDF, Word, TXT, JPG, PNG
+                PDF, Word, PowerPoint, TXT, JPG, PNG, Audio
               </p>
               <label htmlFor="doc-upload2"
                 style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: 'var(--blue)', color: '#000', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'inline-block' }}>
                 📤 {idioma === 'en' ? 'Upload file' : 'Subir archivo'}
-                <input id="doc-upload2" type="file" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.webp" onChange={onSubirDocumento} style={{ display: 'none' }} />
+                <input
+                  id="doc-upload2"
+                  type="file"
+                  accept={ACCEPT}
+                  onChange={onSubirDocumento}
+                  style={{ display: 'none' }}
+                />
               </label>
             </div>
           ) : (
@@ -187,8 +200,16 @@ export default function TemaView({
                     </p>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
                       <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{doc.fechaSubida}</span>
-                      {/* Tipo badge */}
-                      <span style={{ fontSize: '10px', background: doc.tipo === 'imagen' ? '#f472b620' : 'var(--blue-dim)', color: doc.tipo === 'imagen' ? 'var(--pink)' : 'var(--blue)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700, textTransform: 'uppercase' }}>
+                      <span style={{
+                        fontSize: '10px',
+                        background: doc.tipo === 'imagen' ? '#f472b620'
+                          : doc.tipo === 'ppt' ? '#f9731620'
+                          : 'var(--blue-dim)',
+                        color: doc.tipo === 'imagen' ? 'var(--pink)'
+                          : doc.tipo === 'ppt' ? '#f97316'
+                          : 'var(--blue)',
+                        padding: '1px 6px', borderRadius: '4px', fontWeight: 700, textTransform: 'uppercase',
+                      }}>
                         {doc.tipo}
                       </span>
                       {doc.analisis && (
