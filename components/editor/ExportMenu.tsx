@@ -9,7 +9,6 @@ interface Props {
   temaColor: string;
   textRefs: React.MutableRefObject<{ [id: string]: HTMLDivElement | null }>;
   htmlCache: React.MutableRefObject<{ [id: string]: string }>;
-  // ✅ NUEVO: recibir todos los canvas exporters de cada página
   canvasExporters?: React.MutableRefObject<{ [paginaId: string]: () => string | null }>;
 }
 
@@ -17,21 +16,13 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState<'pdf' | 'word' | null>(null);
 
-  // ✅ Obtener TODOS los dibujos de TODAS las páginas
   const getAllCanvasDrawings = (): string[] => {
     const drawings: string[] = [];
-
-    // Método 1: usar los exporters registrados por cada página
     if (canvasExporters?.current) {
       Object.values(canvasExporters.current).forEach(exportFn => {
-        try {
-          const data = exportFn();
-          if (data) drawings.push(data);
-        } catch {}
+        try { const data = exportFn(); if (data) drawings.push(data); } catch {}
       });
     }
-
-    // Método 2: fallback - buscar todos los canvas en el DOM
     if (drawings.length === 0) {
       try {
         const canvases = document.querySelectorAll('.editor-area-principal canvas');
@@ -40,18 +31,44 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
           try {
             const ctx = c.getContext('2d');
             if (!ctx) return;
-            // Verificar si tiene contenido (no está vacío)
             const data = ctx.getImageData(0, 0, c.width, c.height);
-            const hasContent = data.data.some((v, i) => i % 4 === 3 && v > 0); // check alpha
-            if (hasContent) {
-              drawings.push(c.toDataURL('image/png'));
-            }
+            const hasContent = data.data.some((v, i) => i % 4 === 3 && v > 0);
+            if (hasContent) drawings.push(c.toDataURL('image/png'));
           } catch {}
         });
       } catch {}
     }
-
     return drawings;
+  };
+
+  const addWatermark = async (pdf: any, pageWidth: number, pageHeight: number, margin: number) => {
+    try {
+      const logoImg = new Image();
+      logoImg.crossOrigin = 'anonymous';
+      logoImg.src = '/logo.png';
+      await new Promise((resolve) => { logoImg.onload = resolve; logoImg.onerror = resolve; });
+
+      const totalPages = pdf.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i);
+        // Logo esquina superior derecha
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = logoImg.naturalWidth || 42;
+          canvas.height = logoImg.naturalHeight || 42;
+          const ctx2 = canvas.getContext('2d')!;
+          ctx2.globalAlpha = 0.12;
+          ctx2.drawImage(logoImg, 0, 0);
+          const logoData = canvas.toDataURL('image/png');
+          pdf.addImage(logoData, 'PNG', pageWidth - margin - 10, 5, 10, 10);
+        } catch {}
+        // Texto marca
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(7);
+        pdf.setTextColor(200, 200, 200);
+        pdf.text('JoseAnotaciones', pageWidth - margin, 19, { align: 'right' });
+      }
+    } catch {}
   };
 
   const exportPDF = async () => {
@@ -59,7 +76,6 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
     setOpen(false);
     try {
       const { default: jsPDF } = await import('jspdf');
-
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
@@ -74,13 +90,12 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
       const tituloLines = pdf.splitTextToSize(titulo, maxWidth);
       pdf.text(tituloLines, margin, y);
       y += tituloLines.length * 9 + 4;
-
       pdf.setDrawColor(200, 200, 200);
       pdf.setLineWidth(0.5);
       pdf.line(margin, y, pageWidth - margin, y);
       y += 8;
 
-      // Procesar bloques de texto
+      // Bloques de texto
       for (const bloque of bloques) {
         if (bloque.tipo === 'texto') {
           const html = htmlCache.current[bloque.id] ?? textRefs.current[bloque.id]?.innerHTML ?? (bloque as any).html ?? '';
@@ -113,73 +128,40 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
                 if (tag === 'h1') {
                   y += 4;
                   if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
-                  pdf.setFont('helvetica', 'bold');
-                  pdf.setFontSize(18);
-                  pdf.setTextColor(30, 30, 30);
+                  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(18); pdf.setTextColor(30, 30, 30);
                   const lines = pdf.splitTextToSize(text, maxWidth);
-                  lines.forEach((line: string) => {
-                    if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
-                    pdf.text(line, margin, y);
-                    y += 8;
-                  });
+                  lines.forEach((line: string) => { if (y > pageHeight - margin) { pdf.addPage(); y = margin; } pdf.text(line, margin, y); y += 8; });
                   y += 3;
                 } else if (tag === 'h2') {
                   y += 3;
                   if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
-                  pdf.setFont('helvetica', 'bold');
-                  pdf.setFontSize(15);
-                  pdf.setTextColor(40, 40, 40);
+                  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(15); pdf.setTextColor(40, 40, 40);
                   const lines = pdf.splitTextToSize(text, maxWidth);
-                  lines.forEach((line: string) => {
-                    if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
-                    pdf.text(line, margin, y);
-                    y += 7;
-                  });
+                  lines.forEach((line: string) => { if (y > pageHeight - margin) { pdf.addPage(); y = margin; } pdf.text(line, margin, y); y += 7; });
                   y += 2;
                 } else if (tag === 'h3') {
                   y += 2;
                   if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
-                  pdf.setFont('helvetica', 'bold');
-                  pdf.setFontSize(13);
-                  pdf.setTextColor(50, 50, 50);
+                  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(13); pdf.setTextColor(50, 50, 50);
                   const lines = pdf.splitTextToSize(text, maxWidth);
-                  lines.forEach((line: string) => {
-                    if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
-                    pdf.text(line, margin, y);
-                    y += 6;
-                  });
+                  lines.forEach((line: string) => { if (y > pageHeight - margin) { pdf.addPage(); y = margin; } pdf.text(line, margin, y); y += 6; });
                   y += 2;
                 } else if (tag === 'li') {
                   if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
-                  pdf.setFont('helvetica', 'normal');
-                  pdf.setFontSize(11);
-                  pdf.setTextColor(50, 50, 50);
+                  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(11); pdf.setTextColor(50, 50, 50);
                   const lines = pdf.splitTextToSize('  •  ' + text, maxWidth - 5);
-                  lines.forEach((line: string) => {
-                    if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
-                    pdf.text(line, margin, y);
-                    y += 5.5;
-                  });
+                  lines.forEach((line: string) => { if (y > pageHeight - margin) { pdf.addPage(); y = margin; } pdf.text(line, margin, y); y += 5.5; });
                   y += 1;
                 } else if (tag === 'hr') {
-                  y += 3;
-                  if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
-                  pdf.setDrawColor(200, 200, 200);
-                  pdf.line(margin, y, pageWidth - margin, y);
-                  y += 5;
+                  y += 3; if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
+                  pdf.setDrawColor(200, 200, 200); pdf.line(margin, y, pageWidth - margin, y); y += 5;
                 } else if (tag === 'br') {
                   y += 4;
                 } else if (['b', 'strong'].includes(tag)) {
                   if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
-                  pdf.setFont('helvetica', 'bold');
-                  pdf.setFontSize(11);
-                  pdf.setTextColor(30, 30, 30);
+                  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.setTextColor(30, 30, 30);
                   const lines = pdf.splitTextToSize(text, maxWidth);
-                  lines.forEach((line: string) => {
-                    if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
-                    pdf.text(line, margin, y);
-                    y += 6;
-                  });
+                  lines.forEach((line: string) => { if (y > pageHeight - margin) { pdf.addPage(); y = margin; } pdf.text(line, margin, y); y += 6; });
                   pdf.setFont('helvetica', 'normal');
                 } else if (['ul', 'ol'].includes(tag)) {
                   processNode(el);
@@ -187,22 +169,15 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
                   const childText = (el.textContent || '').trim();
                   if (childText) {
                     if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
-                    pdf.setFont('helvetica', 'normal');
-                    pdf.setFontSize(11);
-                    pdf.setTextColor(50, 50, 50);
+                    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(11); pdf.setTextColor(50, 50, 50);
                     const lines = pdf.splitTextToSize(childText, maxWidth);
-                    lines.forEach((line: string) => {
-                      if (y > pageHeight - margin) { pdf.addPage(); y = margin; }
-                      pdf.text(line, margin, y);
-                      y += 6;
-                    });
+                    lines.forEach((line: string) => { if (y > pageHeight - margin) { pdf.addPage(); y = margin; } pdf.text(line, margin, y); y += 6; });
                     y += 2;
                   }
                 }
               }
             });
           };
-
           processNode(doc.body);
           y += 3;
 
@@ -220,50 +195,32 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
         }
       }
 
-      // ✅ Agregar TODOS los dibujos de TODAS las páginas
+      // Dibujos de todas las páginas (sin separador)
       const allDrawings = getAllCanvasDrawings();
-      if (allDrawings.length > 0) {
-        // Separador
-        if (y > margin + 20) {
-          y += 5;
-          if (y > pageHeight - margin - 40) { pdf.addPage(); y = margin; }
-          pdf.setFont('helvetica', 'italic');
-          pdf.setFontSize(9);
-          pdf.setTextColor(160, 160, 160);
-          pdf.text('── Anotaciones ──', pageWidth / 2, y, { align: 'center' });
-          y += 8;
-        }
-
-        for (const drawing of allDrawings) {
-          try {
-            const drawW = maxWidth;
-            const drawH = drawW * 0.55;
-            if (y + drawH > pageHeight - margin) { pdf.addPage(); y = margin; }
-            pdf.addImage(drawing, 'PNG', margin, y, drawW, drawH);
-            y += drawH + 8;
-          } catch (err) {
-            console.error('Error adding drawing to PDF:', err);
-          }
-        }
+      for (const drawing of allDrawings) {
+        try {
+          const drawW = maxWidth;
+          const drawH = drawW * 0.55;
+          if (y + drawH > pageHeight - margin) { pdf.addPage(); y = margin; }
+          pdf.addImage(drawing, 'PNG', margin, y, drawW, drawH);
+          y += drawH + 8;
+        } catch (err) { console.error('Error adding drawing to PDF:', err); }
       }
 
       // Footer
       const totalPages = pdf.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         pdf.setPage(i);
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(8);
-        pdf.setTextColor(180, 180, 180);
+        pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(180, 180, 180);
         pdf.text(`${titulo} — ${i}/${totalPages}`, margin, pageHeight - 8);
       }
 
+      // Marca de agua
+      await addWatermark(pdf, pageWidth, pageHeight, margin);
+
       pdf.save(`${titulo}.pdf`);
-    } catch (err) {
-      console.error(err);
-      alert('Error exporting PDF');
-    } finally {
-      setLoading(null);
-    }
+    } catch (err) { console.error(err); alert('Error exporting PDF'); }
+    finally { setLoading(null); }
   };
 
   const exportWord = async () => {
@@ -271,31 +228,19 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
     setOpen(false);
     try {
       const { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, AlignmentType } = await import('docx');
-
       const saveAs = (blob: Blob, filename: string) => {
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        const a = document.createElement('a'); a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
       };
 
       const children: any[] = [];
-
-      children.push(new Paragraph({
-        text: titulo,
-        heading: HeadingLevel.TITLE,
-        spacing: { after: 400 },
-      }));
+      children.push(new Paragraph({ text: titulo, heading: HeadingLevel.TITLE, spacing: { after: 400 } }));
 
       for (const bloque of bloques) {
         if (bloque.tipo === 'texto') {
           const html = htmlCache.current[bloque.id] ?? textRefs.current[bloque.id]?.innerHTML ?? (bloque as any).html ?? '';
           if (!html.trim()) continue;
-
           const parser = new DOMParser();
           const doc = parser.parseFromString(html, 'text/html');
 
@@ -313,18 +258,12 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
               children.push(new Paragraph({ text, heading: HeadingLevel.HEADING_3, spacing: { before: 150, after: 100 } }));
             } else if (tagName === 'ul') {
               el.querySelectorAll('li').forEach(li => {
-                children.push(new Paragraph({
-                  children: [new TextRun({ text: '• ' + (li.textContent || ''), size: 22, color: '333333' })],
-                  spacing: { before: 60, after: 60 },
-                }));
+                children.push(new Paragraph({ children: [new TextRun({ text: '• ' + (li.textContent || ''), size: 22, color: '333333' })], spacing: { before: 60, after: 60 } }));
               });
             } else if (tagName === 'ol') {
               let count = 1;
               el.querySelectorAll('li').forEach(li => {
-                children.push(new Paragraph({
-                  children: [new TextRun({ text: `${count}. ${li.textContent || ''}`, size: 22, color: '333333' })],
-                  spacing: { before: 60, after: 60 },
-                }));
+                children.push(new Paragraph({ children: [new TextRun({ text: `${count}. ${li.textContent || ''}`, size: 22, color: '333333' })], spacing: { before: 60, after: 60 } }));
                 count++;
               });
             } else {
@@ -340,8 +279,7 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
                   italics: childTag === 'i' || childTag === 'em',
                   underline: childTag === 'u' ? {} : undefined,
                   strike: childTag === 's',
-                  size: 22,
-                  color: '333333',
+                  size: 22, color: '333333',
                 }));
               });
               if (runs.length === 0) runs.push(new TextRun({ text, size: 22, color: '333333' }));
@@ -369,62 +307,46 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
         }
       }
 
-      // ✅ Agregar TODOS los dibujos de TODAS las páginas
+      // Dibujos (sin separador)
       const allDrawings = getAllCanvasDrawings();
-      if (allDrawings.length > 0) {
-        children.push(new Paragraph({ children: [new TextRun({ text: '', size: 22 })], spacing: { before: 200 } }));
-        children.push(new Paragraph({
-          children: [new TextRun({ text: '── Anotaciones / Annotations ──', size: 18, color: '999999', italics: true })],
-          alignment: AlignmentType.CENTER,
-          spacing: { before: 100, after: 200 },
-        }));
-
-        for (const drawing of allDrawings) {
-          try {
-            const base64Data = drawing.split(',')[1];
-            const binaryString = atob(base64Data);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-            children.push(new Paragraph({
-              alignment: AlignmentType.CENTER,
-              children: [new ImageRun({ data: bytes, transformation: { width: 550, height: 350 }, type: 'png' } as any)],
-              spacing: { before: 100, after: 200 },
-            }));
-          } catch (err) { console.error('Error adding canvas to Word:', err); }
-        }
+      for (const drawing of allDrawings) {
+        try {
+          const base64Data = drawing.split(',')[1];
+          const binaryString = atob(base64Data);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+          children.push(new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new ImageRun({ data: bytes, transformation: { width: 550, height: 350 }, type: 'png' } as any)],
+            spacing: { before: 100, after: 200 },
+          }));
+        } catch (err) { console.error('Error adding canvas to Word:', err); }
       }
 
+      // Marca de agua texto
+      children.push(new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        children: [new TextRun({ text: 'JoseAnotaciones', size: 14, color: 'CCCCCC', italics: true })],
+        spacing: { before: 400 },
+      }));
+
       const docxDoc = new Document({
-        sections: [{
-          children,
-          properties: { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } },
-        }],
+        sections: [{ children, properties: { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } } }],
       });
 
       const blob = await Packer.toBlob(docxDoc);
       saveAs(blob, `${titulo}.docx`);
-    } catch (err) {
-      console.error(err);
-      alert('Error exporting Word');
-    } finally {
-      setLoading(null);
-    }
+    } catch (err) { console.error(err); alert('Error exporting Word'); }
+    finally { setLoading(null); }
   };
 
   return (
     <div style={{ position: 'relative' }}>
-      <button
-        onClick={() => setOpen(!open)}
-        disabled={!!loading}
-        style={{
-          padding: '9px 18px', borderRadius: '10px',
-          border: '2px solid var(--border-color)',
-          background: 'transparent', color: 'var(--text-muted)',
-          fontSize: '13px', fontWeight: 700,
-          cursor: loading ? 'not-allowed' : 'pointer',
-          display: 'flex', alignItems: 'center', gap: '6px',
-          transition: 'all 0.2s',
-        }}
+      <button onClick={() => setOpen(!open)} disabled={!!loading} style={{
+        padding: '9px 18px', borderRadius: '10px', border: '2px solid var(--border-color)',
+        background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700,
+        cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s',
+      }}
         onMouseEnter={(e: any) => { if (!loading) { e.currentTarget.style.borderColor = temaColor; e.currentTarget.style.color = temaColor; } }}
         onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
       >
@@ -436,28 +358,35 @@ export default function ExportMenu({ bloques, titulo, temaColor, textRefs, htmlC
         <div style={{
           position: 'absolute', top: '100%', right: 0, marginTop: '8px',
           background: 'var(--bg-card)', border: `2px solid ${temaColor}`,
-          borderRadius: '14px', padding: '8px', zIndex: 9999,
-          minWidth: '210px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          borderRadius: '14px', padding: '8px', zIndex: 9999, minWidth: '210px',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
         }}>
-          <button onClick={exportPDF}
-            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}
+          <button onClick={exportPDF} style={{
+            width: '100%', padding: '10px 14px', borderRadius: '8px', border: 'none',
+            background: 'transparent', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left',
+          }}
             onMouseEnter={(e: any) => { e.currentTarget.style.background = 'var(--red-dim)'; e.currentTarget.style.color = 'var(--red)'; }}
-            onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-primary)'; }}>
+            onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+          >
             <span style={{ fontSize: '18px' }}>📄</span>
             <div>
               <div style={{ fontWeight: 800 }}>Export PDF</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Text + drawings from all pages</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Text + drawings</div>
             </div>
           </button>
-
-          <button onClick={exportWord}
-            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}
+          <button onClick={exportWord} style={{
+            width: '100%', padding: '10px 14px', borderRadius: '8px', border: 'none',
+            background: 'transparent', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left',
+          }}
             onMouseEnter={(e: any) => { e.currentTarget.style.background = 'var(--blue-dim)'; e.currentTarget.style.color = 'var(--blue)'; }}
-            onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-primary)'; }}>
+            onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+          >
             <span style={{ fontSize: '18px' }}>📝</span>
             <div>
               <div style={{ fontWeight: 800 }}>Export Word</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Text + drawings from all pages</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>Text + drawings</div>
             </div>
           </button>
         </div>
