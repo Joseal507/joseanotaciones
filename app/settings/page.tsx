@@ -8,40 +8,16 @@ import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
 import { getSettings, saveSettings, applyTheme, limpiarDatosEstudio, AppSettings, DEFAULT_SETTINGS } from '../../lib/settings';
 import { getSettingsDB, saveSettingsDB } from '../../lib/db';
+import BackupManager from '../../components/BackupManager';
 
 type Seccion = 'perfil' | 'seguridad' | 'personalizacion' | 'notificaciones' | 'datos' | 'cuenta';
 
 const TEMAS: { id: AppSettings['tema']; label: string; desc: string; colors: string[] }[] = [
-  {
-    id: 'default',
-    label: '⭐ Default',
-    desc: 'Dorado, rojo, celeste y rosado',
-    colors: ['#f5c842', '#ff4d6d', '#38bdf8', '#f472b6'],
-  },
-  {
-    id: 'alai',
-    label: '👧 Alai',
-    desc: 'Celeste, azul marino, rosado y rosado oscuro',
-    colors: ['#7ec8e3', '#023e8a', '#ff85a1', '#c9184a'],
-  },
-  {
-    id: 'falcons',
-    label: '🏈 Falcons',
-    desc: 'Rojo Atlanta, negro y plata',
-    colors: ['#a71930', '#c8c9c7', '#000000', '#a71930'],
-  },
-  {
-    id: 'raiders',
-    label: '🏴‍☠️ El Broder 😐',
-    desc: 'Plata, negro y blanco — Las Vegas Raiders',
-    colors: ['#a5acaf', '#000000', '#ffffff', '#a5acaf'],
-  },
-  {
-    id: 'math',
-    label: '🔢 Peter Saupeter 😏',
-    desc: 'Verde neón, azul eléctrico, morado y pink',
-    colors: ['#00f5d4', '#4361ee', '#7b2d8b', '#f72585'],
-  },
+  { id: 'default', label: '⭐ Default', desc: 'Dorado, rojo, celeste y rosado', colors: ['#f5c842', '#ff4d6d', '#38bdf8', '#f472b6'] },
+  { id: 'alai', label: '👧 Alai', desc: 'Celeste, azul marino, rosado y rosado oscuro', colors: ['#7ec8e3', '#023e8a', '#ff85a1', '#c9184a'] },
+  { id: 'falcons', label: '🏈 Falcons', desc: 'Rojo Atlanta, negro y plata', colors: ['#a71930', '#c8c9c7', '#000000', '#a71930'] },
+  { id: 'raiders', label: '🏴‍☠️ El Broder 😐', desc: 'Plata, negro y blanco — Las Vegas Raiders', colors: ['#a5acaf', '#000000', '#ffffff', '#a5acaf'] },
+  { id: 'math', label: '🔢 Peter Saupeter 😏', desc: 'Verde neón, azul eléctrico, morado y pink', colors: ['#00f5d4', '#4361ee', '#7b2d8b', '#f72585'] },
 ];
 
 export default function SettingsPage() {
@@ -76,10 +52,7 @@ export default function SettingsPage() {
       setUserId(data.user.id);
       setNombre(data.user.user_metadata?.nombre || '');
 
-      // Cargar settings locales primero
       const localSettings = getSettings();
-
-      // Intentar cargar desde Supabase
       try {
         const remoteSettings = await getSettingsDB(data.user.id);
         if (remoteSettings) {
@@ -90,14 +63,12 @@ export default function SettingsPage() {
         } else {
           setSettings(localSettings);
           applyTheme(localSettings.tema);
-          // Subir settings locales a Supabase
           await saveSettingsDB(data.user.id, localSettings);
         }
       } catch {
         setSettings(localSettings);
         applyTheme(localSettings.tema);
       }
-
       setCargando(false);
     };
     cargar();
@@ -114,14 +85,8 @@ export default function SettingsPage() {
     setSettings(nuevas);
     saveSettings(nuevas);
     if (changes.tema) applyTheme(changes.tema);
-
-    // Sincronizar con Supabase
     if (userId) {
-      try {
-        await saveSettingsDB(userId, nuevas);
-      } catch (err) {
-        console.error(err);
-      }
+      try { await saveSettingsDB(userId, nuevas); } catch (err) { console.error(err); }
     }
   };
 
@@ -420,7 +385,6 @@ export default function SettingsPage() {
           {/* ===== PERSONALIZACIÓN ===== */}
           {seccion === 'personalizacion' && (
             <>
-              {/* IDIOMA */}
               <Card color="#4ade80">
                 <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('idiomaApp')}</h2>
                 <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>{tr('cambiaIdioma')}</p>
@@ -439,7 +403,6 @@ export default function SettingsPage() {
                 </div>
               </Card>
 
-              {/* Nombre app */}
               <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                 <div style={{ height: '4px', background: 'var(--gold)' }} />
                 <div style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -468,7 +431,6 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* Tema colores */}
               <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                 <div style={{ height: '4px', background: 'var(--pink)' }} />
                 <div style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -478,8 +440,7 @@ export default function SettingsPage() {
                     {TEMAS.map(tema => {
                       const isActive = settings.tema === tema.id;
                       return (
-                        <button key={tema.id}
-                          onClick={() => updateSettings({ tema: tema.id })}
+                        <button key={tema.id} onClick={() => updateSettings({ tema: tema.id })}
                           style={{ padding: '16px 18px', borderRadius: '12px', border: `2px solid ${isActive ? tema.colors[0] : 'var(--border-color)'}`, background: isActive ? tema.colors[0] + '25' : 'var(--bg-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', transition: 'all 0.2s', textAlign: 'left', width: '100%' }}>
                           <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
                             {tema.colors.map((c, i) => (
@@ -498,15 +459,9 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* Modo oscuro */}
               <Card color="#a78bfa">
                 <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('modoPantalla')}</h2>
-                <Toggle
-                  label={isDark ? tr('modoOscuro') : tr('modoClaro')}
-                  desc={tr('cambiaFondo')}
-                  value={isDark}
-                  onChange={toggleDark}
-                />
+                <Toggle label={isDark ? tr('modoOscuro') : tr('modoClaro')} desc={tr('cambiaFondo')} value={isDark} onChange={toggleDark} />
               </Card>
             </>
           )}
@@ -544,14 +499,20 @@ export default function SettingsPage() {
           {/* ===== DATOS ===== */}
           {seccion === 'datos' && (
             <>
+              {/* ✅ BACKUP MANAGER */}
+              <BackupManager
+                temaColor="var(--gold)"
+                onRestored={() => window.location.reload()}
+              />
+
               <Card color="var(--blue)">
                 <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('almacenamiento')}</h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {[
-                    { label: '☁️ ' + tr('materias'), desc: 'Supabase (cloud)' },
+                    { label: '☁️ ' + tr('materias'), desc: 'Supabase (cloud) ✅' },
                     { label: '📸 ' + tr('fotoPerfil'), desc: 'Supabase (cloud) ✅' },
                     { label: '🎨 ' + tr('temaColores'), desc: 'Supabase (cloud) ✅' },
-                    { label: '📊 Stats', desc: 'localStorage' },
+                    { label: '📊 Stats', desc: 'Supabase (cloud) ✅' },
                     { label: '🔥 Streak', desc: 'localStorage' },
                     { label: '🎓 Quizzes & decks', desc: 'localStorage' },
                   ].map((item, i) => (

@@ -14,6 +14,30 @@ interface Opts {
   setGuardado: (v: boolean) => void;
 }
 
+// ✅ Limpiar base64 pesado antes de serializar
+const limpiarPaginasParaGuardar = (paginas: PaginaParaGuardar[]): PaginaParaGuardar[] => {
+  return paginas.map(pg => ({
+    ...pg,
+    // ✅ canvasData se guarda tal cual (es el dibujo del usuario)
+    // pero si es null o string vacío, dejarlo null
+    canvasData: pg.canvasData || null,
+    // ✅ backgroundImage: si es base64 muy largo (>100KB) truncar
+    // Las URLs de Supabase Storage son cortas (~100 chars)
+    backgroundImage: pg.backgroundImage
+      ? pg.backgroundImage.length > 500_000
+        ? pg.backgroundImage // mantener aunque sea pesado, es necesario para el usuario
+        : pg.backgroundImage
+      : undefined,
+    // ✅ Limpiar bloques
+    bloques: (pg.bloques || []).map((b: any) => {
+      if (b.tipo === 'imagen' && b.src?.startsWith('data:') && b.src.length > 2_000_000) {
+        return { ...b, src: '' }; // imagen demasiado pesada
+      }
+      return b;
+    }),
+  }));
+};
+
 export function useGuardar({
   getPaginas,
   syncCache,
@@ -22,19 +46,35 @@ export function useGuardar({
   setGuardado,
 }: Opts) {
   const autoSaveTimer = useRef<any>(null);
+  const lastSavedRef = useRef<string>('');
 
   const guardarAhora = useCallback(() => {
     syncCache();
-    const paginasConCanvas = getPaginas();
-    const contenidoFinal = JSON.stringify({ paginas: paginasConCanvas });
+    const paginas = getPaginas();
+    const paginasLimpias = limpiarPaginasParaGuardar(paginas);
+    const contenidoFinal = JSON.stringify({ paginas: paginasLimpias });
+
+    // ✅ No guardar si no hay cambios
+    if (contenidoFinal === lastSavedRef.current) return;
+    lastSavedRef.current = contenidoFinal;
+
     onGuardar(contenidoFinal);
     setGuardado(true);
   }, [getPaginas, syncCache, onGuardar, setGuardado]);
 
   const guardar = useCallback(() => {
     syncCache();
-    const paginasConCanvas = getPaginas();
-    const contenidoFinal = JSON.stringify({ paginas: paginasConCanvas });
+    const paginas = getPaginas();
+    const paginasLimpias = limpiarPaginasParaGuardar(paginas);
+    const contenidoFinal = JSON.stringify({ paginas: paginasLimpias });
+
+    // ✅ No guardar si no hay cambios
+    if (contenidoFinal === lastSavedRef.current) {
+      setGuardado(true);
+      return;
+    }
+    lastSavedRef.current = contenidoFinal;
+
     setGuardando(true);
     onGuardar(contenidoFinal);
     setTimeout(() => {
@@ -46,10 +86,10 @@ export function useGuardar({
   const triggerAutoSave = useCallback(() => {
     setGuardado(false);
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(() => guardar(), 3000);
+    // ✅ 5 segundos en vez de 3 para menos requests
+    autoSaveTimer.current = setTimeout(() => guardar(), 5000);
   }, [guardar, setGuardado]);
 
-  // Ctrl+S / Cmd+S
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
@@ -61,7 +101,6 @@ export function useGuardar({
     return () => window.removeEventListener('keydown', handler);
   }, [guardar]);
 
-  // Guardar al desmontar
   useEffect(() => {
     return () => {
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
