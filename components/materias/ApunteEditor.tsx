@@ -147,7 +147,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : 1056;
     triggerAutoSave();
   }, [setPaginasSync, triggerAutoSave]);
 
-  cconst handleClickEditor = useCallback((e: React.MouseEvent<HTMLDivElement>, paginaId: string) => {
+  const handleClickEditor = useCallback((e: React.MouseEvent<HTMLDivElement>, paginaId: string) => {
   if (isDrawingMode || newBlockId) return;
   const target = e.target as HTMLElement;
   if (
