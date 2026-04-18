@@ -34,6 +34,25 @@ export default function Home() {
         window.location.href = '/auth';
       } else {
         setVerificando(false);
+
+        // ✅ TEMPORAL: Notificar login por email
+        const user = data.session.user;
+        const nombre = user.user_metadata?.nombre || user.email?.split('@')[0] || '';
+        const loginKey = `josea_login_notified_${new Date().toDateString()}`;
+
+        // Solo notificar 1 vez por día por usuario
+        if (!sessionStorage.getItem(loginKey)) {
+          sessionStorage.setItem(loginKey, 'true');
+          fetch('/api/notify-new-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              nombre,
+              email: user.email,
+              es_login: true,
+            }),
+          }).catch(() => {});
+        }
       }
     });
   }, []);
@@ -115,7 +134,7 @@ export default function Home() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', fontFamily: '-apple-system, sans-serif' }}>
 
-      {/* ✅ Onboarding check — se muestra si no ha completado el perfil */}
+      {/* ✅ Onboarding check */}
       <OnboardingCheck />
 
       {showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
