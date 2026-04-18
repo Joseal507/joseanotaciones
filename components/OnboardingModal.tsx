@@ -75,26 +75,19 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
   const universidadFinal = universidad === 'Otra universidad' ? universidadCustom : universidad;
   const carreraFinal = carrera === 'Otra carrera' ? carreraCustom : carrera;
 
- const handleGuardar = async () => {
-  setGuardando(true);
-  try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const session = sessionData.session;
-    if (!session) { onComplete(); return; }
+  const handleGuardar = async () => {
+    setGuardando(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const session = sessionData.session;
+      if (!session) { onComplete(); return; }
 
-    const userId = session.user.id;
+      const userId = session.user.id;
 
-    // ✅ Guardar en localStorage PRIMERO
-    localStorage.setItem(`josea_onboarding_done_${userId}`, 'true');
+      // ✅ Guardar en localStorage
+      localStorage.setItem(`josea_onboarding_done_${userId}`, 'true');
 
-    // ✅ Guardar perfil en leaderboard (que sí funciona)
-    await fetch('/api/leaderboard', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
+      const datosPeril = {
         nombre,
         genero,
         tipo_estudiante: tipoEstudiante,
@@ -102,43 +95,76 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
         carrera: tipoEstudiante === 'universitario' ? carreraFinal : null,
         que_quieres_estudiar: queQuieresEstudiar || null,
         onboarding_completo: true,
-        // Stats en 0 para nuevo usuario
-        xp_total: 0,
-        flashcards_estudiadas: 0,
-        racha_actual: 0,
-        mejor_racha: 0,
-        precision_global: 0,
-      }),
-    }).then(r => r.json()).then(d => {
-      console.log('Leaderboard guardado:', d);
-    }).catch(err => {
-      console.error('Error guardando leaderboard:', err);
-    });
+      };
 
-    // ✅ Enviar email con todos los datos
-    fetch('/api/notify-new-user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        nombre,
-        email: session.user.email,
-        genero,
-        tipo_estudiante: tipoEstudiante,
-        universidad: tipoEstudiante === 'universitario' ? universidadFinal : null,
-        carrera: tipoEstudiante === 'universitario' ? carreraFinal : null,
-        que_quieres_estudiar: queQuieresEstudiar || null,
-        es_nuevo: true,
-      }),
-    }).catch(() => {});
+      // ✅ Guardar en leaderboard via API
+      const res = await fetch('/api/leaderboard', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(datosPeril),
+      });
 
-    onComplete();
-  } catch (err) {
-    console.error('handleGuardar error:', err);
-    onComplete();
-  } finally {
-    setGuardando(false);
-  }
-};
+      const result = await res.json();
+      console.log('Perfil guardado en leaderboard:', result);
+
+      // ✅ También guardar directo con supabase client como backup
+      const { error: directError } = await supabase
+        .from('leaderboard')
+        .update({
+          genero: datosPeril.genero,
+          tipo_estudiante: datosPeril.tipo_estudiante,
+          universidad: datosPeril.universidad,
+          carrera: datosPeril.carrera,
+          que_quieres_estudiar: datosPeril.que_quieres_estudiar,
+          onboarding_completo: true,
+        })
+        .eq('user_id', userId);
+
+      if (directError) {
+        console.error('Update directo falló:', directError);
+        // Si no existe la fila, intentar insert
+        const { error: insertError } = await supabase
+          .from('leaderboard')
+          .insert({
+            user_id: userId,
+            nombre,
+            email: session.user.email,
+            ...datosPeril,
+            xp_total: 0,
+            flashcards_estudiadas: 0,
+            racha_actual: 0,
+            mejor_racha: 0,
+            precision_global: 0,
+          });
+        if (insertError) {
+          console.error('Insert también falló:', insertError);
+        }
+      } else {
+        console.log('Update directo OK');
+      }
+
+      // ✅ Enviar email
+      fetch('/api/notify-new-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...datosPeril,
+          email: session.user.email,
+          es_nuevo: true,
+        }),
+      }).catch(() => {});
+
+      onComplete();
+    } catch (err) {
+      console.error('handleGuardar error:', err);
+      onComplete();
+    } finally {
+      setGuardando(false);
+    }
+  };
 
   const steps: Step[] = tipoEstudiante === 'universitario'
     ? ['genero', 'tipo', 'detalles', 'meta']
@@ -186,11 +212,9 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
         overflow: 'hidden',
         boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
       }}>
-        {/* Barra de progreso */}
         <div style={{ height: '4px', background: 'var(--bg-secondary)' }}>
           <div style={{
-            height: '100%',
-            width: `${progress}%`,
+            height: '100%', width: `${progress}%`,
             background: 'var(--gold)',
             transition: 'width 0.4s ease',
             borderRadius: '0 4px 4px 0',
@@ -198,35 +222,28 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
         </div>
 
         <div style={{ padding: '32px' }}>
-          {/* Header */}
           <div style={{ textAlign: 'center', marginBottom: '28px' }}>
             <div style={{ fontSize: '40px', marginBottom: '8px' }}>
               {step === 'genero' ? '👋' : step === 'tipo' ? '🎓' : step === 'detalles' ? '📚' : '✨'}
             </div>
-            <h2 style={{
-              fontSize: '22px', fontWeight: 900,
-              color: 'var(--text-primary)', margin: '0 0 6px',
-            }}>
+            <h2 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 6px' }}>
               {step === 'genero' && `¡Hola, ${nombre}! 🎉`}
               {step === 'tipo' && '¿Qué tipo de estudiante eres?'}
               {step === 'detalles' && '¿Dónde estudias?'}
               {step === 'meta' && '¿Qué quieres lograr aquí?'}
             </h2>
             <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: 0 }}>
-              {step === 'genero' && 'Cuéntanos un poco sobre ti para personalizar tu experiencia'}
-              {step === 'tipo' && 'Esto nos ayuda a darte mejores herramientas'}
-              {step === 'detalles' && 'Ayuda a otros estudiantes a conocerte en el leaderboard'}
-              {step === 'meta' && 'Opcional — cuéntanos tus metas de estudio'}
+              {step === 'genero' && 'Cuéntanos un poco sobre ti'}
+              {step === 'tipo' && 'Esto nos ayuda a personalizar tu experiencia'}
+              {step === 'detalles' && 'Otros estudiantes podrán ver esto en el leaderboard'}
+              {step === 'meta' && 'Opcional — cuéntanos tus metas'}
             </p>
-            <p style={{
-              fontSize: '11px', color: 'var(--text-faint)',
-              margin: '8px 0 0', fontWeight: 600,
-            }}>
+            <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '8px 0 0', fontWeight: 600 }}>
               Paso {stepIndex + 1} de {totalSteps}
             </p>
           </div>
 
-          {/* ─── Step: Género ─── */}
+          {/* Género */}
           {step === 'genero' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {[
@@ -234,65 +251,39 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
                 { id: 'mujer', label: 'Mujer', emoji: '👧' },
                 { id: 'otro', label: 'Otro / Prefiero no decir', emoji: '🌈' },
               ].map(opt => (
-                <button
-                  key={opt.id}
-                  onClick={() => setGenero(opt.id)}
-                  style={{
-                    padding: '14px 20px',
-                    borderRadius: '14px',
-                    border: genero === opt.id ? '2px solid var(--gold)' : '2px solid var(--border-color)',
-                    background: genero === opt.id ? 'var(--gold-dim)' : 'var(--bg-secondary)',
-                    color: genero === opt.id ? 'var(--gold)' : 'var(--text-primary)',
-                    fontSize: '15px', fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', gap: '12px',
-                    transition: 'all 0.15s',
-                    textAlign: 'left',
-                  }}
-                >
+                <button key={opt.id} onClick={() => setGenero(opt.id)} style={{
+                  padding: '14px 20px', borderRadius: '14px',
+                  border: genero === opt.id ? '2px solid var(--gold)' : '2px solid var(--border-color)',
+                  background: genero === opt.id ? 'var(--gold-dim)' : 'var(--bg-secondary)',
+                  color: genero === opt.id ? 'var(--gold)' : 'var(--text-primary)',
+                  fontSize: '15px', fontWeight: 700, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '12px',
+                  transition: 'all 0.15s', textAlign: 'left',
+                }}>
                   <span style={{ fontSize: '24px' }}>{opt.emoji}</span>
                   {opt.label}
-                  {genero === opt.id && (
-                    <span style={{ marginLeft: 'auto', fontSize: '16px' }}>✓</span>
-                  )}
+                  {genero === opt.id && <span style={{ marginLeft: 'auto', fontSize: '16px' }}>✓</span>}
                 </button>
               ))}
             </div>
           )}
 
-          {/* ─── Step: Tipo de estudiante ─── */}
+          {/* Tipo */}
           {step === 'tipo' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {[
-                {
-                  id: 'secundaria',
-                  label: 'Estudiante (Bachillerato / Secundaria)',
-                  emoji: '🏫',
-                  desc: 'Estoy en prepa o secundaria',
-                },
-                {
-                  id: 'universitario',
-                  label: 'Universitario',
-                  emoji: '🎓',
-                  desc: 'Estoy en la universidad o carrera técnica',
-                },
+                { id: 'secundaria', label: 'Estudiante (Bachillerato / Secundaria)', emoji: '🏫', desc: 'Estoy en prepa o secundaria' },
+                { id: 'universitario', label: 'Universitario', emoji: '🎓', desc: 'Estoy en la universidad o carrera técnica' },
               ].map(opt => (
-                <button
-                  key={opt.id}
-                  onClick={() => setTipoEstudiante(opt.id)}
-                  style={{
-                    padding: '16px 20px',
-                    borderRadius: '14px',
-                    border: tipoEstudiante === opt.id ? '2px solid var(--gold)' : '2px solid var(--border-color)',
-                    background: tipoEstudiante === opt.id ? 'var(--gold-dim)' : 'var(--bg-secondary)',
-                    color: tipoEstudiante === opt.id ? 'var(--gold)' : 'var(--text-primary)',
-                    fontSize: '15px', fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', gap: '14px',
-                    transition: 'all 0.15s',
-                    textAlign: 'left',
-                  }}
-                >
+                <button key={opt.id} onClick={() => setTipoEstudiante(opt.id)} style={{
+                  padding: '16px 20px', borderRadius: '14px',
+                  border: tipoEstudiante === opt.id ? '2px solid var(--gold)' : '2px solid var(--border-color)',
+                  background: tipoEstudiante === opt.id ? 'var(--gold-dim)' : 'var(--bg-secondary)',
+                  color: tipoEstudiante === opt.id ? 'var(--gold)' : 'var(--text-primary)',
+                  fontSize: '15px', fontWeight: 700, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '14px',
+                  transition: 'all 0.15s', textAlign: 'left',
+                }}>
                   <span style={{ fontSize: '28px' }}>{opt.emoji}</span>
                   <div>
                     <div>{opt.label}</div>
@@ -300,247 +291,127 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
                       {opt.desc}
                     </div>
                   </div>
-                  {tipoEstudiante === opt.id && (
-                    <span style={{ marginLeft: 'auto', fontSize: '18px' }}>✓</span>
-                  )}
+                  {tipoEstudiante === opt.id && <span style={{ marginLeft: 'auto', fontSize: '18px' }}>✓</span>}
                 </button>
               ))}
             </div>
           )}
 
-          {/* ─── Step: Detalles (solo universitarios) ─── */}
+          {/* Detalles */}
           {step === 'detalles' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Universidad */}
               <div>
-                <label style={{
-                  fontSize: '12px', fontWeight: 700,
-                  color: 'var(--text-muted)', display: 'block',
-                  marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px',
-                }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   🏫 Universidad
                 </label>
-                <select
-                  value={universidad}
-                  onChange={e => setUniversidad(e.target.value)}
-                  style={{
-                    width: '100%', padding: '12px 16px',
-                    borderRadius: '12px',
-                    border: universidad ? '2px solid var(--gold)' : '2px solid var(--border-color)',
-                    background: 'var(--bg-secondary)',
-                    color: universidad ? 'var(--text-primary)' : 'var(--text-faint)',
-                    fontSize: '14px', outline: 'none', cursor: 'pointer',
-                  }}
-                >
+                <select value={universidad} onChange={e => setUniversidad(e.target.value)} style={{
+                  width: '100%', padding: '12px 16px', borderRadius: '12px',
+                  border: universidad ? '2px solid var(--gold)' : '2px solid var(--border-color)',
+                  background: 'var(--bg-secondary)',
+                  color: universidad ? 'var(--text-primary)' : 'var(--text-faint)',
+                  fontSize: '14px', outline: 'none', cursor: 'pointer',
+                }}>
                   <option value="">Selecciona tu universidad</option>
-                  {UNIVERSIDADES_POPULARES.map(u => (
-                    <option key={u} value={u}>{u}</option>
-                  ))}
+                  {UNIVERSIDADES_POPULARES.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
                 {universidad === 'Otra universidad' && (
-                  <input
-                    type="text"
-                    value={universidadCustom}
-                    onChange={e => setUniversidadCustom(e.target.value)}
+                  <input type="text" value={universidadCustom} onChange={e => setUniversidadCustom(e.target.value)}
                     placeholder="Escribe tu universidad..."
-                    style={{
-                      width: '100%', padding: '12px 16px',
-                      borderRadius: '12px', marginTop: '8px',
-                      border: '2px solid var(--gold)',
-                      background: 'var(--bg-secondary)',
-                      color: 'var(--text-primary)',
-                      fontSize: '14px', outline: 'none',
-                      boxSizing: 'border-box',
-                    }}
+                    style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', marginTop: '8px', border: '2px solid var(--gold)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
                   />
                 )}
               </div>
-
-              {/* Carrera */}
               <div>
-                <label style={{
-                  fontSize: '12px', fontWeight: 700,
-                  color: 'var(--text-muted)', display: 'block',
-                  marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px',
-                }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   📚 Carrera
                 </label>
-                <select
-                  value={carrera}
-                  onChange={e => setCarrera(e.target.value)}
-                  style={{
-                    width: '100%', padding: '12px 16px',
-                    borderRadius: '12px',
-                    border: carrera ? '2px solid var(--gold)' : '2px solid var(--border-color)',
-                    background: 'var(--bg-secondary)',
-                    color: carrera ? 'var(--text-primary)' : 'var(--text-faint)',
-                    fontSize: '14px', outline: 'none', cursor: 'pointer',
-                  }}
-                >
+                <select value={carrera} onChange={e => setCarrera(e.target.value)} style={{
+                  width: '100%', padding: '12px 16px', borderRadius: '12px',
+                  border: carrera ? '2px solid var(--gold)' : '2px solid var(--border-color)',
+                  background: 'var(--bg-secondary)',
+                  color: carrera ? 'var(--text-primary)' : 'var(--text-faint)',
+                  fontSize: '14px', outline: 'none', cursor: 'pointer',
+                }}>
                   <option value="">Selecciona tu carrera</option>
-                  {CARRERAS.map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
+                  {CARRERAS.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
                 {carrera === 'Otra carrera' && (
-                  <input
-                    type="text"
-                    value={carreraCustom}
-                    onChange={e => setCarreraCustom(e.target.value)}
+                  <input type="text" value={carreraCustom} onChange={e => setCarreraCustom(e.target.value)}
                     placeholder="Escribe tu carrera..."
-                    style={{
-                      width: '100%', padding: '12px 16px',
-                      borderRadius: '12px', marginTop: '8px',
-                      border: '2px solid var(--gold)',
-                      background: 'var(--bg-secondary)',
-                      color: 'var(--text-primary)',
-                      fontSize: '14px', outline: 'none',
-                      boxSizing: 'border-box',
-                    }}
+                    style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', marginTop: '8px', border: '2px solid var(--gold)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
                   />
                 )}
               </div>
             </div>
           )}
 
-          {/* ─── Step: Meta ─── */}
+          {/* Meta */}
           {step === 'meta' && (
             <div>
-              <label style={{
-                fontSize: '12px', fontWeight: 700,
-                color: 'var(--text-muted)', display: 'block',
-                marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px',
-              }}>
+              <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 ✨ ¿Qué quieres lograr aquí? <span style={{ color: 'var(--text-faint)', fontWeight: 500 }}>(opcional)</span>
               </label>
-              <textarea
-                value={queQuieresEstudiar}
-                onChange={e => setQueQuieresEstudiar(e.target.value)}
-                placeholder="Ej: Pasar mis exámenes finales, aprender programación, mejorar en matemáticas..."
+              <textarea value={queQuieresEstudiar} onChange={e => setQueQuieresEstudiar(e.target.value)}
+                placeholder="Ej: Pasar mis exámenes, aprender programación..."
                 rows={4}
                 style={{
-                  width: '100%', padding: '14px 16px',
-                  borderRadius: '14px',
+                  width: '100%', padding: '14px 16px', borderRadius: '14px',
                   border: queQuieresEstudiar ? '2px solid var(--gold)' : '2px solid var(--border-color)',
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text-primary)',
-                  fontSize: '14px', outline: 'none',
-                  resize: 'vertical',
-                  lineHeight: '1.6',
-                  boxSizing: 'border-box',
-                  fontFamily: 'inherit',
-                  transition: 'border 0.2s',
+                  background: 'var(--bg-secondary)', color: 'var(--text-primary)',
+                  fontSize: '14px', outline: 'none', resize: 'vertical', lineHeight: '1.6',
+                  boxSizing: 'border-box', fontFamily: 'inherit', transition: 'border 0.2s',
                 }}
                 onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
-                onBlur={e => {
-                  if (!queQuieresEstudiar) e.currentTarget.style.borderColor = 'var(--border-color)';
-                }}
+                onBlur={e => { if (!queQuieresEstudiar) e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               />
-
-              {/* Sugerencias rápidas */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
-                {[
-                  'Pasar mis exámenes',
-                  'Aprender programación',
-                  'Mejorar mi promedio',
-                  'Estudiar medicina',
-                  'Aprender inglés',
-                  'Preparar tesis',
-                ].map(sugerencia => (
-                  <button
-                    key={sugerencia}
-                    onClick={() => setQueQuieresEstudiar(sugerencia)}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '20px',
-                      border: '1px solid var(--border-color)',
-                      background: queQuieresEstudiar === sugerencia ? 'var(--gold-dim)' : 'transparent',
-                      color: queQuieresEstudiar === sugerencia ? 'var(--gold)' : 'var(--text-faint)',
-                      fontSize: '12px', fontWeight: 600,
-                      cursor: 'pointer',
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    {sugerencia}
-                  </button>
+                {['Pasar mis exámenes', 'Aprender programación', 'Mejorar mi promedio', 'Preparar tesis'].map(s => (
+                  <button key={s} onClick={() => setQueQuieresEstudiar(s)} style={{
+                    padding: '6px 12px', borderRadius: '20px',
+                    border: '1px solid var(--border-color)',
+                    background: queQuieresEstudiar === s ? 'var(--gold-dim)' : 'transparent',
+                    color: queQuieresEstudiar === s ? 'var(--gold)' : 'var(--text-faint)',
+                    fontSize: '12px', fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+                  }}>{s}</button>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Botones de navegación */}
-          <div style={{
-            display: 'flex', gap: '10px',
-            marginTop: '28px',
-          }}>
+          {/* Botones */}
+          <div style={{ display: 'flex', gap: '10px', marginTop: '28px' }}>
             {stepIndex > 0 && (
-              <button
-                onClick={goBack}
-                style={{
-                  padding: '13px 20px',
-                  borderRadius: '12px',
-                  border: '2px solid var(--border-color)',
-                  background: 'transparent',
-                  color: 'var(--text-muted)',
-                  fontSize: '14px', fontWeight: 700,
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                }}
-              >
-                ← Atrás
-              </button>
+              <button onClick={goBack} style={{
+                padding: '13px 20px', borderRadius: '12px',
+                border: '2px solid var(--border-color)', background: 'transparent',
+                color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700,
+                cursor: 'pointer', flexShrink: 0,
+              }}>← Atrás</button>
             )}
-            <button
-              onClick={goNext}
-              disabled={!canContinue() || guardando}
-              style={{
-                flex: 1,
-                padding: '13px 24px',
-                borderRadius: '12px',
-                border: 'none',
-                background: canContinue() && !guardando ? 'var(--gold)' : 'var(--bg-secondary)',
-                color: canContinue() && !guardando ? '#000' : 'var(--text-faint)',
-                fontSize: '15px', fontWeight: 800,
-                cursor: canContinue() && !guardando ? 'pointer' : 'not-allowed',
-                transition: 'all 0.2s',
-                display: 'flex', alignItems: 'center',
-                justifyContent: 'center', gap: '8px',
-              }}
-            >
+            <button onClick={goNext} disabled={!canContinue() || guardando} style={{
+              flex: 1, padding: '13px 24px', borderRadius: '12px', border: 'none',
+              background: canContinue() && !guardando ? 'var(--gold)' : 'var(--bg-secondary)',
+              color: canContinue() && !guardando ? '#000' : 'var(--text-faint)',
+              fontSize: '15px', fontWeight: 800,
+              cursor: canContinue() && !guardando ? 'pointer' : 'not-allowed',
+              transition: 'all 0.2s', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', gap: '8px',
+            }}>
               {guardando ? (
                 <>
-                  <div style={{
-                    width: '14px', height: '14px',
-                    border: '2px solid #000',
-                    borderTopColor: 'transparent',
-                    borderRadius: '50%',
-                    animation: 'spin 0.8s linear infinite',
-                  }} />
+                  <div style={{ width: '14px', height: '14px', border: '2px solid #000', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
                   Guardando...
                 </>
-              ) : step === 'meta' ? (
-                '🚀 ¡Empezar a estudiar!'
-              ) : (
-                'Continuar →'
-              )}
+              ) : step === 'meta' ? '🚀 ¡Empezar a estudiar!' : 'Continuar →'}
             </button>
           </div>
 
-          {/* Skip */}
           {step === 'meta' && (
-            <button
-              onClick={onComplete}
-              style={{
-                width: '100%', marginTop: '12px',
-                padding: '10px',
-                background: 'transparent', border: 'none',
-                color: 'var(--text-faint)',
-                fontSize: '13px', cursor: 'pointer',
-                fontWeight: 600,
-              }}
-            >
-              Saltar por ahora
-            </button>
+            <button onClick={() => { handleGuardar(); }} style={{
+              width: '100%', marginTop: '12px', padding: '10px',
+              background: 'transparent', border: 'none', color: 'var(--text-faint)',
+              fontSize: '13px', cursor: 'pointer', fontWeight: 600,
+            }}>Saltar por ahora</button>
           )}
         </div>
 

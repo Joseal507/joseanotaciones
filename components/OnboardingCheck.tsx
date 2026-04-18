@@ -21,29 +21,23 @@ export default function OnboardingCheck() {
           || session.user.email?.split('@')[0]
           || '';
 
-        // ✅ Check localStorage primero — instantáneo
-        const localKey = `josea_onboarding_done_${userId}`;
-        if (localStorage.getItem(localKey) === 'true') {
-          setChecked(true);
-          return;
-        }
-
-        // ✅ Check en leaderboard directamente con anon key
+        // ✅ Check en leaderboard si tiene datos de perfil completos
         const { data: entry } = await supabase
           .from('leaderboard')
-          .select('onboarding_completo, genero')
+          .select('onboarding_completo, genero, tipo_estudiante')
           .eq('user_id', userId)
           .single();
 
-        console.log('Leaderboard entry:', entry);
-
-        if (entry?.onboarding_completo) {
-          localStorage.setItem(localKey, 'true');
+        // ✅ Si tiene genero Y tipo_estudiante → ya completó
+        if (entry?.genero && entry?.tipo_estudiante) {
+          localStorage.setItem(`josea_onboarding_done_${userId}`, 'true');
           setChecked(true);
           return;
         }
 
-        // No completó onboarding
+        // ✅ Si no tiene esos datos → mostrar onboarding
+        // (borrar localStorage viejo que decía que ya hizo)
+        localStorage.removeItem(`josea_onboarding_done_${userId}`);
         setNombre(userName);
         setShowOnboarding(true);
       } catch (err) {
