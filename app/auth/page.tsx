@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import OnboardingModal from '../../components/OnboardingModal';
 
 export default function AuthPage() {
   const [modo, setModo] = useState<'login' | 'registro'>('login');
@@ -13,18 +14,38 @@ export default function AuthPage() {
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [mensaje, setMensaje] = useState('');
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [nombreUsuario, setNombreUsuario] = useState('');
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) window.location.href = '/';
+      if (data.session) {
+        checkOnboarding(data.session.user.id, data.session.user.user_metadata?.nombre || '');
+      }
     });
   }, []);
+
+  const checkOnboarding = async (userId: string, nombre: string) => {
+    try {
+      const res = await fetch(`/api/user-profile?userId=${userId}`);
+      const data = await res.json();
+      if (!data.data || !data.data.onboarding_completo) {
+        // Necesita onboarding
+        setNombreUsuario(nombre);
+        setShowOnboarding(true);
+      } else {
+        window.location.href = '/';
+      }
+    } catch {
+      window.location.href = '/';
+    }
+  };
 
   const handleLogin = async () => {
     if (!email || !password) { setError('Completa todos los campos'); return; }
     setCargando(true);
     setError('');
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       if (error.message.includes('Invalid login')) {
         setError('Email o contraseña incorrectos');
@@ -33,8 +54,12 @@ export default function AuthPage() {
       } else {
         setError(error.message);
       }
-    } else {
-      window.location.href = '/';
+    } else if (data.session) {
+      // Al hacer login, chequear si ya completó onboarding
+      await checkOnboarding(
+        data.session.user.id,
+        data.session.user.user_metadata?.nombre || '',
+      );
     }
     setCargando(false);
   };
@@ -62,12 +87,26 @@ export default function AuthPage() {
         setError(error.message);
       }
     } else if (data.session) {
-      window.location.href = '/';
+      // Registro exitoso con sesión → mostrar onboarding
+      setNombreUsuario(nombre);
+      setShowOnboarding(true);
     } else {
       setMensaje('✅ Revisa tu email para confirmar tu cuenta.');
     }
     setCargando(false);
   };
+
+  // Mostrar onboarding
+  if (showOnboarding) {
+    return (
+      <OnboardingModal
+        nombre={nombreUsuario}
+        onComplete={() => {
+          window.location.href = '/';
+        }}
+      />
+    );
+  }
 
   return (
     <div style={{
@@ -125,38 +164,38 @@ export default function AuthPage() {
               ].map(tab => (
                 <button key={tab.id}
                   onClick={() => { setModo(tab.id as any); setError(''); setMensaje(''); }}
-                  style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: modo === tab.id ? 'var(--gold)' : 'transparent', color: modo === tab.id ? '#000' : 'var(--text-muted)', fontSize: '14px', fontWeight: modo === tab.id ? 800 : 600, cursor: 'pointer', transition: 'all 0.2s' }}>
+                  style={{
+                    flex: 1, padding: '10px', borderRadius: '8px', border: 'none',
+                    background: modo === tab.id ? 'var(--gold)' : 'transparent',
+                    color: modo === tab.id ? '#000' : 'var(--text-muted)',
+                    fontSize: '14px', fontWeight: modo === tab.id ? 800 : 600,
+                    cursor: 'pointer', transition: 'all 0.2s',
+                  }}>
                   {tab.label}
                 </button>
               ))}
             </div>
 
-            {/* Mensaje */}
             {mensaje && (
               <div style={{ background: '#4ade8020', border: '1px solid #4ade8044', borderRadius: '10px', padding: '12px 16px', marginBottom: '20px' }}>
                 <p style={{ fontSize: '14px', color: '#4ade80', margin: 0, fontWeight: 600 }}>{mensaje}</p>
               </div>
             )}
 
-            {/* Error */}
             {error && (
               <div style={{ background: 'var(--red-dim)', border: '1px solid var(--red-border)', borderRadius: '10px', padding: '12px 16px', marginBottom: '20px' }}>
                 <p style={{ fontSize: '14px', color: 'var(--red)', margin: 0, fontWeight: 600 }}>{error}</p>
               </div>
             )}
 
-            {/* Campos */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-
               {modo === 'registro' && (
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
                     Nombre
                   </label>
                   <input
-                    type="text"
-                    value={nombre}
-                    onChange={e => setNombre(e.target.value)}
+                    type="text" value={nombre} onChange={e => setNombre(e.target.value)}
                     placeholder="Tu nombre"
                     style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box', transition: 'border 0.2s' }}
                     onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
@@ -170,9 +209,7 @@ export default function AuthPage() {
                   Email
                 </label>
                 <input
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
+                  type="email" value={email} onChange={e => setEmail(e.target.value)}
                   placeholder="tu@email.com"
                   onKeyDown={e => e.key === 'Enter' && (modo === 'login' ? handleLogin() : handleRegistro())}
                   style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box', transition: 'border 0.2s' }}
@@ -186,9 +223,7 @@ export default function AuthPage() {
                   Contraseña
                 </label>
                 <input
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
+                  type="password" value={password} onChange={e => setPassword(e.target.value)}
                   placeholder={modo === 'registro' ? 'Mínimo 6 caracteres' : '••••••••'}
                   onKeyDown={e => e.key === 'Enter' && (modo === 'login' ? handleLogin() : handleRegistro())}
                   style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box', transition: 'border 0.2s' }}
@@ -200,7 +235,14 @@ export default function AuthPage() {
               <button
                 onClick={modo === 'login' ? handleLogin : handleRegistro}
                 disabled={cargando}
-                style={{ width: '100%', padding: '14px', borderRadius: '12px', border: 'none', background: cargando ? 'var(--bg-card2)' : 'var(--gold)', color: cargando ? 'var(--text-faint)' : '#000', fontSize: '16px', fontWeight: 800, cursor: cargando ? 'not-allowed' : 'pointer', transition: 'all 0.2s', marginTop: '4px' }}>
+                style={{
+                  width: '100%', padding: '14px', borderRadius: '12px', border: 'none',
+                  background: cargando ? 'var(--bg-card2)' : 'var(--gold)',
+                  color: cargando ? 'var(--text-faint)' : '#000',
+                  fontSize: '16px', fontWeight: 800,
+                  cursor: cargando ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s', marginTop: '4px',
+                }}>
                 {cargando ? '⏳ Cargando...' : modo === 'login' ? '🚀 Iniciar sesión' : '✨ Crear cuenta'}
               </button>
             </div>
