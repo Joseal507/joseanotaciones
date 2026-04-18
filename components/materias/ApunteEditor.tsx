@@ -67,8 +67,9 @@ const isDrawing = [
   const isSelecting = herramienta === 'seleccion';
   const isDrawingMode = isDrawing || isSelecting;
 
-  const BASE_PAGE_WIDTH = isMobile ? 390 : 1000;
-  const BASE_PAGE_HEIGHT = isMobile ? 600 : 900;
+  // ✅ Tamaño carta real (8.5 x 11 pulgadas a 96dpi)
+const BASE_PAGE_WIDTH = isMobile ? 390 : 816;
+const BASE_PAGE_HEIGHT = isMobile ? 600 : 1056;
   const pageWidth = BASE_PAGE_WIDTH * zoomState.scale;
   const pageHeight = BASE_PAGE_HEIGHT * zoomState.scale;
 
@@ -146,43 +147,74 @@ const isDrawing = [
     triggerAutoSave();
   }, [setPaginasSync, triggerAutoSave]);
 
-  const handleClickEditor = useCallback((e: React.MouseEvent<HTMLDivElement>, paginaId: string) => {
-    if (isDrawingMode || newBlockId) return;
-    const target = e.target as HTMLElement;
-    if (
-      target.closest('[data-textblock]') || target.closest('[contenteditable="true"]') ||
-      target.closest('[data-image]') || target.closest('button') ||
-      target.closest('canvas') || target.closest('img') || target.closest('svg')
-    ) return;
+  cconst handleClickEditor = useCallback((e: React.MouseEvent<HTMLDivElement>, paginaId: string) => {
+  if (isDrawingMode || newBlockId) return;
+  const target = e.target as HTMLElement;
+  if (
+    target.closest('[data-textblock]') || target.closest('[contenteditable="true"]') ||
+    target.closest('[data-image]') || target.closest('button') ||
+    target.closest('canvas') || target.closest('img') || target.closest('svg')
+  ) return;
 
-    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    const x = (e.clientX - rect.left) / zoomState.scale;
-    const y = (e.clientY - rect.top) / zoomState.scale;
+  const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+  let x = (e.clientX - rect.left) / zoomState.scale;
+  let y = (e.clientY - rect.top) / zoomState.scale;
 
-    const paginaActual = paginasRef.current.find((pg) => pg.id === paginaId);
-    if (paginaActual?.bloques.some((b) => b.tipo === 'texto' && Math.abs(b.x - x) < 300 && Math.abs(b.y - y) < 40)) return;
+  // ✅ Clampar dentro de la página con margen
+  const MARGIN = 20;
+  const TEXT_WIDTH = isMobile ? 280 : 300;
+  const pageW = isMobile ? 390 : 816;
+  const pageH = isMobile ? 600 : 1056;
 
-    const id = genId();
-    setPaginasSync((prev) => prev.map((pg) =>
-      pg.id === paginaId
-        ? { ...pg, bloques: [...pg.bloques, { id, tipo: 'texto' as const, html: '', x: Math.max(4, x), y: Math.max(4, y), width: 300 }] }
-        : pg
-    ));
-    setNewBlockId(id);
-    triggerAutoSave();
-  }, [isDrawingMode, newBlockId, triggerAutoSave, zoomState.scale, setPaginasSync]);
+  x = Math.max(MARGIN, Math.min(x, pageW - TEXT_WIDTH - MARGIN));
+  y = Math.max(MARGIN, Math.min(y, pageH - 60));
+
+  // ✅ No crear si hay un bloque muy cerca
+  const paginaActual = paginasRef.current.find((pg) => pg.id === paginaId);
+  if (paginaActual?.bloques.some((b) =>
+    b.tipo === 'texto' && Math.abs(b.x - x) < 200 && Math.abs(b.y - y) < 30
+  )) return;
+
+  const id = genId();
+  setPaginasSync((prev) => prev.map((pg) =>
+    pg.id === paginaId
+      ? {
+          ...pg,
+          bloques: [...pg.bloques, {
+            id,
+            tipo: 'texto' as const,
+            html: '',
+            x: Math.round(x),
+            y: Math.round(y),
+            width: TEXT_WIDTH,
+          }],
+        }
+      : pg
+  ));
+  setNewBlockId(id);
+  triggerAutoSave();
+}, [isDrawingMode, newBlockId, triggerAutoSave, zoomState.scale, setPaginasSync, isMobile]);
 
   const handleTextInsert = useCallback((text: string, canvasY: number, paginaId: string) => {
-    if (!text.trim()) return;
-    const htmlContent = text.split('\n').filter((l) => l.trim()).map((l) => `<p>${l}</p>`).join('');
-    const id = genId();
-    setPaginasSync((prev) => prev.map((pg) =>
-      pg.id === paginaId
-        ? { ...pg, bloques: [...pg.bloques, { id, tipo: 'texto' as const, html: htmlContent, x: 80, y: canvasY / zoomState.scale, width: 500 }] }
-        : pg
-    ));
-    triggerAutoSave();
-  }, [setPaginasSync, triggerAutoSave, zoomState.scale]);
+  if (!text.trim()) return;
+  const htmlContent = text.split('\n').filter((l) => l.trim()).map((l) => `<p>${l}</p>`).join('');
+  const id = genId();
+
+  const MARGIN = 20;
+  const pageW = isMobile ? 390 : 816;
+  const TEXT_WIDTH = isMobile ? 300 : 500;
+
+  // ✅ Clampar posición
+  const x = Math.max(MARGIN, Math.min(80, pageW - TEXT_WIDTH - MARGIN));
+  const y = Math.max(MARGIN, Math.min(canvasY / zoomState.scale, (isMobile ? 600 : 1056) - 60));
+
+  setPaginasSync((prev) => prev.map((pg) =>
+    pg.id === paginaId
+      ? { ...pg, bloques: [...pg.bloques, { id, tipo: 'texto' as const, html: htmlContent, x, y, width: TEXT_WIDTH }] }
+      : pg
+  ));
+  triggerAutoSave();
+}, [setPaginasSync, triggerAutoSave, zoomState.scale, isMobile]);
 
   const addImagen = useCallback((src: string, label?: string) => {
     const paginaId = paginasRef.current[paginasRef.current.length - 1].id;
