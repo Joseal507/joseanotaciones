@@ -75,17 +75,20 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
   const universidadFinal = universidad === 'Otra universidad' ? universidadCustom : universidad;
   const carreraFinal = carrera === 'Otra carrera' ? carreraCustom : carrera;
 
-  const handleGuardar = async () => {
+ const handleGuardar = async () => {
   setGuardando(true);
   try {
     const { data: sessionData } = await supabase.auth.getSession();
     const session = sessionData.session;
-    if (!session) {
-      onComplete();
-      return;
-    }
+    if (!session) { onComplete(); return; }
 
-    const res = await fetch('/api/user-profile', {
+    const userId = session.user.id;
+
+    // ✅ Guardar en localStorage PRIMERO antes de cualquier cosa
+    localStorage.setItem(`josea_onboarding_done_${userId}`, 'true');
+
+    // ✅ Intentar guardar en DB (en background, no bloqueante)
+    fetch('/api/user-profile', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -100,16 +103,31 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
         que_quieres_estudiar: queQuieresEstudiar || null,
         es_nuevo: true,
       }),
+    }).then(r => r.json()).then(d => {
+      console.log('Perfil guardado en DB:', d);
+    }).catch(err => {
+      console.error('Error guardando en DB (no crítico):', err);
     });
 
-    const data = await res.json();
-    console.log('Respuesta guardar perfil:', data);
+    // ✅ Enviar email directo desde el cliente también como backup
+    fetch('/api/notify-new-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nombre,
+        email: session.user.email,
+        genero,
+        tipo_estudiante: tipoEstudiante,
+        universidad: tipoEstudiante === 'universitario' ? universidadFinal : null,
+        carrera: tipoEstudiante === 'universitario' ? carreraFinal : null,
+        que_quieres_estudiar: queQuieresEstudiar || null,
+        es_nuevo: true,
+      }),
+    }).catch(() => {});
 
-    if (!data.success) {
-      console.error('Error guardando:', data.error);
-    }
-
+    // ✅ Continuar inmediatamente sin esperar la DB
     onComplete();
+
   } catch (err) {
     console.error('handleGuardar error:', err);
     onComplete();

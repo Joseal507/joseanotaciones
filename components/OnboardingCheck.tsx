@@ -21,27 +21,28 @@ export default function OnboardingCheck() {
           || session.user.email?.split('@')[0]
           || '';
 
-        // ✅ Verificar directamente en Supabase sin pasar por API
-        // para evitar fallos de SUPABASE_SERVICE_ROLE_KEY
-        const { createClient } = await import('@supabase/supabase-js');
-        const client = createClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-          { global: { headers: { Authorization: `Bearer ${session.access_token}` } } }
-        );
-
-        const { data: profile } = await client
-          .from('user_profiles')
-          .select('onboarding_completo')
-          .eq('id', userId)
-          .single();
-
-        console.log('Perfil encontrado:', profile);
-
-        if (!profile || !profile.onboarding_completo) {
-          setNombre(userName);
-          setShowOnboarding(true);
+        // ✅ Primero check localStorage — instantáneo y confiable
+        const localKey = `josea_onboarding_done_${userId}`;
+        if (localStorage.getItem(localKey) === 'true') {
+          setChecked(true);
+          return;
         }
+
+        // ✅ Luego check en DB
+        try {
+          const res = await fetch(`/api/user-profile?userId=${userId}`);
+          const data = await res.json();
+          if (data.data?.onboarding_completo) {
+            // Guardar en localStorage para próximas veces
+            localStorage.setItem(localKey, 'true');
+            setChecked(true);
+            return;
+          }
+        } catch {}
+
+        // No completó onboarding → mostrar modal
+        setNombre(userName);
+        setShowOnboarding(true);
       } catch (err) {
         console.error('OnboardingCheck error:', err);
       } finally {
@@ -57,7 +58,14 @@ export default function OnboardingCheck() {
   return (
     <OnboardingModal
       nombre={nombre}
-      onComplete={() => setShowOnboarding(false)}
+      onComplete={async () => {
+        // ✅ Guardar en localStorage inmediatamente al completar
+        const { data } = await supabase.auth.getSession();
+        if (data.session) {
+          localStorage.setItem(`josea_onboarding_done_${data.session.user.id}`, 'true');
+        }
+        setShowOnboarding(false);
+      }}
     />
   );
 }
