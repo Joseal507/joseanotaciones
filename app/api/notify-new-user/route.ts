@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
     // Aquí usamos fetch a tu email con un webhook simple
     // Puedes reemplazar por Resend si tienes la API key
 
-    const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'joseal507@gmail.com';
+    const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'jose.alberto.deobaldia@gmail.com';
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
     if (RESEND_API_KEY) {

@@ -14,6 +14,7 @@ import NotasRapidas from '../components/NotasRapidas';
 import GraficasEstudio from '../components/GraficasEstudio';
 import HorarioWidget from '../components/HorarioWidget';
 import Leaderboard from '../components/Leaderboard';
+import OnboardingCheck from '../components/OnboardingCheck';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useIdioma } from '../hooks/useIdioma';
@@ -81,18 +82,41 @@ export default function Home() {
 
   if (verificando) {
     return (
-      <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px', fontFamily: '-apple-system, sans-serif' }}>
-        <div style={{ width: '80px', height: '80px', borderRadius: '20px', border: '3px solid var(--gold)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-card)', fontSize: '36px' }}>
-          <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            onError={(e: any) => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = '📚'; }} />
+      <div style={{
+        minHeight: '100vh',
+        background: 'var(--bg-primary)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'column',
+        gap: '16px',
+        fontFamily: '-apple-system, sans-serif',
+      }}>
+        <div style={{
+          width: '80px', height: '80px',
+          borderRadius: '20px',
+          border: '3px solid var(--gold)',
+          overflow: 'hidden',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'var(--bg-card)', fontSize: '36px',
+        }}>
+          <img src="/logo.png" alt="Logo"
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            onError={(e: any) => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = '📚'; }}
+          />
         </div>
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>{tr('cargando')} {appNombre}...</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>
+          {tr('cargando')} {appNombre}...
+        </p>
       </div>
     );
   }
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', fontFamily: '-apple-system, sans-serif' }}>
+
+      {/* ✅ Onboarding check — se muestra si no ha completado el perfil */}
+      <OnboardingCheck />
 
       {showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
 
@@ -101,13 +125,26 @@ export default function Home() {
         <NavbarMobile darkMode={darkMode} onToggleDark={toggleDark} />
       ) : (
         <>
-          <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: '0 40px', position: 'sticky', top: 0, zIndex: 100, display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '68px' }}>
+          <header style={{
+            background: 'var(--bg-card)',
+            borderBottom: '3px solid var(--gold)',
+            padding: '0 40px',
+            position: 'sticky', top: 0, zIndex: 100,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            height: '68px',
+          }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <img src="/logo.png" alt="Logo" style={{ width: '42px', height: '42px', borderRadius: '10px', objectFit: 'cover' }}
-                onError={(e: any) => { e.target.style.display = 'none'; }} />
+              <img src="/logo.png" alt="Logo"
+                style={{ width: '42px', height: '42px', borderRadius: '10px', objectFit: 'cover' }}
+                onError={(e: any) => { e.target.style.display = 'none'; }}
+              />
               <div>
-                <h1 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{appNombre}</h1>
-                <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>{tr('tuPlataforma')}</p>
+                <h1 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
+                  {appNombre}
+                </h1>
+                <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>
+                  {tr('tuPlataforma')}
+                </p>
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -121,7 +158,7 @@ export default function Home() {
               </button>
               <button onClick={() => window.location.href = '/chat'}
                 style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-              🤖 JeffreyBot
+                🤖 JeffreyBot
               </button>
               <button onClick={() => window.location.href = '/agenda'}
                 style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--blue)', background: 'transparent', color: 'var(--blue)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
@@ -158,18 +195,25 @@ export default function Home() {
             border: '4px solid var(--gold)',
             overflow: 'hidden',
             margin: '0 auto 20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
             background: 'var(--bg-card)',
             fontSize: isMobile ? '60px' : '120px',
             boxShadow: '0 20px 80px rgba(245,200,66,0.35)',
           }}>
-            <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              onError={(e: any) => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = '📚'; }} />
+            <img src="/logo.png" alt="Logo"
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              onError={(e: any) => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = '📚'; }}
+            />
           </div>
 
-          <h1 style={{ fontSize: isMobile ? '28px' : '56px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px', letterSpacing: isMobile ? '-1px' : '-2px', lineHeight: 1 }}>
+          <h1 style={{
+            fontSize: isMobile ? '28px' : '56px',
+            fontWeight: 900,
+            color: 'var(--text-primary)',
+            margin: '0 0 8px',
+            letterSpacing: isMobile ? '-1px' : '-2px',
+            lineHeight: 1,
+          }}>
             {appNombre.toUpperCase()}
           </h1>
 
@@ -179,7 +223,14 @@ export default function Home() {
             ))}
           </div>
 
-          <p style={{ fontSize: isMobile ? '15px' : '18px', color: 'var(--text-muted)', margin: '0 0 24px', maxWidth: '460px', marginLeft: 'auto', marginRight: 'auto' }}>
+          <p style={{
+            fontSize: isMobile ? '15px' : '18px',
+            color: 'var(--text-muted)',
+            margin: '0 0 24px',
+            maxWidth: '460px',
+            marginLeft: 'auto',
+            marginRight: 'auto',
+          }}>
             {tr('miPlataforma')}
           </p>
 
@@ -197,7 +248,15 @@ export default function Home() {
         </div>
 
         {/* STATS */}
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: '1px', background: 'var(--border-color)', borderRadius: '16px', overflow: 'hidden', marginBottom: isMobile ? '28px' : '48px' }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
+          gap: '1px',
+          background: 'var(--border-color)',
+          borderRadius: '16px',
+          overflow: 'hidden',
+          marginBottom: isMobile ? '28px' : '48px',
+        }}>
           {[
             { label: tr('materias'), value: materias.length, color: 'var(--gold)', emoji: '📚' },
             { label: tr('apuntes'), value: totalApuntes, color: 'var(--pink)', emoji: '✏️' },
@@ -261,7 +320,9 @@ export default function Home() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{ width: '4px', height: '28px', background: 'var(--gold)', borderRadius: '2px' }} />
-                <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{tr('misMaterias')}</h2>
+                <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
+                  {tr('misMaterias')}
+                </h2>
               </div>
               <button onClick={() => window.location.href = '/materias'}
                 style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--gold-border)', background: 'var(--gold-dim)', color: 'var(--gold)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
@@ -269,24 +330,38 @@ export default function Home() {
               </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(240px, 1fr))', gap: isMobile ? '10px' : '16px' }}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(240px, 1fr))',
+              gap: isMobile ? '10px' : '16px',
+            }}>
               {materias.slice(0, isMobile ? 4 : 6).map(materia => (
                 <div key={materia.id}
                   onClick={() => window.location.href = '/materias'}
                   style={{ background: 'var(--bg-card)', borderRadius: '14px', border: '1px solid var(--border-color)', overflow: 'hidden', cursor: 'pointer', transition: 'all 0.2s ease' }}
                   onMouseEnter={(e: any) => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.borderColor = materia.color; }}
-                  onMouseLeave={(e: any) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}>
+                  onMouseLeave={(e: any) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                >
                   <div style={{ height: '4px', background: materia.color }} />
                   <div style={{ padding: isMobile ? '12px' : '18px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                      <div style={{ width: isMobile ? '34px' : '44px', height: isMobile ? '34px' : '44px', borderRadius: '10px', background: materia.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: isMobile ? '16px' : '20px', flexShrink: 0 }}>
+                      <div style={{
+                        width: isMobile ? '34px' : '44px',
+                        height: isMobile ? '34px' : '44px',
+                        borderRadius: '10px',
+                        background: materia.color,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: isMobile ? '16px' : '20px', flexShrink: 0,
+                      }}>
                         {materia.emoji}
                       </div>
                       <div style={{ minWidth: 0 }}>
                         <h3 style={{ fontSize: isMobile ? '13px' : '15px', fontWeight: 800, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {materia.nombre}
                         </h3>
-                        <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: 0 }}>{materia.temas.length} {tr('temas')}</p>
+                        <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: 0 }}>
+                          {materia.temas.length} {tr('temas')}
+                        </p>
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: '6px' }}>
@@ -304,12 +379,16 @@ export default function Home() {
                 </div>
               ))}
 
-              <div onClick={() => window.location.href = '/materias'}
+              <div
+                onClick={() => window.location.href = '/materias'}
                 style={{ background: 'transparent', borderRadius: '14px', border: '2px dashed var(--border-color)', padding: '12px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '6px', minHeight: '100px', transition: 'all 0.2s' }}
                 onMouseEnter={(e: any) => { e.currentTarget.style.borderColor = 'var(--gold)'; e.currentTarget.style.background = 'var(--gold-dim)'; }}
-                onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.background = 'transparent'; }}>
+                onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.background = 'transparent'; }}
+              >
                 <div style={{ fontSize: '24px' }}>➕</div>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 700, margin: 0 }}>{tr('nuevaMateria')}</p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 700, margin: 0 }}>
+                  {tr('nuevaMateria')}
+                </p>
               </div>
             </div>
           </div>
@@ -335,10 +414,16 @@ export default function Home() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
             <div style={{ width: '4px', height: '28px', background: 'var(--blue)', borderRadius: '2px' }} />
-            <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{tr('accesosRapidos')}</h2>
+            <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
+              {tr('accesosRapidos')}
+            </h2>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(160px, 1fr))', gap: isMobile ? '10px' : '14px' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(160px, 1fr))',
+            gap: isMobile ? '10px' : '14px',
+          }}>
             {[
               { emoji: '📚', label: tr('misMaterias'), desc: idioma === 'en' ? 'Notes & topics' : 'Apuntes y temas', color: 'var(--gold)', href: '/materias' },
               { emoji: '🗓️', label: tr('horario'), desc: idioma === 'en' ? 'Weekly schedule' : 'Clases de la semana', color: 'var(--gold)', href: '/horario' },
@@ -352,12 +437,17 @@ export default function Home() {
                 onClick={() => window.location.href = item.href}
                 style={{ background: 'var(--bg-card)', borderRadius: '14px', border: '1px solid var(--border-color)', overflow: 'hidden', cursor: 'pointer', transition: 'all 0.2s' }}
                 onMouseEnter={(e: any) => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.borderColor = item.color; }}
-                onMouseLeave={(e: any) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}>
+                onMouseLeave={(e: any) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+              >
                 <div style={{ height: '4px', background: item.color }} />
                 <div style={{ padding: isMobile ? '14px 12px' : '18px' }}>
                   <div style={{ fontSize: isMobile ? '22px' : '26px', marginBottom: '6px' }}>{item.emoji}</div>
-                  <h3 style={{ fontSize: isMobile ? '12px' : '14px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 3px' }}>{item.label}</h3>
-                  <p style={{ fontSize: isMobile ? '10px' : '11px', color: 'var(--text-muted)', margin: 0 }}>{item.desc}</p>
+                  <h3 style={{ fontSize: isMobile ? '12px' : '14px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 3px' }}>
+                    {item.label}
+                  </h3>
+                  <p style={{ fontSize: isMobile ? '10px' : '11px', color: 'var(--text-muted)', margin: 0 }}>
+                    {item.desc}
+                  </p>
                 </div>
               </div>
             ))}

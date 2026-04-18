@@ -38,17 +38,19 @@ const CARRERAS = [
 ];
 
 const UNIVERSIDADES_POPULARES = [
-  'UNAM',
-  'IPN',
-  'UAM',
+  'ULAT',
+  'USMA',
+  'UTP',
+  'UP (Universidad de Panamá)',
+  'UDELAS',
+  'Harvard',
+  'MIT',
+  'Stanford',
+  'Notre Dame',
+  'IE University',
+  'UM (Universidad de Miami)',
   'TEC de Monterrey',
-  'UDG',
-  'BUAP',
-  'UANL',
-  'UAQ',
-  'IBERO',
-  'UADY',
-  'UPN',
+  'MU',
   'Otra universidad',
 ];
 
