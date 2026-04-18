@@ -14,41 +14,47 @@ interface LeaderEntry {
   mejor_racha: number;
   precision_global: number;
   updated_at: string;
+  created_at?: string;
   avatar_url?: string;
   carrera?: string;
   universidad?: string;
   tipo_estudiante?: string;
   genero?: string;
-  fecha_registro?: string;
+  onboarding_completo?: boolean;
 }
 
 function formatFecha(fecha: string | undefined) {
   if (!fecha) return '';
   try {
     const d = new Date(fecha);
-    const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     return `${d.getDate()} ${meses[d.getMonth()]} ${d.getFullYear()}`;
   } catch { return ''; }
 }
 
-function UserProfileModal({ entry, rank, onClose }: { entry: LeaderEntry; rank: number; onClose: () => void }) {
+function UserProfileModal({
+  entry, rank, onClose,
+}: { entry: LeaderEntry; rank: number; onClose: () => void }) {
   const getMedal = (r: number) => r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : `#${r}`;
-  const getColor = (r: number) => r === 1 ? '#f5c842' : r === 2 ? '#aaaaaa' : r === 3 ? '#cd7f32' : 'var(--text-faint)';
+  const getColor = (r: number) => r === 1 ? '#f5c842' : r === 2 ? '#aaaaaa' : r === 3 ? '#cd7f32' : '#94a3b8';
 
   const generoLabel: Record<string, string> = {
     hombre: '👦 Hombre',
     mujer: '👧 Mujer',
-    otro: '🌈 Otro',
+    otro: '🌈 Otro / No especificado',
   };
+
+  const color = getColor(rank);
 
   return (
     <div
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 99999,
-        background: 'rgba(0,0,0,0.75)',
+        background: 'rgba(0,0,0,0.78)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '20px', backdropFilter: 'blur(6px)',
+        padding: '20px', backdropFilter: 'blur(8px)',
       }}
     >
       <div
@@ -57,118 +63,141 @@ function UserProfileModal({ entry, rank, onClose }: { entry: LeaderEntry; rank: 
           width: '100%', maxWidth: '380px',
           background: 'var(--bg-card)',
           borderRadius: '24px',
-          border: '1px solid var(--border-color)',
+          border: `1px solid ${color}30`,
           overflow: 'hidden',
-          boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
+          boxShadow: `0 24px 80px rgba(0,0,0,0.6), 0 0 0 1px ${color}20`,
         }}
       >
-        {/* Header gradient */}
+        {/* Header */}
         <div style={{
           height: '80px',
-          background: `linear-gradient(135deg, ${getColor(rank)}40, ${getColor(rank)}10)`,
-          borderBottom: `2px solid ${getColor(rank)}30`,
+          background: `linear-gradient(135deg, ${color}30, ${color}08)`,
+          borderBottom: `1px solid ${color}20`,
           position: 'relative',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <div style={{
-            position: 'absolute', top: '12px', right: '16px',
-            fontSize: '22px', fontWeight: 900,
-          }}>
-            {getMedal(rank)}
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              position: 'absolute', top: '12px', left: '16px',
-              background: 'rgba(0,0,0,0.3)', border: 'none',
-              color: '#fff', width: '28px', height: '28px',
-              borderRadius: '50%', cursor: 'pointer',
-              fontSize: '14px', fontWeight: 700,
-            }}
-          >
-            ✕
-          </button>
+          <span style={{ fontSize: '28px' }}>{getMedal(rank)}</span>
+          <button onClick={onClose} style={{
+            position: 'absolute', top: '10px', right: '12px',
+            background: 'rgba(0,0,0,0.3)', border: 'none',
+            color: '#fff', width: '28px', height: '28px',
+            borderRadius: '50%', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+          }}>✕</button>
         </div>
 
         {/* Avatar */}
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: '-38px', marginBottom: '12px' }}>
           <div style={{
             width: '76px', height: '76px', borderRadius: '50%',
-            border: `3px solid ${getColor(rank)}`,
+            border: `3px solid ${color}`,
             background: 'var(--bg-secondary)',
             overflow: 'hidden',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '32px', fontWeight: 800, color: 'var(--text-primary)',
-            boxShadow: `0 4px 20px ${getColor(rank)}40`,
+            fontSize: '30px', fontWeight: 800, color: 'var(--text-primary)',
+            boxShadow: `0 4px 20px ${color}40`,
           }}>
-            {entry.avatar_url ? (
-              <img src={entry.avatar_url} alt={entry.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            ) : (
-              entry.nombre?.[0]?.toUpperCase() || '?'
-            )}
+            {entry.avatar_url
+              ? <img src={entry.avatar_url} alt={entry.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : entry.nombre?.[0]?.toUpperCase() || '?'
+            }
           </div>
         </div>
 
         <div style={{ padding: '0 24px 24px' }}>
           {/* Nombre */}
-          <h2 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 4px', textAlign: 'center' }}>
+          <h2 style={{ fontSize: '21px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 16px', textAlign: 'center' }}>
             {entry.nombre}
           </h2>
 
-          {/* Info del perfil */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'center', marginBottom: '20px' }}>
-            {entry.carrera && (
-              <p style={{ fontSize: '13px', color: getColor(rank), fontWeight: 700, margin: 0 }}>
-                📚 {entry.carrera}
-              </p>
-            )}
-            {entry.universidad && (
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-                🏫 {entry.universidad}
-              </p>
-            )}
+          {/* Datos personales */}
+          <div style={{
+            background: 'var(--bg-secondary)', borderRadius: '14px',
+            padding: '14px 16px', marginBottom: '16px',
+            display: 'flex', flexDirection: 'column', gap: '8px',
+          }}>
             {entry.genero && (
-              <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>
-                {generoLabel[entry.genero] || entry.genero}
-              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '16px' }}>⚧</span>
+                <div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase' }}>Género</div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 700 }}>
+                    {generoLabel[entry.genero] || entry.genero}
+                  </div>
+                </div>
+              </div>
             )}
-            {!entry.carrera && !entry.universidad && (
-              <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>
-                {entry.tipo_estudiante === 'universitario' ? '🎓 Universitario' : '🏫 Estudiante'}
-              </p>
+
+            {entry.tipo_estudiante && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '16px' }}>{entry.tipo_estudiante === 'universitario' ? '🎓' : '🏫'}</span>
+                <div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase' }}>Tipo</div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 700 }}>
+                    {entry.tipo_estudiante === 'universitario' ? 'Universitario' : 'Bachillerato / Secundaria'}
+                  </div>
+                </div>
+              </div>
             )}
-            {entry.fecha_registro && (
-              <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '4px 0 0' }}>
-                Miembro desde {formatFecha(entry.fecha_registro)}
-              </p>
+
+            {entry.carrera && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '16px' }}>📚</span>
+                <div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase' }}>Carrera</div>
+                  <div style={{ fontSize: '13px', color: color, fontWeight: 700 }}>
+                    {entry.carrera}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {entry.universidad && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '16px' }}>🏫</span>
+                <div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase' }}>Universidad</div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 700 }}>
+                    {entry.universidad}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {entry.created_at && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '16px' }}>📅</span>
+                <div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase' }}>Se registró</div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 700 }}>
+                    {formatFecha(entry.created_at)}
+                  </div>
+                </div>
+              </div>
             )}
           </div>
 
-          {/* Stats grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '20px' }}>
+          {/* Stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '16px' }}>
             {[
               { label: 'XP', value: entry.xp_total, emoji: '⭐', color: '#f5c842' },
               { label: 'Flashcards', value: entry.flashcards_estudiadas, emoji: '🎴', color: '#f472b6' },
               { label: 'Racha', value: entry.racha_actual, emoji: '🔥', color: '#ef4444' },
               { label: 'Mejor racha', value: entry.mejor_racha, emoji: '🏆', color: '#f5c842' },
               { label: 'Precisión', value: `${entry.precision_global}%`, emoji: '🎯', color: '#38bdf8' },
-              { label: 'Puesto', value: getMedal(rank), emoji: '', color: getColor(rank) },
+              { label: 'Puesto', value: getMedal(rank), emoji: '', color },
             ].map((s, i) => (
-              <div key={i} style={{ background: 'var(--bg-secondary)', borderRadius: '12px', padding: '10px 6px', textAlign: 'center' }}>
-                <div style={{ fontSize: '14px', marginBottom: '2px' }}>{s.emoji}</div>
-                <div style={{ fontSize: '16px', fontWeight: 900, color: s.color }}>{s.value}</div>
-                <div style={{ fontSize: '9px', color: 'var(--text-faint)', fontWeight: 600, marginTop: '2px' }}>{s.label}</div>
+              <div key={i} style={{ background: 'var(--bg-secondary)', borderRadius: '10px', padding: '8px 4px', textAlign: 'center' }}>
+                <div style={{ fontSize: '13px', marginBottom: '1px' }}>{s.emoji}</div>
+                <div style={{ fontSize: '15px', fontWeight: 900, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: '8px', color: 'var(--text-faint)', fontWeight: 600 }}>{s.label}</div>
               </div>
             ))}
           </div>
 
-          <button
-            onClick={onClose}
-            style={{
-              width: '100%', padding: '12px', borderRadius: '12px', border: 'none',
-              background: getColor(rank), color: '#000',
-              fontSize: '14px', fontWeight: 800, cursor: 'pointer',
-            }}
-          >
+          <button onClick={onClose} style={{
+            width: '100%', padding: '12px', borderRadius: '12px', border: 'none',
+            background: color, color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer',
+          }}>
             Cerrar
           </button>
         </div>
@@ -195,7 +224,8 @@ export default function Leaderboard() {
         setEntries(data.data || []);
         const { data: sessionData } = await supabase.auth.getUser();
         if (sessionData.user) {
-          const name = sessionData.user.user_metadata?.nombre || sessionData.user.email?.split('@')[0] || '';
+          const name = sessionData.user.user_metadata?.nombre
+            || sessionData.user.email?.split('@')[0] || '';
           setMyName(name);
           const myIdx = (data.data || []).findIndex((e: LeaderEntry) =>
             e.nombre.toLowerCase() === name.toLowerCase()
@@ -244,6 +274,7 @@ export default function Leaderboard() {
         <div style={{ height: '4px', background: 'var(--gold)' }} />
         <div style={{ padding: '20px' }}>
 
+          {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
             <div>
               <h3 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px' }}>
@@ -253,36 +284,38 @@ export default function Leaderboard() {
                 {idioma === 'en' ? 'Top students by XP' : 'Top estudiantes por XP'}
                 {myRank && (
                   <span style={{ color: 'var(--gold)', marginLeft: '8px', fontWeight: 700 }}>
-                    · {idioma === 'en' ? 'Your rank' : 'Tu posición'}: #{myRank}
+                    · Tu posición: #{myRank}
                   </span>
                 )}
               </p>
             </div>
-            <button onClick={handleSync} disabled={syncing}
-              style={{ padding: '7px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: syncing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button onClick={handleSync} disabled={syncing} style={{
+              padding: '7px 14px', borderRadius: '8px',
+              border: '1px solid var(--border-color)',
+              background: 'transparent', color: 'var(--text-muted)',
+              fontSize: '12px', fontWeight: 700,
+              cursor: syncing ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
               {syncing ? '⏳ ...' : '🔄 Sync'}
             </button>
           </div>
 
           {loading ? (
             <div style={{ textAlign: 'center', padding: '30px 0' }}>
-              <div style={{ fontSize: '32px', marginBottom: '8px' }}>⏳</div>
-              <p style={{ color: 'var(--text-faint)', fontSize: '14px', margin: 0 }}>
-                {idioma === 'en' ? 'Loading...' : 'Cargando...'}
-              </p>
+              <p style={{ color: 'var(--text-faint)', fontSize: '14px', margin: 0 }}>⏳ Cargando...</p>
             </div>
           ) : entries.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '30px 0' }}>
               <div style={{ fontSize: '40px', marginBottom: '8px' }}>🏆</div>
-              <p style={{ color: 'var(--text-faint)', fontSize: '14px', margin: '0 0 4px' }}>
-                {idioma === 'en' ? 'Be the first!' : '¡Sé el primero!'}
-              </p>
+              <p style={{ color: 'var(--text-faint)', fontSize: '14px', margin: 0 }}>¡Sé el primero!</p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {entries.map((entry, i) => {
                 const rank = i + 1;
                 const isMe = entry.nombre.toLowerCase() === myName.toLowerCase();
+                const color = getColor(rank);
 
                 return (
                   <div key={i} style={{
@@ -290,15 +323,15 @@ export default function Leaderboard() {
                     padding: '10px 14px', borderRadius: '12px',
                     background: isMe ? 'var(--gold-dim)' : rank <= 3 ? 'var(--bg-secondary)' : 'transparent',
                     border: isMe ? '2px solid var(--gold)' : rank <= 3 ? '1px solid var(--border-color)' : '1px solid transparent',
-                    transition: 'all 0.2s',
                   }}>
+
                     {/* Rank */}
                     <div style={{
                       width: '30px', height: '30px', borderRadius: '8px',
-                      background: rank <= 3 ? getColor(rank) + '20' : 'var(--bg-secondary)',
+                      background: rank <= 3 ? color + '20' : 'var(--bg-secondary)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: rank <= 3 ? '15px' : '11px', fontWeight: 900,
-                      color: getColor(rank), flexShrink: 0,
+                      color, flexShrink: 0,
                     }}>
                       {getMedal(rank)}
                     </div>
@@ -306,10 +339,11 @@ export default function Leaderboard() {
                     {/* Avatar clickeable */}
                     <div
                       onClick={() => setSelectedEntry({ entry, rank })}
+                      title={`Ver perfil de ${entry.nombre}`}
                       style={{
                         width: '38px', height: '38px', borderRadius: '50%',
                         background: 'var(--bg-secondary)',
-                        border: `2px solid ${isMe ? 'var(--gold)' : getColor(rank)}`,
+                        border: `2px solid ${isMe ? 'var(--gold)' : color}`,
                         overflow: 'hidden',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)',
@@ -318,24 +352,23 @@ export default function Leaderboard() {
                       }}
                       onMouseEnter={e => {
                         (e.currentTarget as HTMLElement).style.transform = 'scale(1.12)';
-                        (e.currentTarget as HTMLElement).style.boxShadow = `0 4px 12px ${getColor(rank)}40`;
+                        (e.currentTarget as HTMLElement).style.boxShadow = `0 4px 12px ${color}50`;
                       }}
                       onMouseLeave={e => {
                         (e.currentTarget as HTMLElement).style.transform = 'scale(1)';
                         (e.currentTarget as HTMLElement).style.boxShadow = 'none';
                       }}
-                      title={`Ver perfil de ${entry.nombre}`}
                     >
-                      {entry.avatar_url ? (
-                        <img src={entry.avatar_url} alt={entry.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      ) : (
-                        <span>{entry.nombre?.[0]?.toUpperCase() || '?'}</span>
-                      )}
+                      {entry.avatar_url
+                        ? <img src={entry.avatar_url} alt={entry.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : <span>{entry.nombre?.[0]?.toUpperCase() || '?'}</span>
+                      }
                     </div>
 
-                    {/* Info */}
+                    {/* Info principal */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '1px' }}>
+                      {/* Nombre + badge TÚ */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <p style={{
                           fontSize: '14px', fontWeight: 800,
                           color: 'var(--text-primary)', margin: 0,
@@ -344,31 +377,37 @@ export default function Leaderboard() {
                           {entry.nombre}
                         </p>
                         {isMe && (
-                          <span style={{ fontSize: '9px', background: 'var(--gold)', color: '#000', padding: '1px 6px', borderRadius: '4px', fontWeight: 800, flexShrink: 0 }}>
-                            TÚ
-                          </span>
+                          <span style={{
+                            fontSize: '9px', background: 'var(--gold)', color: '#000',
+                            padding: '1px 5px', borderRadius: '4px', fontWeight: 800, flexShrink: 0,
+                          }}>TÚ</span>
                         )}
                       </div>
 
-                      {/* ✅ Carrera al lado del nombre */}
-                      {entry.carrera && (
+                      {/* ✅ Carrera debajo del nombre */}
+                      {entry.carrera ? (
                         <p style={{
-                          fontSize: '11px', color: getColor(rank), fontWeight: 600,
-                          margin: '0 0 2px',
+                          fontSize: '11px', color, fontWeight: 700,
+                          margin: '1px 0 2px',
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                         }}>
                           📚 {entry.carrera}
                         </p>
-                      )}
+                      ) : entry.tipo_estudiante ? (
+                        <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '1px 0 2px' }}>
+                          {entry.tipo_estudiante === 'universitario' ? '🎓 Universitario' : '🏫 Estudiante'}
+                        </p>
+                      ) : null}
 
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {/* Stats + fecha */}
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>🎴 {entry.flashcards_estudiadas}</span>
                         <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>🔥 {entry.racha_actual}</span>
                         <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>🎯 {entry.precision_global}%</span>
-                        {/* ✅ Fecha de registro */}
-                        {entry.fecha_registro && (
-                          <span style={{ fontSize: '10px', color: 'var(--text-faint)', opacity: 0.6 }}>
-                            · {formatFecha(entry.fecha_registro)}
+                        {/* ✅ Fecha de cuando se registró (created_at) */}
+                        {entry.created_at && (
+                          <span style={{ fontSize: '10px', color: 'var(--text-faint)', opacity: 0.55 }}>
+                            · desde {formatFecha(entry.created_at)}
                           </span>
                         )}
                       </div>
@@ -376,7 +415,7 @@ export default function Leaderboard() {
 
                     {/* XP */}
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <p style={{ fontSize: '18px', fontWeight: 900, color: getColor(rank), margin: 0 }}>
+                      <p style={{ fontSize: '18px', fontWeight: 900, color, margin: 0 }}>
                         {entry.xp_total}
                       </p>
                       <p style={{ fontSize: '10px', color: 'var(--text-faint)', margin: 0 }}>XP</p>
@@ -388,9 +427,7 @@ export default function Leaderboard() {
           )}
 
           <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '12px 0 0', textAlign: 'center' }}>
-            {idioma === 'en'
-              ? 'Click on a profile picture to see details'
-              : 'Toca una foto de perfil para ver detalles'}
+            Toca una foto de perfil para ver más detalles
           </p>
         </div>
       </div>

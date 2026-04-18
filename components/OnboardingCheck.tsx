@@ -21,26 +21,29 @@ export default function OnboardingCheck() {
           || session.user.email?.split('@')[0]
           || '';
 
-        // ✅ Primero check localStorage — instantáneo y confiable
+        // ✅ Check localStorage primero — instantáneo
         const localKey = `josea_onboarding_done_${userId}`;
         if (localStorage.getItem(localKey) === 'true') {
           setChecked(true);
           return;
         }
 
-        // ✅ Luego check en DB
-        try {
-          const res = await fetch(`/api/user-profile?userId=${userId}`);
-          const data = await res.json();
-          if (data.data?.onboarding_completo) {
-            // Guardar en localStorage para próximas veces
-            localStorage.setItem(localKey, 'true');
-            setChecked(true);
-            return;
-          }
-        } catch {}
+        // ✅ Check en leaderboard directamente con anon key
+        const { data: entry } = await supabase
+          .from('leaderboard')
+          .select('onboarding_completo, genero')
+          .eq('user_id', userId)
+          .single();
 
-        // No completó onboarding → mostrar modal
+        console.log('Leaderboard entry:', entry);
+
+        if (entry?.onboarding_completo) {
+          localStorage.setItem(localKey, 'true');
+          setChecked(true);
+          return;
+        }
+
+        // No completó onboarding
         setNombre(userName);
         setShowOnboarding(true);
       } catch (err) {
@@ -59,7 +62,6 @@ export default function OnboardingCheck() {
     <OnboardingModal
       nombre={nombre}
       onComplete={async () => {
-        // ✅ Guardar en localStorage inmediatamente al completar
         const { data } = await supabase.auth.getSession();
         if (data.session) {
           localStorage.setItem(`josea_onboarding_done_${data.session.user.id}`, 'true');

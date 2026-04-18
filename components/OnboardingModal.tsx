@@ -84,11 +84,11 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
 
     const userId = session.user.id;
 
-    // ✅ Guardar en localStorage PRIMERO antes de cualquier cosa
+    // ✅ Guardar en localStorage PRIMERO
     localStorage.setItem(`josea_onboarding_done_${userId}`, 'true');
 
-    // ✅ Intentar guardar en DB (en background, no bloqueante)
-    fetch('/api/user-profile', {
+    // ✅ Guardar perfil en leaderboard (que sí funciona)
+    await fetch('/api/leaderboard', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -101,15 +101,21 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
         universidad: tipoEstudiante === 'universitario' ? universidadFinal : null,
         carrera: tipoEstudiante === 'universitario' ? carreraFinal : null,
         que_quieres_estudiar: queQuieresEstudiar || null,
-        es_nuevo: true,
+        onboarding_completo: true,
+        // Stats en 0 para nuevo usuario
+        xp_total: 0,
+        flashcards_estudiadas: 0,
+        racha_actual: 0,
+        mejor_racha: 0,
+        precision_global: 0,
       }),
     }).then(r => r.json()).then(d => {
-      console.log('Perfil guardado en DB:', d);
+      console.log('Leaderboard guardado:', d);
     }).catch(err => {
-      console.error('Error guardando en DB (no crítico):', err);
+      console.error('Error guardando leaderboard:', err);
     });
 
-    // ✅ Enviar email directo desde el cliente también como backup
+    // ✅ Enviar email con todos los datos
     fetch('/api/notify-new-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -125,9 +131,7 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
       }),
     }).catch(() => {});
 
-    // ✅ Continuar inmediatamente sin esperar la DB
     onComplete();
-
   } catch (err) {
     console.error('handleGuardar error:', err);
     onComplete();
