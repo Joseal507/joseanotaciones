@@ -127,18 +127,17 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
         console.error('Update directo falló:', directError);
         // Si no existe la fila, intentar insert
         const { error: insertError } = await supabase
-          .from('leaderboard')
-          .insert({
-            user_id: userId,
-            nombre,
-            email: session.user.email,
-            ...datosPeril,
-            xp_total: 0,
-            flashcards_estudiadas: 0,
-            racha_actual: 0,
-            mejor_racha: 0,
-            precision_global: 0,
-          });
+  .from('leaderboard')
+  .insert({
+    user_id: userId,
+    email: session.user.email,
+    xp_total: 0,
+    flashcards_estudiadas: 0,
+    racha_actual: 0,
+    mejor_racha: 0,
+    precision_global: 0,
+    ...datosPeril,
+  });
         if (insertError) {
           console.error('Insert también falló:', insertError);
         }
