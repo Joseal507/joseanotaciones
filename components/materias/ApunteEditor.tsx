@@ -46,11 +46,24 @@ export default function ApunteEditor({
   const textRefs = useRef<{ [id: string]: HTMLDivElement | null }>({});
   const htmlCache = useRef<{ [id: string]: string }>({});
   const canvasExporters = useRef<{ [paginaId: string]: () => string | null }>({});
+  // ✅ NUEVO: exportadores de strokes JSON
+  const strokesExporters = useRef<{ [paginaId: string]: () => string | null }>({});
   const canvasUndoRedo = useRef<{ [paginaId: string]: { undo: () => void; redo: () => void } }>({});
   const wrapperRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
 
-  const isDrawing = ['boligrafo', 'marcador', 'lapiz', 'borrador'].includes(herramienta);
+  // ✅ Actualizado con nuevas herramientas
+const isDrawing = [
+  'boligrafo',
+  'marcador',
+  'lapiz',
+  'borrador',
+  'borrador_trazo',
+  'regla',
+  'forma_rect',
+  'forma_circulo',
+  'forma_triangulo',
+].includes(herramienta);
   const isSelecting = herramienta === 'seleccion';
   const isDrawingMode = isDrawing || isSelecting;
 
@@ -73,10 +86,12 @@ export default function ApunteEditor({
     });
   }, []);
 
+  // ✅ ACTUALIZADO: guardar strokes JSON junto con canvasData
   const getPaginasParaGuardar = useCallback(() => {
     return paginasRef.current.map((pg) => ({
       bloques: pg.bloques,
       canvasData: canvasExporters.current[pg.id]?.() || pg.canvasData || null,
+      strokesData: strokesExporters.current[pg.id]?.() || pg.strokesData || null,
       backgroundImage: pg.backgroundImage || undefined,
     }));
   }, []);
@@ -127,6 +142,7 @@ export default function ApunteEditor({
     setPaginasSync((prev) => prev.filter((pg) => pg.id !== paginaId));
     delete canvasUndoRedo.current[paginaId];
     delete canvasExporters.current[paginaId];
+    delete strokesExporters.current[paginaId];
     triggerAutoSave();
   }, [setPaginasSync, triggerAutoSave]);
 
@@ -246,15 +262,7 @@ export default function ApunteEditor({
                 ? <><div style={{ width: '8px', height: '8px', border: '1.5px solid var(--gold)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />Guardando</>
                 : guardado ? '✓' : '●'}
             </span>
-           <ExportMenu
-  bloques={todosLosBloques}
-  paginas={paginas}
-  titulo={apunte.titulo}
-  temaColor={tema.color}
-  textRefs={textRefs}
-  htmlCache={htmlCache}
-  canvasExporters={canvasExporters}
-/>
+            <ExportMenu bloques={todosLosBloques} paginas={paginas} titulo={apunte.titulo} temaColor={tema.color} textRefs={textRefs} htmlCache={htmlCache} canvasExporters={canvasExporters} />
             <button onClick={guardar} style={{ padding: isMobile ? '8px 14px' : '9px 18px', borderRadius: '10px', border: 'none', background: tema.color, color: '#000', fontSize: isMobile ? '12px' : '13px', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
@@ -293,7 +301,7 @@ export default function ApunteEditor({
 
         <style>{`
           .ebloque { outline: none; }
-          .ebloque:empty:before { content: 'Escribe aquí...'; color: #d1d5db; font-style: italic; pointer-events: none; }
+          .ebloque:empty:before { content: ''; }
           .ebloque h1 { font-size: ${isMobile ? '22px' : '28px'}; font-weight: 900; color: ${tema.color}; margin: 0; }
           .ebloque h2 { font-size: ${isMobile ? '18px' : '22px'}; font-weight: 800; color: #111827; margin: 0; }
           .ebloque h3 { font-size: ${isMobile ? '15px' : '17px'}; font-weight: 700; color: #1f2937; margin: 0; }
@@ -314,7 +322,6 @@ export default function ApunteEditor({
           * { -webkit-tap-highlight-color: transparent; }
         `}</style>
 
-        {/* Wrapper zoom/pan */}
         <div ref={wrapperRef} style={{ position: 'relative', touchAction: 'pan-x pan-y', userSelect: 'none', WebkitUserSelect: 'none', overflow: 'hidden' }}>
           <div style={{ transform: `translate(${zoomState.tx}px, ${zoomState.ty}px)`, transformOrigin: '0 0', willChange: 'transform' }}>
             {paginas.map((pagina, idx) => (
@@ -347,6 +354,7 @@ export default function ApunteEditor({
                 onClickEditor={handleClickEditor}
                 onTextInsert={handleTextInsert}
                 registerCanvasExport={(paginaId, fn) => { canvasExporters.current[paginaId] = fn; }}
+                registerStrokesExport={(paginaId, fn) => { strokesExporters.current[paginaId] = fn; }}
                 registerUndoRedo={(paginaId, undo, redo) => { canvasUndoRedo.current[paginaId] = { undo, redo }; }}
               />
             ))}

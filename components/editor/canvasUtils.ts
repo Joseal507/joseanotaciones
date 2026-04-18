@@ -11,6 +11,7 @@ export interface Stroke {
   size: number;
   tipo: string;
   bounds?: { x: number; y: number; w: number; h: number };
+  shapeEnd?: { x: number; y: number };
 }
 
 export interface SelectionRect {
@@ -91,6 +92,12 @@ export const applyStrokeStyle = (
     ctx.strokeStyle = 'rgba(0,0,0,1)';
     ctx.lineWidth = size * 6 * p;
     ctx.globalAlpha = 1;
+  } else if (tipo === 'borrador_trazo') {
+    // Pinta blanco encima como trazo real
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = size * 4 * p;
+    ctx.globalAlpha = 1;
   } else if (tipo === 'marcador') {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = isSelected ? 0.5 : 0.3;
@@ -109,7 +116,287 @@ export const applyStrokeStyle = (
   }
 };
 
-// ✅ Dibujar stroke con Catmull-Rom + segmentos de grosor variable
+// ═══════════════════════════════════════════════════════
+// FORMAS DIBUJADAS A MANO — smooth, bonitas, consistentes
+// ═══════════════════════════════════════════════════════
+
+// PRNG determinístico por seed — para que la forma
+// no cambie cada vez que se redibuja
+const seededRng = (seed: number) => {
+  let s = (seed ^ 0xdeadbeef) >>> 0;
+  return () => {
+    s = Math.imul(s ^ (s >>> 15), s | 1);
+    s ^= s + Math.imul(s ^ (s >>> 7), s | 61);
+    return ((s ^ (s >>> 14)) >>> 0) / 0xffffffff;
+  };
+};
+
+const hashStr = (str: string): number => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+};
+
+// Dibuja una línea suave a través de puntos con curvas cuadráticas
+const drawSmoothPts = (ctx: CanvasRenderingContext2D, pts: Point[]) => {
+  if (pts.length < 2) return;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i].x + pts[i + 1].x) / 2;
+    const my = (pts[i].y + pts[i + 1].y) / 2;
+    ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+  }
+  ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+  ctx.stroke();
+};
+
+// Genera puntos de una línea "a mano" con perturbación sinusoidal suave
+const handLine = (
+  x1: number, y1: number,
+  x2: number, y2: number,
+  amp: number,
+  seed: number,
+): Point[] => {
+  const rnd = seededRng(seed);
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+
+  // Normal perpendicular
+  const nx = -dy / len;
+  const ny = dx / len;
+
+  // Parámetros de onda aleatorios pero determinísticos
+  const freq1 = 1.0 + rnd() * 0.7;
+  const freq2 = 2.5 + rnd() * 0.8;
+  const phase1 = rnd() * Math.PI * 2;
+  const phase2 = rnd() * Math.PI * 2;
+  const w1 = 0.55;
+  const w2 = 0.25;
+
+  // Leve arco de la línea (bow effect natural)
+  const bowAmp = (rnd() - 0.5) * amp * 0.35;
+
+  const steps = Math.max(14, Math.ceil(len / 6));
+  const pts: Point[] = [];
+
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const fade = Math.sin(Math.PI * t); // fade en extremos
+
+    const wave =
+      Math.sin(t * Math.PI * 2 * freq1 + phase1) * amp * w1 +
+      Math.sin(t * Math.PI * 2 * freq2 + phase2) * amp * w2;
+
+    const bow = bowAmp * Math.sin(Math.PI * t);
+    const offset = wave * fade + bow;
+
+    pts.push({
+      x: x1 + dx * t + nx * offset,
+      y: y1 + dy * t + ny * offset,
+      pressure: 1,
+    });
+  }
+
+  return pts;
+};
+
+// Genera puntos de una elipse "a mano" con perturbación radial suave
+const handEllipse = (
+  cx: number, cy: number,
+  rx: number, ry: number,
+  amp: number,
+  seed: number,
+): Point[] => {
+  const rnd = seededRng(seed);
+  const r = Math.max(rx, ry, 1);
+
+  const freq1 = 2 + rnd() * 0.5;
+  const freq2 = 4 + rnd() * 0.7;
+  const phase1 = rnd() * Math.PI * 2;
+  const phase2 = rnd() * Math.PI * 2;
+
+  // Leve squish aleatorio del círculo
+  const squishX = 1 + (rnd() - 0.5) * 0.04;
+  const squishY = 1 + (rnd() - 0.5) * 0.04;
+
+  // Un poco más de vuelta para que se cierre natural
+  const steps = Math.max(60, Math.ceil((rx + ry) / 2.5));
+  const totalAngle = Math.PI * 2.06;
+  const pts: Point[] = [];
+
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const a = t * totalAngle;
+
+    const radial =
+      Math.sin(a * freq1 + phase1) * amp * 0.4 +
+      Math.sin(a * freq2 + phase2) * amp * 0.15;
+
+    pts.push({
+      x: cx + Math.cos(a) * (rx + radial) * squishX,
+      y: cy + Math.sin(a) * (ry + radial * 0.85) * squishY,
+      pressure: 1,
+    });
+  }
+
+  return pts;
+};
+
+// ═══════════════════════════════════════════
+// Dibuja una forma con estilo "hand-drawn"
+// ═══════════════════════════════════════════
+export const drawShape = (
+  ctx: CanvasRenderingContext2D,
+  tipo: string,
+  start: Point,
+  end: { x: number; y: number },
+  color: string,
+  size: number,
+  isSelected = false,
+  strokeId?: string,
+) => {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = isSelected ? 0.65 : 1;
+  ctx.lineWidth = size;
+
+  if (isSelected) {
+    ctx.shadowColor = '#3b82f6';
+    ctx.shadowBlur = 5;
+  }
+
+  // Amplitud del jitter: muy pequeña pero visible
+  // Escala con el tamaño del trazo pero con límite
+  const minDim = Math.min(
+    Math.abs(end.x - start.x),
+    Math.abs(end.y - start.y),
+  );
+  const amp = Math.max(0.3, Math.min(1.6, size * 0.2 + minDim * 0.008));
+
+  const seed = hashStr(
+    strokeId || `${tipo}${start.x}${start.y}${end.x}${end.y}`,
+  );
+
+  if (tipo === 'regla') {
+    const pts = handLine(start.x, start.y, end.x, end.y, amp * 0.3, seed);
+    drawSmoothPts(ctx, pts);
+  }
+
+  if (tipo === 'forma_rect') {
+    const x1 = Math.min(start.x, end.x);
+    const y1 = Math.min(start.y, end.y);
+    const x2 = Math.max(start.x, end.x);
+    const y2 = Math.max(start.y, end.y);
+
+    drawSmoothPts(ctx, handLine(x1, y1, x2, y1, amp, seed + 1));
+    drawSmoothPts(ctx, handLine(x2, y1, x2, y2, amp, seed + 2));
+    drawSmoothPts(ctx, handLine(x2, y2, x1, y2, amp, seed + 3));
+    drawSmoothPts(ctx, handLine(x1, y2, x1, y1, amp, seed + 4));
+  }
+
+  if (tipo === 'forma_circulo') {
+    const cx = (start.x + end.x) / 2;
+    const cy = (start.y + end.y) / 2;
+    const rx = Math.abs(end.x - start.x) / 2;
+    const ry = Math.abs(end.y - start.y) / 2;
+
+    const pts = handEllipse(cx, cy, rx, ry, amp, seed + 10);
+    drawSmoothPts(ctx, pts);
+  }
+
+  if (tipo === 'forma_triangulo') {
+    const tipX = (start.x + end.x) / 2;
+    const tipY = Math.min(start.y, end.y);
+    const baseY = Math.max(start.y, end.y);
+    const leftX = Math.min(start.x, end.x);
+    const rightX = Math.max(start.x, end.x);
+
+    drawSmoothPts(ctx, handLine(tipX, tipY, rightX, baseY, amp, seed + 20));
+    drawSmoothPts(ctx, handLine(rightX, baseY, leftX, baseY, amp, seed + 21));
+    drawSmoothPts(ctx, handLine(leftX, baseY, tipX, tipY, amp, seed + 22));
+  }
+
+  ctx.restore();
+};
+
+// Preview mientras arrastras (líneas punteadas limpias)
+export const drawShapePreview = (
+  ctx: CanvasRenderingContext2D,
+  tipo: string,
+  start: Point,
+  end: { x: number; y: number },
+  color: string,
+  size: number,
+) => {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1, size * 0.8);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.globalAlpha = 0.38;
+  ctx.setLineDash([7, 5]);
+
+  const x1 = Math.min(start.x, end.x);
+  const y1 = Math.min(start.y, end.y);
+  const w = Math.abs(end.x - start.x);
+  const h = Math.abs(end.y - start.y);
+
+  ctx.beginPath();
+
+  if (tipo === 'regla') {
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+
+    // Mostrar distancia y ángulo
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.75;
+    ctx.fillStyle = color;
+    ctx.font = 'bold 11px system-ui, sans-serif';
+    const dist = Math.round(Math.hypot(end.x - start.x, end.y - start.y));
+    const angle = Math.round(
+      Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI,
+    );
+    ctx.fillText(
+      `${dist}px  ${angle}°`,
+      (start.x + end.x) / 2 + 8,
+      (start.y + end.y) / 2 - 8,
+    );
+  } else if (tipo === 'forma_rect') {
+    ctx.strokeRect(x1, y1, w, h);
+  } else if (tipo === 'forma_circulo') {
+    ctx.ellipse(
+      (start.x + end.x) / 2,
+      (start.y + end.y) / 2,
+      w / 2, h / 2,
+      0, 0, Math.PI * 2,
+    );
+    ctx.stroke();
+  } else if (tipo === 'forma_triangulo') {
+    const tipX = (start.x + end.x) / 2;
+    const tipY = Math.min(start.y, end.y);
+    const baseY = Math.max(start.y, end.y);
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(Math.max(start.x, end.x), baseY);
+    ctx.lineTo(Math.min(start.x, end.x), baseY);
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  ctx.restore();
+};
+
+// ═══════════════════════════════════════════════
+// Dibujar trazos normales (boligrafo, lapiz, etc)
+// ═══════════════════════════════════════════════
 export const drawStrokeOnCtx = (
   ctx: CanvasRenderingContext2D,
   stroke: Stroke,
@@ -118,6 +405,14 @@ export const drawStrokeOnCtx = (
   const { points, color, size, tipo } = stroke;
   if (!points || points.length === 0) return;
 
+  // Formas y regla — delegamos a drawShape
+  if (['regla', 'forma_rect', 'forma_circulo', 'forma_triangulo'].includes(tipo)) {
+    if (stroke.shapeEnd) {
+      drawShape(ctx, tipo, points[0], stroke.shapeEnd, color, size, isSelected, stroke.id);
+    }
+    return;
+  }
+
   ctx.save();
 
   if (isSelected) {
@@ -125,6 +420,7 @@ export const drawStrokeOnCtx = (
     ctx.shadowBlur = 6;
   }
 
+  // Punto único
   if (points.length === 1) {
     const avgP = points[0].pressure || 1;
     applyStrokeStyle(ctx, tipo, color, size, avgP, isSelected);
@@ -135,6 +431,7 @@ export const drawStrokeOnCtx = (
     return;
   }
 
+  // Dos puntos
   if (points.length === 2) {
     const avgP = (points[0].pressure + points[1].pressure) / 2 || 1;
     applyStrokeStyle(ctx, tipo, color, size, avgP, isSelected);
@@ -146,25 +443,20 @@ export const drawStrokeOnCtx = (
     return;
   }
 
-  // ✅ Para bolígrafo y lápiz: segmentos individuales con grosor variable
-  if (tipo === 'boligrafo' || tipo === 'lapiz') {
+  // Bolígrafo, lápiz y borrador_trazo: segmentos con grosor variable por presión
+  if (tipo === 'boligrafo' || tipo === 'lapiz' || tipo === 'borrador_trazo') {
     for (let i = 0; i < points.length - 1; i++) {
       const p1 = points[i];
       const p2 = points[i + 1];
       const segPressure = ((p1.pressure || 1) + (p2.pressure || 1)) / 2;
-
       applyStrokeStyle(ctx, tipo, color, size, segPressure, isSelected);
-
       ctx.beginPath();
-
-      // Usar punto medio para curvas suaves entre segmentos
       if (i === 0) {
         ctx.moveTo(p1.x, p1.y);
       } else {
         const prev = points[i - 1];
         ctx.moveTo((prev.x + p1.x) / 2, (prev.y + p1.y) / 2);
       }
-
       if (i < points.length - 2) {
         const mx = (p1.x + p2.x) / 2;
         const my = (p1.y + p2.y) / 2;
@@ -172,29 +464,24 @@ export const drawStrokeOnCtx = (
       } else {
         ctx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
       }
-
       ctx.stroke();
     }
   } else {
-    // ✅ Marcador/borrador: un solo path con Catmull-Rom
+    // Marcador / borrador pixel: Catmull-Rom suave
     const avgP = points.reduce((a, p) => a + (p.pressure || 1), 0) / points.length;
     applyStrokeStyle(ctx, tipo, color, size, avgP, isSelected);
-
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
-
     for (let i = 0; i < points.length - 1; i++) {
       const p0 = points[Math.max(0, i - 1)];
       const p1 = points[i];
       const p2 = points[i + 1];
       const p3 = points[Math.min(points.length - 1, i + 2)];
-
       const t = 0.4;
       const cp1x = p1.x + ((p2.x - p0.x) * t) / 3;
       const cp1y = p1.y + ((p2.y - p0.y) * t) / 3;
       const cp2x = p2.x - ((p3.x - p1.x) * t) / 3;
       const cp2y = p2.y - ((p3.y - p1.y) * t) / 3;
-
       ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
     }
     ctx.stroke();
@@ -203,6 +490,7 @@ export const drawStrokeOnCtx = (
   ctx.restore();
 };
 
+// Preview del borrador clásico (marca en rojo lo que se borrará)
 export const drawStrokeErasePreview = (
   ctx: CanvasRenderingContext2D,
   stroke: Stroke,
@@ -215,7 +503,6 @@ export const drawStrokeErasePreview = (
   ctx.lineWidth = stroke.size + 2;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-
   ctx.beginPath();
   ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
   for (let i = 1; i < stroke.points.length - 1; i++) {
@@ -230,15 +517,12 @@ export const drawStrokeErasePreview = (
   ctx.restore();
 };
 
-// ✅ NO hacer clearRect aquí - el overlay se limpia en EditorCanvas
+// Rectángulo de selección con esquinas
 export const drawSelectionRect = (
   ctx: CanvasRenderingContext2D,
   rect: SelectionRect,
 ) => {
   ctx.save();
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-
   ctx.fillStyle = 'rgba(99, 102, 241, 0.06)';
   ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
 
@@ -264,7 +548,6 @@ export const drawSelectionRect = (
   ctx.restore();
 };
 
-// ✅ Coordenadas CSS simples - DPR se maneja en EditorCanvas con setTransform
 export const getPosFromPointer = (
   e: PointerEvent,
   canvas: HTMLCanvasElement,

@@ -38,6 +38,11 @@ export type Herramienta =
   | 'marcador'
   | 'lapiz'
   | 'borrador'
+  | 'borrador_trazo'
+  | 'regla'
+  | 'forma_rect'
+  | 'forma_circulo'
+  | 'forma_triangulo'
   | 'imagen'
   | 'dibujo';
 
@@ -47,6 +52,8 @@ export interface Pagina {
   id: string;
   bloques: Bloque[];
   canvasData: string | null;
+  // ✅ NUEVO: strokes como JSON para restaurar al cargar
+  strokesData?: string | null;
   backgroundImage?: string;
 }
 
@@ -60,6 +67,7 @@ export const parsePaginas = (contenido: string): Pagina[] => {
       return p.paginas.map((pg: any) => ({
         id: genId(),
         canvasData: pg.canvasData || null,
+        strokesData: pg.strokesData || null,
         backgroundImage: pg.backgroundImage || undefined,
         bloques: (pg.bloques || []).map((b: any) => ({
           ...b, id: genId(), x: b.x ?? 80, y: b.y ?? 20, width: b.width ?? 600,
@@ -67,7 +75,7 @@ export const parsePaginas = (contenido: string): Pagina[] => {
       }));
     }
     if (p && p.bloques && Array.isArray(p.bloques)) {
-      return [{ id: genId(), canvasData: p.canvasData || null, bloques: p.bloques.map((b: any) => ({ ...b, id: genId(), x: b.x ?? 80, y: b.y ?? 20, width: b.width ?? 600 })) }];
+      return [{ id: genId(), canvasData: p.canvasData || null, strokesData: p.strokesData || null, bloques: p.bloques.map((b: any) => ({ ...b, id: genId(), x: b.x ?? 80, y: b.y ?? 20, width: b.width ?? 600 })) }];
     }
     if (Array.isArray(p)) {
       return [{ id: genId(), canvasData: null, bloques: p.map((b: any) => ({ ...b, id: genId(), x: b.x ?? 80, y: b.y ?? 20, width: b.width ?? 600 })) }];

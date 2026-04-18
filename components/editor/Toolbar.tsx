@@ -31,9 +31,22 @@ export default function Toolbar({
   onUndo, onRedo,
 }: Props) {
 
-  const isDrawing = ['boligrafo', 'marcador', 'lapiz', 'borrador'].includes(herramientaActiva);
-  const isSelecting = herramientaActiva === 'seleccion';
-  const isDrawingMode = isDrawing || isSelecting;
+ const DRAW_TOOLS: Herramienta[] = [
+  'boligrafo',
+  'marcador',
+  'lapiz',
+  'borrador',
+  'borrador_trazo',
+  'regla',
+  'forma_rect',
+  'forma_circulo',
+  'forma_triangulo',
+];
+
+const isDrawing = DRAW_TOOLS.includes(herramientaActiva);
+const isSelecting = herramientaActiva === 'seleccion';
+const isDrawingMode = isDrawing || isSelecting;
+const isEraserLike = ['borrador', 'borrador_trazo'].includes(herramientaActiva);
 
   const insertLatex = () => {
     const formula = prompt('Formula LaTeX (ej: x^2 + y^2 = z^2):');
@@ -85,68 +98,155 @@ export default function Toolbar({
         <Div dark />
 
         {/* HERRAMIENTAS DIBUJO */}
-        <div style={{ display: 'flex', gap: '2px' }}>
-          {[
-            { id: 'boligrafo' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>, color: '#fb923c' },
-            { id: 'lapiz' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>, color: '#a3e635' },
-            { id: 'marcador' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 22v-3l11-11"/><path d="M11.5 5.5l7 7"/><path d="M14 3l3 3-9 9-3-3 9-9z" fill="currentColor" fillOpacity="0.2"/></svg>, color: '#facc15' },
-            { id: 'borrador' as Herramienta, icon: <svg width="17" height="12" viewBox="0 0 28 20" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="1" y="2" width="26" height="16" rx="3"/><rect x="1" y="2" width="9" height="16" rx="3" fill="rgba(255,255,255,0.15)"/><line x1="10" y1="2" x2="10" y2="18" strokeOpacity="0.4"/></svg>, color: '#94a3b8' },
-          ].map(({ id, icon, color }) => {
-            const active = herramientaActiva === id;
-            return (
-              <button key={id} onClick={() => onHerramienta(id)} title={id} style={{
-                height: '32px', width: '36px', borderRadius: '8px',
-                border: active ? `1.5px solid ${color}66` : '1.5px solid transparent',
-                background: active ? `${color}20` : 'transparent',
-                color: active ? color : 'rgba(255,255,255,0.5)',
-                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s',
-                boxShadow: active ? `0 0 10px ${color}30` : 'none',
-              }}
-                onMouseEnter={(e: any) => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = color; } }}
-                onMouseLeave={(e: any) => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.5)'; } }}
-              >{icon}</button>
-            );
-          })}
-        </div>
+        {/* HERRAMIENTAS DIBUJO */}
+{/* HERRAMIENTAS DIBUJO */}
+<div style={{ display: 'flex', gap: '2px' }}>
+  {[
+    { id: 'boligrafo' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>, color: '#fb923c' },
+    { id: 'lapiz' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>, color: '#a3e635' },
+    { id: 'marcador' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 22v-3l11-11"/><path d="M11.5 5.5l7 7"/><path d="M14 3l3 3-9 9-3-3 9-9z" fill="currentColor" fillOpacity="0.2"/></svg>, color: '#facc15' },
+    { id: 'borrador' as Herramienta, icon: <svg width="17" height="12" viewBox="0 0 28 20" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="1" y="2" width="26" height="16" rx="3"/><rect x="1" y="2" width="9" height="16" rx="3" fill="rgba(255,255,255,0.15)"/><line x1="10" y1="2" x2="10" y2="18" strokeOpacity="0.4"/></svg>, color: '#94a3b8' },
+    { id: 'borrador_trazo' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor" fillOpacity="0.3"/></svg>, color: '#f9a8d4' },
+    { id: 'regla' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 20L20 4"/><path d="M4 20l3-3"/><path d="M8 16l2-2"/><path d="M12 12l2-2"/><path d="M16 8l4-4"/></svg>, color: '#38bdf8' },
+    { id: 'forma_rect' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>, color: '#a78bfa' },
+    { id: 'forma_circulo' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/></svg>, color: '#34d399' },
+    { id: 'forma_triangulo' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3L22 21H2L12 3z"/></svg>, color: '#fbbf24' },
+  ].map(({ id, icon, color }) => {
+    const active = herramientaActiva === id;
+    return (
+      <button key={id} onClick={() => onHerramienta(id)} title={id.replace('_', ' ')} style={{
+        height: '32px', width: '36px', borderRadius: '8px',
+        border: active ? `1.5px solid ${color}66` : '1.5px solid transparent',
+        background: active ? `${color}20` : 'transparent',
+        color: active ? color : 'rgba(255,255,255,0.5)',
+        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s',
+        boxShadow: active ? `0 0 10px ${color}30` : 'none',
+      }}
+        onMouseEnter={(e: any) => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = color; } }}
+        onMouseLeave={(e: any) => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.5)'; } }}
+      >{icon}</button>
+    );
+  })}
+</div>
 
-        {/* COLORES PINCEL */}
-        {isDrawingMode && (
-          <>
-            <Div dark />
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              {COLORES.map(c => (
-                <button key={c} onClick={() => onBrushColor(c)} title={c} style={{
-                  width: brushColor === c ? '22px' : '16px', height: brushColor === c ? '22px' : '16px',
-                  borderRadius: '50%', background: c, border: 'none', cursor: 'pointer', flexShrink: 0,
-                  boxShadow: brushColor === c ? `0 0 0 2px #1e293b, 0 0 0 4px ${c}, 0 0 12px ${c}60` : '0 1px 4px rgba(0,0,0,0.4)',
-                  transition: 'all 0.15s',
-                }} />
-              ))}
-              <input type="color" value={brushColor} onChange={e => onBrushColor(e.target.value)} title="Color personalizado"
-                style={{ width: '24px', height: '24px', borderRadius: '50%', border: '2px solid rgba(255,255,255,0.2)', cursor: 'pointer', padding: 0, flexShrink: 0, background: 'transparent' }} />
-            </div>
-            <Div dark />
-            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-              {[1, 3, 6, 12, 20].map(s => (
-                <button key={s} onClick={() => onBrushSize(s)} title={`${s}px`} style={{
-                  width: '28px', height: '28px', borderRadius: '7px',
-                  border: brushSize === s ? `1.5px solid ${temaColor}88` : '1.5px solid rgba(255,255,255,0.1)',
-                  background: brushSize === s ? `${temaColor}20` : 'rgba(255,255,255,0.05)',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.12s',
-                }}>
-                  <div style={{
-                    width: `${Math.min(s * 1.6, 18)}px`, height: `${Math.min(s * 1.6, 18)}px`, borderRadius: '50%',
-                    background: herramientaActiva === 'borrador' ? '#94a3b8' : brushColor,
-                    opacity: herramientaActiva === 'lapiz' ? 0.6 : herramientaActiva === 'marcador' ? 0.4 : 1,
-                    boxShadow: brushSize === s ? `0 0 6px ${brushColor}80` : 'none',
-                  }} />
-                </button>
-              ))}
-              <input type="number" min={1} max={60} value={brushSize} onChange={e => onBrushSize(Math.min(60, Math.max(1, parseInt(e.target.value) || 1)))}
-                style={{ width: '44px', height: '28px', padding: '0 6px', borderRadius: '7px', border: '1.5px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.8)', fontSize: '11px', fontWeight: 700, textAlign: 'center', flexShrink: 0, outline: 'none' }} />
-            </div>
-          </>
-        )}
+       {/* COLORES PINCEL */}
+{isDrawingMode && !isEraserLike && (
+  <>
+    <Div dark />
+    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+      {COLORES.map(c => (
+        <button key={c} onClick={() => onBrushColor(c)} title={c} style={{
+          width: brushColor === c ? '22px' : '16px',
+          height: brushColor === c ? '22px' : '16px',
+          borderRadius: '50%',
+          background: c,
+          border: 'none',
+          cursor: 'pointer',
+          flexShrink: 0,
+          boxShadow: brushColor === c
+            ? `0 0 0 2px #1e293b, 0 0 0 4px ${c}, 0 0 12px ${c}60`
+            : '0 1px 4px rgba(0,0,0,0.4)',
+          transition: 'all 0.15s',
+        }} />
+      ))}
+      <input
+        type="color"
+        value={brushColor}
+        onChange={e => onBrushColor(e.target.value)}
+        title="Color personalizado"
+        style={{
+          width: '24px',
+          height: '24px',
+          borderRadius: '50%',
+          border: '2px solid rgba(255,255,255,0.2)',
+          cursor: 'pointer',
+          padding: 0,
+          flexShrink: 0,
+          background: 'transparent',
+        }}
+      />
+    </div>
+  </>
+)}
+
+{/* TAMAÑO PINCEL / BORRADOR */}
+{isDrawingMode && (
+  <>
+    <Div dark />
+    <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+      {[1, 3, 6, 12, 20].map(s => {
+        const previewBg =
+          herramientaActiva === 'borrador'
+            ? '#94a3b8'
+            : herramientaActiva === 'borrador_trazo'
+              ? '#ffffff'
+              : brushColor;
+
+        const previewBorder =
+          herramientaActiva === 'borrador_trazo'
+            ? '1px solid #cbd5e1'
+            : 'none';
+
+        return (
+          <button
+            key={s}
+            onClick={() => onBrushSize(s)}
+            title={`${s}px`}
+            style={{
+              width: '28px',
+              height: '28px',
+              borderRadius: '7px',
+              border: brushSize === s ? `1.5px solid ${temaColor}88` : '1.5px solid rgba(255,255,255,0.1)',
+              background: brushSize === s ? `${temaColor}20` : 'rgba(255,255,255,0.05)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              transition: 'all 0.12s',
+            }}
+          >
+            <div style={{
+              width: `${Math.min(s * 1.6, 18)}px`,
+              height: `${Math.min(s * 1.6, 18)}px`,
+              borderRadius: '50%',
+              background: previewBg,
+              border: previewBorder,
+              opacity: herramientaActiva === 'lapiz' ? 0.6 : herramientaActiva === 'marcador' ? 0.4 : 1,
+              boxShadow: brushSize === s
+                ? herramientaActiva === 'borrador_trazo'
+                  ? '0 0 0 1px #cbd5e1, 0 0 8px rgba(255,255,255,0.35)'
+                  : `0 0 6px ${brushColor}80`
+                : 'none',
+            }} />
+          </button>
+        );
+      })}
+
+      <input
+        type="number"
+        min={1}
+        max={60}
+        value={brushSize}
+        onChange={e => onBrushSize(Math.min(60, Math.max(1, parseInt(e.target.value) || 1)))}
+        style={{
+          width: '44px',
+          height: '28px',
+          padding: '0 6px',
+          borderRadius: '7px',
+          border: '1.5px solid rgba(255,255,255,0.1)',
+          background: 'rgba(255,255,255,0.05)',
+          color: 'rgba(255,255,255,0.8)',
+          fontSize: '11px',
+          fontWeight: 700,
+          textAlign: 'center',
+          flexShrink: 0,
+          outline: 'none',
+        }}
+      />
+    </div>
+  </>
+)}
 
         <Div dark />
 

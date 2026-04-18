@@ -4,6 +4,7 @@ import { Bloque, BloqueImagen, BloqueTexto, Herramienta, Pagina, PaperStyle } fr
 import EditorCanvas from '../editor/EditorCanvas';
 import PaperBackground from '../editor/PaperBackground';
 import TextBlock from '../editor/TextBlock';
+import ImageBlock from '../editor/ImageBlock';
 
 interface Props {
   pagina: Pagina;
@@ -33,6 +34,7 @@ interface Props {
   onClickEditor: (e: React.MouseEvent<HTMLDivElement>, paginaId: string) => void;
   onTextInsert: (text: string, canvasY: number, paginaId: string) => void;
   registerCanvasExport: (paginaId: string, fn: () => string | null) => void;
+  registerStrokesExport: (paginaId: string, fn: () => string | null) => void;
   registerUndoRedo: (paginaId: string, undo: () => void, redo: () => void) => void;
 }
 
@@ -43,7 +45,7 @@ export default function PaginaEditor({
   textRefs, htmlCache,
   onBloques, onCanvasChange, onEliminarBloque, onFinishNew,
   onEliminarPagina, onAgregarPagina, onClickEditor, onTextInsert,
-  registerCanvasExport, registerUndoRedo,
+  registerCanvasExport, registerStrokesExport, registerUndoRedo,
 }: Props) {
   return (
     <div style={{ marginBottom: '0px' }}>
@@ -55,7 +57,16 @@ export default function PaginaEditor({
         {totalPaginas > 1 && (
           <button
             onClick={() => onEliminarPagina(pagina.id)}
-            style={{ background: 'none', border: '1px solid #fca5a5', color: '#ef4444', borderRadius: '6px', padding: '1px 8px', fontSize: '10px', cursor: 'pointer', fontWeight: 700 }}
+            style={{
+              background: 'none',
+              border: '1px solid #fca5a5',
+              color: '#ef4444',
+              borderRadius: '6px',
+              padding: '1px 8px',
+              fontSize: '10px',
+              cursor: 'pointer',
+              fontWeight: 700,
+            }}
           >
             ✕ Eliminar
           </button>
@@ -71,9 +82,17 @@ export default function PaginaEditor({
           height: `${pageHeight}px`,
           background: 'white',
           borderRadius: '12px',
-          border: isSelecting ? '2px solid #6366f1' : isDrawing ? `2px solid ${temaColor}` : '1px solid #e5e7eb',
+          border: isSelecting
+            ? '2px solid #6366f1'
+            : isDrawing
+              ? `2px solid ${temaColor}`
+              : '1px solid #e5e7eb',
           overflow: 'hidden',
-          boxShadow: isSelecting ? '0 0 0 3px #6366f120' : isDrawing ? `0 0 0 3px ${temaColor}20` : '0 2px 8px rgba(0,0,0,0.06)',
+          boxShadow: isSelecting
+            ? '0 0 0 3px #6366f120'
+            : isDrawing
+              ? `0 0 0 3px ${temaColor}20`
+              : '0 2px 8px rgba(0,0,0,0.06)',
           userSelect: 'none',
           WebkitUserSelect: 'none',
         }}
@@ -89,10 +108,15 @@ export default function PaginaEditor({
             src={pagina.backgroundImage}
             alt="Fondo"
             style={{
-              position: 'absolute', inset: 0,
-              width: '100%', height: '100%',
-              objectFit: 'contain', objectPosition: 'top',
-              zIndex: 1, pointerEvents: 'none', opacity: 0.92,
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              objectPosition: 'top',
+              zIndex: 1,
+              pointerEvents: 'none',
+              opacity: 0.92,
             }}
           />
         )}
@@ -105,15 +129,22 @@ export default function PaginaEditor({
           temaColor={temaColor}
           onChange={onCanvasChange}
           initialCanvasData={pagina.canvasData}
+          initialStrokesData={pagina.strokesData}
           onTextInsert={(text, y) => onTextInsert(text, y, pagina.id)}
           onRegisterExport={(fn) => registerCanvasExport(pagina.id, fn)}
+          onRegisterStrokesExport={(fn) => registerStrokesExport(pagina.id, fn)}
           onRegisterUndoRedo={(undo, redo) => registerUndoRedo(pagina.id, undo, redo)}
           externalScale={externalScale}
         />
 
         {/* Bloques de texto e imágenes */}
         <div
-          style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: isDrawingMode ? 'none' : 'all' }}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 10,
+            pointerEvents: isDrawingMode ? 'none' : 'all',
+          }}
           onClick={(e) => onClickEditor(e, pagina.id)}
         >
           {pagina.bloques.map((b) => {
@@ -125,42 +156,56 @@ export default function PaginaEditor({
                   temaColor={temaColor}
                   isNew={newBlockId === b.id}
                   onUpdate={(changes) => {
-                    onBloques(pagina.id, pagina.bloques.map((bl) =>
-                      bl.id === b.id ? { ...bl, ...changes } as Bloque : bl
-                    ));
+                    onBloques(
+                      pagina.id,
+                      pagina.bloques.map((bl) =>
+                        bl.id === b.id ? ({ ...bl, ...changes } as Bloque) : bl
+                      )
+                    );
                   }}
                   onDelete={() => onEliminarBloque(pagina.id, b.id)}
                   onFinishNew={onFinishNew}
                 />
               );
             }
+
             if (b.tipo === 'imagen') {
               const img = b as BloqueImagen;
               return (
-                <div
+                <ImageBlock
                   key={b.id}
-                  data-image="true"
-                  style={{ position: 'absolute', left: img.x, top: img.y, zIndex: img.zIndex ?? 2 }}
-                >
-                  <img
-                    src={img.src}
-                    draggable={false}
-                    style={{ width: img.width, maxWidth: '100%', borderRadius: '10px', border: '1px solid #e5e7eb', display: 'block' }}
-                  />
-                  {img.label && (
-                    <div style={{ position: 'absolute', top: 8, left: 8, background: temaColor, color: '#000', padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 800 }}>
-                      {img.label}
-                    </div>
-                  )}
-                </div>
+                  bloque={img}
+                  temaColor={temaColor}
+                  onUpdate={(changes) => {
+                    onBloques(
+                      pagina.id,
+                      pagina.bloques.map((bl) =>
+                        bl.id === b.id ? ({ ...bl, ...changes } as Bloque) : bl
+                      )
+                    );
+                  }}
+                  onDelete={() => onEliminarBloque(pagina.id, b.id)}
+                />
               );
             }
+
             return null;
           })}
         </div>
 
         {/* Número de página */}
-        <div style={{ position: 'absolute', bottom: 8, right: 12, fontSize: '11px', color: '#d1d5db', fontWeight: 600, pointerEvents: 'none', zIndex: 5 }}>
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 8,
+            right: 12,
+            fontSize: '11px',
+            color: '#d1d5db',
+            fontWeight: 600,
+            pointerEvents: 'none',
+            zIndex: 5,
+          }}
+        >
           {paginaIdx + 1} / {totalPaginas}
         </div>
       </div>
@@ -170,9 +215,27 @@ export default function PaginaEditor({
         <div style={{ flex: 1, height: '1px', background: '#e5e7eb' }} />
         <button
           onClick={() => onAgregarPagina(paginaIdx)}
-          style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 16px', borderRadius: '20px', border: `2px dashed ${temaColor}`, background: 'transparent', color: temaColor, fontSize: '12px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap' }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = temaColor + '15'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '6px 16px',
+            borderRadius: '20px',
+            border: `2px dashed ${temaColor}`,
+            background: 'transparent',
+            color: temaColor,
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            whiteSpace: 'nowrap',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = temaColor + '15';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+          }}
         >
           + Agregar página
         </button>
