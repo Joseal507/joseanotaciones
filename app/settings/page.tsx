@@ -125,16 +125,32 @@ export default function SettingsPage() {
   };
 
   const handleFotoPerfil = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 2 * 1024 * 1024) { alert('Max 2MB'); return; }
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const result = ev.target?.result as string;
-      await updateSettings({ fotoPerfil: result });
-    };
-    reader.readAsDataURL(file);
+  const file = e.target.files?.[0];
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) { alert('Max 2MB'); return; }
+  const reader = new FileReader();
+  reader.onload = async (ev) => {
+    const result = ev.target?.result as string;
+    await updateSettings({ fotoPerfil: result });
+
+    // ✅ También guardar en leaderboard para que salga la foto
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const session = sessionData.session;
+      if (session) {
+        await fetch('/api/leaderboard', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ avatar_url: result }),
+        });
+      }
+    } catch {}
   };
+  reader.readAsDataURL(file);
+};
 
   const cambiarPassword = async () => {
     setErrorPassword(''); setMensajePassword('');
@@ -330,7 +346,23 @@ export default function SettingsPage() {
                       {tr('cambiarFoto')}
                     </button>
                     {settings.fotoPerfil && (
-                      <button onClick={() => updateSettings({ fotoPerfil: '' })}
+                      <button onClick={async () => {
+  await updateSettings({ fotoPerfil: '' });
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const session = sessionData.session;
+    if (session) {
+      await fetch('/api/leaderboard', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ avatar_url: null }),
+      });
+    }
+  } catch {}
+}}
                         style={{ padding: '7px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
                         {tr('quitar')}
                       </button>

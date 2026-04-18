@@ -96,10 +96,31 @@ function UserProfileModal({
             fontSize: '30px', fontWeight: 800, color: 'var(--text-primary)',
             boxShadow: `0 4px 20px ${color}40`,
           }}>
-            {entry.avatar_url
-              ? <img src={entry.avatar_url} alt={entry.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : entry.nombre?.[0]?.toUpperCase() || '?'
-            }
+            {entry.avatar_url ? (
+  <img
+    src={`${entry.avatar_url}${entry.avatar_url.includes('?') ? '&' : '?'}v=${encodeURIComponent(entry.updated_at || entry.created_at || Date.now())}`}
+    alt={entry.nombre}
+    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+    onError={(e: any) => {
+      e.currentTarget.style.display = 'none';
+      const fallback = e.currentTarget.parentElement?.querySelector('[data-avatar-fallback]');
+      if (fallback) (fallback as HTMLElement).style.display = 'flex';
+    }}
+  />
+) : null}
+
+<span
+  data-avatar-fallback="true"
+  style={{
+    display: entry.avatar_url ? 'none' : 'flex',
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  }}
+>
+  {entry.nombre?.[0]?.toUpperCase() || '?'}
+</span>
           </div>
         </div>
 
