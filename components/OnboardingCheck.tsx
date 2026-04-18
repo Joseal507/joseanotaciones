@@ -14,8 +14,6 @@ export default function OnboardingCheck() {
       try {
         const { data: sessionData } = await supabase.auth.getSession();
         const session = sessionData.session;
-
-        // No hay sesión → no mostrar nada
         if (!session) { setChecked(true); return; }
 
         const userId = session.user.id;
@@ -23,11 +21,24 @@ export default function OnboardingCheck() {
           || session.user.email?.split('@')[0]
           || '';
 
-        // Verificar si ya completó onboarding
-        const res = await fetch(`/api/user-profile?userId=${userId}`);
-        const data = await res.json();
+        // ✅ Verificar directamente en Supabase sin pasar por API
+        // para evitar fallos de SUPABASE_SERVICE_ROLE_KEY
+        const { createClient } = await import('@supabase/supabase-js');
+        const client = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          { global: { headers: { Authorization: `Bearer ${session.access_token}` } } }
+        );
 
-        if (!data.data || !data.data.onboarding_completo) {
+        const { data: profile } = await client
+          .from('user_profiles')
+          .select('onboarding_completo')
+          .eq('id', userId)
+          .single();
+
+        console.log('Perfil encontrado:', profile);
+
+        if (!profile || !profile.onboarding_completo) {
           setNombre(userName);
           setShowOnboarding(true);
         }

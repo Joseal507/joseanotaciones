@@ -76,37 +76,47 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
   const carreraFinal = carrera === 'Otra carrera' ? carreraCustom : carrera;
 
   const handleGuardar = async () => {
-    setGuardando(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const session = sessionData.session;
-      if (!session) return;
-
-      await fetch('/api/user-profile', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          nombre,
-          genero,
-          tipo_estudiante: tipoEstudiante,
-          universidad: tipoEstudiante === 'universitario' ? universidadFinal : null,
-          carrera: tipoEstudiante === 'universitario' ? carreraFinal : null,
-          que_quieres_estudiar: queQuieresEstudiar || null,
-          es_nuevo: true,
-        }),
-      });
-
+  setGuardando(true);
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const session = sessionData.session;
+    if (!session) {
       onComplete();
-    } catch (err) {
-      console.error(err);
-      onComplete(); // Continuar aunque falle
-    } finally {
-      setGuardando(false);
+      return;
     }
-  };
+
+    const res = await fetch('/api/user-profile', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        nombre,
+        genero,
+        tipo_estudiante: tipoEstudiante,
+        universidad: tipoEstudiante === 'universitario' ? universidadFinal : null,
+        carrera: tipoEstudiante === 'universitario' ? carreraFinal : null,
+        que_quieres_estudiar: queQuieresEstudiar || null,
+        es_nuevo: true,
+      }),
+    });
+
+    const data = await res.json();
+    console.log('Respuesta guardar perfil:', data);
+
+    if (!data.success) {
+      console.error('Error guardando:', data.error);
+    }
+
+    onComplete();
+  } catch (err) {
+    console.error('handleGuardar error:', err);
+    onComplete();
+  } finally {
+    setGuardando(false);
+  }
+};
 
   const steps: Step[] = tipoEstudiante === 'universitario'
     ? ['genero', 'tipo', 'detalles', 'meta']

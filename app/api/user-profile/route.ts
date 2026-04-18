@@ -6,7 +6,6 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
-// GET — obtener perfil por ID
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -23,16 +22,17 @@ export async function GET(req: NextRequest) {
       .single();
 
     if (error && error.code !== 'PGRST116') {
+      console.error('GET user-profile error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, data: data || null });
-  } catch (err) {
+  } catch (err: any) {
+    console.error('GET error:', err);
     return NextResponse.json({ error: 'Error interno' }, { status: 500 });
   }
 }
 
-// POST — guardar/actualizar perfil
 export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get('authorization');
@@ -63,27 +63,47 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
+    console.log('Guardando perfil:', profileData);
+
     const { error } = await supabaseAdmin
       .from('user_profiles')
       .upsert(profileData, { onConflict: 'id' });
 
     if (error) {
+      console.error('Upsert error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Notificar por email si es primera vez
+    console.log('Perfil guardado OK para:', userId);
+
+    // ✅ Enviar email con todos los datos
     if (body.es_nuevo) {
       try {
-        await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/notify-new-user`, {
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://joseanotacioness.vercel.app';
+        const emailRes = await fetch(`${baseUrl}/api/notify-new-user`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...profileData, email: userData.user.email }),
+          body: JSON.stringify({
+            nombre: body.nombre,
+            email: userData.user.email,
+            genero: body.genero,
+            tipo_estudiante: body.tipo_estudiante,
+            universidad: body.universidad || null,
+            carrera: body.carrera || null,
+            que_quieres_estudiar: body.que_quieres_estudiar || null,
+            es_nuevo: true,
+          }),
         });
-      } catch {}
+        const emailData = await emailRes.json();
+        console.log('Email enviado:', emailData);
+      } catch (emailErr) {
+        console.error('Error enviando email:', emailErr);
+      }
     }
 
     return NextResponse.json({ success: true });
-  } catch (err) {
+  } catch (err: any) {
+    console.error('POST error:', err);
     return NextResponse.json({ error: 'Error interno' }, { status: 500 });
   }
 }
