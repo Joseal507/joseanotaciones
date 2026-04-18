@@ -208,26 +208,38 @@ export default function ExportMenu({
     return imagenes;
   };
 
-  const addWatermark = async (
-    pdf: any,
-    pageWidth: number,
-    pageHeight: number,
-    margin: number,
-  ) => {
+  const addWatermark = async (pdf: any, pageWidth: number, pageHeight: number, margin: number) => {
+  try {
+    // ✅ Cargar logo
+    let logoData: string | null = null;
     try {
-      const totalPages = pdf.getNumberOfPages();
-      for (let i = 1; i <= totalPages; i++) {
-        pdf.setPage(i);
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(7);
-        pdf.setTextColor(200, 200, 200);
-        pdf.text('JoseAnotaciones', pageWidth - margin, 10, { align: 'right' });
-        pdf.setFontSize(8);
-        pdf.setTextColor(180, 180, 180);
-        pdf.text(`${titulo} — ${i}/${totalPages}`, margin, pageHeight - 8);
-      }
+      const logoImg = await loadImage('/logo.png');
+      const c = document.createElement('canvas');
+      c.width = logoImg.naturalWidth;
+      c.height = logoImg.naturalHeight;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(logoImg, 0, 0);
+      logoData = c.toDataURL('image/png');
     } catch {}
-  };
+
+    const totalPages = pdf.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      pdf.setPage(i);
+
+      // ✅ Logo chiquito arriba a la derecha
+      if (logoData) {
+        const logoSize = 12;
+        pdf.addImage(logoData, 'PNG', pageWidth - margin - logoSize, 4, logoSize, logoSize);
+      }
+
+      // Footer con número de página
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8);
+      pdf.setTextColor(180, 180, 180);
+      pdf.text(`${titulo} — ${i}/${totalPages}`, margin, pageHeight - 8);
+    }
+  } catch {}
+};
 
   const exportPDF = async () => {
     setLoading('pdf');
