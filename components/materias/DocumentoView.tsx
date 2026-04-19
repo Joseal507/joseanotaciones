@@ -45,17 +45,14 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   const [deckGuardado, setDeckGuardado] = useState(false);
   const [recommendedCount, setRecommendedCount] = useState<number | null>(null);
   const [recommendedReason, setRecommendedReason] = useState('');
+  const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
 
-  // ✅ Wrapper para pasar tr a sub-componentes sin error de tipo
   const trAny = (key: string) => tr(key as any);
-
   const esImagen = documento.tipo === 'imagen';
   const docBase64 = (documento as any).archivoBase64;
   const docMime = (documento as any).archivoMime;
-  // ── Agrega este estado después de los otros useState ──
-const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
 
   useState(() => {
     const handler = (e: KeyboardEvent) => {
@@ -70,83 +67,79 @@ const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
   });
 
   const analizar = async () => {
-  setAnalizando(true);
-  setPasoActual(1);
-  const idiomaActual = getIdioma();
-  try {
-    const r1 = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content: documento.contenido,
-        idioma: idiomaActual,
-        imageBase64: esImagen ? docBase64 : undefined,
-        imageMime: esImagen ? docMime : undefined,
-        esImagen,
-      }),
-    });
-    const d1 = await r1.json();
-    console.log('Análisis resultado:', d1);
-    setPasoActual(2);
+    setAnalizando(true);
+    setPasoActual(1);
+    const idiomaActual = getIdioma();
+    try {
+      const r1 = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: documento.contenido,
+          idioma: idiomaActual,
+          imageBase64: esImagen ? docBase64 : undefined,
+          imageMime: esImagen ? docMime : undefined,
+          esImagen,
+        }),
+      });
+      const d1 = await r1.json();
+      setPasoActual(2);
 
-    // ✅ Actualizar análisis local inmediatamente
-    if (d1.success && d1.analysis) {
-      setAnalisisLocal(d1.analysis);
+      if (d1.success && d1.analysis) {
+        setAnalisisLocal(d1.analysis);
+      }
+
+      const r2 = await fetch('/api/flashcards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: documento.contenido,
+          getRecommendation: true,
+          idioma: idiomaActual,
+          imageBase64: esImagen ? docBase64 : undefined,
+          imageMime: esImagen ? docMime : undefined,
+        }),
+      });
+      const d2 = await r2.json();
+      const recommended = d2.success ? d2.recommended : 10;
+      setRecommendedCount(recommended);
+      setRecommendedReason(d2.success ? d2.reason : '');
+      setPasoActual(3);
+
+      const r3 = await fetch('/api/flashcards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: documento.contenido,
+          count: recommended,
+          idioma: idiomaActual,
+          existingQuestions: [],
+          imageBase64: esImagen ? docBase64 : undefined,
+          imageMime: esImagen ? docMime : undefined,
+        }),
+      });
+      const d3 = await r3.json();
+      setPasoActual(4);
+
+      const docActualizado = {
+        ...documento,
+        analisis: d1.success ? d1.analysis : documento.analisis,
+        flashcards: d3.success ? d3.flashcards : documento.flashcards,
+      };
+
+      if (d3.success) setFlashcards(d3.flashcards);
+      onActualizar(docActualizado);
+      setTab('analisis');
+      setCurrentCard(0);
+      setFlipped(false);
+
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAnalizando(false);
+      setPasoActual(0);
     }
-
-    const r2 = await fetch('/api/flashcards', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content: documento.contenido,
-        getRecommendation: true,
-        idioma: idiomaActual,
-        imageBase64: esImagen ? docBase64 : undefined,
-        imageMime: esImagen ? docMime : undefined,
-      }),
-    });
-    const d2 = await r2.json();
-    const recommended = d2.success ? d2.recommended : 10;
-    setRecommendedCount(recommended);
-    setRecommendedReason(d2.success ? d2.reason : '');
-    setPasoActual(3);
-
-    const r3 = await fetch('/api/flashcards', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content: documento.contenido,
-        count: recommended,
-        idioma: idiomaActual,
-        existingQuestions: [],
-        imageBase64: esImagen ? docBase64 : undefined,
-        imageMime: esImagen ? docMime : undefined,
-      }),
-    });
-    const d3 = await r3.json();
-    setPasoActual(4);
-
-    const docActualizado = {
-      ...documento,
-      analisis: d1.success ? d1.analysis : documento.analisis,
-      flashcards: d3.success ? d3.flashcards : documento.flashcards,
-    };
-
-    if (d3.success) setFlashcards(d3.flashcards);
-    onActualizar(docActualizado);
-
-    // ✅ Ir al tab de análisis
-    setTab('analisis');
-    setCurrentCard(0);
-    setFlipped(false);
-
-  } catch (err) {
-    console.error(err);
-  } finally {
-    setAnalizando(false);
-    setPasoActual(0);
-  }
-};
+  };
 
   const addMore = async () => {
     setAddingMore(true);
@@ -155,7 +148,14 @@ const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
       const res = await fetch('/api/flashcards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: documento.contenido, count: addCount, idioma: idiomaActual, existingQuestions: flashcards.map((f: any) => f.question), imageBase64: esImagen ? docBase64 : undefined, imageMime: esImagen ? docMime : undefined }),
+        body: JSON.stringify({
+          content: documento.contenido,
+          count: addCount,
+          idioma: idiomaActual,
+          existingQuestions: flashcards.map((f: any) => f.question),
+          imageBase64: esImagen ? docBase64 : undefined,
+          imageMime: esImagen ? docMime : undefined,
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -163,8 +163,11 @@ const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
         setFlashcards(nuevas);
         onActualizar({ ...documento, flashcards: nuevas });
       }
-    } catch (err) { console.error(err); }
-    finally { setAddingMore(false); }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAddingMore(false);
+    }
   };
 
   const handleGuardarDeck = () => {
@@ -189,7 +192,7 @@ const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
         <QuizModal contenido={documento.contenido} temaColor={tema.color} materiaNombre={materia.nombre} materiaColor={materia.color} onClose={() => setShowQuiz(false)} />
       )}
       {showModoExamen && (
-        <ModoExamen flashcards={flashcards} contenido={documento.contenido} nombreDoc={documento.nombre} temaColor={tema.color} onClose={() => setShowModoExamen(false)} />
+        <ModoExamen flashcards={flashcards} contenido={documento.contenido} nombreDoc={documento.nombre} temaColor={documento.nombre} onClose={() => setShowModoExamen(false)} />
       )}
 
       {/* Modal guardar deck */}
@@ -254,7 +257,7 @@ const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
                 <span style={{ background: esImagen ? 'var(--pink-dim)' : 'var(--blue-dim)', color: esImagen ? 'var(--pink)' : 'var(--blue)', padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 700 }}>
                   {documento.tipo.toUpperCase()}
                 </span>
-                {documento.analisis && <span style={{ color: '#4ade80', marginLeft: '8px', fontWeight: 700 }}>✓ {trAny('analizado')}</span>}
+                {analisisLocal && <span style={{ color: '#4ade80', marginLeft: '8px', fontWeight: 700 }}>✓ {trAny('analizado')}</span>}
                 {recommendedCount && <span style={{ color: tema.color, marginLeft: '8px', fontWeight: 700 }}>· {recommendedCount} {idioma === 'en' ? 'recommended' : 'recomendadas'}</span>}
               </p>
             </div>
@@ -272,7 +275,7 @@ const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
             )}
             <button onClick={analizar} disabled={analizando}
               style={{ padding: '9px 16px', borderRadius: '10px', border: 'none', background: analizando ? 'var(--bg-card2)' : 'var(--gold)', color: analizando ? 'var(--text-faint)' : '#000', fontSize: '12px', fontWeight: 800, cursor: analizando ? 'not-allowed' : 'pointer', minWidth: '130px' }}>
-              {analizando ? '⏳ ...' : documento.analisis ? '🔄 ' + trAny('reAnalizar') : esImagen ? '🔍 ' + (idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen') : '🔍 ' + trAny('analizar')}
+              {analizando ? '⏳ ...' : analisisLocal ? '🔄 ' + trAny('reAnalizar') : esImagen ? '🔍 ' + (idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen') : '🔍 ' + trAny('analizar')}
             </button>
           </div>
         </div>
@@ -284,7 +287,7 @@ const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
         <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', marginBottom: '24px', overflowX: 'auto' }}>
           {[
             { id: 'leer', label: esImagen ? `🖼️ ${idioma === 'en' ? 'Image' : 'Imagen'}` : `📖 ${documento.archivoUrl || docBase64 ? trAny('verDocumento') : trAny('leerTexto')}` },
-            { id: 'analisis', label: `🔍 ${trAny('analisisAI')}${documento.analisis ? ' ✓' : ''}` },
+            { id: 'analisis', label: `🔍 ${trAny('analisisAI')}${analisisLocal ? ' ✓' : ''}` },
             { id: 'flashcards', label: `🎴 ${trAny('flashcards')}${flashcards.length > 0 ? ` (${flashcards.length})` : ''}` },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id as any)}
@@ -310,10 +313,10 @@ const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
                     <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6, maxHeight: '200px', overflowY: 'auto' }}>{documento.contenido}</p>
                   </div>
                 )}
-                {!documento.analisis && !analizando && (
+                {!analisisLocal && !analizando && (
                   <div style={{ marginTop: '20px' }}>
                     <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '12px' }}>
-                      {idioma === 'en' ? '🤖 Analyze this image — AI will extract text and generate flashcards' : '🤖 Analiza esta imagen — la AI extraerá texto y generará flashcards'}
+                      {idioma === 'en' ? '🤖 Analyze this image' : '🤖 Analiza esta imagen'}
                     </p>
                     <button onClick={analizar}
                       style={{ padding: '12px 28px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
@@ -325,19 +328,19 @@ const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
             ) : (
               <>
                 <VisorDocumento
-  contenido={documento.contenido}
-  tipo={documento.tipo}
-  nombre={documento.nombre}
-  archivoUrl={documento.archivoUrl}
-  archivoBase64={docBase64}
-  archivoMime={docMime}
-  analisis={analisisLocal}        {/* ← antes era documento.analisis */}
-  temaColor={tema.color}
-/>
-                {!documento.analisis && !analizando && (
+                  contenido={documento.contenido}
+                  tipo={documento.tipo}
+                  nombre={documento.nombre}
+                  archivoUrl={documento.archivoUrl}
+                  archivoBase64={docBase64}
+                  archivoMime={docMime}
+                  analisis={analisisLocal}
+                  temaColor={tema.color}
+                />
+                {!analisisLocal && !analizando && (
                   <div style={{ padding: '24px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)', textAlign: 'center' }}>
                     <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: '0 0 12px' }}>
-                      {idioma === 'en' ? '🤖 Analyze to extract keywords and generate flashcards using deep AI' : '🤖 Analiza para extraer palabras clave y generar flashcards con AI profunda'}
+                      {idioma === 'en' ? '🤖 Analyze to extract keywords and generate flashcards' : '🤖 Analiza para extraer palabras clave y generar flashcards'}
                     </p>
                     <button onClick={analizar} disabled={analizando}
                       style={{ padding: '12px 28px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
@@ -353,20 +356,21 @@ const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
         {/* TAB ANÁLISIS */}
         {tab === 'analisis' && (
           <TabAnalisis
-  documento={{ ...documento, analisis: analisisLocal }}   {/* ← pasar analisisLocal */}
-  tema={tema}
-  idioma={idioma}
-  isMobile={isMobile}
-  analizando={analizando}
-  recommendedCount={recommendedCount}
-  recommendedReason={recommendedReason}
-  flashcardsLength={flashcards.length}
-  tr={trAny}
-  onAnalizar={analizar}
-  onVerFlashcards={() => setTab('flashcards')}
-  onVerDoc={() => setTab('leer')}
-  esImagen={esImagen}
-/>
+            documento={{ ...documento, analisis: analisisLocal }}
+            tema={tema}
+            idioma={idioma}
+            isMobile={isMobile}
+            analizando={analizando}
+            recommendedCount={recommendedCount}
+            recommendedReason={recommendedReason}
+            flashcardsLength={flashcards.length}
+            tr={trAny}
+            onAnalizar={analizar}
+            onVerFlashcards={() => setTab('flashcards')}
+            onVerDoc={() => setTab('leer')}
+            esImagen={esImagen}
+          />
+        )}
 
         {/* TAB FLASHCARDS */}
         {tab === 'flashcards' && (
