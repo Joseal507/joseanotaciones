@@ -24,7 +24,7 @@ async function extraerConMistral(buffer: Buffer, fileName: string): Promise<stri
     console.log(`☁️ Subiendo ${nombre} a Mistral (${mimeType})...`);
 
     const formData = new FormData();
-    const blob = new Blob([buffer], { type: mimeType });
+    const blob = new Blob([new Uint8Array(buffer)], { type: mimeType });
     formData.append('file', blob, fileName);
     formData.append('purpose', 'ocr');
 
