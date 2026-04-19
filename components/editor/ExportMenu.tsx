@@ -210,7 +210,6 @@ export default function ExportMenu({
 
   const addWatermark = async (pdf: any, pageWidth: number, pageHeight: number, margin: number) => {
   try {
-    // ✅ Cargar logo
     let logoData: string | null = null;
     try {
       const logoImg = await loadImage('/logo.png');
@@ -226,13 +225,23 @@ export default function ExportMenu({
     for (let i = 1; i <= totalPages; i++) {
       pdf.setPage(i);
 
-      // ✅ Logo chiquito arriba a la derecha
+      const logoSize = 18;
+      const textWidth = 28;
+      const blockWidth = Math.max(logoSize, textWidth);
+      const x = pageWidth - margin - blockWidth / 2;
+
+      // Logo arriba a la derecha
       if (logoData) {
-        const logoSize = 12;
-        pdf.addImage(logoData, 'PNG', pageWidth - margin - logoSize, 4, logoSize, logoSize);
+        pdf.addImage(logoData, 'PNG', x - logoSize / 2, 5, logoSize, logoSize);
       }
 
-      // Footer con número de página
+      // "JoseAnotaciones" debajo del logo
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(5.5);
+      pdf.setTextColor(160, 160, 160);
+      pdf.text('JoseAnotaciones', x, 5 + logoSize + 3, { align: 'center' });
+
+      // Número de página abajo
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(8);
       pdf.setTextColor(180, 180, 180);

@@ -54,6 +54,8 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   const esImagen = documento.tipo === 'imagen';
   const docBase64 = (documento as any).archivoBase64;
   const docMime = (documento as any).archivoMime;
+  // ── Agrega este estado después de los otros useState ──
+const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
 
   useState(() => {
     const handler = (e: KeyboardEvent) => {
@@ -68,50 +70,83 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   });
 
   const analizar = async () => {
-    setAnalizando(true);
-    setPasoActual(1);
-    const idiomaActual = getIdioma();
-    try {
-      const r1 = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: documento.contenido, idioma: idiomaActual, imageBase64: esImagen ? docBase64 : undefined, imageMime: esImagen ? docMime : undefined, esImagen }),
-      });
-      const d1 = await r1.json();
-      setPasoActual(2);
+  setAnalizando(true);
+  setPasoActual(1);
+  const idiomaActual = getIdioma();
+  try {
+    const r1 = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: documento.contenido,
+        idioma: idiomaActual,
+        imageBase64: esImagen ? docBase64 : undefined,
+        imageMime: esImagen ? docMime : undefined,
+        esImagen,
+      }),
+    });
+    const d1 = await r1.json();
+    console.log('Análisis resultado:', d1);
+    setPasoActual(2);
 
-      const r2 = await fetch('/api/flashcards', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: documento.contenido, getRecommendation: true, idioma: idiomaActual, imageBase64: esImagen ? docBase64 : undefined, imageMime: esImagen ? docMime : undefined }),
-      });
-      const d2 = await r2.json();
-      const recommended = d2.success ? d2.recommended : 10;
-      setRecommendedCount(recommended);
-      setRecommendedReason(d2.success ? d2.reason : '');
-      setPasoActual(3);
+    // ✅ Actualizar análisis local inmediatamente
+    if (d1.success && d1.analysis) {
+      setAnalisisLocal(d1.analysis);
+    }
 
-      const r3 = await fetch('/api/flashcards', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: documento.contenido, count: recommended, idioma: idiomaActual, existingQuestions: [], imageBase64: esImagen ? docBase64 : undefined, imageMime: esImagen ? docMime : undefined }),
-      });
-      const d3 = await r3.json();
-      setPasoActual(4);
+    const r2 = await fetch('/api/flashcards', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: documento.contenido,
+        getRecommendation: true,
+        idioma: idiomaActual,
+        imageBase64: esImagen ? docBase64 : undefined,
+        imageMime: esImagen ? docMime : undefined,
+      }),
+    });
+    const d2 = await r2.json();
+    const recommended = d2.success ? d2.recommended : 10;
+    setRecommendedCount(recommended);
+    setRecommendedReason(d2.success ? d2.reason : '');
+    setPasoActual(3);
 
-      const docActualizado = {
-        ...documento,
-        analisis: d1.success ? d1.analysis : documento.analisis,
-        flashcards: d3.success ? d3.flashcards : documento.flashcards,
-      };
-      if (d3.success) setFlashcards(d3.flashcards);
-      onActualizar(docActualizado);
-      setTab('flashcards');
-      setCurrentCard(0);
-      setFlipped(false);
-    } catch (err) { console.error(err); }
-    finally { setAnalizando(false); setPasoActual(0); }
-  };
+    const r3 = await fetch('/api/flashcards', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: documento.contenido,
+        count: recommended,
+        idioma: idiomaActual,
+        existingQuestions: [],
+        imageBase64: esImagen ? docBase64 : undefined,
+        imageMime: esImagen ? docMime : undefined,
+      }),
+    });
+    const d3 = await r3.json();
+    setPasoActual(4);
+
+    const docActualizado = {
+      ...documento,
+      analisis: d1.success ? d1.analysis : documento.analisis,
+      flashcards: d3.success ? d3.flashcards : documento.flashcards,
+    };
+
+    if (d3.success) setFlashcards(d3.flashcards);
+    onActualizar(docActualizado);
+
+    // ✅ Ir al tab de análisis
+    setTab('analisis');
+    setCurrentCard(0);
+    setFlipped(false);
+
+  } catch (err) {
+    console.error(err);
+  } finally {
+    setAnalizando(false);
+    setPasoActual(0);
+  }
+};
 
   const addMore = async () => {
     setAddingMore(true);
@@ -290,10 +325,15 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
             ) : (
               <>
                 <VisorDocumento
-                  contenido={documento.contenido} tipo={documento.tipo} nombre={documento.nombre}
-                  archivoUrl={documento.archivoUrl} archivoBase64={docBase64} archivoMime={docMime}
-                  analisis={documento.analisis} temaColor={tema.color}
-                />
+  contenido={documento.contenido}
+  tipo={documento.tipo}
+  nombre={documento.nombre}
+  archivoUrl={documento.archivoUrl}
+  archivoBase64={docBase64}
+  archivoMime={docMime}
+  analisis={analisisLocal}        {/* ← antes era documento.analisis */}
+  temaColor={tema.color}
+/>
                 {!documento.analisis && !analizando && (
                   <div style={{ padding: '24px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)', textAlign: 'center' }}>
                     <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: '0 0 12px' }}>
@@ -313,13 +353,20 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
         {/* TAB ANÁLISIS */}
         {tab === 'analisis' && (
           <TabAnalisis
-            documento={documento} tema={tema} idioma={idioma} isMobile={isMobile}
-            analizando={analizando} recommendedCount={recommendedCount}
-            recommendedReason={recommendedReason} flashcardsLength={flashcards.length}
-            tr={trAny} onAnalizar={analizar} onVerFlashcards={() => setTab('flashcards')}
-            onVerDoc={() => setTab('leer')} esImagen={esImagen}
-          />
-        )}
+  documento={{ ...documento, analisis: analisisLocal }}   {/* ← pasar analisisLocal */}
+  tema={tema}
+  idioma={idioma}
+  isMobile={isMobile}
+  analizando={analizando}
+  recommendedCount={recommendedCount}
+  recommendedReason={recommendedReason}
+  flashcardsLength={flashcards.length}
+  tr={trAny}
+  onAnalizar={analizar}
+  onVerFlashcards={() => setTab('flashcards')}
+  onVerDoc={() => setTab('leer')}
+  esImagen={esImagen}
+/>
 
         {/* TAB FLASHCARDS */}
         {tab === 'flashcards' && (

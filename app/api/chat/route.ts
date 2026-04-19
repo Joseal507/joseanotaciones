@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     try {
       const client2 = getGroqClient();
       const res2 = await client2.chat.completions.create({
-        model: 'moonshotai/kimi-k2-instruct',
+        model: 'llama-3.3-70b-versatile',
         messages: [
           {
             role: 'system',
