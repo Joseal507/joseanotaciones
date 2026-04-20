@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGroqClient } from '../../../lib/groqClient';
+import { groqRequest } from '../../../lib/groqClient';
 
 export async function POST(req: NextRequest) {
   try {
     const contentType = req.headers.get('content-type') || '';
-    
     let content = '';
     let idioma = 'es';
     let imageBase64 = '';
     let imageMime = '';
     let esImagen = false;
 
-    // ── Acepta JSON (desde DocumentoView) ──
     if (contentType.includes('application/json')) {
       const body = await req.json();
       content = body.content || '';
@@ -19,9 +17,7 @@ export async function POST(req: NextRequest) {
       imageBase64 = body.imageBase64 || '';
       imageMime = body.imageMime || '';
       esImagen = body.esImagen || false;
-    } 
-    // ── Acepta FormData (archivo directo) ──
-    else {
+    } else {
       const formData = await req.formData();
       const file = formData.get('file') as File | null;
       idioma = formData.get('idioma') as string || 'es';
@@ -79,11 +75,9 @@ export async function POST(req: NextRequest) {
     const lang = idioma === 'en' ? 'en' : 'es';
     const textToAnalyze = content.substring(0, 8000);
 
-    // ── PASO 1: Análisis profundo ──
     let deepAnalysis: any = {};
     try {
-      const c1 = getGroqClient();
-      const r1 = await c1.chat.completions.create({
+      const r1 = await groqRequest(client => client.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: [
           {
@@ -96,18 +90,16 @@ export async function POST(req: NextRequest) {
         ],
         temperature: 0.2,
         max_tokens: 800,
-      });
+      }));
       const t1 = r1.choices[0]?.message?.content || '{}';
       const m1 = t1.match(/\{[\s\S]*\}/);
       if (m1) deepAnalysis = JSON.parse(m1[0]);
     } catch (e) { console.log('Paso 1 falló:', e); }
 
-    // ── PASO 2: Análisis técnico/científico ──
     let techAnalysis: any = {};
     try {
-      const c2 = getGroqClient();
-      const r2 = await c2.chat.completions.create({
-        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      const r2 = await groqRequest(client => client.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
         messages: [
           {
             role: 'system',
@@ -119,18 +111,16 @@ export async function POST(req: NextRequest) {
         ],
         temperature: 0.2,
         max_tokens: 600,
-      });
+      }));
       const t2 = r2.choices[0]?.message?.content || '{}';
       const m2 = t2.match(/\{[\s\S]*\}/);
       if (m2) techAnalysis = JSON.parse(m2[0]);
     } catch (e) { console.log('Paso 2 falló:', e); }
 
-    // ── PASO 3: Análisis visual (si es imagen) ──
     let visionAnalysis: any = {};
     if (esImagen && imageBase64 && imageMime) {
       try {
-        const vc = getGroqClient();
-        const vr = await vc.chat.completions.create({
+        const vr = await groqRequest(client => client.chat.completions.create({
           model: 'meta-llama/llama-4-scout-17b-16e-instruct',
           messages: [{
             role: 'user',
@@ -146,14 +136,13 @@ export async function POST(req: NextRequest) {
           }],
           temperature: 0.2,
           max_tokens: 2000,
-        });
+        }));
         const vt = vr.choices[0]?.message?.content || '{}';
         const vm = vt.match(/\{[\s\S]*\}/);
         if (vm) visionAnalysis = JSON.parse(vm[0]);
       } catch (e) { console.log('Vision falló:', e); }
     }
 
-    // ── PASO 4: Análisis final combinado ──
     const extraContext = [
       deepAnalysis.deep_concepts?.length ? `Conceptos profundos: ${deepAnalysis.deep_concepts.join(', ')}` : '',
       deepAnalysis.relationships?.length ? `Relaciones: ${deepAnalysis.relationships.join(', ')}` : '',
@@ -164,15 +153,12 @@ export async function POST(req: NextRequest) {
     const finalPrompt = lang === 'en'
       ? `You are an expert academic analyst. Create the MOST COMPLETE analysis possible. Respond ONLY with valid JSON:
 {"keywords":["up to 20 keywords"],"important_phrases":["up to 15 important phrases"],"summary":"comprehensive 4-6 sentence summary","key_concepts":["all main concepts"],"difficulty_level":"basic/intermediate/advanced","topics":["all topics"],"study_tips":["specific study tips"],"connections":["connections between concepts"],"formulas":["any formulas"],"applications":["practical applications"]}
-
 EXPERT PRE-ANALYSIS:\n${extraContext}`
       : `Eres un analista académico experto. Crea el análisis MÁS COMPLETO posible. Responde SOLO con JSON válido:
 {"keywords":["hasta 20 palabras clave"],"important_phrases":["hasta 15 frases importantes"],"summary":"resumen completo de 4-6 oraciones","key_concepts":["todos los conceptos principales"],"difficulty_level":"básico/intermedio/avanzado","topics":["todos los temas"],"study_tips":["consejos específicos de estudio"],"connections":["conexiones entre conceptos"],"formulas":["fórmulas encontradas"],"applications":["aplicaciones prácticas"]}
-
 PRE-ANÁLISIS EXPERTO:\n${extraContext}`;
 
-    const c3 = getGroqClient();
-    const r3 = await c3.chat.completions.create({
+    const r3 = await groqRequest(client => client.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages: [
         { role: 'system', content: finalPrompt },
@@ -180,7 +166,7 @@ PRE-ANÁLISIS EXPERTO:\n${extraContext}`;
       ],
       temperature: 0.2,
       max_tokens: 2500,
-    });
+    }));
 
     const t3 = r3.choices[0]?.message?.content || '{}';
     const m3 = t3.match(/\{[\s\S]*\}/);
@@ -189,7 +175,6 @@ PRE-ANÁLISIS EXPERTO:\n${extraContext}`;
       try { finalAnalysis = JSON.parse(m3[0]); } catch {}
     }
 
-    // ── Combinar todo ──
     const combined = {
       keywords: [...new Set([...(visionAnalysis.keywords || []), ...(finalAnalysis.keywords || [])])].slice(0, 20),
       important_phrases: [...new Set([...(visionAnalysis.important_phrases || []), ...(finalAnalysis.important_phrases || [])])].slice(0, 15),
@@ -209,11 +194,9 @@ PRE-ANÁLISIS EXPERTO:\n${extraContext}`;
 
   } catch (error: any) {
     console.error('Error en /api/analyze:', error);
-    // Fallback simple
     try {
       const body = await req.clone().json().catch(() => ({}));
-      const c = getGroqClient();
-      const r = await c.chat.completions.create({
+      const r = await groqRequest(client => client.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: [
           { role: 'system', content: 'Analiza este texto. Responde con JSON: {"keywords":[],"summary":"","key_concepts":[],"important_phrases":[],"study_tips":[],"topics":[],"difficulty_level":"","connections":[],"formulas":[],"applications":[]}' },
@@ -221,7 +204,7 @@ PRE-ANÁLISIS EXPERTO:\n${extraContext}`;
         ],
         temperature: 0.2,
         max_tokens: 1500,
-      });
+      }));
       const t = r.choices[0]?.message?.content || '{}';
       const m = t.match(/\{[\s\S]*\}/);
       return NextResponse.json({ success: true, analysis: m ? JSON.parse(m[0]) : {} });

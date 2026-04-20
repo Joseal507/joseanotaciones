@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 
+// ==================== CONFIGURACIÓN DE KEYS ====================
 const GROQ_KEYS = [
   process.env.GROQ_API_KEY,
   process.env.GROQ_API_KEY_2,
@@ -16,10 +17,14 @@ const GEMINI_KEYS = [
   process.env.GEMINI_API_KEY_4,
 ].filter(Boolean) as string[];
 
-const keyStatus = new Map<string, number>();
+export const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+
+// ==================== ESTADO DE KEYS ====================
+const keyStatus = new Map<string, number>(); // key → timestamp de desbloqueo
 let currentGroqIndex = 0;
 let currentGeminiIndex = 0;
 
+// ==================== FUNCIONES DE ROTACIÓN ====================
 const getNextGroqKey = (): string => {
   const now = Date.now();
   for (let i = 0; i < GROQ_KEYS.length; i++) {
@@ -51,12 +56,14 @@ export const markKeyAsBlocked = (key: string, seconds = 60) => {
   console.warn(`🔴 Key bloqueada por ${seconds}s → ${key.slice(0, 15)}...`);
 };
 
+// ==================== CLIENTES ====================
 export const getGroqClient = () => {
   const key = getNextGroqKey();
   const client = new OpenAI({
     apiKey: key,
     baseURL: 'https://api.groq.com/openai/v1',
   }) as OpenAI & { _provider: string; _key: string };
+
   client._provider = 'groq';
   client._key = key;
   return client;
@@ -68,6 +75,7 @@ export const getGeminiClient = () => {
     apiKey: key,
     baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
   }) as OpenAI & { _provider: string; _key: string };
+
   client._provider = 'gemini';
   client._key = key;
   return client;
@@ -75,21 +83,22 @@ export const getGeminiClient = () => {
 
 export const getOpenRouterClient = () => {
   const client = new OpenAI({
-    apiKey: process.env.OPENROUTER_API_KEY,
+    apiKey: OPENROUTER_API_KEY,
     baseURL: 'https://openrouter.ai/api/v1',
     defaultHeaders: {
       'HTTP-Referer': 'https://joseanotacioness.vercel.app',
       'X-Title': 'Jose Anotaciones',
     },
-  }) as OpenAI & { _provider: string; _key: string };
+  }) as OpenAI & { _provider: string };
+
   client._provider = 'openrouter';
-  client._key = 'openrouter';
   return client;
 };
 
-export const groqRequest = async <T>(
+// ==================== REQUEST INTELIGENTE ====================
+export const aiRequest = async <T>(
   fn: (client: OpenAI) => Promise<T>,
-  maxRetries = 12,
+  maxRetries = 8
 ): Promise<T> => {
   let lastError: any;
 
@@ -98,7 +107,7 @@ export const groqRequest = async <T>(
 
     if (attempt < 6) {
       client = getGroqClient();
-    } else if (attempt < 10) {
+    } else if (attempt < 7) {
       client = getGeminiClient();
     } else {
       client = getOpenRouterClient();
@@ -106,22 +115,25 @@ export const groqRequest = async <T>(
 
     try {
       const result = await fn(client);
-      if (attempt > 0) console.log(`✅ ${client._provider} funcionó en attempt ${attempt + 1}`);
+      console.log(`✅ Usando ${client._provider || 'unknown'} (attempt ${attempt + 1})`);
       return result;
     } catch (err: any) {
       lastError = err;
-      if (err?.status === 429 || err?.status === 413 || err?.message?.includes('rate')) {
+
+      if (err?.status === 429 || err?.message?.includes('rate') || err?.status === 413) {
         if (client._key) {
           const retryAfter = parseInt(err?.headers?.['retry-after'] || '60');
           markKeyAsBlocked(client._key, retryAfter);
         }
-        console.warn(`⚠️ Rate limit en ${client._provider} attempt ${attempt + 1}, probando siguiente...`);
-        await new Promise(r => setTimeout(r, 500));
+        console.warn(`⚠️ Rate limit en ${client._provider}, intentando siguiente proveedor...`);
+        await new Promise(r => setTimeout(r, 800));
         continue;
       }
+
       throw err;
     }
   }
 
+  console.error('❌ Todas las IAs fallaron');
   throw lastError;
 };
