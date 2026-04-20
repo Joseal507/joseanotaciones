@@ -1,23 +1,39 @@
-import { createHash } from 'crypto';
-import { supabase } from './supabase';
+import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
 
-export const getHash = (text: string) => {
-  return createHash('md5').update(text.trim().substring(0, 5000)).digest('hex');
-};
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-export const checkCache = async (hash: string) => {
-  const { data } = await supabase
-    .from('analisis_cache')
+export function getContentHash(content: string): string {
+  return crypto.createHash('md5').update(content.trim().toLowerCase()).digest('hex');
+}
+
+export async function getCachedContent(content: string) {
+  const hash = getContentHash(content);
+  const { data, error } = await supabase
+    .from('content_cache')
     .select('*')
     .eq('content_hash', hash)
     .single();
-  return data;
-};
 
-export const saveCache = async (hash: string, analysis: any, flashcards: any) => {
-  await supabase.from('analisis_cache').upsert({
+  if (data) {
+    // Incrementar contador de hits (uso)
+    await supabase.from('content_cache').update({ hits: data.hits + 1 }).eq('id', data.id);
+    return data;
+  }
+  return null;
+}
+
+export async function saveToCache(content: string, data: { flashcards?: any, analysis?: any }) {
+  const hash = getContentHash(content);
+  const wordCount = content.split(/\s+/).length;
+
+  await supabase.from('content_cache').upsert({
     content_hash: hash,
-    analysis,
-    flashcards
-  });
-};
+    flashcards: data.flashcards || null,
+    analysis: data.analysis || null,
+    word_count: wordCount
+  }, { onConflict: 'content_hash' });
+}
