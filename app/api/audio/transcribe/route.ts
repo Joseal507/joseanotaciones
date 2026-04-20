@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     const audioFile = new File([buffer], audio.name || 'audio.webm', { type: audio.type || 'audio/webm' });
 
     // Transcribir con Whisper
-    const transcription = await (client.audio as any).transcriptions.create({
+    const transcription = await (client!.audio as any).transcriptions.create({
       file: audioFile,
       model: 'whisper-large-v3',
       language: idioma === 'en' ? 'en' : 'es',
