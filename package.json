@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@mistralai/mistralai": "^2.2.0",
     "@supabase/supabase-js": "^2.103.0",
     "@tailwindcss/postcss": "^4.2.2",

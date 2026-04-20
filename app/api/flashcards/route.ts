@@ -8,8 +8,8 @@ async function calcularFlashcardsNecesarias(content: string, lang: string): Prom
     const wordCount = content.split(/\s+/).length;
     const estimadoBase = Math.ceil(wordCount / 60);
 
-    const r = await groqRequest(client => client.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+    const r = await groqRequest((client, model) => client.chat.completions.create({
+      model: model('llama-3.3-70b-versatile'),
       messages: [
         {
           role: 'system',
@@ -77,8 +77,8 @@ async function generarFlashcardsCompletas(
       : '';
 
     try {
-      const r = await groqRequest(client => client.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+      const r = await groqRequest((client, model) => client.chat.completions.create({
+        model: model('llama-3.3-70b-versatile'),
         messages: [
           {
             role: 'system',
@@ -136,8 +136,8 @@ export async function POST(request: NextRequest) {
 
     if (imageBase64 && imageMime) {
       const flashcardCount = count || 10;
-      const vr = await groqRequest(client => client.chat.completions.create({
-        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      const vr = await groqRequest((client, model) => client.chat.completions.create({
+        model: model('meta-llama/llama-4-scout-17b-16e-instruct'),
         messages: [{
           role: 'user',
           content: [
@@ -171,8 +171,8 @@ export async function POST(request: NextRequest) {
           : `\n\nNO repetir: ${existingQuestions.slice(0, 10).join(' | ')}`)
         : '';
 
-      const r = await groqRequest(client => client.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+      const r = await groqRequest((client, model) => client.chat.completions.create({
+        model: model('llama-3.3-70b-versatile'),
         messages: [
           {
             role: 'system',
@@ -216,8 +216,8 @@ export async function POST(request: NextRequest) {
     console.error('❌ Error flashcards:', error);
     try {
       const { content, count, idioma } = await request.clone().json();
-      const r = await groqRequest(client => client.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+      const r = await groqRequest((client, model) => client.chat.completions.create({
+        model: model('llama-3.3-70b-versatile'),
         messages: [
           {
             role: 'system',
