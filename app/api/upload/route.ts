@@ -214,7 +214,7 @@ export async function POST(request: NextRequest) {
 
       try {
         const client = getGroqClient();
-        const res = await client.chat.completions.create({
+        const res = await client!.chat.completions.create({
           model: 'meta-llama/llama-4-scout-17b-16e-instruct',
           messages: [{
             role: 'user',

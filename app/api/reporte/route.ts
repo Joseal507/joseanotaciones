@@ -41,7 +41,7 @@ The report should include: progress summary, strengths, areas for improvement an
 
 El reporte debe incluir: resumen del progreso, puntos fuertes, áreas de mejora y motivación. Máximo 200 palabras.`;
 
-    const completion = await client.chat.completions.create({
+    const completion = await client!.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages: [
         { role: 'system', content: systemPrompt },

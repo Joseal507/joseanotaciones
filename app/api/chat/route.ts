@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
           ],
         },
       ];
-      const visionRes = await client.chat.completions.create({
+      const visionRes = await client!.chat.completions.create({
         model: 'meta-llama/llama-4-scout-17b-16e-instruct',
         messages: visionMessages,
         temperature: 0.5,
@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
       const client = getGroqClient();
       const { mensaje, historial, idioma } = await request.clone().json();
       const lang = idioma === 'en' ? 'en' : 'es';
-      const res = await client.chat.completions.create({
+      const res = await client!.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: [
           { role: 'system', content: lang === 'en' ? 'You are JeffreyBot, disciple of José Alberto de Obaldia, a helpful study assistant. Respond in English.' : 'Eres JeffreyBot, discípulo de José Alberto de Obaldia, un asistente de estudio. Responde en español.' },
