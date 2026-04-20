@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     let analisis120b = '';
     try {
       const client1 = getGroqClient();
-      const res1 = await client1.chat.completions.create({
+      const res1 = await client1!.chat.completions.create({
         model: 'openai/gpt-oss-120b',
         messages: [
           {
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
     let analisisKimi = '';
     try {
       const client2 = getGroqClient();
-      const res2 = await client2.chat.completions.create({
+      const res2 = await client2!.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: [
           {
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
       : systemPrompt;
 
     const client3 = getGroqClient();
-    const finalRes = await client3.chat.completions.create({
+    const finalRes = await client3!.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages: [
         { role: 'system', content: finalSystem },

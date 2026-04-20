@@ -246,7 +246,7 @@ export async function POST(request: NextRequest) {
       try {
         const client = getGroqClient();
         const audioFile = new File([buffer], file.name, { type: mimeType });
-        const transcription = await (client.audio as any).transcriptions.create({
+        const transcription = await (client!.audio as any).transcriptions.create({
           file: audioFile,
           model: 'whisper-large-v3',
           response_format: 'json',

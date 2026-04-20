@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     let deepEval = '';
     try {
       const c1 = getGroqClient();
-      const r1 = await c1.chat.completions.create({
+      const r1 = await c1!.chat.completions.create({
         model: 'openai/gpt-oss-120b',
         messages: [
           { role: 'system', content: lang === 'en'
@@ -46,7 +46,7 @@ ANÁLISIS EXPERTO:
 ${deepEval}`;
 
     const c2 = getGroqClient();
-    const r2 = await c2.chat.completions.create({
+    const r2 = await c2!.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages: [
         { role: 'system', content: systemPrompt },
@@ -67,7 +67,7 @@ ${deepEval}`;
     try {
       const { pregunta, respuestaCorrecta, respuestaUsuario, idioma } = await request.clone().json();
       const c = getGroqClient();
-      const r = await c.chat.completions.create({
+      const r = await c!.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: [
           { role: 'system', content: idioma === 'en'
