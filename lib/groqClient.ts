@@ -21,6 +21,9 @@ const keyStatus = new Map<string, number>();
 let currentGroqIndex = 0;
 let currentGeminiIndex = 0;
 
+// ── Contador global de tokens ──
+let totalTokensHoy = 0;
+
 const getNextGroqKey = (): string | null => {
   if (GROQ_KEYS.length === 0) return null;
   const now = Date.now();
@@ -92,25 +95,47 @@ const getOpenRouterClient = () => {
   return client;
 };
 
+const adaptModel = (model: string, provider: string): string => {
+  if (provider === 'groq') return model;
+  if (provider === 'mistral') {
+    if (model.includes('vision') || model.includes('llama-4')) return 'pixtral-12b-2409';
+    return 'mistral-small-latest';
+  }
+  if (provider === 'openrouter') {
+    if (model.includes('vision') || model.includes('llama-4')) return 'meta-llama/llama-3.2-11b-vision-instruct:free';
+    return 'meta-llama/llama-3.1-8b-instruct:free';
+  }
+  return model;
+};
+
 const callGemini = async (messages: any[], maxTokens: number = 2000): Promise<string> => {
   for (let i = 0; i < GEMINI_KEYS.length; i++) {
     const key = getNextGeminiKey();
     if (!key) break;
     try {
       const genAI = new GoogleGenerativeAI(key);
-      const model = genAI.getGenerativeModel({
+      const geminiModel = genAI.getGenerativeModel({
         model: 'gemini-2.5-flash',
         generationConfig: { maxOutputTokens: maxTokens, temperature: 0.3 },
       });
-      const systemMsg = messages.find(m => m.role === 'system')?.content || '';
-      const userMsg = messages.find(m => m.role === 'user')?.content || '';
+      const systemMsg = messages.find((m) => m.role === 'system')?.content || '';
+      const userMsg = messages.find((m) => m.role === 'user')?.content || '';
       const prompt = systemMsg ? `${systemMsg}\n\n${userMsg}` : userMsg;
-      const result = await model.generateContent(prompt);
-      return result.response.text();
+      const result = await geminiModel.generateContent(prompt);
+      const text = result.response.text();
+
+      // 📊 Log de tokens de Gemini
+      const usage = result.response.usageMetadata;
+      if (usage) {
+        totalTokensHoy += usage.totalTokenCount || 0;
+        console.log(`📊 Gemini Tokens → Prompt: ${usage.promptTokenCount} | Output: ${usage.candidatesTokenCount} | Total: ${usage.totalTokenCount} | 🔥 Acumulado hoy: ${totalTokensHoy}`);
+      }
+
+      return text;
     } catch (err: any) {
       if (err?.message?.includes('429') || err?.message?.includes('quota')) {
         markKeyAsBlocked(key, 60);
-        console.warn(`⚠️ Error Real Gemini: ${err.message}`);
+        console.warn(`⚠️ Gemini key agotada, probando siguiente...`);
         continue;
       }
       throw err;
@@ -155,7 +180,15 @@ export const groqRequest = async <T>(
         continue;
       }
       try {
-        const result = await fn(client, (m) => m);
+        const result = await fn(client, (m) => adaptModel(m, 'groq'));
+
+        // 📊 Log de tokens de Groq
+        if ((result as any)?.usage) {
+          const usage = (result as any).usage;
+          totalTokensHoy += usage.total_tokens || 0;
+          console.log(`📊 Groq Tokens → Prompt: ${usage.prompt_tokens} | Completion: ${usage.completion_tokens} | Total: ${usage.total_tokens} | 🔥 Acumulado hoy: ${totalTokensHoy}`);
+        }
+
         if (attempt > 0) console.log(`✅ groq funcionó en attempt ${attempt + 1}`);
         return result;
       } catch (err: any) {
@@ -192,6 +225,14 @@ export const groqRequest = async <T>(
       if (client) {
         try {
           const result = await fn(client, () => 'mistral-small-latest');
+
+          // 📊 Log de tokens de Mistral
+          if ((result as any)?.usage) {
+            const usage = (result as any).usage;
+            totalTokensHoy += usage.total_tokens || 0;
+            console.log(`📊 Mistral Tokens → Prompt: ${usage.prompt_tokens} | Completion: ${usage.completion_tokens} | Total: ${usage.total_tokens} | 🔥 Acumulado hoy: ${totalTokensHoy}`);
+          }
+
           console.log(`✅ mistral funcionó en attempt ${attempt + 1}`);
           return result;
         } catch (err: any) {
@@ -208,6 +249,14 @@ export const groqRequest = async <T>(
       if (client) {
         try {
           const result = await fn(client, () => 'meta-llama/llama-3.1-8b-instruct:free');
+
+          // 📊 Log de tokens de OpenRouter
+          if ((result as any)?.usage) {
+            const usage = (result as any).usage;
+            totalTokensHoy += usage.total_tokens || 0;
+            console.log(`📊 OpenRouter Tokens → Total: ${usage.total_tokens} | 🔥 Acumulado hoy: ${totalTokensHoy}`);
+          }
+
           console.log(`✅ openrouter funcionó en attempt ${attempt + 1}`);
           return result;
         } catch (err: any) {
