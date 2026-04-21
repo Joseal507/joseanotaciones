@@ -35,7 +35,7 @@ export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: P
     { label: '📚 ' + tr('misMaterias'), href: '/materias' },
     { label: '🗓️ ' + tr('horario'), href: '/horario' },
     { label: '📅 ' + tr('agenda'), href: '/agenda' },
-    { label: '🤖 AlciBot', href: '/chat' },
+    { label: '🤖 JeffreyBot', href: '/chat' },
     { label: '🎓 ' + tr('quizzes'), href: '/quizzes' },
     { label: '📊 ' + tr('perfil'), href: '/perfil' },
     { label: '⚙️ ' + tr('configuracion'), href: '/settings' },

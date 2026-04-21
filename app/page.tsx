@@ -447,7 +447,7 @@ export default function Home() {
               { emoji: '📚', label: tr('misMaterias'), desc: idioma === 'en' ? 'Notes & topics' : 'Apuntes y temas', color: 'var(--gold)', href: '/materias' },
               { emoji: '🗓️', label: tr('horario'), desc: idioma === 'en' ? 'Weekly schedule' : 'Clases de la semana', color: 'var(--gold)', href: '/horario' },
               { emoji: '📅', label: tr('agenda'), desc: tr('calendarioYObjetivos'), color: 'var(--blue)', href: '/agenda' },
-              { emoji: '🤖', label: 'AlciBot', desc: idioma === 'en' ? 'AI chat' : 'Chat con AI', color: 'var(--pink)', href: '/chat' },
+              { emoji: '🤖', label: 'JeffreyBot', desc: idioma === 'en' ? 'AI chat' : 'Chat con AI', color: 'var(--pink)', href: '/chat' },
               { emoji: '🎓', label: tr('quizzes'), desc: idioma === 'en' ? 'Saved materials' : 'Materiales guardados', color: '#a78bfa', href: '/quizzes' },
               { emoji: '📊', label: tr('perfil'), desc: idioma === 'en' ? 'Study stats' : 'Stats de estudio', color: 'var(--red)', href: '/perfil' },
               { emoji: '⚙️', label: tr('configuracion'), desc: idioma === 'en' ? 'Settings' : 'Ajustes', color: 'var(--text-muted)', href: '/settings' },
