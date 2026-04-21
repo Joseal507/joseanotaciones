@@ -127,7 +127,7 @@ export const groqRequest = async <T>(
       const modelAdapter = (m: string) => {
         if (p.provider === 'cerebras') return 'llama3.1-70b';
         if (p.provider === 'together') return 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo';
-        if (p.provider === 'sambanova') return 'Meta-Llama-3.1-405B-Instruct';
+        if (p.provider === 'sambanova') return 'Meta-Llama-3.3-70B-Instruct';
         if (p.provider === 'openrouter') return 'meta-llama/llama-3.1-8b-instruct:free';
         return m;
       };
