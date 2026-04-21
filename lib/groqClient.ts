@@ -137,7 +137,7 @@ export const groqRequest = async <T>(
       return result;
     } catch (err: any) {
       lastError = err;
-      console.warn(`⚠️ Intento ${attempt + 1} (${p()?.provider}) falló`);
+      console.warn(`⚠️ Intento ${attempt + 1} falló`);
       await new Promise(r => setTimeout(r, 200));
     }
   }
