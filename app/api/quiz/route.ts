@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGroqClient } from '../../../lib/groqClient';
+import { groqRequest } from '../../../lib/groqClient';
+
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,103 +10,107 @@ export async function POST(request: NextRequest) {
     const lang = idioma === 'en' ? 'en' : 'es';
     const textToUse = content.substring(0, 6000);
 
-    // ===== PASO 1: GPT-OSS-120B identifica conceptos clave para preguntar =====
+    // ===== PASO 1: Identificar conceptos clave =====
     let keyPoints = '';
     try {
-      const c1 = getGroqClient();
-      const r1 = await c1!.chat.completions.create({
-        model: 'openai/gpt-oss-120b',
-        messages: [
-          { role: 'system', content: lang === 'en'
-            ? `Identify the ${count * 2} most important testable concepts from this text. For each, note what would make a good quiz question and common mistakes students make.`
-            : `Identifica los ${count * 2} conceptos más importantes evaluables de este texto. Para cada uno, nota qué haría una buena pregunta de quiz y errores comunes de estudiantes.`
-          },
-          { role: 'user', content: textToUse },
-        ],
-        temperature: 0.2,
-        max_tokens: 800,
+      keyPoints = await groqRequest(async (client, model) => {
+        const r = await client.chat.completions.create({
+          model: model('llama-3.3-70b-versatile'),
+          messages: [
+            {
+              role: 'system',
+              content: lang === 'en'
+                ? `Identify the ${count * 2} most important testable concepts from this text. Note what makes a good quiz question and common student mistakes.`
+                : `Identifica los ${count * 2} conceptos más importantes evaluables de este texto. Nota qué haría una buena pregunta y errores comunes de estudiantes.`,
+            },
+            { role: 'user', content: textToUse },
+          ],
+          temperature: 0.2,
+          max_tokens: 600,
+        });
+        return r.choices[0].message.content || '';
       });
-      keyPoints = r1.choices[0].message.content || '';
-    } catch (e) { console.log('gpt-oss-120b quiz falló:', e); }
+    } catch (e) {
+      console.log('Paso 1 falló, continuando sin keyPoints:', e);
+    }
 
-    // ===== PASO 2: Kimi-K2 sugiere distractores inteligentes =====
+    // ===== PASO 2: Distractores inteligentes =====
     let distractorInfo = '';
     try {
-      const c2 = getGroqClient();
-      const r2 = await c2!.chat.completions.create({
-        model: 'moonshotai/kimi-k2-instruct',
-        messages: [
-          { role: 'system', content: lang === 'en'
-            ? 'Identify common misconceptions, similar-but-wrong concepts, and tricky details from this text that would make excellent wrong options in a quiz.'
-            : 'Identifica conceptos erróneos comunes, conceptos similares-pero-incorrectos, y detalles engañosos de este texto que serían excelentes opciones incorrectas en un quiz.'
-          },
-          { role: 'user', content: textToUse },
-        ],
-        temperature: 0.2,
-        max_tokens: 600,
+      distractorInfo = await groqRequest(async (client, model) => {
+        const r = await client.chat.completions.create({
+          model: model('llama3-8b-8192'),
+          messages: [
+            {
+              role: 'system',
+              content: lang === 'en'
+                ? 'Identify common misconceptions and similar-but-wrong concepts from this text for quiz wrong options.'
+                : 'Identifica conceptos erróneos comunes y similares-pero-incorrectos de este texto para opciones incorrectas de quiz.',
+            },
+            { role: 'user', content: textToUse },
+          ],
+          temperature: 0.2,
+          max_tokens: 400,
+        });
+        return r.choices[0].message.content || '';
       });
-      distractorInfo = r2.choices[0].message.content || '';
-    } catch (e) { console.log('kimi quiz falló:', e); }
+    } catch (e) {
+      console.log('Paso 2 falló, continuando sin distractores:', e);
+    }
 
-    // ===== PASO 3: Llama 3.3 crea el quiz final =====
+    // ===== PASO 3: Generar quiz final =====
     const extraContext = [
-      keyPoints ? (lang === 'en' ? `KEY TESTABLE CONCEPTS:\n${keyPoints}` : `CONCEPTOS EVALUABLES CLAVE:\n${keyPoints}`) : '',
-      distractorInfo ? (lang === 'en' ? `COMMON MISCONCEPTIONS FOR WRONG OPTIONS:\n${distractorInfo}` : `CONCEPTOS ERRÓNEOS PARA OPCIONES INCORRECTAS:\n${distractorInfo}`) : '',
+      keyPoints
+        ? (lang === 'en' ? `KEY CONCEPTS:\n${keyPoints}` : `CONCEPTOS CLAVE:\n${keyPoints}`)
+        : '',
+      distractorInfo
+        ? (lang === 'en' ? `MISCONCEPTIONS:\n${distractorInfo}` : `ERRORES COMUNES:\n${distractorInfo}`)
+        : '',
     ].filter(Boolean).join('\n\n---\n\n');
 
     const systemPrompt = lang === 'en'
-      ? `You are an expert quiz creator. You have analysis from 2 specialized AIs about key concepts and common misconceptions. Use it to create ${count} challenging but fair multiple choice questions. Wrong options must be PLAUSIBLE (use the misconceptions). Respond ONLY with JSON:
-[{"pregunta":"question","opciones":["correct","wrong1","wrong2","wrong3"],"correcta":0,"explicacion":"why correct"}]
-Mix the position of the correct answer randomly (0-3).
+      ? `You are an expert quiz creator. Create ${count} challenging multiple choice questions. Wrong options must be PLAUSIBLE. Respond ONLY with valid JSON, no extra text:
+[{"pregunta":"question","opciones":["opt0","opt1","opt2","opt3"],"correcta":0,"explicacion":"why correct"}]
+Mix correct answer position randomly (0-3).${extraContext ? `\n\nEXPERT ANALYSIS:\n${extraContext}` : ''}`
+      : `Eres un experto creador de quizzes. Crea ${count} preguntas de opción múltiple desafiantes. Las opciones incorrectas deben ser PLAUSIBLES. Responde SOLO con JSON válido, sin texto extra:
+[{"pregunta":"pregunta","opciones":["op0","op1","op2","op3"],"correcta":0,"explicacion":"por qué es correcta"}]
+Mezcla la posición de la correcta aleatoriamente (0-3).${extraContext ? `\n\nANÁLISIS EXPERTO:\n${extraContext}` : ''}`;
 
-EXPERT ANALYSIS:
-${extraContext}`
-      : `Eres un experto creador de quizzes. Tienes análisis de 2 AIs especializadas sobre conceptos clave y errores comunes. Úsalo para crear ${count} preguntas desafiantes pero justas de opción múltiple. Las opciones incorrectas deben ser PLAUSIBLES (usa los conceptos erróneos). Responde SOLO con JSON:
-[{"pregunta":"pregunta","opciones":["correcta","incorrecta1","incorrecta2","incorrecta3"],"correcta":0,"explicacion":"por qué es correcta"}]
-Mezcla la posición de la respuesta correcta aleatoriamente (0-3).
-
-ANÁLISIS EXPERTO:
-${extraContext}`;
-
-    const c3 = getGroqClient();
-    const r3 = await c3!.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `${lang === 'en' ? 'Create' : 'Crea'} ${count} ${lang === 'en' ? 'questions from' : 'preguntas de'}:\n\n${textToUse}` },
-      ],
-      temperature: 0.4,
-      max_tokens: 3000,
-    });
-
-    const t3 = r3.choices[0].message.content || '[]';
-    const m3 = t3.match(/\[[\s\S]*\]/);
-    const quiz = m3 ? JSON.parse(m3[0]) : [];
-
-    return NextResponse.json({ success: true, quiz });
-
-  } catch (error: any) {
-    // Fallback simple
-    try {
-      const { content, count, idioma } = await request.clone().json();
-      const c = getGroqClient();
-      const r = await c!.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+    const quiz = await groqRequest(async (client, model) => {
+      const r = await client.chat.completions.create({
+        model: model('llama-3.3-70b-versatile'),
         messages: [
-          { role: 'system', content: idioma === 'en'
-            ? `Create ${count || 5} quiz questions. JSON: [{"pregunta":"","opciones":["","","",""],"correcta":0,"explicacion":""}]`
-            : `Crea ${count || 5} preguntas quiz. JSON: [{"pregunta":"","opciones":["","","",""],"correcta":0,"explicacion":""}]`
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: `${lang === 'en' ? 'Create' : 'Crea'} ${count} ${lang === 'en' ? 'questions from this text' : 'preguntas de este texto'}:\n\n${textToUse}`,
           },
-          { role: 'user', content: content?.substring(0, 5000) || '' },
         ],
         temperature: 0.4,
         max_tokens: 3000,
       });
-      const t = r.choices[0].message.content || '[]';
-      const m = t.match(/\[[\s\S]*\]/);
-      return NextResponse.json({ success: true, quiz: m ? JSON.parse(m[0]) : [] });
-    } catch (e: any) {
-      return NextResponse.json({ success: false, error: e.message }, { status: 500 });
-    }
+
+      const text = r.choices[0].message.content || '[]';
+      const match = text.match(/\[[\s\S]*\]/);
+      if (!match) throw new Error('No JSON found in response');
+
+      const parsed = JSON.parse(match[0]);
+      return parsed.filter((q: any) =>
+        q.pregunta &&
+        Array.isArray(q.opciones) &&
+        q.opciones.length === 4 &&
+        typeof q.correcta === 'number' &&
+        q.explicacion
+      );
+    });
+
+    return NextResponse.json({ success: true, quiz });
+
+  } catch (error: any) {
+    console.error('Error generando quiz:', error);
+    return NextResponse.json(
+      { success: false, error: error.message },
+      { status: 500 }
+    );
   }
 }
