@@ -72,7 +72,7 @@ const callGemini = async (messages: any[], maxTokens: number = 2000): Promise<st
   const key = getNextKey(GEMINI_KEYS, currentGeminiIndex, (i) => currentGeminiIndex = i);
   if (!key) throw new Error('No hay keys de Gemini');
   const genAI = new GoogleGenerativeAI(key);
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
   const prompt = messages.map((m: any) => `${m.role}: ${m.content}`).join('\n');
   const result = await model.generateContent(prompt);
   return result.response.text();
@@ -125,7 +125,7 @@ export const groqRequest = async <T>(
       if (!p) continue;
       
       const modelAdapter = (m: string) => {
-        if (p.provider === 'cerebras') return 'llama3.1-70b';
+        if (p.provider === 'cerebras') return 'llama3.1-8b';
         if (p.provider === 'together') return 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo';
         if (p.provider === 'sambanova') return 'Meta-Llama-3.3-70B-Instruct';
         if (p.provider === 'openrouter') return 'meta-llama/llama-3.1-8b-instruct:free';
