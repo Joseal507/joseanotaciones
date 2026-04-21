@@ -169,5 +169,5 @@ export const groqRequest = async <T>(
       await new Promise(r => setTimeout(r, 200));
     }
   }
-  throw lastError || new Error('All providers failed');
+  throw new Error('AI_EXHAUSTED');
 };

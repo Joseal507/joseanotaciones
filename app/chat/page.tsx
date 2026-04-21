@@ -5,6 +5,7 @@ import { getPerfil, getMaterias } from '../../lib/storage';
 import { getSettings } from '../../lib/settings';
 import { useIdioma } from '../../hooks/useIdioma';
 import { getIdioma } from '../../lib/i18n';
+import AIExhausted from '../../components/AIExhausted';
 
 interface Mensaje {
   role: 'user' | 'assistant';
@@ -34,6 +35,7 @@ export default function ChatPage() {
   const [transcribiendo, setTranscribiendo] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [modoLlamada, setModoLlamada] = useState(false);
+  const [aiExhausted, setAiExhausted] = useState(false);
   const [llamandoAI, setLlamandoAI] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -112,11 +114,15 @@ export default function ChatPage() {
         setMensajes(prev => [...prev, { role: 'assistant', content: data.respuesta }]);
         if (audioEnabled || modoLlamada) await reproducirRespuesta(data.respuesta);
       }
-    } catch {
-      setMensajes(prev => [...prev, {
-        role: 'assistant',
-        content: idioma === 'en' ? 'Connection error. Try again.' : 'Error de conexión. Intenta de nuevo.',
-      }]);
+    } catch (err: any) {
+      if (err?.message === "AI_EXHAUSTED" || err?.message?.includes("All providers")) {
+        setAiExhausted(true);
+      } else {
+        setMensajes(prev => [...prev, {
+          role: 'assistant',
+          content: idioma === 'en' ? 'Connection error. Try again.' : 'Error de conexión. Intenta de nuevo.',
+        }]);
+      }
     } finally {
       setCargando(false);
     }
@@ -354,6 +360,8 @@ export default function ChatPage() {
     : ['¿Cómo funciona la fotosíntesis?', 'Explícame las leyes de Newton', '¿Qué es la derivada?', 'Técnicas para memorizar'];
 
   return (
+    <>
+    {aiExhausted && <AIExhausted onClose={() => setAiExhausted(false)} />}
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', fontFamily: '-apple-system, sans-serif' }}>
 
       <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} style={{ display: 'none' }} />
@@ -620,5 +628,7 @@ export default function ChatPage() {
         }
       `}</style>
     </div>
+  );
+    </>
   );
 }

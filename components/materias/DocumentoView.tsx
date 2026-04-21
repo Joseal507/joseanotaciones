@@ -13,6 +13,7 @@ import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
 import { getIdioma } from '../../lib/i18n';
 import BannerCargando from './BannerCargando';
+import AIExhausted from '../AIExhausted';
 import TabAnalisis from './TabAnalisis';
 import TabFlashcards from './TabFlashcards';
 
@@ -28,6 +29,7 @@ interface Props {
 
 export default function DocumentoView({ documento, materia, tema, onBack, onBackMateria, onBackTema, onActualizar }: Props) {
   const [analizando, setAnalizando] = useState(false);
+  const [aiExhausted, setAiExhausted] = useState(false);
   const [pasoActual, setPasoActual] = useState(0);
   const [flashcards, setFlashcards] = useState(documento.flashcards || []);
   const [currentCard, setCurrentCard] = useState(0);
@@ -133,7 +135,8 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
       setCurrentCard(0);
       setFlipped(false);
 
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.message === "AI_EXHAUSTED" || err?.message?.includes("All providers")) setAiExhausted(true);
       console.error(err);
     } finally {
       setAnalizando(false);
@@ -390,5 +393,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
         )}
       </div>
     </div>
+  );
+    </>
   );
 }

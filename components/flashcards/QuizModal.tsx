@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { registrarEstudioHoy } from '../../lib/racha';
 import { guardarQuiz, getQuizzesGuardados, eliminarQuizGuardado, QuizGuardado } from '../../lib/quizStorage';
 import { useIdioma } from '../../hooks/useIdioma';
+import AIExhausted from '../../components/AIExhausted';
 import { getIdioma } from '../../lib/i18n';
 
 interface PreguntaQuiz {
@@ -37,6 +38,7 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
   const [nombreQuiz, setNombreQuiz] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [guardadoExito, setGuardadoExito] = useState(false);
+  const [aiExhausted, setAiExhausted] = useState(false);
   const [quizzesGuardados, setQuizzesGuardados] = useState<QuizGuardado[]>(() => getQuizzesGuardados());
   const [quizSeleccionado, setQuizSeleccionado] = useState<QuizGuardado | null>(null);
 
@@ -55,7 +57,10 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
         setPuntos(0); setResultados([]); setGuardadoExito(false);
         setFase('quiz');
       }
-    } catch (err) { console.error(err); }
+    } catch (err: any) { 
+      if (err?.message === "AI_EXHAUSTED" || err?.message?.includes("All providers")) setAiExhausted(true);
+      console.error(err); 
+    }
     finally { setCargando(false); }
   };
 
@@ -145,6 +150,8 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
   };
 
   return (
+    <>
+    {aiExhausted && <AIExhausted onClose={() => setAiExhausted(false)} />}
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.97)', display: 'flex', flexDirection: 'column', zIndex: 2000, fontFamily: '-apple-system, sans-serif' }}>
 
       <div style={{ padding: '14px 24px', background: '#1a1a2e', borderBottom: `3px solid ${temaColor}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
@@ -421,5 +428,7 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
         </div>
       </div>
     </div>
+  );
+    </>
   );
 }
