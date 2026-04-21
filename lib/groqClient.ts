@@ -12,17 +12,18 @@ const GEMINI_KEYS = [
 ].filter(Boolean) as string[];
 
 const CEREBRAS_KEYS = [
-  process.env.CEREBRAS_API_KEY,
-  process.env.CEREBRAS_API_KEY_2,
-  process.env.CEREBRAS_API_KEY_3,
-  process.env.CEREBRAS_API_KEY_4,
+  process.env.CEREBRAS_API_KEY, process.env.CEREBRAS_API_KEY_2,
+  process.env.CEREBRAS_API_KEY_3, process.env.CEREBRAS_API_KEY_4,
 ].filter(Boolean) as string[];
 
 const TOGETHER_KEYS = [
-  process.env.TOGETHER_API_KEY,
-  process.env.TOGETHER_API_KEY_2,
-  process.env.TOGETHER_API_KEY_3,
-  process.env.TOGETHER_API_KEY_4,
+  process.env.TOGETHER_API_KEY, process.env.TOGETHER_API_KEY_2,
+  process.env.TOGETHER_API_KEY_3, process.env.TOGETHER_API_KEY_4,
+].filter(Boolean) as string[];
+
+const SAMBANOVA_KEYS = [
+  process.env.SAMBANOVA_API_KEY, process.env.SAMBANOVA_API_KEY_2,
+  process.env.SAMBANOVA_API_KEY_3, process.env.SAMBANOVA_API_KEY_4,
 ].filter(Boolean) as string[];
 
 const keyStatus = new Map<string, number>();
@@ -30,6 +31,7 @@ let currentGroqIndex = 0;
 let currentGeminiIndex = 0;
 let currentCerebrasIndex = 0;
 let currentTogetherIndex = 0;
+let currentSambanovaIndex = 0;
 
 const getNextKey = (keys: string[], currentIndex: number, setIndex: (i: number) => void) => {
   if (keys.length === 0) return null;
@@ -50,6 +52,33 @@ export const markKeyAsBlocked = (key: string, seconds = 60) => {
   console.warn(`🔴 Key bloqueada por ${seconds}s → ${key.slice(0, 10)}...`);
 };
 
+// --- CLIENTES NATIVOS ---
+const callCloudflare = async (messages: any[]): Promise<string> => {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+  if (!accountId || !apiToken) throw new Error('Cloudflare no configurado');
+
+  const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/meta/llama-3.1-8b-instruct`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages })
+  });
+  const data = await res.json();
+  if (!data.success) throw new Error('Cloudflare AI Error');
+  return data.result.response;
+};
+
+const callGemini = async (messages: any[], maxTokens: number = 2000): Promise<string> => {
+  const key = getNextKey(GEMINI_KEYS, currentGeminiIndex, (i) => currentGeminiIndex = i);
+  if (!key) throw new Error('No hay keys de Gemini');
+  const genAI = new GoogleGenerativeAI(key);
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+  const prompt = messages.map((m: any) => `${m.role}: ${m.content}`).join('\n');
+  const result = await model.generateContent(prompt);
+  return result.response.text();
+};
+
+// --- GENERADORES DE CLIENTES COMPATIBLES ---
 export const getGroqClient = () => {
   const key = getNextKey(GROQ_KEYS, currentGroqIndex, (i) => currentGroqIndex = i);
   return key ? new OpenAI({ apiKey: key, baseURL: 'https://api.groq.com/openai/v1' }) : null;
@@ -65,114 +94,52 @@ const getTogetherClient = () => {
   return key ? new OpenAI({ apiKey: key, baseURL: 'https://api.together.xyz/v1' }) : null;
 };
 
-const getMistralClient = () => {
-  if (!process.env.MISTRAL_API_KEY) return null;
-  return new OpenAI({ apiKey: process.env.MISTRAL_API_KEY, baseURL: 'https://api.mistral.ai/v1' });
+const getSambanovaClient = () => {
+  const key = getNextKey(SAMBANOVA_KEYS, currentSambanovaIndex, (i) => currentSambanovaIndex = i);
+  return key ? new OpenAI({ apiKey: key, baseURL: 'https://api.sambanova.ai/v1' }) : null;
 };
 
-const getOpenRouterClient = () => {
-  if (!process.env.OPENROUTER_API_KEY) return null;
-  return new OpenAI({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: 'https://openrouter.ai/api/v1' });
-};
-
-const callGemini = async (messages: any[], maxTokens: number = 2000): Promise<string> => {
-  for (let i = 0; i < GEMINI_KEYS.length; i++) {
-    const key = getNextKey(GEMINI_KEYS, currentGeminiIndex, (i) => currentGeminiIndex = i);
-    if (!key) break;
-    try {
-      const genAI = new GoogleGenerativeAI(key);
-      const model = genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
-        generationConfig: { maxOutputTokens: maxTokens, temperature: 0.3 },
-      });
-      const prompt = messages.map((m: any) => `${m.role}: ${m.content}`).join('\n');
-      const result = await model.generateContent(prompt);
-      return result.response.text();
-    } catch (err: any) {
-      if (err?.message?.includes('429') || err?.message?.includes('quota')) {
-        markKeyAsBlocked(key, 60);
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw new Error('Todas las keys de Gemini agotadas');
-};
-
-const makeGeminiFakeClient = () => ({
-  chat: {
-    completions: {
-      create: async (p: any) => ({
-        choices: [{ message: { content: await callGemini(p.messages, p.max_tokens) } }],
-      }),
-    },
-  },
-});
-
-const adaptModel = (model: string, provider: string): string => {
-  if (provider === 'groq') return model;
-  if (provider === 'cerebras') return 'llama3.1-70b';
-  if (provider === 'together') return 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo';
-  if (provider === 'mistral') return 'mistral-small-latest';
-  return 'meta-llama/llama-3.1-8b-instruct:free';
-};
-
+// --- FALLBACK ENGINE ---
 export const groqRequest = async <T>(
-  fn: (client: any, model: (m: string) => string) => Promise<T>,
+  fn: (client: any, model: (m: string) => string) => Promise<T>
 ): Promise<T> => {
   let lastError: any;
 
-  // 🏗️ Lista de proveedores en orden de prioridad
-  // Groq x6, Cerebras x3, Together x4, Gemini x4, Mistral x2, OpenRouter x4
   const providers: (() => { client: any; provider: string } | null)[] = [
-    // ⚡ Groq (más rápido, 6 keys)
-    ...Array(6).fill(null).map(() => () => {
-      const c = getGroqClient();
-      return c ? { client: c, provider: 'groq' } : null;
-    }),
-    // 🧠 Cerebras (velocidad extrema, 3 keys)
-    ...Array(3).fill(null).map(() => () => {
-      const c = getCerebrasClient();
-      return c ? { client: c, provider: 'cerebras' } : null;
-    }),
-    // 🤝 Together (gran capacidad, 4 keys)
-    ...Array(4).fill(null).map(() => () => {
-      const c = getTogetherClient();
-      return c ? { client: c, provider: 'together' } : null;
-    }),
-    // 🌟 Gemini (4 keys, 1500 req/día cada una)
-    ...Array(4).fill(null).map(() => () => ({
-      client: makeGeminiFakeClient(),
-      provider: 'gemini',
-    })),
-    // 🇪🇺 Mistral
-    ...Array(2).fill(null).map(() => () => {
-      const c = getMistralClient();
-      return c ? { client: c, provider: 'mistral' } : null;
-    }),
-    // 🌐 OpenRouter (último recurso)
-    ...Array(4).fill(null).map(() => () => {
-      const c = getOpenRouterClient();
-      return c ? { client: c, provider: 'openrouter' } : null;
-    }),
+    ...Array(6).fill(null).map(() => () => { const c = getGroqClient(); return c ? { client: c, provider: 'groq' } : null; }),
+    ...Array(4).fill(null).map(() => () => { const c = getCerebrasClient(); return c ? { client: c, provider: 'cerebras' } : null; }),
+    ...Array(4).fill(null).map(() => () => { const c = getTogetherClient(); return c ? { client: c, provider: 'together' } : null; }),
+    ...Array(4).fill(null).map(() => () => { const c = getSambanovaClient(); return c ? { client: c, provider: 'sambanova' } : null; }),
+    () => ({ client: { chat: { completions: { create: async (p: any) => ({ choices: [{ message: { content: await callGemini(p.messages) } }] }) } } }, provider: 'gemini' }),
+    () => ({ client: { chat: { completions: { create: async (p: any) => ({ choices: [{ message: { content: await callCloudflare(p.messages) } }] }) } } }, provider: 'cloudflare' }),
+    () => { 
+        if (!process.env.OPENROUTER_API_KEY) return null;
+        const c = new OpenAI({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: 'https://openrouter.ai/api/v1' });
+        return { client: c, provider: 'openrouter' };
+    }
   ];
 
   for (let attempt = 0; attempt < providers.length; attempt++) {
     try {
       const p = providers[attempt]();
-      if (!p) {
-        console.warn(`⚠️ Provider no disponible en intento ${attempt + 1}`);
-        continue;
-      }
-      const result = await fn(p.client, (m) => adaptModel(m, p.provider));
-      console.log(`✅ ${p.provider} funcionó en intento ${attempt + 1}`);
+      if (!p) continue;
+      
+      const modelAdapter = (m: string) => {
+        if (p.provider === 'cerebras') return 'llama3.1-70b';
+        if (p.provider === 'together') return 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo';
+        if (p.provider === 'sambanova') return 'Meta-Llama-3.1-405B-Instruct';
+        if (p.provider === 'openrouter') return 'meta-llama/llama-3.1-8b-instruct:free';
+        return m;
+      };
+
+      const result = await fn(p.client, modelAdapter);
+      console.log(`✅ ${p.provider} OK`);
       return result;
     } catch (err: any) {
       lastError = err;
-      console.warn(`⚠️ Intento ${attempt + 1} (${err?.message?.slice(0, 50)})`);
+      console.warn(`⚠️ Intento ${attempt + 1} (${p()?.provider}) falló`);
       await new Promise(r => setTimeout(r, 200));
     }
   }
-
   throw lastError || new Error('Todas las IAs fallaron');
 };
