@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { groqRequest } from '../../../lib/groqClient';
 import { getCachedContent, saveToCache } from '../../../lib/cache';
 
-const MAX_WORDS = 10000; // 🛡️ Límite de seguridad
+const MAX_WORDS = 10000;
 
 export async function POST(req: NextRequest) {
   try {
@@ -55,7 +55,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No hay contenido para analizar' }, { status: 400 });
     }
 
-    // 🛡️ VALIDACIÓN DE LÍMITE DE PALABRAS
     const wordCount = content.split(/\s+/).length;
     if (!esImagen && wordCount > MAX_WORDS) {
       return NextResponse.json({ 
@@ -63,7 +62,6 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    // 🎯 REVISAR CACHÉ
     if (!esImagen) {
       const cache = await getCachedContent(content);
       if (cache && cache.analysis) {
@@ -75,28 +73,28 @@ export async function POST(req: NextRequest) {
     const lang = idioma === 'en' ? 'en' : 'es';
     const textToAnalyze = content.substring(0, 8000);
 
-    // ── PASO ÚNICO DE ANÁLISIS (Para optimizar tokens) ──
     const prompt = lang === 'en' 
       ? `Expert academic analyst. Provide a comprehensive JSON analysis of this text:
       {"keywords":[], "summary":"4-6 sentences", "key_concepts":[], "difficulty_level":"basic/intermediate/advanced", "study_tips":[], "connections":[], "formulas":[], "applications":[]}`
       : `Analista académico experto. Provee un análisis completo en JSON de este texto:
       {"keywords":[], "summary":"4-6 oraciones", "key_concepts":[], "difficulty_level":"básico/intermedio/avanzado", "study_tips":[], "connections":[], "formulas":[], "applications":[]}`;
 
-    const result = await groqRequest((client, model) => client.chat.completions.create({
-      model: model('llama-3.3-70b-versatile'),
-      messages: [
-        { role: 'system', content: prompt },
-        { role: 'user', content: esImagen ? "Analiza la imagen adjunta" : textToAnalyze }
-      ],
-      temperature: 0.2,
-      max_tokens: 2500
-    }));
+    const analysisText = await groqRequest(async (client, model) => {
+      const r = await client.chat.completions.create({
+        model: model('llama-3.3-70b-versatile'),
+        messages: [
+          { role: 'system', content: prompt },
+          { role: 'user', content: esImagen ? 'Analiza la imagen adjunta' : textToAnalyze },
+        ],
+        temperature: 0.2,
+        max_tokens: 2500,
+      });
+      return r.choices[0]?.message?.content || '{}';
+    });
 
-    const analysisText = result.choices[0]?.message?.content || '{}';
     const m = analysisText.match(/\{[\s\S]*\}/);
     const finalAnalysis = m ? JSON.parse(m[0]) : {};
 
-    // 🎯 GUARDAR EN CACHÉ
     if (!esImagen && finalAnalysis.summary) {
       await saveToCache(content, { analysis: finalAnalysis });
     }
