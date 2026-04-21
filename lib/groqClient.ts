@@ -15,6 +15,7 @@ const CEREBRAS_KEYS = [
   process.env.CEREBRAS_API_KEY,
   process.env.CEREBRAS_API_KEY_2,
   process.env.CEREBRAS_API_KEY_3,
+  process.env.CEREBRAS_API_KEY_4,
 ].filter(Boolean) as string[];
 
 const TOGETHER_KEYS = [
