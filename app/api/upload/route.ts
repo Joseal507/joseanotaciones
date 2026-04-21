@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getGroqClient } from '../../../lib/groqClient';
+import { uploadToR2, generateR2Key } from '../../../lib/r2';
 
 // ─── MISTRAL OCR para PDFs ───
 async function extraerConMistral(buffer: Buffer, fileName: string): Promise<string> {
@@ -8,15 +9,12 @@ async function extraerConMistral(buffer: Buffer, fileName: string): Promise<stri
     if (!apiKey) throw new Error('No hay MISTRAL_API_KEY');
 
     const nombre = fileName.toLowerCase();
-
-    // Detectar mime type correcto
     const mimeType = nombre.endsWith('.pdf') ? 'application/pdf'
       : nombre.endsWith('.pptx') ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
       : nombre.endsWith('.docx') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
       : nombre.endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       : 'application/pdf';
 
-    // .ppt antiguo no está soportado
     if (nombre.endsWith('.ppt') && !nombre.endsWith('.pptx')) {
       throw new Error('Formato .ppt no soportado por Mistral, usar .pptx');
     }
@@ -79,6 +77,7 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File;
+    const userId = formData.get('userId') as string || 'anonymous';
 
     if (!file) {
       return NextResponse.json({ success: false, error: 'No hay archivo' }, { status: 400 });
@@ -91,6 +90,7 @@ export async function POST(request: NextRequest) {
     let esAudio = false;
     let esPPT = false;
     let mimeType = '';
+    let r2Url = '';
 
     console.log(`📄 Procesando: ${nombre} (${(buffer.length / 1024 / 1024).toFixed(1)}MB)`);
 
@@ -98,12 +98,19 @@ export async function POST(request: NextRequest) {
     if (nombre.endsWith('.pdf')) {
       mimeType = 'application/pdf';
 
-      // Intentar Mistral OCR primero
+      // 🔥 Guardar en R2
+      try {
+        const r2Key = generateR2Key(userId, file.name);
+        r2Url = await uploadToR2(r2Key, buffer, mimeType);
+        console.log(`✅ PDF guardado en R2: ${r2Url}`);
+      } catch (r2Error: any) {
+        console.warn(`⚠️ R2 no disponible: ${r2Error.message}`);
+      }
+
       if (process.env.MISTRAL_API_KEY) {
         content = await extraerConMistral(buffer, file.name);
       }
 
-      // Fallback: pdf-parse
       if (!content || content.length < 50) {
         try {
           const pdfParse = (await import('pdf-parse')).default;
@@ -120,9 +127,24 @@ export async function POST(request: NextRequest) {
       mimeType = 'text/plain';
       content = buffer.toString('utf-8');
 
+      try {
+        const r2Key = generateR2Key(userId, file.name);
+        r2Url = await uploadToR2(r2Key, buffer, mimeType);
+      } catch (e: any) {
+        console.warn(`⚠️ R2 no disponible: ${e.message}`);
+      }
+
     // ─── WORD ───
     } else if (nombre.endsWith('.docx') || nombre.endsWith('.doc')) {
       mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+      try {
+        const r2Key = generateR2Key(userId, file.name);
+        r2Url = await uploadToR2(r2Key, buffer, mimeType);
+      } catch (e: any) {
+        console.warn(`⚠️ R2 no disponible: ${e.message}`);
+      }
+
       try {
         const mammoth = (await import('mammoth')).default;
         const result = await mammoth.extractRawText({ buffer });
@@ -133,76 +155,77 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: 'No se pudo leer el Word' }, { status: 400 });
       }
 
+    // ─── POWERPOINT ───
     } else if (nombre.endsWith('.pptx') || nombre.endsWith('.ppt')) {
-  esPPT = true;
-  mimeType = nombre.endsWith('.pptx')
-    ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-    : 'application/vnd.ms-powerpoint';
+      esPPT = true;
+      mimeType = nombre.endsWith('.pptx')
+        ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+        : 'application/vnd.ms-powerpoint';
 
-  // Método 1: JSZip XML (solo funciona con .pptx)
-  if (nombre.endsWith('.pptx')) {
-    try {
-      const JSZip = (await import('jszip')).default;
-      const zip = await JSZip.loadAsync(buffer);
-      const slideFiles = Object.keys(zip.files)
-        .filter(f => f.match(/ppt\/slides\/slide\d+\.xml$/))
-        .sort((a, b) => {
-          const na = parseInt(a.match(/slide(\d+)/)?.[1] || '0');
-          const nb = parseInt(b.match(/slide(\d+)/)?.[1] || '0');
-          return na - nb;
-        });
+      try {
+        const r2Key = generateR2Key(userId, file.name);
+        r2Url = await uploadToR2(r2Key, buffer, mimeType);
+      } catch (e: any) {
+        console.warn(`⚠️ R2 no disponible: ${e.message}`);
+      }
 
-      const slideTexts: string[] = [];
-      for (const slideFile of slideFiles) {
-        const xml = await zip.files[slideFile].async('string');
-        const matches = xml.match(/<a:t[^>]*>([^<]+)<\/a:t>/g) || [];
-        const textos = matches
-          .map(t => t.replace(/<[^>]+>/g, '').trim())
-          .filter(t => t.length > 0);
-        if (textos.length > 0) {
-          const num = slideFile.match(/slide(\d+)/)?.[1] || '?';
-          slideTexts.push(`[Diapositiva ${num}]\n${textos.join(' ')}`);
+      if (nombre.endsWith('.pptx')) {
+        try {
+          const JSZip = (await import('jszip')).default;
+          const zip = await JSZip.loadAsync(buffer);
+          const slideFiles = Object.keys(zip.files)
+            .filter(f => f.match(/ppt\/slides\/slide\d+\.xml$/))
+            .sort((a, b) => {
+              const na = parseInt(a.match(/slide(\d+)/)?.[1] || '0');
+              const nb = parseInt(b.match(/slide(\d+)/)?.[1] || '0');
+              return na - nb;
+            });
+
+          const slideTexts: string[] = [];
+          for (const slideFile of slideFiles) {
+            const xml = await zip.files[slideFile].async('string');
+            const matches = xml.match(/<a:t[^>]*>([^<]+)<\/a:t>/g) || [];
+            const textos = matches.map(t => t.replace(/<[^>]+>/g, '').trim()).filter(t => t.length > 0);
+            if (textos.length > 0) {
+              const num = slideFile.match(/slide(\d+)/)?.[1] || '?';
+              slideTexts.push(`[Diapositiva ${num}]\n${textos.join(' ')}`);
+            }
+          }
+          content = slideTexts.join('\n\n').trim();
+          console.log(`JSZip PPTX: ${content.length} chars`);
+        } catch (e: any) {
+          console.log('JSZip error:', e?.message);
         }
       }
-      content = slideTexts.join('\n\n').trim();
-      console.log(`JSZip PPTX: ${content.length} chars`);
-    } catch (e: any) {
-      console.log('JSZip error:', e?.message);
-    }
-  }
 
-  // Método 2: officeparser
-  if (!content || content.length < 50) {
-    try {
-      const op = await import('officeparser');
-      if (typeof (op as any).parseOfficeAsync === 'function') {
-        content = await (op as any).parseOfficeAsync(buffer);
-      } else if (typeof (op as any).default?.parseOfficeAsync === 'function') {
-        content = await (op as any).default.parseOfficeAsync(buffer);
+      if (!content || content.length < 50) {
+        try {
+          const op = await import('officeparser');
+          if (typeof (op as any).parseOfficeAsync === 'function') {
+            content = await (op as any).parseOfficeAsync(buffer);
+          } else if (typeof (op as any).default?.parseOfficeAsync === 'function') {
+            content = await (op as any).default.parseOfficeAsync(buffer);
+          }
+          content = content?.trim() || '';
+          console.log(`officeparser PPTX: ${content.length} chars`);
+        } catch (e: any) {
+          console.log('officeparser error:', e?.message);
+        }
       }
-      content = content?.trim() || '';
-      console.log(`officeparser PPTX: ${content.length} chars`);
-    } catch (e: any) {
-      console.log('officeparser error:', e?.message);
-    }
-  }
 
-  // Método 3: Mistral OCR (solo PPTX)
-  if ((!content || content.length < 50) && process.env.MISTRAL_API_KEY && nombre.endsWith('.pptx')) {
-    console.log('📄 Intentando Mistral OCR para PPTX...');
-    content = await extraerConMistral(buffer, file.name);
-  }
+      if ((!content || content.length < 50) && process.env.MISTRAL_API_KEY && nombre.endsWith('.pptx')) {
+        content = await extraerConMistral(buffer, file.name);
+      }
 
-  // Si es .ppt antiguo y no se pudo leer
-  if (!content || content.trim().length < 20) {
-    const esPptAntiguo = nombre.endsWith('.ppt') && !nombre.endsWith('.pptx');
-    return NextResponse.json({
-      success: false,
-      error: esPptAntiguo
-        ? 'El formato .ppt (antiguo) no es compatible. Ábrelo en PowerPoint y guárdalo como .pptx'
-        : 'No se pudo extraer contenido del PowerPoint.',
-    }, { status: 400 });
-  }
+      if (!content || content.trim().length < 20) {
+        const esPptAntiguo = nombre.endsWith('.ppt') && !nombre.endsWith('.pptx');
+        return NextResponse.json({
+          success: false,
+          error: esPptAntiguo
+            ? 'El formato .ppt (antiguo) no es compatible. Ábrelo en PowerPoint y guárdalo como .pptx'
+            : 'No se pudo extraer contenido del PowerPoint.',
+        }, { status: 400 });
+      }
 
     // ─── IMÁGENES ───
     } else if (nombre.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
@@ -211,6 +234,13 @@ export async function POST(request: NextRequest) {
         : nombre.endsWith('.webp') ? 'image/webp'
         : nombre.endsWith('.gif') ? 'image/gif'
         : 'image/jpeg';
+
+      try {
+        const r2Key = generateR2Key(userId, file.name);
+        r2Url = await uploadToR2(r2Key, buffer, mimeType);
+      } catch (e: any) {
+        console.warn(`⚠️ R2 no disponible: ${e.message}`);
+      }
 
       try {
         const client = getGroqClient();
@@ -242,6 +272,13 @@ export async function POST(request: NextRequest) {
         : nombre.endsWith('.aac') ? 'audio/aac'
         : nombre.endsWith('.mp4') ? 'audio/mp4'
         : 'audio/webm';
+
+      try {
+        const r2Key = generateR2Key(userId, file.name);
+        r2Url = await uploadToR2(r2Key, buffer, mimeType);
+      } catch (e: any) {
+        console.warn(`⚠️ R2 no disponible: ${e.message}`);
+      }
 
       try {
         const client = getGroqClient();
@@ -284,6 +321,7 @@ export async function POST(request: NextRequest) {
       esImagen,
       esAudio,
       esPPT,
+      r2Url,
       words: content.trim().split(/\s+/).length,
     });
 

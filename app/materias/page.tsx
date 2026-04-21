@@ -238,42 +238,23 @@ export default function MateriasPage() {
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
 
-    // ✅ Subir archivo al Storage en vez de guardar base64 en DB
+    // ✅ Usar R2 directamente (10GB gratis, más rápido que Supabase)
     let archivoUrl: string | undefined;
-    if (data.fileBase64 && data.mimeType) {
-      try {
-        const { subirBase64AlStorage } = await import('../../lib/storageUpload');
-        const base64Full = `data:${data.mimeType};base64,${data.fileBase64}`;
-        const urlStorage = await subirBase64AlStorage(
-          base64Full,
-          file.name.replace(/\.[^.]+$/, ''),
-          'doc',
-        );
-        // Si subió al storage (URL de supabase), usarla
-        if (urlStorage.startsWith('http')) {
-          archivoUrl = urlStorage;
-        } else {
-          // fallback a blob URL local
-          const byteCharacters = atob(data.fileBase64);
-          const byteNumbers = new Array(byteCharacters.length);
-          for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-          }
-          const byteArray = new Uint8Array(byteNumbers);
-          const blob = new Blob([byteArray], { type: data.mimeType });
-          archivoUrl = URL.createObjectURL(blob);
-        }
-      } catch {
-        // fallback a blob URL local si falla el storage
-        const byteCharacters = atob(data.fileBase64);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: data.mimeType });
-        archivoUrl = URL.createObjectURL(blob);
+
+    // 🔥 Si el backend subió a R2, usar esa URL directamente
+    if (data.r2Url) {
+      archivoUrl = data.r2Url;
+      console.log('✅ Usando URL de R2:', data.r2Url);
+    } else if (data.fileBase64 && data.mimeType) {
+      // Fallback a blob URL local si R2 no está disponible
+      const byteCharacters = atob(data.fileBase64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: data.mimeType });
+      archivoUrl = URL.createObjectURL(blob);
     }
 
     const nombre = file.name.toLowerCase();
@@ -305,15 +286,33 @@ export default function MateriasPage() {
   }
 };
 
-  const eliminarDocumento = (id: string) => {
-    if (!confirm(idioma === 'en' ? 'Delete this file?' : '¿Eliminar este archivo?')) return;
-    if (!temaActual) return;
-    actualizarTema({
-      ...temaActual,
-      documentos: temaActual.documentos.filter(d => d.id !== id),
-    });
-    setVista('tema');
-  };
+// DESPUÉS ✅
+const eliminarDocumento = async (id: string) => {
+  if (!confirm(idioma === 'en' ? 'Delete this file?' : '¿Eliminar este archivo?')) return;
+  if (!temaActual) return;
+
+  // Buscar el documento para obtener su URL
+  const doc = temaActual.documentos.find(d => d.id === id);
+
+  // Borrar de R2 o Supabase Storage si tiene URL
+  if (doc?.archivoUrl && doc.archivoUrl.startsWith('http')) {
+    try {
+      await fetch('/api/delete-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archivoUrl: doc.archivoUrl }),
+      });
+    } catch (e) {
+      console.warn('Error borrando archivo:', e);
+    }
+  }
+
+  actualizarTema({
+    ...temaActual,
+    documentos: temaActual.documentos.filter(d => d.id !== id),
+  });
+  setVista('tema');
+};
 
   if (cargando) {
     return (
