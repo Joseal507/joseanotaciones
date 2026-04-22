@@ -1,7 +1,5 @@
 const isBrowser = () => typeof window !== 'undefined';
-
 export type Idioma = 'es' | 'en';
-
 const KEY = 'josea_idioma';
 
 export const getIdioma = (): Idioma => {
@@ -18,19 +16,18 @@ export const saveIdioma = (idioma: Idioma) => {
   localStorage.setItem(KEY, idioma);
 };
 
-// ===== TRADUCCIONES =====
 const traducciones = {
-  // ===== NAVBAR / GENERAL =====
+  // NAVBAR / GENERAL
   inicio: { es: 'Inicio', en: 'Home' },
   materias: { es: 'Materias', en: 'Subjects' },
   misMaterias: { es: 'Mis Materias', en: 'My Subjects' },
   horario: { es: 'Horario', en: 'Schedule' },
   agenda: { es: 'Agenda', en: 'Planner' },
-  perfil: { es: 'Mi Perfil', en: 'My Profile' },
+  perfil: { es: 'Mi Perfil', en: 'Profile' },
   configuracion: { es: 'Configuración', en: 'Settings' },
   buscar: { es: 'Buscar', en: 'Search' },
   cerrarSesion: { es: 'Cerrar sesión', en: 'Sign out' },
-  cargando: { es: 'Cargando...', en: 'Loading...' },
+  cargando: { es: 'Cargando', en: 'Loading' },
   guardar: { es: 'Guardar', en: 'Save' },
   cancelar: { es: 'Cancelar', en: 'Cancel' },
   eliminar: { es: 'Eliminar', en: 'Delete' },
@@ -43,134 +40,61 @@ const traducciones = {
   si: { es: 'Sí', en: 'Yes' },
   no: { es: 'No', en: 'No' },
 
-  // ===== HOME =====
-  tuPlataforma: { es: 'Tu plataforma de estudio', en: 'Your study platform' },
-  miPlataforma: { es: 'Mi plataforma para tirar estudio 🧏‍♂️', en: 'My study platform 🧏‍♂️' },
-  irAMaterias: { es: 'MATERIAS', en: '🚀 GO TO MY SUBJECTS' },
+  // HOME
+  tuPlataforma: { es: 'Tu plataforma de estudio', en: 'Your Ultimate Study Suite' },
+  miPlataforma: { es: 'Mi plataforma para tirar estudio 🧏‍♂️', en: 'The elite way to study 🧏‍♂️' },
+  irAMaterias: { es: '🚀 MATERIAS', en: '🚀 GO TO SUBJECTS' },
   buscarApuntes: { es: 'Buscar apuntes, materias...', en: 'Search notes, subjects...' },
   apuntes: { es: 'Apuntes', en: 'Notes' },
   documentos: { es: 'Documentos', en: 'Documents' },
   flashcards: { es: 'Flashcards', en: 'Flashcards' },
-  rachaEstudio: { es: '🔥 Racha de estudio', en: '🔥 Study streak' },
-  accesosRapidos: { es: 'Accesos rápidos', en: 'Quick access' },
-  nuevaMateria: { es: 'Nueva materia', en: 'New subject' },
+  rachaEstudio: { es: '🔥 Racha de estudio', en: '🔥 Study Streak' },
+  accesosRapidos: { es: 'Accesos rápidos', en: 'Quick Access' },
+  nuevaMateria: { es: 'Nueva materia', en: 'New Subject' },
   temas: { es: 'temas', en: 'topics' },
   verTodas: { es: 'Ver todas →', en: 'View all →' },
   crearPrimeraMateria: { es: '¡Empieza creando tu primera materia!', en: 'Start by creating your first subject!' },
-  organizaApuntes: { es: 'Organiza tus apuntes, documentos y flashcards', en: 'Organize your notes, documents and flashcards' },
-  crearPrimera: { es: '📚 Crear primera materia', en: '📚 Create first subject' },
+  organizaApuntes: { es: 'Organiza tus apuntes, documentos y flashcards', en: 'Organize your notes, documents, and flashcards' },
+  crearPrimera: { es: '📚 Crear primera materia', en: '📚 Create First Subject' },
   sincronizado: { es: 'Sincronizado ☁️', en: 'Synced ☁️' },
 
-  // ===== MATERIAS =====
-  sinMaterias: { es: 'No tienes materias todavía', en: "You don't have any subjects yet" },
-  nombreMateria: { es: 'Nombre de la materia', en: 'Subject name' },
+  // MATERIAS
+  sinMaterias: { es: 'No tienes materias todavía', en: "No subjects added yet" },
+  nombreMateria: { es: 'Nombre de la materia', en: 'Subject Name' },
   colorMateria: { es: 'Color', en: 'Color' },
   emoji: { es: 'Emoji', en: 'Emoji' },
   eliminarMateria: { es: '¿Eliminar esta materia y todo su contenido?', en: 'Delete this subject and all its content?' },
-  nuevoTema: { es: 'Nuevo tema', en: 'New topic' },
-  nombreTema: { es: 'Nombre del tema', en: 'Topic name' },
+  nuevoTema: { es: 'Nuevo tema', en: 'New Topic' },
+  nombreTema: { es: 'Nombre del tema', en: 'Topic Name' },
   eliminarTema: { es: '¿Eliminar este tema?', en: 'Delete this topic?' },
-  nuevoApunte: { es: 'Nuevo apunte', en: 'New note' },
-  tituloApunte: { es: 'Título del apunte', en: 'Note title' },
+  nuevoApunte: { es: 'Nuevo apunte', en: 'New Note' },
+  tituloApunte: { es: 'Título del apunte', en: 'Note Title' },
   eliminarApunte: { es: '¿Eliminar este apunte?', en: 'Delete this note?' },
-  subirDocumento: { es: 'Subir documento', en: 'Upload document' },
+  subirDocumento: { es: 'Subir documento', en: 'Upload Document' },
   subiendo: { es: '⏳ Subiendo...', en: '⏳ Uploading...' },
   eliminarDocumento: { es: '¿Eliminar este documento?', en: 'Delete this document?' },
   subido: { es: 'Subido', en: 'Uploaded' },
 
-  // ===== DOCUMENTO VIEW =====
-  analizar: { es: '🔍 Analizar', en: '🔍 Analyze' },
-  analizando: { es: '⏳ Analizando...', en: '⏳ Analyzing...' },
-  reAnalizar: { es: '🔄 Re-analizar', en: '🔄 Re-analyze' },
-  chat: { es: '💬 Chat', en: '💬 Chat' },
-  quiz: { es: '🤓 Quiz', en: '🤓 Quiz' },
-  analizado: { es: '✓ Analizado', en: '✓ Analyzed' },
-  verDocumento: { es: 'Ver documento', en: 'View document' },
-  leerTexto: { es: 'Leer texto', en: 'Read text' },
-  analisisAI: { es: '🔍 Análisis AI', en: '🔍 AI Analysis' },
-  sinAnalisis: { es: 'Sin análisis todavía', en: 'No analysis yet' },
-  tocaAnalizar: { es: 'Toca "Analizar" para que la AI extraiga las ideas principales', en: 'Tap "Analyze" for AI to extract main ideas' },
-  analizarDocumento: { es: '🔍 Analizar documento', en: '🔍 Analyze document' },
-  resumenDocumento: { es: '📋 Resumen del documento', en: '📋 Document summary' },
-  palabrasClave: { es: '🔑 Palabras clave', en: '🔑 Keywords' },
-  frasesImportantes: { es: '✨ Frases importantes', en: '✨ Important phrases' },
-  leerConHighlights: { es: '📖 Leer con highlights activados', en: '📖 Read with highlights on' },
-
-  // ===== FLASHCARDS =====
-  noHayFlashcards: { es: 'No hay flashcards todavía', en: 'No flashcards yet' },
-  analizarGenerar: { es: '🔍 Analizar y generar flashcards', en: '🔍 Analyze and generate flashcards' },
-  modoEstudio: { es: '🧠 Estudiar', en: '🧠 Study' },
-  guardarDeck: { es: '💾 Guardar deck', en: '💾 Save deck' },
-  tarjetas: { es: 'tarjetas', en: 'cards' },
-  pregunta: { es: 'PREGUNTA', en: 'QUESTION' },
-  respuesta: { es: 'RESPUESTA', en: 'ANSWER' },
-  tocaVerRespuesta: { es: '👆 Toca para ver respuesta', en: '👆 Tap to see answer' },
-  anadirMas: { es: '➕ Añadir más flashcards', en: '➕ Add more flashcards' },
-  total: { es: 'Total', en: 'Total' },
-  nombreDeck: { es: 'Nombre del deck', en: 'Deck name' },
-  deckGuardado: { es: '¡Deck guardado exitosamente!', en: 'Deck saved successfully!' },
-
-  // ===== VISOR DOCUMENTO =====
-  pdfHighlights: { es: '✨ PDF + Highlights', en: '✨ PDF + Highlights' },
-  soloTexto: { es: '📖 Solo texto', en: '📖 Text only' },
-  highlightsOn: { es: 'ON', en: 'ON' },
-  highlightsOff: { es: 'OFF', en: 'OFF' },
-  palabras: { es: 'palabras', en: 'words' },
-  cargandoPDF: { es: 'Cargando PDF...', en: 'Loading PDF...' },
-  errorPDF: { es: 'Error cargando PDF', en: 'Error loading PDF' },
-  clickAnalizar: { es: '💡 Haz clic en "🔍 Analizar" para ver highlights', en: '💡 Click "🔍 Analyze" to see highlights' },
-
-  // ===== CHAT =====
-  holaAlciBot: { es: '¡Hola! Soy AlciBot 🤖 Tu asistente de estudio personal. Puedo explicarte conceptos, ayudarte a estudiar, resolver dudas y más. ¿En qué te puedo ayudar hoy?', en: "Hi! I'm AlciBot 🤖 Your personal study assistant. I can explain concepts, help you study, answer questions and more. How can I help you today?" },
-  escribePregunta: { es: 'Escribe tu pregunta...', en: 'Type your question...' },
+  // CHAT / JEFFREYBOT
+  holaJeffreyBot: { es: '¡Hola! Soy JeffreyBot 🤖 Tu asistente de estudio personal. Puedo explicarte conceptos, ayudarte a estudiar, resolver dudas y más. ¿En qué te puedo ayudar hoy?', en: "Hi! I'm JeffreyBot 🤖 Your personal study assistant. I can explain complex concepts, help you prep for exams, or answer any questions. How can I help you today?" },
+  escribePregunta: { es: 'Escribe tu pregunta...', en: 'Ask me anything...' },
   enviar: { es: 'Enviar →', en: 'Send →' },
   limpiar: { es: '🗑️ Limpiar', en: '🗑️ Clear' },
-  usarDocs: { es: 'Usar mis docs', en: 'Use my docs' },
+  usarDocs: { es: 'Usar mis docs', en: 'Context: My Docs' },
   docsOn: { es: 'Docs ON', en: 'Docs ON' },
-  asistente: { es: 'Asistente de estudio AI', en: 'AI study assistant' },
+  asistente: { es: 'Asistente de estudio AI', en: 'AI Study Assistant' },
 
-  // ===== QUIZ =====
-  quizOpcionMultiple: { es: 'Quiz de opción múltiple', en: 'Multiple choice quiz' },
-  cuantasPreguntas: { es: '¿Cuántas preguntas?', en: 'How many questions?' },
-  personalizado: { es: 'Personalizado:', en: 'Custom:' },
-  preguntas: { es: 'preguntas', en: 'questions' },
-  iniciarQuiz: { es: '🚀 Iniciar quiz', en: '🚀 Start quiz' },
-  generandoQuiz: { es: '⏳ Generando quiz...', en: '⏳ Generating quiz...' },
-  correcto: { es: '✅ ¡Correcto!', en: '✅ Correct!' },
-  incorrecto: { es: '❌ Incorrecto', en: '❌ Incorrect' },
-  verResultados: { es: '🎉 Ver resultados', en: '🎉 See results' },
-  quizCompletado: { es: '¡Quiz completado!', en: 'Quiz completed!' },
-  correctas: { es: 'correctas', en: 'correct' },
-  nuevoQuiz: { es: '🔄 Nuevo quiz', en: '🔄 New quiz' },
-  guardarQuiz: { es: '💾 Guardar', en: '💾 Save' },
-  quizGuardado: { es: '¡Quiz guardado exitosamente!', en: 'Quiz saved successfully!' },
-  misQuizzes: { es: '📂 Mis quizzes', en: '📂 My quizzes' },
-  jugar: { es: '▶ Jugar', en: '▶ Play' },
+  // BUSCADOR
+  buscarPlaceholder: { es: 'Buscar materias, apuntes, quizzes, páginas...', en: 'Search subjects, notes, quizzes...' },
+  buscando: { es: 'Buscando...', en: 'Searching...' },
+  sinResultados: { es: 'No se encontró nada para', en: 'No results found for' },
+  resultados: { es: 'resultados', en: 'results' },
+  resultado: { es: 'resultado', en: 'result' },
+  abrir: { es: '↵ Abrir', en: '↵ Open' },
+  cerrarBuscador: { es: 'ESC Cerrar', en: 'ESC Close' },
+  abrirBuscador: { es: '⌘K Abrir buscador', en: '⌘K Open Search' },
 
-  // ===== ESTUDIO MODAL =====
-  modoEstudioTitle: { es: '🧠 Modo Estudio', en: '🧠 Study Mode' },
-  disponibles: { es: 'disponibles', en: 'available' },
-  salir: { es: 'Salir', en: 'Exit' },
-  escritura: { es: '✍️ Estudio con escritura', en: '✍️ Written study' },
-  escribeTuRespuesta: { es: 'Escribe tu respuesta y la AI la evalúa', en: 'Write your answer and AI evaluates it' },
-  lineal: { es: '➡️ Lineal', en: '➡️ Linear' },
-  unaVez: { es: 'Una vez cada card', en: 'Each card once' },
-  bucle: { es: '🔁 Bucle', en: '🔁 Loop' },
-  repiteFalles: { es: 'Repite las que falles', en: 'Repeat failed ones' },
-  empezarEstudio: { es: '🚀 Empezar estudio', en: '🚀 Start studying' },
-  repasoRapido: { es: '⚡ Repaso rápido', en: '⚡ Quick review' },
-  volteaCards: { es: 'Voltea las cards linealmente, una sola vez', en: 'Flip cards linearly, one time' },
-  empezarRepaso: { es: '⚡ Empezar repaso', en: '⚡ Start review' },
-  sesionCompletada: { es: '¡Sesión completada!', en: 'Session completed!' },
-  otraSesion: { es: '🔄 Otra sesión', en: '🔄 Another session' },
-  evaluarRespuesta: { es: '🧠 Evaluar respuesta', en: '🧠 Evaluate answer' },
-  evaluando: { es: '⏳ Evaluando...', en: '⏳ Evaluating...' },
-  explicacion: { es: '💡 Explicación', en: '💡 Explanation' },
-  consejo: { es: '🎯 Consejo', en: '🎯 Tip' },
-  repeticion: { es: '🔁 Repetición', en: '🔁 Repeat' },
-  seRepetira: { es: 'Esta card se repetirá al final de la sesión', en: 'This card will repeat at the end' },
-
-  // ===== AGENDA =====
+  // ===== KEYS FALTANTES =====
   calendarioYObjetivos: { es: 'Calendario y objetivos', en: 'Calendar and goals' },
   calendario: { es: '📅 Calendario', en: '📅 Calendar' },
   objetivos: { es: '✅ Objetivos', en: '✅ Goals' },
@@ -206,8 +130,6 @@ const traducciones = {
   xp: { es: 'XP', en: 'XP' },
   objetivo: { es: 'Objetivo', en: 'Goal' },
   categoria: { es: 'Categoría', en: 'Category' },
-
-  // ===== HORARIO =====
   miHorario: { es: '🗓️ Mi Horario', en: '🗓️ My Schedule' },
   horarioClases: { es: 'Horario de clases semanal', en: 'Weekly class schedule' },
   sinClases: { es: 'Sin clases', en: 'No classes' },
@@ -227,8 +149,6 @@ const traducciones = {
   clase: { es: 'clase', en: 'class' },
   clases: { es: 'clases', en: 'classes' },
   guardando: { es: '💾 Guardando...', en: '💾 Saving...' },
-
-  // ===== PERFIL =====
   perfilEstudio: { es: '📊 Mi Perfil de Estudio', en: '📊 My Study Profile' },
   tuProgresoYStats: { es: 'Tu progreso y estadísticas', en: 'Your progress and statistics' },
   totalEstudiadas: { es: 'Total estudiadas', en: 'Total studied' },
@@ -243,11 +163,9 @@ const traducciones = {
   sinFallas: { es: '¡Aún no has fallado ninguna!', en: "You haven't failed any yet!" },
   quizzes: { es: 'Quizzes', en: 'Quizzes' },
   irAEstudiar: { es: '📚 Ir a estudiar', en: '📚 Go study' },
-  hablarAlciBot: { es: '🤖 Hablar con AlciBot', en: '🤖 Talk to AlciBot' },
+  hablarJeffreyBot: { es: '🤖 Hablar con JeffreyBot', en: '🤖 Talk to JeffreyBot' },
   limpiarStats: { es: '🗑️ Limpiar stats', en: '🗑️ Clear stats' },
   limpiarRachaStats: { es: '¿Limpiar racha y estadísticas?', en: 'Clear streak and statistics?' },
-
-  // ===== SETTINGS =====
   ajustesCuenta: { es: 'Ajustes de tu cuenta y app', en: 'Your account and app settings' },
   perfilSettings: { es: '👤 Perfil', en: '👤 Profile' },
   nombreImagen: { es: 'Nombre e imagen', en: 'Name and image' },
@@ -309,24 +227,18 @@ const traducciones = {
   eliminarCuenta: { es: 'Eliminar cuenta', en: 'Delete account' },
   eliminaCuenta: { es: 'Elimina tu cuenta permanentemente', en: 'Permanently delete your account' },
   contactaSoporte: { es: 'Para eliminar tu cuenta contacta soporte por seguridad.', en: 'To delete your account, contact support for security.' },
-
-  // ===== IDIOMA =====
   idioma: { es: '🌐 Idioma', en: '🌐 Language' },
   idiomaDesc: { es: 'Idioma de la interfaz', en: 'Interface language' },
   espanol: { es: 'Español', en: 'Spanish' },
   ingles: { es: 'English', en: 'English' },
   idiomaApp: { es: 'Idioma de la aplicación', en: 'Application language' },
   cambiaIdioma: { es: 'Cambia el idioma de toda la interfaz', en: 'Change the language of the entire interface' },
-
-  // ===== RACHA =====
   diasRacha: { es: 'días de racha', en: 'day streak' },
   diaRacha: { es: 'día de racha', en: 'day streak' },
   mejorRacha: { es: 'Mejor racha', en: 'Best streak' },
   estudiaHoyRacha: { es: '¡Estudia hoy para no perder tu racha de', en: 'Study today to keep your streak of' },
   dias: { es: 'días!', en: 'days!' },
   yaEstudiaste: { es: '¡Ya estudiaste hoy! Racha asegurada 💪', en: 'You already studied today! Streak secured 💪' },
-
-  // ===== GRÁFICAS =====
   tuProgresoGraficas: { es: '📈 Tu progreso', en: '📈 Your progress' },
   estaSemana: { es: '📅 Esta semana', en: '📅 This week' },
   porMateria: { es: '📚 Por materia', en: '📚 By subject' },
@@ -340,16 +252,12 @@ const traducciones = {
   actividad: { es: '% actividad', en: '% activity' },
   diaActivo: { es: 'Día activo 🔥', en: 'Active day 🔥' },
   sinActividad: { es: 'Sin actividad', en: 'No activity' },
-
-  // ===== NOTAS RÁPIDAS =====
   notasRapidas: { es: '📝 Notas rápidas', en: '📝 Quick notes' },
   escribirNota: { es: 'Escribe una nota rápida... (Enter para guardar)', en: 'Write a quick note... (Enter to save)' },
   agregarNota: { es: '+ Agregar', en: '+ Add' },
   sinNotas: { es: 'No tienes notas. Escribe una arriba.', en: "You have no notes. Write one above." },
   verMenos: { es: 'Ver menos', en: 'Show less' },
   verTodasNotas: { es: 'Ver todas', en: 'View all' },
-
-  // ===== REPORTE =====
   reporteSemanal: { es: '📊 Reporte semanal', en: '📊 Weekly report' },
   resumenProgreso: { es: 'Resumen de tu progreso generado por AI', en: 'Summary of your progress generated by AI' },
   generarReporte: { es: '🤖 Generar reporte', en: '🤖 Generate report' },
@@ -359,18 +267,6 @@ const traducciones = {
   enviarEmail: { es: '📧 Enviar por email', en: '📧 Send by email' },
   regenerar: { es: '🔄 Regenerar', en: '🔄 Regenerate' },
   tocaGenerar: { es: 'Toca "Generar reporte" para ver tu resumen semanal de estudio', en: 'Tap "Generate report" to see your weekly study summary' },
-
-  // ===== BUSCADOR =====
-  buscarPlaceholder: { es: 'Buscar materias, apuntes, quizzes, páginas...', en: 'Search subjects, notes, quizzes, pages...' },
-  buscando: { es: 'Buscando...', en: 'Searching...' },
-  sinResultados: { es: 'No se encontró nada para', en: 'Nothing found for' },
-  resultados: { es: 'resultados', en: 'results' },
-  resultado: { es: 'resultado', en: 'result' },
-  abrir: { es: '↵ Abrir', en: '↵ Open' },
-  cerrarBuscador: { es: 'ESC Cerrar', en: 'ESC Close' },
-  abrirBuscador: { es: '⌘K Abrir buscador', en: '⌘K Open search' },
-
-  // ===== QUIZZES PAGE =====
   materialesEstudio: { es: '🎓 Mis materiales de estudio', en: '🎓 My study materials' },
   quizzesDecks: { es: 'Quizzes y Flashcard Decks', en: 'Quizzes and Flashcard Decks' },
   flashcardDecks: { es: '🎴 Flashcard Decks', en: '🎴 Flashcard Decks' },
@@ -381,14 +277,10 @@ const traducciones = {
   ver: { es: '🎴 Ver', en: '🎴 View' },
   estudiar: { es: '🧠 Estudiar', en: '🧠 Study' },
   repetir: { es: '🔄 Repetir', en: '🔄 Repeat' },
-
-  // ===== AUTH =====
   iniciaSesion: { es: 'Inicia sesión', en: 'Sign in' },
   registrate: { es: 'Regístrate', en: 'Sign up' },
   email: { es: 'Email', en: 'Email' },
   contrasena: { es: 'Contraseña', en: 'Password' },
-
-  // ===== EDITOR =====
   crearDibujo: { es: '🎨 Crear Dibujo', en: '🎨 Create Drawing' },
   limpiarCanvas: { es: '🗑️ Limpiar', en: '🗑️ Clear' },
   insertarDibujo: { es: '✅ Insertar dibujo', en: '✅ Insert drawing' },
@@ -409,22 +301,90 @@ const traducciones = {
   desdeComputadora: { es: 'Desde tu computadora', en: 'From your computer' },
   desdeURL: { es: 'Desde URL', en: 'From URL' },
   seleccionarImagen: { es: 'Haz clic para seleccionar imagen', en: 'Click to select image' },
-
-  // ===== API PROMPTS =====
   promptIdiomaEs: { es: 'Responde siempre en español.', en: 'Always respond in Spanish.' },
   promptIdiomaEn: { es: 'Responde siempre en inglés.', en: 'Always respond in English.' },
+  noHayFlashcards: { es: 'No hay flashcards todavía', en: 'No flashcards yet' },
+  analizarGenerar: { es: '🔍 Analizar y generar flashcards', en: '🔍 Analyze and generate flashcards' },
+  modoEstudio: { es: '🧠 Estudiar', en: '🧠 Study' },
+  guardarDeck: { es: '💾 Guardar deck', en: '💾 Save deck' },
+  tarjetas: { es: 'tarjetas', en: 'cards' },
+  pregunta: { es: 'PREGUNTA', en: 'QUESTION' },
+  respuesta: { es: 'RESPUESTA', en: 'ANSWER' },
+  tocaVerRespuesta: { es: '👆 Toca para ver respuesta', en: '👆 Tap to see answer' },
+  anadirMas: { es: '➕ Añadir más flashcards', en: '➕ Add more flashcards' },
+  total: { es: 'Total', en: 'Total' },
+  nombreDeck: { es: 'Nombre del deck', en: 'Deck name' },
+  deckGuardado: { es: '¡Deck guardado exitosamente!', en: 'Deck saved successfully!' },
+  pdfHighlights: { es: '✨ PDF + Highlights', en: '✨ PDF + Highlights' },
+  soloTexto: { es: '📖 Solo texto', en: '📖 Text only' },
+  highlightsOn: { es: 'ON', en: 'ON' },
+  highlightsOff: { es: 'OFF', en: 'OFF' },
+  palabras: { es: 'palabras', en: 'words' },
+  cargandoPDF: { es: 'Cargando PDF...', en: 'Loading PDF...' },
+  errorPDF: { es: 'Error cargando PDF', en: 'Error loading PDF' },
+  clickAnalizar: { es: '💡 Haz clic en "🔍 Analizar" para ver highlights', en: '💡 Click "🔍 Analyze" to see highlights' },
+  analizar: { es: '🔍 Analizar', en: '🔍 Analyze' },
+  analizando: { es: '⏳ Analizando...', en: '⏳ Analyzing...' },
+  reAnalizar: { es: '🔄 Re-analizar', en: '🔄 Re-analyze' },
+  chat: { es: '💬 Chat', en: '💬 Chat' },
+  quiz: { es: '🤓 Quiz', en: '🤓 Quiz' },
+  analizado: { es: '✓ Analizado', en: '✓ Analyzed' },
+  verDocumento: { es: 'Ver documento', en: 'View document' },
+  leerTexto: { es: 'Leer texto', en: 'Read text' },
+  analisisAI: { es: '🔍 Análisis AI', en: '🔍 AI Analysis' },
+  sinAnalisis: { es: 'Sin análisis todavía', en: 'No analysis yet' },
+  tocaAnalizar: { es: 'Toca "Analizar" para que la AI extraiga las ideas principales', en: 'Tap "Analyze" for AI to extract the main ideas' },
+  analizarDocumento: { es: '🔍 Analizar documento', en: '🔍 Analyze document' },
+  resumenDocumento: { es: '📋 Resumen del documento', en: '📋 Document summary' },
+  palabrasClave: { es: '🔑 Palabras clave', en: '🔑 Keywords' },
+  frasesImportantes: { es: '✨ Frases importantes', en: '✨ Important phrases' },
+  leerConHighlights: { es: '📖 Leer con highlights activados', en: '📖 Read with highlights on' },
+  quizOpcionMultiple: { es: 'Quiz de opción múltiple', en: 'Multiple choice quiz' },
+  cuantasPreguntas: { es: '¿Cuántas preguntas?', en: 'How many questions?' },
+  personalizado: { es: 'Personalizado:', en: 'Custom:' },
+  preguntas: { es: 'preguntas', en: 'questions' },
+  iniciarQuiz: { es: '🚀 Iniciar quiz', en: '🚀 Start quiz' },
+  generandoQuiz: { es: '⏳ Generando quiz...', en: '⏳ Generating quiz...' },
+  correcto: { es: '✅ ¡Correcto!', en: '✅ Correct!' },
+  incorrecto: { es: '❌ Incorrecto', en: '❌ Incorrect' },
+  verResultados: { es: '🎉 Ver resultados', en: '🎉 See results' },
+  quizCompletado: { es: '¡Quiz completado!', en: 'Quiz completed!' },
+  correctas: { es: 'correctas', en: 'correct' },
+  nuevoQuiz: { es: '🔄 Nuevo quiz', en: '🔄 New quiz' },
+  guardarQuiz: { es: '💾 Guardar', en: '💾 Save' },
+  quizGuardado: { es: '¡Quiz guardado exitosamente!', en: 'Quiz saved successfully!' },
+  misQuizzes: { es: '📂 Mis quizzes', en: '📂 My quizzes' },
+  jugar: { es: '▶ Jugar', en: '▶ Play' },
+  modoEstudioTitle: { es: '🧠 Modo Estudio', en: '🧠 Study Mode' },
+  disponibles: { es: 'disponibles', en: 'available' },
+  salir: { es: 'Salir', en: 'Exit' },
+  escritura: { es: '✍️ Estudio con escritura', en: '✍️ Written study' },
+  escribeTuRespuesta: { es: 'Escribe tu respuesta y la AI la evalúa', en: 'Write your answer and AI evaluates it' },
+  lineal: { es: '➡️ Lineal', en: '➡️ Linear' },
+  unaVez: { es: 'Una vez cada card', en: 'Each card once' },
+  bucle: { es: '🔁 Bucle', en: '🔁 Loop' },
+  repiteFalles: { es: 'Repite las que falles', en: 'Repeat failed ones' },
+  empezarEstudio: { es: '🚀 Empezar estudio', en: '🚀 Start studying' },
+  repasoRapido: { es: '⚡ Repaso rápido', en: '⚡ Quick review' },
+  volteaCards: { es: 'Voltea las cards linealmente, una sola vez', en: 'Flip cards linearly, one time only' },
+  empezarRepaso: { es: '⚡ Empezar repaso', en: '⚡ Start review' },
+  sesionCompletada: { es: '¡Sesión completada!', en: 'Session completed!' },
+  otraSesion: { es: '🔄 Otra sesión', en: '🔄 Another session' },
+  evaluarRespuesta: { es: '🧠 Evaluar respuesta', en: '🧠 Evaluate answer' },
+  evaluando: { es: '⏳ Evaluando...', en: '⏳ Evaluating...' },
+  explicacion: { es: '💡 Explicación', en: '💡 Explanation' },
+  consejo: { es: '🎯 Consejo', en: '🎯 Tip' },
+  repeticion: { es: '🔁 Repetición', en: '🔁 Repeat' },
+  seRepetira: { es: 'Esta card se repetirá al final de la sesión', en: 'This card will repeat at the end of the session' },
 } as const;
 
 export type TraduccionKey = keyof typeof traducciones;
-
 export const t = (key: TraduccionKey, idioma?: Idioma): string => {
   const lang = idioma || getIdioma();
   const trad = traducciones[key];
   if (!trad) return key;
   return trad[lang] || trad['es'] || key;
 };
-
-// Hook helper para componentes
 export const useT = () => {
   const idioma = getIdioma();
   return (key: TraduccionKey) => t(key, idioma);

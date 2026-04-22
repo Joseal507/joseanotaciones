@@ -15,12 +15,25 @@ export interface Documento {
   archivoUrl?: string;
   archivoBase64?: string;
   archivoMime?: string;
+  youtubeId?: string;
+  youtubeThumbnail?: string;
+  youtubeChannel?: string;
+  youtubeWordCount?: number;
   analisis?: {
     keywords: string[];
     important_phrases: string[];
     summary: string;
+    key_points?: string[];
+    topics?: string[];
+    difficulty?: string;
   };
   flashcards?: { question: string; answer: string }[];
+  quiz?: {
+    pregunta: string;
+    opciones: string[];
+    correcta: number;
+    explicacion: string;
+  }[];
 }
 
 export interface Tema {

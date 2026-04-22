@@ -100,7 +100,7 @@ export default function PerfilPage() {
             </div>
             <button onClick={() => window.location.href = '/chat'}
               style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-              🤖 AlciBot
+              🤖 JeffreyBot
             </button>
           </header>
           <div style={{ display: 'flex', height: '3px' }}>
@@ -335,7 +335,7 @@ export default function PerfilPage() {
           </button>
           <button onClick={() => window.location.href = '/chat'}
             style={{ padding: '12px 24px', borderRadius: '12px', border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-            {tr('hablarAlciBot')}
+            {tr('hablarJeffreyBot')}
           </button>
           <button onClick={() => {
             if (!confirm(tr('limpiarRachaStats'))) return;

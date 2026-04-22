@@ -286,6 +286,12 @@ export default function MateriasPage() {
   }
 };
 
+// Guardar video YouTube en el tema actual
+const agregarYoutube = (doc: Documento) => {
+  if (!temaActual) return;
+  actualizarTema({ ...temaActual, documentos: [...temaActual.documentos, doc] });
+};
+
 // DESPUÉS ✅
 const eliminarDocumento = async (id: string) => {
   if (!confirm(idioma === 'en' ? 'Delete this file?' : '¿Eliminar este archivo?')) return;
@@ -439,6 +445,7 @@ const eliminarDocumento = async (id: string) => {
             onNuevoApunte={() => setModalApunte(true)}
             onSubirDocumento={subirDocumento}
             subiendoDoc={subiendoDoc}
+            onAgregarYoutube={agregarYoutube}
           />
         )}
 

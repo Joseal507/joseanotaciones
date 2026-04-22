@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Materia, Tema, Apunte, Documento } from '../../lib/storage';
 import { useIdioma } from '../../hooks/useIdioma';
 
@@ -15,6 +16,7 @@ interface Props {
   onNuevoApunte: () => void;
   onSubirDocumento: (e: React.ChangeEvent<HTMLInputElement>) => void;
   subiendoDoc: boolean;
+  onAgregarYoutube?: (doc: Documento) => void;
 }
 
 export default function TemaView({
@@ -22,10 +24,17 @@ export default function TemaView({
   onAbrirApunte, onAbrirDocumento,
   onEliminarApunte, onEliminarDocumento,
   onNuevoApunte, onSubirDocumento, subiendoDoc,
+  onAgregarYoutube,
 }: Props) {
   const { idioma } = useIdioma();
+  const [showYoutube, setShowYoutube] = useState(false);
+  const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [youtubeLoading, setYoutubeLoading] = useState(false);
+  const [youtubeStep, setYoutubeStep] = useState(0);
+  const [youtubeError, setYoutubeError] = useState('');
 
   const getTipoIcon = (doc: Documento) => {
+  if (doc.tipo === 'youtube') return '🎬';
   if (doc.tipo === 'imagen') return '🖼️';
   if (doc.tipo === 'pdf') return '📄';
   if (doc.tipo === 'word') return '📝';
@@ -33,6 +42,58 @@ export default function TemaView({
   if (doc.tipo === 'audio') return '🎵';
   return '📄';
 };
+
+  const agregarYoutube = async () => {
+    if (!youtubeUrl.trim()) return;
+    setYoutubeLoading(true);
+    setYoutubeError('');
+    setYoutubeStep(1);
+    const interval = setInterval(() => setYoutubeStep(p => p < 3 ? p + 1 : p), 3000);
+    try {
+      const res = await fetch('/api/youtube', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: youtubeUrl, idioma }),
+      });
+      const data = await res.json();
+      clearInterval(interval);
+      if (!data.success) { setYoutubeError(data.error || 'Error'); setYoutubeLoading(false); setYoutubeStep(0); return; }
+      const nuevoDoc: Documento = {
+        id: Date.now().toString(),
+        nombre: data.metadata.title,
+        contenido: data.transcriptFull || data.transcript || '',
+        tipo: 'youtube',
+        fechaSubida: new Date().toLocaleDateString(),
+        youtubeId: data.videoId,
+        youtubeThumbnail: data.metadata.thumbnail,
+        youtubeChannel: data.metadata.channel,
+        youtubeWordCount: data.wordCount,
+        analisis: {
+          keywords: data.analysis.keywords || [],
+          important_phrases: data.analysis.key_points || [],
+          summary: data.analysis.summary || '',
+          key_points: data.analysis.key_points || [],
+          topics: data.analysis.topics || [],
+          difficulty: data.analysis.difficulty || '',
+        },
+        flashcards: (data.analysis.flashcards || []).map((f: any) => ({
+          pregunta: f.pregunta,
+          respuesta: f.respuesta,
+        })),
+        quiz: data.analysis.quiz || [],
+      };
+      onAgregarYoutube?.(nuevoDoc);
+      setShowYoutube(false);
+      setYoutubeUrl('');
+      setYoutubeStep(0);
+    } catch (e: any) {
+      clearInterval(interval);
+      setYoutubeError(e.message);
+      setYoutubeStep(0);
+    } finally {
+      setYoutubeLoading(false);
+    }
+  };
 
   const ACCEPT = '.pdf,.doc,.docx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.webp,.mp3,.wav,.m4a,.ogg,.webm,.mp4';
 
@@ -68,6 +129,10 @@ export default function TemaView({
             style={{ padding: '10px 20px', borderRadius: '10px', border: `2px solid ${tema.color}`, background: 'transparent', color: tema.color, fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
             ✏️ {idioma === 'en' ? 'New Note' : 'Nuevo Apunte'}
           </button>
+          <button onClick={() => setShowYoutube(true)}
+            style={{ padding: '10px 20px', borderRadius: '10px', border: '2px solid #ff0000', background: 'transparent', color: '#ff4444', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
+            🎬 YouTube
+          </button>
           <label htmlFor="doc-upload"
             style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: tema.color, color: '#000', fontSize: '13px', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
             {subiendoDoc
@@ -83,6 +148,126 @@ export default function TemaView({
           </label>
         </div>
       </div>
+
+      {/* MODAL YOUTUBE */}
+      {showYoutube && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '20px', border: '2px solid #ff0000', width: '100%', maxWidth: '500px', overflow: 'hidden' }}>
+            <div style={{ height: '4px', background: 'linear-gradient(90deg, #ff0000, #ff6b6b)' }} />
+            <div style={{ padding: '28px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#ff0000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px' }}>▶️</div>
+                  <div>
+                    <h2 style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
+                      {idioma === 'en' ? 'Add YouTube Video' : 'Agregar Video de YouTube'}
+                    </h2>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                      {idioma === 'en' ? 'AI will transcribe and analyze it' : 'La IA lo transcribirá y analizará'}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={() => { setShowYoutube(false); setYoutubeUrl(''); setYoutubeError(''); setYoutubeStep(0); }}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '20px', cursor: 'pointer' }}>✕</button>
+              </div>
+
+              <input
+                value={youtubeUrl}
+                onChange={e => setYoutubeUrl(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && agregarYoutube()}
+                placeholder="https://youtube.com/watch?v=... o https://youtu.be/..."
+                autoFocus
+                style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: `2px solid ${youtubeUrl ? '#ff0000' : 'var(--border-color)'}`, background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', marginBottom: '16px' }}
+              />
+
+              <button onClick={agregarYoutube} disabled={!youtubeUrl.trim() || youtubeLoading}
+                style={{ width: '100%', padding: '14px', borderRadius: '12px', border: 'none', background: youtubeUrl.trim() && !youtubeLoading ? '#ff0000' : 'var(--bg-card2)', color: youtubeUrl.trim() && !youtubeLoading ? '#fff' : 'var(--text-faint)', fontSize: '15px', fontWeight: 900, cursor: youtubeUrl.trim() && !youtubeLoading ? 'pointer' : 'not-allowed' }}>
+                {youtubeLoading ? (idioma === 'en' ? '⏳ Processing...' : '⏳ Procesando...') : (idioma === 'en' ? '🚀 Analyze & Add' : '🚀 Analizar y Agregar')}
+              </button>
+
+              {youtubeLoading && (
+                <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {[
+                    idioma === 'en' ? '🔗 Fetching video...' : '🔗 Obteniendo video...',
+                    idioma === 'en' ? '📝 Extracting transcript...' : '📝 Extrayendo transcripción...',
+                    idioma === 'en' ? '🧠 AI analyzing...' : '🧠 IA analizando...',
+                  ].map((s, i) => (
+                    <div key={i} style={{ padding: '8px 12px', borderRadius: '8px', background: youtubeStep > i ? '#ff000015' : 'transparent', border: `1px solid ${youtubeStep > i ? '#ff0000' : 'var(--border-color)'}`, color: youtubeStep > i ? '#ff4444' : 'var(--text-faint)', fontSize: '12px', fontWeight: youtubeStep > i ? 700 : 400, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.4s' }}>
+                      <span>{youtubeStep > i + 1 ? '✅' : youtubeStep === i + 1 ? '⏳' : '⭕'}</span>{s}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {youtubeError && (
+                <div style={{ marginTop: '12px', padding: '12px', borderRadius: '10px', background: 'var(--red-dim)', border: '1px solid var(--red-border)', color: 'var(--red)', fontSize: '13px', fontWeight: 600 }}>
+                  ❌ {youtubeError}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL YOUTUBE */}
+      {showYoutube && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '20px', border: '2px solid #ff0000', width: '100%', maxWidth: '500px', overflow: 'hidden' }}>
+            <div style={{ height: '4px', background: 'linear-gradient(90deg, #ff0000, #ff6b6b)' }} />
+            <div style={{ padding: '28px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#ff0000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px' }}>▶️</div>
+                  <div>
+                    <h2 style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
+                      {idioma === 'en' ? 'Add YouTube Video' : 'Agregar Video de YouTube'}
+                    </h2>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                      {idioma === 'en' ? 'AI will transcribe and analyze it' : 'La IA lo transcribirá y analizará'}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={() => { setShowYoutube(false); setYoutubeUrl(''); setYoutubeError(''); setYoutubeStep(0); }}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '20px', cursor: 'pointer' }}>✕</button>
+              </div>
+
+              <input
+                value={youtubeUrl}
+                onChange={e => setYoutubeUrl(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && agregarYoutube()}
+                placeholder="https://youtube.com/watch?v=... o https://youtu.be/..."
+                autoFocus
+                style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: `2px solid ${youtubeUrl ? '#ff0000' : 'var(--border-color)'}`, background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', marginBottom: '16px' }}
+              />
+
+              <button onClick={agregarYoutube} disabled={!youtubeUrl.trim() || youtubeLoading}
+                style={{ width: '100%', padding: '14px', borderRadius: '12px', border: 'none', background: youtubeUrl.trim() && !youtubeLoading ? '#ff0000' : 'var(--bg-card2)', color: youtubeUrl.trim() && !youtubeLoading ? '#fff' : 'var(--text-faint)', fontSize: '15px', fontWeight: 900, cursor: youtubeUrl.trim() && !youtubeLoading ? 'pointer' : 'not-allowed' }}>
+                {youtubeLoading ? (idioma === 'en' ? '⏳ Processing...' : '⏳ Procesando...') : (idioma === 'en' ? '🚀 Analyze & Add' : '🚀 Analizar y Agregar')}
+              </button>
+
+              {youtubeLoading && (
+                <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {[
+                    idioma === 'en' ? '🔗 Fetching video...' : '🔗 Obteniendo video...',
+                    idioma === 'en' ? '📝 Extracting transcript...' : '📝 Extrayendo transcripción...',
+                    idioma === 'en' ? '🧠 AI analyzing...' : '🧠 IA analizando...',
+                  ].map((s, i) => (
+                    <div key={i} style={{ padding: '8px 12px', borderRadius: '8px', background: youtubeStep > i ? '#ff000015' : 'transparent', border: `1px solid ${youtubeStep > i ? '#ff0000' : 'var(--border-color)'}`, color: youtubeStep > i ? '#ff4444' : 'var(--text-faint)', fontSize: '12px', fontWeight: youtubeStep > i ? 700 : 400, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.4s' }}>
+                      <span>{youtubeStep > i + 1 ? '✅' : youtubeStep === i + 1 ? '⏳' : '⭕'}</span>{s}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {youtubeError && (
+                <div style={{ marginTop: '12px', padding: '12px', borderRadius: '10px', background: 'var(--red-dim)', border: '1px solid var(--red-border)', color: 'var(--red)', fontSize: '13px', fontWeight: 600 }}>
+                  ❌ {youtubeError}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Hint de formatos */}
       <div style={{ background: 'var(--bg-secondary)', borderRadius: '10px', padding: '10px 16px', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid var(--border-color)' }}>
@@ -194,34 +379,47 @@ export default function TemaView({
                   onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--blue)'}
                   onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border-color)'}
                 >
-                  <div onClick={() => onAbrirDocumento(doc)} style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {getTipoIcon(doc)} {doc.nombre}
-                    </p>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-                      <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{doc.fechaSubida}</span>
-                      <span style={{
-                        fontSize: '10px',
-                        background: doc.tipo === 'imagen' ? '#f472b620'
-                          : doc.tipo === 'ppt' ? '#f9731620'
-                          : 'var(--blue-dim)',
-                        color: doc.tipo === 'imagen' ? 'var(--pink)'
-                          : doc.tipo === 'ppt' ? '#f97316'
-                          : 'var(--blue)',
-                        padding: '1px 6px', borderRadius: '4px', fontWeight: 700, textTransform: 'uppercase',
-                      }}>
-                        {doc.tipo}
-                      </span>
-                      {doc.analisis && (
-                        <span style={{ fontSize: '10px', background: '#4ade8015', color: '#4ade80', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                          ✓ {idioma === 'en' ? 'Analyzed' : 'Analizado'}
+                  <div onClick={() => onAbrirDocumento(doc)} style={{ flex: 1, minWidth: 0, display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    {doc.tipo === 'youtube' && doc.youtubeThumbnail && (
+                      <img src={doc.youtubeThumbnail} alt="" style={{ width: '64px', height: '36px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0 }}
+                        onError={(e: any) => { e.target.style.display = 'none'; }} />
+                    )}
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {getTipoIcon(doc)} {doc.nombre}
+                      </p>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{doc.fechaSubida}</span>
+                        <span style={{
+                          fontSize: '10px',
+                          background: doc.tipo === 'youtube' ? '#ff000020'
+                            : doc.tipo === 'imagen' ? '#f472b620'
+                            : doc.tipo === 'ppt' ? '#f9731620'
+                            : 'var(--blue-dim)',
+                          color: doc.tipo === 'youtube' ? '#ff4444'
+                            : doc.tipo === 'imagen' ? 'var(--pink)'
+                            : doc.tipo === 'ppt' ? '#f97316'
+                            : 'var(--blue)',
+                          padding: '1px 6px', borderRadius: '4px', fontWeight: 700, textTransform: 'uppercase',
+                        }}>
+                          {doc.tipo === 'youtube' ? 'YouTube' : doc.tipo}
                         </span>
-                      )}
-                      {doc.flashcards && doc.flashcards.length > 0 && (
-                        <span style={{ fontSize: '10px', background: 'var(--pink-dim)', color: 'var(--pink)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                          🎴 {doc.flashcards.length}
-                        </span>
-                      )}
+                        {doc.analisis && (
+                          <span style={{ fontSize: '10px', background: '#4ade8015', color: '#4ade80', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                            ✓ {idioma === 'en' ? 'Analyzed' : 'Analizado'}
+                          </span>
+                        )}
+                        {doc.flashcards && doc.flashcards.length > 0 && (
+                          <span style={{ fontSize: '10px', background: 'var(--pink-dim)', color: 'var(--pink)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                            🎴 {doc.flashcards.length}
+                          </span>
+                        )}
+                        {doc.quiz && doc.quiz.length > 0 && (
+                          <span style={{ fontSize: '10px', background: 'var(--blue-dim)', color: 'var(--blue)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                            🤓 {doc.quiz.length} quiz
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <button onClick={() => onEliminarDocumento(doc.id)}

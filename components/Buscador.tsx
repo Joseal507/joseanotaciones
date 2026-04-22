@@ -35,7 +35,7 @@ export default function Buscador({ onClose }: Props) {
     { titulo: tr('misMaterias'), subtitulo: idioma === 'en' ? 'View all your subjects' : 'Ver todas tus materias', emoji: '📚', href: '/materias', keywords: ['materia', 'materias', 'temas', 'apuntes', 'subject', 'subjects'] },
     { titulo: tr('agenda'), subtitulo: tr('calendarioYObjetivos'), emoji: '📅', href: '/agenda', keywords: ['agenda', 'calendario', 'asignacion', 'tareas', 'calendar', 'assignments'] },
     { titulo: tr('horario'), subtitulo: idioma === 'en' ? 'Class schedule' : 'Horario de clases', emoji: '🗓️', href: '/horario', keywords: ['horario', 'clases', 'schedule', 'class'] },
-    { titulo: 'AlciBot', subtitulo: idioma === 'en' ? 'Chat with AI' : 'Chat con AI', emoji: '🤖', href: '/chat', keywords: ['alcibot', 'chat', 'ai', 'bot'] },
+    { titulo: 'JeffreyBot', subtitulo: idioma === 'en' ? 'Chat with AI' : 'Chat con AI', emoji: '🤖', href: '/chat', keywords: ['jeffreybot', 'chat', 'ai', 'bot'] },
     { titulo: tr('perfil'), subtitulo: idioma === 'en' ? 'Study stats' : 'Stats de estudio', emoji: '📊', href: '/perfil', keywords: ['perfil', 'stats', 'profile', 'progress'] },
     { titulo: tr('quizzes'), subtitulo: idioma === 'en' ? 'Saved study materials' : 'Materiales de estudio guardados', emoji: '🎓', href: '/quizzes', keywords: ['quiz', 'quizzes', 'flashcard', 'deck'] },
   ];

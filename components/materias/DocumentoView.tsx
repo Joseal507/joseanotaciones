@@ -339,6 +339,9 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
                   archivoMime={docMime}
                   analisis={analisisLocal}
                   temaColor={tema.color}
+                  youtubeId={documento.youtubeId}
+                  youtubeChannel={documento.youtubeChannel}
+                  youtubeWordCount={documento.youtubeWordCount}
                 />
                 {!analisisLocal && !analizando && (
                   <div style={{ padding: '24px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)', textAlign: 'center' }}>
@@ -393,7 +396,5 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
         )}
       </div>
     </div>
-  );
-    </>
   );
 }

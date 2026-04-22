@@ -25,12 +25,16 @@ interface Props {
   archivoMime?: string;
   analisis?: Analisis;
   temaColor: string;
+  youtubeId?: string;
+  youtubeChannel?: string;
+  youtubeWordCount?: number;
 }
 
 export default function VisorDocumento({
   contenido, tipo, nombre,
   archivoBase64, archivoMime,
   analisis, temaColor,
+  youtubeId, youtubeChannel, youtubeWordCount,
 }: Props) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [numPages, setNumPages] = useState(0);
@@ -123,6 +127,49 @@ export default function VisorDocumento({
   };
 
   const tienePdf = !!pdfUrl && tipo === 'pdf';
+
+  // ── CASO YOUTUBE ──
+  if (tipo === 'youtube' && youtubeId) {
+    return (
+      <div style={{ fontFamily: '-apple-system, sans-serif' }}>
+        {/* Video embebido */}
+        <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, borderRadius: '14px', overflow: 'hidden', marginBottom: '16px', border: '2px solid #ff000040' }}>
+          <iframe
+            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+            src={`https://www.youtube.com/embed/${youtubeId}?rel=0`}
+            title={nombre}
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          />
+        </div>
+        {/* Info */}
+        <div style={{ background: 'var(--bg-secondary)', borderRadius: '10px', padding: '12px 16px', marginBottom: '16px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+          {youtubeChannel && (
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>📺 {youtubeChannel}</span>
+          )}
+          {youtubeWordCount && (
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>📝 {youtubeWordCount.toLocaleString()} palabras transcritas</span>
+          )}
+          <a href={`https://youtube.com/watch?v=${youtubeId}`} target="_blank" rel="noopener noreferrer"
+            style={{ fontSize: '12px', color: '#ff4444', fontWeight: 700, textDecoration: 'none' }}>
+            ▶ Ver en YouTube ↗
+          </a>
+        </div>
+        {/* Transcripción */}
+        {contenido && (
+          <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', padding: '16px' }}>
+            <p style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', margin: '0 0 10px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              📜 Transcripción
+            </p>
+            <p style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.8, margin: 0, maxHeight: '300px', overflowY: 'auto' }}>
+              {contenido.substring(0, 3000)}{contenido.length > 3000 ? '...' : ''}
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
