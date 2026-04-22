@@ -54,16 +54,17 @@ export default function ChatFlotante() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [...mensajes, { role: 'user', content: userMsg }],
+          mensaje: userMsg,
+          historial: mensajes.slice(-8).map(m => ({ role: m.role, content: m.content })),
           perfil,
-          documentos: docs.slice(0, 3),
+          todosDocumentos: docs.slice(0, 3),
           idioma,
         }),
       });
       const data = await res.json();
       setMensajes(prev => [...prev, {
         role: 'assistant',
-        content: data.message || (idioma === 'en' ? 'Error, try again.' : 'Error, intenta de nuevo.'),
+        content: data.respuesta || data.message || (idioma === 'en' ? 'Error, try again.' : 'Error, intenta de nuevo.'),
       }]);
     } catch {
       setMensajes(prev => [...prev, { role: 'assistant', content: '❌ Error de conexión.' }]);
@@ -81,7 +82,7 @@ export default function ChatFlotante() {
         style={{
           position: 'fixed',
           bottom: '24px',
-          right: '24px',
+          right: '90px',
           width: '56px',
           height: '56px',
           borderRadius: '50%',
@@ -107,7 +108,7 @@ export default function ChatFlotante() {
         <div style={{
           position: 'fixed',
           bottom: '90px',
-          right: '24px',
+          right: '90px',
           width: '340px',
           height: '460px',
           background: 'var(--bg-card)',

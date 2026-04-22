@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import ThemeInit from '../components/ThemeInit';
+import PomodoroFlotante from '../components/PomodoroFlotante';
+import ChatFlotante from '../components/ChatFlotante';
 
 export const metadata: Metadata = {
   title: 'JoseAnotaciones',
@@ -16,6 +18,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <ThemeInit />
         {children}
+        <PomodoroFlotante />
+        <ChatFlotante />
       </body>
     </html>
   );
