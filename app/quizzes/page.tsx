@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from 'react';
-import { getQuizzesGuardados, eliminarQuizGuardado, QuizGuardado, getFlashcardDecks, eliminarDeck, FlashcardDeck } from '../../lib/quizStorage';
+import { getQuizzesGuardados, eliminarQuizGuardado, QuizGuardado, getFlashcardDecks, eliminarDeck, FlashcardDeck, cargarQuizzesDesdeDB, cargarDecksDesdeDB } from '../../lib/quizStorage';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
@@ -35,8 +35,12 @@ export default function QuizzesPage() {
   const isMobile = useIsMobile();
 
   useEffect(() => {
+    // Cargar local primero (rápido)
     setQuizzes(getQuizzesGuardados());
     setDecks(getFlashcardDecks());
+    // Luego sincronizar con Supabase
+    cargarQuizzesDesdeDB().then(q => setQuizzes(q)).catch(() => {});
+    cargarDecksDesdeDB().then(d => setDecks(d)).catch(() => {});
   }, []);
 
   const quizzesFiltrados = quizzes.filter(q =>
