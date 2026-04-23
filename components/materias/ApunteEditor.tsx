@@ -128,7 +128,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
     setZoomState({ scale, tx, ty });
   }, []);
 
-  usePinchZoom(wrapperRef, handleScaleChange);
+  usePinchZoom(wrapperRef, handleScaleChange, { enabled: !isDrawingMode });
 
   const syncCache = useCallback(() => {
     Object.keys(textRefs.current).forEach((id) => {
@@ -543,6 +543,50 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
             >
               {scrollDirection === 'vertical' ? '↕ Vertical' : '↔ Horizontal'}
             </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                onClick={() => handleScaleChange(Math.max(0.6, zoomState.scale - 0.1), zoomState.tx, zoomState.ty)}
+                style={{
+                  width: '28px', height: '28px', borderRadius: '8px',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'rgba(255,255,255,0.05)',
+                  color: '#d4d4d8',
+                  cursor: 'pointer',
+                  fontWeight: 800,
+                }}
+              >
+                −
+              </button>
+              <button
+                onClick={() => handleScaleChange(1, 0, 0)}
+                style={{
+                  minWidth: '54px', height: '28px', borderRadius: '8px',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'rgba(255,255,255,0.05)',
+                  color: '#f5c842',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  padding: '0 8px',
+                }}
+              >
+                {Math.round(zoomState.scale * 100)}%
+              </button>
+              <button
+                onClick={() => handleScaleChange(Math.min(4, zoomState.scale + 0.1), zoomState.tx, zoomState.ty)}
+                style={{
+                  width: '28px', height: '28px', borderRadius: '8px',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'rgba(255,255,255,0.05)',
+                  color: '#d4d4d8',
+                  cursor: 'pointer',
+                  fontWeight: 800,
+                }}
+              >
+                +
+              </button>
+            </div>
+
             <div style={{
               padding: '3px 8px', borderRadius: '6px',
               background: guardando ? 'rgba(245,200,66,0.12)' : guardado ? 'rgba(34,197,94,0.1)' : 'rgba(245,200,66,0.12)',

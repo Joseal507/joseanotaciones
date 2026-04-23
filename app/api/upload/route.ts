@@ -107,18 +107,64 @@ export async function POST(request: NextRequest) {
         console.warn(`⚠️ R2 no disponible: ${r2Error.message}`);
       }
 
-      if (process.env.MISTRAL_API_KEY) {
-        content = await extraerConMistral(buffer, file.name);
+        // Estrategia 1: pdf-parse (rápido, sin API externa)
+      try {
+        const pdfParse = (await import('pdf-parse')).default;
+        const data = await pdfParse(buffer, { max: 0 });
+        content = data.text?.trim() || '';
+        console.log(`pdf-parse: ${content.length} chars`);
+      } catch (e: any) {
+        console.log('pdf-parse error:', e?.message);
       }
 
+      // Estrategia 2: Mistral OCR si pdf-parse no extrajo suficiente
+      if ((!content || content.length < 100) && process.env.MISTRAL_API_KEY) {
+        console.log('Intentando Mistral OCR...');
+        const mistralContent = await extraerConMistral(buffer, file.name);
+        if (mistralContent && mistralContent.length > content.length) {
+          content = mistralContent;
+        }
+      }
+
+      // Estrategia 3: Gemini Vision para PDFs con imágenes/escaneados
       if (!content || content.length < 50) {
         try {
-          const pdfParse = (await import('pdf-parse')).default;
-          const data = await pdfParse(buffer, { max: 0 });
-          content = data.text?.trim() || '';
-          console.log(`pdf-parse: ${content.length} chars`);
+          const geminiKeys = [
+            process.env.GEMINI_API_KEY,
+            process.env.GEMINI_API_KEY_2,
+            process.env.GEMINI_API_KEY_3,
+            process.env.GEMINI_API_KEY_4,
+          ].filter(Boolean);
+          if (geminiKeys.length > 0) {
+            const key = geminiKeys[0];
+            const base64 = buffer.toString('base64');
+            const res = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{
+                    parts: [
+                      { inlineData: { mimeType: 'application/pdf', data: base64 } },
+                      { text: 'Extract ALL text from this PDF exactly as it appears. Return only the text content, no explanations.' },
+                    ],
+                  }],
+                  generationConfig: { maxOutputTokens: 8192 },
+                }),
+              }
+            );
+            if (res.ok) {
+              const data = await res.json();
+              const geminiText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              if (geminiText.length > content.length) {
+                content = geminiText;
+                console.log(`Gemini PDF: ${content.length} chars`);
+              }
+            }
+          }
         } catch (e: any) {
-          console.log('pdf-parse error:', e?.message);
+          console.log('Gemini PDF error:', e?.message);
         }
       }
 

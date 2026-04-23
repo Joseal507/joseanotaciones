@@ -223,12 +223,23 @@ export default function EditorCanvas({
   };
 
   const shouldIgnore = (e: PointerEvent) => {
-    // Palm rejection: si hay un Apple Pencil activo, ignorar todos los touch
+    const isLargeTouchDevice =
+      typeof window !== 'undefined' &&
+      window.innerWidth >= 768 &&
+      navigator.maxTouchPoints > 0;
+
+    // En iPad / laptop touch: el dedo navega, no dibuja
+    if (e.pointerType === 'touch' && isLargeTouchDevice) return true;
+
+    // Palm rejection: si hay Pencil activo, ignorar dedos
     if (e.pointerType === 'touch' && activePenId.current !== null) return true;
-    // Si hay otro pencil activo, ignorar otros pointers
+
+    // Si hay otro pencil activo, ignorar otros pen pointers
     if (activePenId.current !== null && e.pointerId !== activePenId.current && e.pointerType === 'pen') return true;
-    // Ignorar touch con area grande (palma) — width y height grandes = palma
+
+    // Ignorar palma grande
     if (e.pointerType === 'touch' && (e as any).width > 40 && (e as any).height > 40) return true;
+
     return false;
   };
 
