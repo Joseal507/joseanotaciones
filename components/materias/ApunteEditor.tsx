@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Apunte, Materia, Tema } from '../../lib/storage';
 import { Bloque, Herramienta, Pagina, PaperStyle, parsePaginas, genId } from '../editor/types';
 import Toolbar from '../editor/Toolbar';
@@ -41,22 +41,7 @@ export default function ApunteEditor({
   const [paperStyle, setPaperStyle] = useState<PaperStyle>(() => {
     try {
       const parsed = JSON.parse(apunte.contenido || '{}');
-      useState(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        undoPages();
-      }
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
-        e.preventDefault();
-        redoPages();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  });
-
-  return (parsed.paperConfig?.paperStyle as PaperStyle) || 'lined';
+      return (parsed.paperConfig?.paperStyle as PaperStyle) || 'lined';
     } catch {
       return 'lined';
     }
@@ -246,7 +231,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
     if (snap) restorePageSnapshot(snap);
   }, [restorePageSnapshot]);
 
-  useState(() => {
+  useEffect(() => {
     if (pageHistoryRef.current.length === 0) {
       const initial = JSON.stringify({
         paginas,
