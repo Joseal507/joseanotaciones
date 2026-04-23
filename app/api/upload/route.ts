@@ -32,7 +32,12 @@ async function extraerConMistral(buffer: Buffer, fileName: string): Promise<stri
       body: formData,
     });
 
-    if (!uploadRes.ok) throw new Error(`Upload falló: ${await uploadRes.text()}`);
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      console.log(`Mistral upload error: ${errText.substring(0, 200)}`);
+      // Si el error es "string not attached" u otro, simplemente retornar vacío
+      return '';
+    }
     const uploadData = await uploadRes.json();
     const fileId = uploadData.id;
     console.log(`✅ Subido: ${fileId}`);
@@ -40,7 +45,10 @@ async function extraerConMistral(buffer: Buffer, fileName: string): Promise<stri
     const signedRes = await fetch(`https://api.mistral.ai/v1/files/${fileId}/url`, {
       headers: { 'Authorization': `Bearer ${apiKey}` },
     });
-    if (!signedRes.ok) throw new Error(`URL firmada falló: ${await signedRes.text()}`);
+    if (!signedRes.ok) {
+      console.log(`Mistral signed URL error: ${signedRes.status}`);
+      return '';
+    }
     const signedUrl = (await signedRes.json()).url;
 
     const ocrRes = await fetch('https://api.mistral.ai/v1/ocr', {
@@ -54,7 +62,10 @@ async function extraerConMistral(buffer: Buffer, fileName: string): Promise<stri
         document: { type: 'document_url', document_url: signedUrl },
       }),
     });
-    if (!ocrRes.ok) throw new Error(`OCR falló: ${await ocrRes.text()}`);
+    if (!ocrRes.ok) {
+      console.log(`Mistral OCR error: ${ocrRes.status}`);
+      return '';
+    }
 
     const ocrData = await ocrRes.json();
     const texto = ocrData.pages?.map((p: any) => p.markdown || p.text || '').join('\n\n') || '';
@@ -118,11 +129,17 @@ export async function POST(request: NextRequest) {
       }
 
       // Estrategia 2: Mistral OCR si pdf-parse no extrajo suficiente
-      if ((!content || content.length < 100) && process.env.MISTRAL_API_KEY) {
-        console.log('Intentando Mistral OCR...');
-        const mistralContent = await extraerConMistral(buffer, file.name);
-        if (mistralContent && mistralContent.length > content.length) {
-          content = mistralContent;
+      // Envuelto en try/catch total para que NUNCA falle
+      if (!content || content.length < 100) {
+        try {
+          if (process.env.MISTRAL_API_KEY) {
+            const mistralContent = await extraerConMistral(buffer, file.name);
+            if (mistralContent && mistralContent.length > (content?.length || 0)) {
+              content = mistralContent;
+            }
+          }
+        } catch {
+          console.log('Mistral falló, continuando con fallbacks...');
         }
       }
 

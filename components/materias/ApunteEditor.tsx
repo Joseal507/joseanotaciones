@@ -120,8 +120,8 @@ const isDrawing = [
   // ✅ Tamaño real según el papel seleccionado
 const BASE_PAGE_WIDTH = isMobile ? 390 : selectedSize.w;
 const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
-  const pageWidth = BASE_PAGE_WIDTH * zoomState.scale;
-  const pageHeight = BASE_PAGE_HEIGHT * zoomState.scale;
+  const pageWidth = BASE_PAGE_WIDTH;
+  const pageHeight = BASE_PAGE_HEIGHT;
 
   const handleScaleChange = useCallback((scale: number, tx: number, ty: number) => {
     zoomScaleRef.current = scale;
@@ -388,9 +388,10 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
     if (newBlockId) return;
 
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    const scale = zoomState.scale || 1;
-    let x = (e.clientX - rect.left) / scale;
-    let y = (e.clientY - rect.top) / scale;
+    // Con transform: scale() en el padre, getBoundingClientRect ya incluye el scale
+    // Así que NO dividimos por scale — las coordenadas son directas al espacio de la página
+    let x = e.clientX - rect.left;
+    let y = e.clientY - rect.top;
 
     const MARGIN = 10;
     const TEXT_WIDTH = isMobile ? 260 : 320;
@@ -418,7 +419,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
     ));
     setNewBlockId(id);
     triggerAutoSave();
-  }, [herramienta, isDrawingMode, newBlockId, triggerAutoSave, zoomState.scale, setPaginasSync, isMobile, BASE_PAGE_WIDTH, BASE_PAGE_HEIGHT]);
+  }, [herramienta, isDrawingMode, newBlockId, triggerAutoSave, setPaginasSync, isMobile, BASE_PAGE_WIDTH, BASE_PAGE_HEIGHT]);
 
   const handleTextInsert = useCallback((text: string, canvasY: number, paginaId: string) => {
   if (!text.trim()) return;
@@ -655,7 +656,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
           paddingBottom: isMobile ? '70px' : '80px',
         }}>
           <div style={{
-            transform: `translate(${zoomState.tx}px, ${zoomState.ty}px)`,
+            transform: `translate(${zoomState.tx}px, ${zoomState.ty}px) scale(${zoomState.scale})`,
             transformOrigin: '0 0',
             willChange: 'transform',
             display: 'flex',
