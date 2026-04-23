@@ -605,7 +605,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
             >
               ↷
             </button>
-            <ExportMenu bloques={todosLosBloques} paginas={paginas} titulo={apunte.titulo} temaColor={tema.color} textRefs={textRefs} htmlCache={htmlCache} canvasExporters={canvasExporters} />
+            <ExportMenu bloques={todosLosBloques} paginas={paginas} titulo={apunte.titulo} temaColor={tema.color} paperColor={paperColor} textRefs={textRefs} htmlCache={htmlCache} canvasExporters={canvasExporters} />
             <button onClick={guardar} style={{
               padding: isMobile ? '6px 10px' : '6px 14px', borderRadius: '8px', border: 'none',
               background: '#f5c842', color: '#000', fontSize: '11px', fontWeight: 800, cursor: 'pointer',
