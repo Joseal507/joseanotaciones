@@ -237,13 +237,61 @@ export default function MateriasPage() {
   if (!e.target.files?.[0] || !temaActual) return;
   const file = e.target.files[0];
   setSubiendoDoc(true);
-  const formData = new FormData();
-  formData.append('file', file);
 
   try {
-    const res = await fetch('/api/upload', { method: 'POST', body: formData });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error);
+    let data: any;
+    const MAX_DIRECT = 4 * 1024 * 1024; // 4MB — debajo de este tamaño usamos la API normal
+
+    if (file.size > MAX_DIRECT) {
+      // Archivo grande: upload directo a R2 + procesar separado
+      console.log(`Archivo grande (${(file.size/1024/1024).toFixed(1)}MB), usando upload directo a R2...`);
+
+      // 1. Obtener presigned URL
+      const urlRes = await fetch('/api/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          contentType: file.type || 'application/pdf',
+          userId: (await import('../../lib/supabase').then(m => m.supabase.auth.getUser())).data.user?.id || 'anonymous',
+        }),
+      });
+      const { presignedUrl, r2Url } = await urlRes.json();
+      if (!presignedUrl) throw new Error('No se pudo obtener URL de upload');
+
+      // 2. Upload directo a R2
+      const uploadRes = await fetch(presignedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type || 'application/pdf' },
+        body: file,
+      });
+      if (!uploadRes.ok) throw new Error(`Upload a R2 falló: ${uploadRes.status}`);
+      console.log('✅ Subido directo a R2:', r2Url);
+
+      // 3. Procesar PDF (extraer texto) desde R2
+      const processRes = await fetch('/api/process-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ r2Url, fileName: file.name }),
+      });
+      const processData = await processRes.json();
+
+      data = {
+        success: true,
+        r2Url,
+        content: processData.content || '',
+        fileName: file.name,
+        mimeType: file.type,
+      };
+
+    } else {
+      // Archivo pequeño: usar API normal
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      data = await res.json();
+      if (!data.success) throw new Error(data.error);
+    }
 
     // ✅ Usar R2 directamente (10GB gratis, más rápido que Supabase)
     let archivoUrl: string | undefined;

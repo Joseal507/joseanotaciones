@@ -1,4 +1,5 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, HeadBucketCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const R2_BUCKET = process.env.R2_BUCKET || 'joseanotaciones';
 const MAX_STORAGE_BYTES = 9.5 * 1024 * 1024 * 1024; // 🛡️ 9.5GB = Candado antes de llegar a 10GB
@@ -102,4 +103,24 @@ export const generateR2Key = (userId: string, fileName: string): string => {
   const timestamp = Date.now();
   const extension = fileName.split('.').pop();
   return `uploads/${userId}/${timestamp}.${extension}`;
+};
+
+
+// ── Presigned URL para upload directo desde el cliente ──
+export const getPresignedUploadUrl = async (
+  key: string,
+  contentType: string,
+  expiresIn = 300, // 5 minutos
+): Promise<string> => {
+  const command = new PutObjectCommand({
+    Bucket: R2_BUCKET,
+    Key: key,
+    ContentType: contentType,
+  });
+  return getSignedUrl(r2Client, command, { expiresIn });
+};
+
+export const getPublicUrl = (key: string): string => {
+  const endpoint = process.env.R2_ENDPOINT || '';
+  return `${endpoint}/${R2_BUCKET}/${key}`;
 };
