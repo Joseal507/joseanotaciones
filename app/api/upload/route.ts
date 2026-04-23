@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+
+export const maxDuration = 60; // 60 segundos máximo
+export const dynamic = 'force-dynamic';
 import { getGroqClient } from '../../../lib/groqClient';
 import { uploadToR2, generateR2Key } from '../../../lib/r2';
 
@@ -89,6 +92,14 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const userId = formData.get('userId') as string || 'anonymous';
+
+    // Check file size — Vercel free tier limit is ~4.5MB for API routes
+    if (file && file.size > 40 * 1024 * 1024) {
+      return NextResponse.json({
+        error: 'El archivo es muy grande. Máximo 40MB.',
+        errorCode: 'FILE_TOO_LARGE',
+      }, { status: 413 });
+    }
 
     if (!file) {
       return NextResponse.json({ success: false, error: 'No hay archivo' }, { status: 400 });

@@ -5,6 +5,11 @@ const nextConfig = {
       bodySizeLimit: '50mb',
     },
   },
+  // El límite real para App Router API routes se maneja en el servidor
+  // Vercel tiene límite de 4.5MB en el plan free para request body
+  // Para PDFs grandes usamos R2 directamente desde el cliente
+
+
   webpack: (config, { isServer }) => {
     if (isServer) {
       // ✅ Excluir pdfjs-dist del bundle del servidor
