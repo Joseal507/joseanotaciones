@@ -22,28 +22,20 @@ const HC = ['transparent','#fef08a','#bbf7d0','#bfdbfe','#fecaca','#e9d5ff','#fe
 
 type Sub = 'none'|'font'|'size'|'tc'|'hl';
 
-// Dropdown siempre renderiza hacia abajo y se auto-ajusta si sale de la pantalla
+// Dropdown simple sin hooks - no viola reglas de React
 function Drop({ children }: { children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [style, setStyle] = useState<React.CSSProperties>({
-    position: 'absolute', top: '100%', left: 0, marginTop: 4,
-    background: BG, borderRadius: 10, border: `1px solid ${BD}`,
-    boxShadow: '0 8px 28px rgba(0,0,0,0.6)',
-    zIndex: 500, padding: 8, maxWidth: 'min(85vw, 280px)',
-  });
-
-  useEffect(() => {
-    if (!ref.current) return;
-    const rect = ref.current.getBoundingClientRect();
-    let left = 0;
-    if (rect.right > window.innerWidth - 8) {
-      left = -(rect.right - window.innerWidth + 16);
-    }
-    if (rect.left + left < 8) left = -(rect.left - 8);
-    if (left !== 0) setStyle(s => ({ ...s, left }));
-  }, []);
-
-  return <div ref={ref} style={style}>{children}</div>;
+  return (
+    <div style={{
+      position: 'absolute', top: '100%', left: 0, marginTop: 4,
+      background: BG, borderRadius: 10, border: `1px solid ${BD}`,
+      boxShadow: '0 8px 28px rgba(0,0,0,0.6)',
+      zIndex: 500, padding: 8,
+      maxWidth: 'min(85vw, 280px)',
+      overflow: 'hidden',
+    }}>
+      {children}
+    </div>
+  );
 }
 
 export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete, onFinishNew }: Props) {
