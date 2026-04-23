@@ -1,4 +1,5 @@
 'use client';
+import MathText from '../MathText';
 
 interface Props {
   flashcards: any[];
@@ -103,7 +104,7 @@ export default function TabFlashcards({ flashcards, currentCard, flipped, addCou
             <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '36px 44px', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border-color)', boxSizing: 'border-box', position: 'relative', overflow: 'hidden' }}>
               <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'var(--gold)' }} />
               <div style={{ position: 'absolute', top: '16px', left: '16px', background: 'var(--gold)', color: '#000', padding: '3px 10px', borderRadius: '5px', fontSize: '10px', fontWeight: 800 }}>{tr('pregunta')}</div>
-              <h3 style={{ fontSize: '18px', fontWeight: 700, textAlign: 'center', color: 'var(--text-primary)', lineHeight: 1.6, margin: '16px 0 0' }}>{flashcards[currentCard]?.question}</h3>
+              <div style={{ fontSize: '18px', fontWeight: 700, textAlign: 'center', color: 'var(--text-primary)', lineHeight: 1.6, margin: '16px 0 0' }}><MathText text={flashcards[currentCard]?.question || ""} /></div>
               <p style={{ color: 'var(--text-faint)', fontSize: '11px', margin: '12px 0 0' }}>{isMobile ? tr('tocaVerRespuesta') : (idioma === 'en' ? '← → keys · Space to flip' : '← → flechas · Espacio voltear')}</p>
             </div>
           </div>
@@ -111,7 +112,7 @@ export default function TabFlashcards({ flashcards, currentCard, flipped, addCou
             <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '36px 44px', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border-color)', boxSizing: 'border-box', position: 'relative', overflow: 'hidden' }}>
               <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'var(--red)' }} />
               <div style={{ position: 'absolute', top: '16px', left: '16px', background: 'var(--red)', color: '#000', padding: '3px 10px', borderRadius: '5px', fontSize: '10px', fontWeight: 800 }}>{tr('respuesta')}</div>
-              <p style={{ fontSize: '16px', textAlign: 'center', color: 'var(--text-primary)', lineHeight: 1.7, margin: '16px 0 0' }}>{flashcards[currentCard]?.answer}</p>
+              <div style={{ fontSize: '16px', textAlign: 'center', color: 'var(--text-primary)', lineHeight: 1.7, margin: '16px 0 0' }}><MathText text={flashcards[currentCard]?.answer || ""} /></div>
             </div>
           </div>
         </div>

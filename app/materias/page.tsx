@@ -185,12 +185,18 @@ export default function MateriasPage() {
     });
   };
 
-  const crearApunte = (data: { titulo: string }) => {
+  const crearApunte = (data: { titulo: string; paperColor?: string; paperStyle?: string; paperSize?: string }) => {
     if (!temaActual) return;
+    // Guardar config del papel en el contenido inicial
+    const paperConfig = {
+      paperColor: data.paperColor || 'white',
+      paperStyle: data.paperStyle || 'lined',
+      paperSize: data.paperSize || 'normal',
+    };
     const nuevo: Apunte = {
       id: generateId(),
       titulo: data.titulo,
-      contenido: '',
+      contenido: JSON.stringify({ paginas: [{ bloques: [], canvasData: null }], paperConfig }),
       fechaCreacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
       fechaModificacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
     };
@@ -320,6 +326,18 @@ const eliminarDocumento = async (id: string) => {
   setVista('tema');
 };
 
+  const reordenarMaterias = (nuevasMaterias: Materia[]) => {
+    setMaterias(nuevasMaterias);
+    saveMaterias(nuevasMaterias);
+  };
+
+  const editarMateria = (materiaEditada: Materia) => {
+    const nuevas = materias.map(m => m.id === materiaEditada.id ? materiaEditada : m);
+    setMaterias(nuevas);
+    saveMaterias(nuevas);
+    if (materiaActual?.id === materiaEditada.id) setMateriaActual(materiaEditada);
+  };
+
   if (cargando) {
     return (
       <div style={{
@@ -419,6 +437,8 @@ const eliminarDocumento = async (id: string) => {
             onAbrir={m => { setMateriaActual(m); setVista('materia'); }}
             onEliminar={eliminarMateria}
             onNueva={() => setModalMateria(true)}
+            onReordenar={reordenarMaterias}
+            onEditar={editarMateria}
           />
         )}
 

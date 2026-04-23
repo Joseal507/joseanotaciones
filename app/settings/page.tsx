@@ -500,6 +500,44 @@ export default function SettingsPage() {
 
           {/* ===== NOTIFICACIONES ===== */}
           {seccion === 'notificaciones' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* WIDGETS FLOTANTES */}
+              <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                <div style={{ height: '3px', background: 'var(--pink)' }} />
+                <div style={{ padding: '20px' }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>🤖 JeffreyBot flotante</h3>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>Chat de IA accesible desde cualquier página</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>Mostrar chat flotante</span>
+                    <button
+                      onClick={() => updateSettings({ chatEnabled: !settings.chatEnabled })}
+                      style={{ width: '48px', height: '26px', borderRadius: '13px', border: 'none', background: settings.chatEnabled !== false ? 'var(--pink)' : 'var(--border-color)', cursor: 'pointer', position: 'relative', transition: 'background 0.3s' }}>
+                      <div style={{ position: 'absolute', top: '3px', left: settings.chatEnabled !== false ? '24px' : '3px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.3s', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                <div style={{ height: '3px', background: '#ef4444' }} />
+                <div style={{ padding: '20px' }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>⏱️ Pomodoro Timer</h3>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>Timer flotante de estudio con técnica Pomodoro</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>Mostrar timer flotante</span>
+                    <button
+                      onClick={() => updateSettings({ timerEnabled: !settings.timerEnabled })}
+                      style={{ width: '48px', height: '26px', borderRadius: '13px', border: 'none', background: settings.timerEnabled !== false ? '#ef4444' : 'var(--border-color)', cursor: 'pointer', position: 'relative', transition: 'background 0.3s' }}>
+                      <div style={{ position: 'absolute', top: '3px', left: settings.timerEnabled !== false ? '24px' : '3px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.3s', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }} />
+                    </button>
+                  </div>
+                  <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '8px 0 0' }}>
+                    💡 Arrastra los widgets para moverlos · Click ▬ para minimizar
+                  </p>
+                </div>
+              </div>
+
+              {/* NOTIFICACIONES ORIGINALES */}
             <Card color="var(--blue)">
               <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('notificaciones')}</h2>
               {'Notification' in window && Notification.permission !== 'granted' && (
@@ -526,6 +564,7 @@ export default function SettingsPage() {
               </div>
               <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>{tr('soloNavegador')}</p>
             </Card>
+            </div>
           )}
 
           {/* ===== DATOS ===== */}

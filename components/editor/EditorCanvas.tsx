@@ -22,12 +22,14 @@ interface Props {
   onRegisterStrokesExport?: (fn: () => string | null) => void;
   onRegisterUndoRedo?: (undo: () => void, redo: () => void) => void;
   externalScale?: { current: number };
+  onPeterSauPeter?: (imageBase64: string, imageMime: string) => void;
 }
 
 export default function EditorCanvas({
   herramienta, brushColor, brushSize, temaColor, onChange, onTextInsert,
   initialCanvasData, initialStrokesData,
   onRegisterExport, onRegisterStrokesExport, onRegisterUndoRedo, externalScale,
+  onPeterSauPeter,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -59,10 +61,16 @@ export default function EditorCanvas({
   const selectedStrokesRef = useRef<string[]>([]);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [converting, setConverting] = useState(false);
+  const [solving, setSolving] = useState(false);
   const [strokeCount, setStrokeCount] = useState(0);
+  const clipboardRef = useRef<any[]>([]);
+  const lassoPoints = useRef<{x:number,y:number}[]>([]);
+  const historyRef = useRef<string[]>([]);
+  const historyIdxRef = useRef(-1);
 
   const isDrawingTool = ['boligrafo', 'marcador', 'lapiz', 'borrador', 'borrador_trazo', 'regla', 'forma_rect', 'forma_circulo', 'forma_triangulo'].includes(herramienta);
-  const isSelecting = herramienta === 'seleccion';
+  const isSelecting = herramienta === 'seleccion' || herramienta === 'lasso';
+  const isLasso = herramienta === 'lasso';
   const isCanvasActive = isDrawingTool || isSelecting;
   const isShapeTool = ['regla', 'forma_rect', 'forma_circulo', 'forma_triangulo'].includes(herramienta);
 
@@ -98,6 +106,14 @@ export default function EditorCanvas({
     ctx.restore();
   }, []);
 
+  const saveSnapshot = () => {
+    const snap = JSON.stringify(strokesRef.current);
+    historyRef.current = historyRef.current.slice(0, historyIdxRef.current + 1);
+    historyRef.current.push(snap);
+    if (historyRef.current.length > 60) historyRef.current.shift();
+    historyIdxRef.current = historyRef.current.length - 1;
+  };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const overlay = overlayRef.current;
@@ -118,7 +134,7 @@ export default function EditorCanvas({
           if (Array.isArray(parsed) && parsed.length > 0) {
             strokesRef.current = parsed;
             setStrokeCount(parsed.length);
-            setTimeout(() => redraw(), 50);
+            setTimeout(() => { redraw(); saveSnapshot(); }, 50);
             return;
           }
         } catch {}
@@ -265,7 +281,7 @@ export default function EditorCanvas({
       return;
     }
 
-    // ✅ Selección
+    // ✅ Selección (rectangular o lasso)
     if (isSelecting) {
       const rect = selectionRectRef.current;
       if (rect && selectedStrokesRef.current.length > 0) {
@@ -283,6 +299,7 @@ export default function EditorCanvas({
       moveStart.current = null;
       selecting.current = true;
       selectionStart.current = pos;
+      lassoPoints.current = isLasso ? [{ x: pos.x, y: pos.y }] : [];
       return;
     }
 
@@ -355,8 +372,42 @@ export default function EditorCanvas({
       return;
     }
 
-    // ✅ Dibujando selección
+    // ✅ Dibujando selección (rect o lasso)
     if (selecting.current && selectionStart.current) {
+      if (isLasso && lassoPoints.current.length > 0) {
+        // Lasso: dibujar path libre
+        lassoPoints.current.push({ x: pos.x, y: pos.y });
+        // Calcular bounding box del lasso para el rect
+        let lx = Infinity, ly = Infinity, lmx = -Infinity, lmy = -Infinity;
+        lassoPoints.current.forEach(p => { lx = Math.min(lx, p.x); ly = Math.min(ly, p.y); lmx = Math.max(lmx, p.x); lmy = Math.max(lmy, p.y); });
+        const rect: SelectionRect = { x: lx, y: ly, w: lmx - lx, h: lmy - ly };
+        updateSelectionRect(rect);
+        // Dibujar lasso en overlay
+        const ov = overlayRef.current;
+        const octx = ov?.getContext('2d');
+        if (octx && ov) {
+          clearCanvas(ov, octx);
+          applyDpr(octx);
+          octx.save();
+          octx.strokeStyle = '#818cf8';
+          octx.lineWidth = 1.5;
+          octx.setLineDash([6, 4]);
+          octx.globalAlpha = 0.8;
+          octx.beginPath();
+          octx.moveTo(lassoPoints.current[0].x, lassoPoints.current[0].y);
+          for (let i = 1; i < lassoPoints.current.length; i++) {
+            octx.lineTo(lassoPoints.current[i].x, lassoPoints.current[i].y);
+          }
+          octx.stroke();
+          // Fill semi-transparente
+          octx.globalAlpha = 0.04;
+          octx.fillStyle = '#818cf8';
+          octx.fill();
+          octx.restore();
+        }
+        return;
+      }
+      // Rectangular selection
       const start = selectionStart.current;
       const rect: SelectionRect = {
         x: Math.min(start.x, pos.x),
@@ -419,6 +470,7 @@ export default function EditorCanvas({
         strokesRef.current = strokesRef.current.filter(s => !toDelete.has(s.id));
         erasingStrokes.current = new Set();
         setStrokeCount(strokesRef.current.length);
+        saveSnapshot();
         redraw();
         onChange();
       }
@@ -448,7 +500,7 @@ export default function EditorCanvas({
         };
         strokesRef.current.push(stroke);
         setStrokeCount(strokesRef.current.length);
-        redoRef.current = [];
+        saveSnapshot();
         onChange();
         redraw();
       }
@@ -462,16 +514,53 @@ export default function EditorCanvas({
     if (movingRef.current) {
       movingRef.current = false;
       moveStart.current = null;
-      redoRef.current = [];
+      saveSnapshot();
       onChange();
       return;
     }
 
-    // ✅ Fin selección
+    // ✅ Fin selección (rect o lasso)
     if (selecting.current) {
       selecting.current = false;
       const rect = selectionRectRef.current;
       selectionStart.current = null;
+
+      if (isLasso && lassoPoints.current.length > 5) {
+        // Lasso: point-in-polygon test
+        const poly = lassoPoints.current;
+        const pointInPoly = (px: number, py: number): boolean => {
+          let inside = false;
+          for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            const xi = poly[i].x, yi = poly[i].y;
+            const xj = poly[j].x, yj = poly[j].y;
+            if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+              inside = !inside;
+            }
+          }
+          return inside;
+        };
+        const found = strokesRef.current.filter(s => {
+          // Check if center of stroke bounds is inside lasso
+          const b = s.bounds || calcBounds(s.points);
+          const cx = b.x + b.w / 2;
+          const cy = b.y + b.h / 2;
+          return pointInPoly(cx, cy);
+        }).map(s => s.id);
+        lassoPoints.current = [];
+        if (found.length > 0 && rect) {
+          updateSelectedStrokes(found);
+          setMenuPos({ x: rect.x + rect.w / 2, y: rect.y + rect.h + 14 });
+        } else {
+          updateSelectionRect(null);
+          updateSelectedStrokes([]);
+          setMenuPos(null);
+          redrawOverlay(null);
+        }
+        return;
+      }
+
+      // Rectangular
+      lassoPoints.current = [];
       if (!rect || rect.w < 8 || rect.h < 8) {
         updateSelectionRect(null);
         updateSelectedStrokes([]);
@@ -496,6 +585,7 @@ export default function EditorCanvas({
       const stroke = { ...currentStroke.current, bounds: calcBounds(currentStroke.current.points) };
       strokesRef.current.push(stroke);
       setStrokeCount(strokesRef.current.length);
+      saveSnapshot();
       onChange();
       redraw();
     }
@@ -545,8 +635,15 @@ export default function EditorCanvas({
   // UNDO / REDO / DELETE
   // ═══════════════════════════════════════════
   const undo = useCallback(() => {
-    if (strokesRef.current.length === 0) return;
-    redoRef.current.push([strokesRef.current.pop()!]);
+    if (historyIdxRef.current > 0) {
+      historyIdxRef.current--;
+      try {
+        strokesRef.current = JSON.parse(historyRef.current[historyIdxRef.current]);
+      } catch { return; }
+    } else {
+      if (strokesRef.current.length === 0) return;
+      strokesRef.current.pop();
+    }
     setStrokeCount(strokesRef.current.length);
     updateSelectionRect(null);
     updateSelectedStrokes([]);
@@ -557,8 +654,11 @@ export default function EditorCanvas({
   }, [redraw, redrawOverlay, onChange]);
 
   const redo = useCallback(() => {
-    if (redoRef.current.length === 0) return;
-    strokesRef.current.push(...redoRef.current.pop()!);
+    if (historyIdxRef.current >= historyRef.current.length - 1) return;
+    historyIdxRef.current++;
+    try {
+      strokesRef.current = JSON.parse(historyRef.current[historyIdxRef.current]);
+    } catch { return; }
     setStrokeCount(strokesRef.current.length);
     redraw();
     onChange();
@@ -572,8 +672,41 @@ export default function EditorCanvas({
     redrawOverlay(null);
     redraw();
     setStrokeCount(strokesRef.current.length);
+    saveSnapshot();
     onChange();
-  }, [redraw, redrawOverlay, onChange]);
+  }, [redraw, redrawOverlay, onChange, saveSnapshot]);
+
+  const copySelection = useCallback(() => {
+    const selected = strokesRef.current.filter(s => selectedStrokesRef.current.includes(s.id));
+    clipboardRef.current = JSON.parse(JSON.stringify(selected));
+  }, []);
+
+  const cutSelection = useCallback(() => {
+    copySelection();
+    deleteSelection();
+  }, [copySelection, deleteSelection]);
+
+  const duplicateSelection = useCallback(() => {
+    const selected = strokesRef.current.filter(s => selectedStrokesRef.current.includes(s.id));
+    const offset = 20;
+    const dupes = selected.map(s => ({
+      ...JSON.parse(JSON.stringify(s)),
+      id: genStrokeId(),
+      points: s.points.map(p => ({ ...p, x: p.x + offset, y: p.y + offset })),
+      bounds: s.bounds ? { x: s.bounds.x + offset, y: s.bounds.y + offset, w: s.bounds.w, h: s.bounds.h } : undefined,
+      shapeEnd: s.shapeEnd ? { x: s.shapeEnd.x + offset, y: s.shapeEnd.y + offset } : undefined,
+    }));
+    strokesRef.current.push(...dupes);
+    setStrokeCount(strokesRef.current.length);
+    updateSelectedStrokes(dupes.map(d => d.id));
+    const rect = selectionRectRef.current;
+    if (rect) updateSelectionRect({ x: rect.x + offset, y: rect.y + offset, w: rect.w, h: rect.h });
+    redraw();
+    onChange();
+      saveSnapshot();
+    redraw();
+    onChange();
+  }, [redraw, onChange, saveSnapshot]);
 
   const getCroppedCanvas = (): string | null => {
     const rect = selectionRectRef.current;
@@ -606,7 +739,26 @@ export default function EditorCanvas({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mensaje: 'Read and transcribe EXACTLY all the handwritten text in this image. Return ONLY the transcribed text, nothing else. Preserve line breaks. If unclear write [illegible].',
+          mensaje: `Read this handwritten content carefully. It may contain text, math expressions, or both.
+
+RULES:
+1. If it's plain text: return the text exactly as written, preserving line breaks.
+2. If it contains math expressions: format them properly using these rules:
+   - Fractions: write as a/b or use unicode like ½
+   - Square roots: use √ symbol, e.g. √(x+1)
+   - Exponents: use superscript unicode: x² x³ or write x^n for higher powers
+   - Greek letters: use unicode: π θ α β σ Δ λ
+   - Special: use ≤ ≥ ≠ ≈ ± ∞ ∫ Σ ∂
+   - Keep expressions on one line when possible: 2x² + 3x - 5 = 0
+3. If it's a mix: format naturally, math inline with text.
+4. NEVER add explanations. Return ONLY the transcribed/formatted content.
+5. If unclear write [?]
+
+Examples of good output:
+- "x² + 6x + 9 = (x + 3)²"
+- "∫x²dx = x³/3 + C"  
+- "f(x) = √(x² + 1)"
+- "The area A = πr²"`,
           contexto: null, historial: [], perfil: null, todosDocumentos: [],
           idioma: 'en', imageBase64: base64, imageMime: 'image/png',
         }),
@@ -618,6 +770,13 @@ export default function EditorCanvas({
       }
     } catch (err) { console.error('Error converting:', err); }
     finally { setConverting(false); }
+  };
+
+  const solveMath = () => {
+    const imageData = getCroppedCanvas();
+    if (!imageData || !onPeterSauPeter) return;
+    const base64 = imageData.split(',')[1];
+    onPeterSauPeter(base64, 'image/png');
   };
 
   // ═══════════════════════════════════════════
@@ -674,6 +833,30 @@ export default function EditorCanvas({
         const isEditable = active?.getAttribute('contenteditable') === 'true' || ['INPUT', 'TEXTAREA'].includes(active?.tagName || '');
         if (!isEditable) { e.preventDefault(); deleteSelection(); }
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selectedStrokesRef.current.length > 0) {
+        e.preventDefault(); copySelection();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'x' && selectedStrokesRef.current.length > 0) {
+        e.preventDefault(); cutSelection();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'v' && clipboardRef.current.length > 0) {
+        e.preventDefault();
+        const offset = 30;
+        const pasted = clipboardRef.current.map(s => ({
+          ...JSON.parse(JSON.stringify(s)),
+          id: genStrokeId(),
+          points: s.points.map((p: any) => ({ ...p, x: p.x + offset, y: p.y + offset })),
+          bounds: s.bounds ? { x: s.bounds.x + offset, y: s.bounds.y + offset, w: s.bounds.w, h: s.bounds.h } : undefined,
+          shapeEnd: s.shapeEnd ? { x: s.shapeEnd.x + offset, y: s.shapeEnd.y + offset } : undefined,
+        }));
+        strokesRef.current.push(...pasted);
+        setStrokeCount(strokesRef.current.length);
+        redraw();
+        onChange();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'd' && selectedStrokesRef.current.length > 0) {
+        e.preventDefault(); duplicateSelection();
+      }
       if (e.key === 'Escape') {
         updateSelectionRect(null);
         updateSelectedStrokes([]);
@@ -687,7 +870,7 @@ export default function EditorCanvas({
     };
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [isDrawingTool, isSelecting, undo, redo, deleteSelection, redrawOverlay]);
+  }, [isDrawingTool, isSelecting, undo, redo, deleteSelection, copySelection, cutSelection, duplicateSelection, redrawOverlay]);
 
   useEffect(() => { redraw(); }, [selectedStrokes, redraw]);
 
@@ -724,6 +907,7 @@ export default function EditorCanvas({
         pointerEvents: isCanvasActive ? 'all' : 'none',
         zIndex: isCanvasActive ? 20 : 1,
         touchAction: 'none',
+        overflow: 'hidden',
       }}
     >
       <canvas ref={canvasRef} style={{
@@ -745,8 +929,12 @@ export default function EditorCanvas({
         <SelectionMenu
           menuPos={menuPos}
           converting={converting}
+          solving={solving}
           onMove={() => { movingRef.current = true; moveStart.current = null; setMenuPos(null); }}
           onConvert={convertToText}
+          onCopy={copySelection}
+          onCut={cutSelection}
+          onDuplicate={duplicateSelection}
           onSave={() => {
             const img = getCroppedCanvas();
             if (!img) return;
@@ -756,6 +944,7 @@ export default function EditorCanvas({
             a.click();
           }}
           onDelete={deleteSelection}
+          onPeterSauPeter={onPeterSauPeter ? solveMath : undefined}
         />
       )}
 

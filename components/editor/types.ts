@@ -33,6 +33,7 @@ export type Bloque = BloqueTexto | BloqueImagen | BloqueTrazos;
 
 export type Herramienta =
   | 'seleccion'
+  | 'lasso'
   | 'texto'
   | 'boligrafo'
   | 'marcador'

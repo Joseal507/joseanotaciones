@@ -8,6 +8,7 @@ import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
 import EstudioModal from '../../components/flashcards/EstudioModal';
 import ModoExamen from '../../components/flashcards/ModoExamen';
+import MathText from '../../components/MathText';
 
 export default function QuizzesPage() {
   const [tab, setTab] = useState<'quizzes' | 'decks'>('quizzes');
@@ -336,7 +337,7 @@ export default function QuizzesPage() {
                         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: deckActivo.materiaColor || 'var(--gold)' }} />
                         <div style={{ position: 'absolute', top: '16px', left: '16px', background: deckActivo.materiaColor || 'var(--gold)', color: '#000', padding: '3px 10px', borderRadius: '5px', fontSize: '10px', fontWeight: 800 }}>{tr('pregunta').toUpperCase()}</div>
                         <h3 style={{ fontSize: '20px', fontWeight: 700, textAlign: 'center', color: 'var(--text-primary)', lineHeight: 1.6, margin: '16px 0 0' }}>
-                          {deckActivo.flashcards[currentCard]?.question}
+                          <MathText text={deckActivo.flashcards[currentCard]?.question || ""} />
                         </h3>
                         <p style={{ color: 'var(--text-faint)', fontSize: '12px', margin: '16px 0 0' }}>{tr('tocaVerRespuesta')}</p>
                       </div>
@@ -346,7 +347,7 @@ export default function QuizzesPage() {
                         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'var(--red)' }} />
                         <div style={{ position: 'absolute', top: '16px', left: '16px', background: 'var(--red)', color: '#000', padding: '3px 10px', borderRadius: '5px', fontSize: '10px', fontWeight: 800 }}>{tr('respuesta').toUpperCase()}</div>
                         <p style={{ fontSize: '18px', textAlign: 'center', color: 'var(--text-primary)', lineHeight: 1.7, margin: '16px 0 0' }}>
-                          {deckActivo.flashcards[currentCard]?.answer}
+                          <MathText text={deckActivo.flashcards[currentCard]?.answer || ""} />
                         </p>
                       </div>
                     </div>
@@ -398,7 +399,7 @@ export default function QuizzesPage() {
                 <span style={{ fontSize: '11px', color: quizActivo.materiaColor || '#a78bfa', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px' }}>
                   {idioma === 'en' ? 'Question' : 'Pregunta'} {idx + 1}
                 </span>
-                <h3 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)', margin: '12px 0 0', lineHeight: 1.5 }}>{preguntaActual.pregunta}</h3>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)', margin: '12px 0 0', lineHeight: 1.5 }}><MathText text={preguntaActual.pregunta} /></div>
               </div>
             </div>
 
@@ -423,7 +424,7 @@ export default function QuizzesPage() {
                   <p style={{ fontSize: '13px', fontWeight: 800, color: seleccionada === preguntaActual.correcta ? '#4ade80' : '#ff4d6d', margin: '0 0 6px' }}>
                     {seleccionada === preguntaActual.correcta ? tr('correcto') : tr('incorrecto')}
                   </p>
-                  <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>{preguntaActual.explicacion}</p>
+                  <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}><MathText text={preguntaActual.explicacion} /></p>
                 </div>
                 <button onClick={siguiente}
                   style={{ width: '100%', padding: '14px', borderRadius: '12px', border: 'none', background: quizActivo.materiaColor || '#a78bfa', color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>

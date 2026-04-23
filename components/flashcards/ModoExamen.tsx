@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useIdioma } from '../../hooks/useIdioma';
 import { getIdioma } from '../../lib/i18n';
 import { registrarEstudioHoy } from '../../lib/racha';
+import MathText from '../MathText';
 
 interface Flashcard {
   question: string;
@@ -537,7 +538,7 @@ export default function ModoExamen({ flashcards, contenido, nombreDoc, temaColor
                       <p style={{ fontSize: '13px', fontWeight: 800, color: opcionSeleccionada === preguntaActual.correcta ? '#4ade80' : '#ff4d6d', margin: '0 0 6px' }}>
                         {opcionSeleccionada === preguntaActual.correcta ? '✅ ' + (idioma === 'en' ? 'Correct!' : '¡Correcto!') : '❌ ' + (idioma === 'en' ? 'Incorrect' : 'Incorrecto')}
                       </p>
-                      <p style={{ fontSize: '13px', color: '#ccc', margin: 0, lineHeight: 1.5 }}>{preguntaActual.explicacion}</p>
+                      <p style={{ fontSize: '13px', color: '#ccc', margin: 0, lineHeight: 1.5 }}><MathText text={preguntaActual.explicacion || ""} /></p>
                     </div>
                     <button onClick={siguiente}
                       style={{ width: '100%', padding: '13px', borderRadius: '12px', border: 'none', background: '#a78bfa', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import MathText from './MathText';
 
 interface FlashCard {
   question: string;
@@ -61,7 +62,7 @@ export default function FlashCards({ cards }: FlashCardsProps) {
             <div className="bg-gradient-to-br from-blue-900 to-purple-900 rounded-2xl p-8 h-full flex flex-col items-center justify-center border-2 border-blue-500 shadow-2xl">
               <p className="text-sm text-blue-300 mb-4">PREGUNTA</p>
               <h3 className="text-2xl font-bold text-center">
-                {currentCard.question}
+                <MathText text={currentCard.question} />
               </h3>
               <p className="text-sm text-gray-400 mt-8">
                 👆 Haz clic para ver la respuesta
@@ -74,7 +75,7 @@ export default function FlashCards({ cards }: FlashCardsProps) {
             <div className="bg-gradient-to-br from-purple-900 to-pink-900 rounded-2xl p-8 h-full flex flex-col items-center justify-center border-2 border-purple-500 shadow-2xl">
               <p className="text-sm text-purple-300 mb-4">RESPUESTA</p>
               <h3 className="text-xl text-center leading-relaxed">
-                {currentCard.answer}
+                <MathText text={currentCard.answer} />
               </h3>
             </div>
           </div>

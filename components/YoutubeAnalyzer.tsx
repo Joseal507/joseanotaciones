@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useIdioma } from '../hooks/useIdioma';
 import { getMaterias, saveMaterias, Materia, Documento } from '../lib/storage';
+import MathText from './MathText';
 
 export default function YoutubeAnalyzer() {
   const { idioma } = useIdioma();
@@ -392,7 +393,7 @@ export default function YoutubeAnalyzer() {
                             {idioma === 'en' ? 'QUESTION' : 'PREGUNTA'}
                           </p>
                           <p style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, lineHeight: 1.5 }}>
-                            {result.analysis.flashcards[flashcardIndex].pregunta}
+                            <MathText text={result.analysis.flashcards[flashcardIndex].pregunta} />
                           </p>
                           <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '10px 0 0' }}>
                             👆 {idioma === 'en' ? 'Tap to flip' : 'Toca para voltear'}
@@ -405,7 +406,7 @@ export default function YoutubeAnalyzer() {
                             {idioma === 'en' ? 'ANSWER' : 'RESPUESTA'}
                           </p>
                           <p style={{ fontSize: '14px', color: 'var(--text-primary)', margin: 0, lineHeight: 1.6 }}>
-                            {result.analysis.flashcards[flashcardIndex].respuesta}
+                            <MathText text={result.analysis.flashcards[flashcardIndex].respuesta} />
                           </p>
                         </div>
                       </div>

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Herramienta } from './types';
 
 interface Props {
@@ -19,365 +20,211 @@ interface Props {
   onRedo: () => void;
 }
 
-const COLORES = [
-  '#0f172a', '#ef4444', '#f97316', '#eab308',
-  '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4',
-];
+const G = '#f5c842';
+const INKS = ['#000000','#1e40af','#dc2626','#16a34a','#9333ea','#ea580c','#0d9488','#be185d','#ffffff'];
 
-export default function Toolbar({
-  temaColor, herramientaActiva, onHerramienta,
-  brushColor, onBrushColor, brushSize, onBrushSize,
-  onExecCmd, onInsertHtml, onInsertImagen, onInsertDibujo, onInsertPdfFondo,
-  onUndo, onRedo,
-}: Props) {
+export default function Toolbar(p: Props) {
+  const { temaColor, herramientaActiva: h, onHerramienta: go, brushColor: bc, onBrushColor: setBC, brushSize: bs, onBrushSize: setBS, onExecCmd: ex, onInsertHtml: html, onInsertImagen, onInsertDibujo, onInsertPdfFondo, onUndo, onRedo } = p;
+  const [open, setOpen] = useState<string>('');
+  const tog = (k: string) => setOpen(o => o === k ? '' : k);
 
- const DRAW_TOOLS: Herramienta[] = [
-  'boligrafo',
-  'marcador',
-  'lapiz',
-  'borrador',
-  'borrador_trazo',
-  'regla',
-  'forma_rect',
-  'forma_circulo',
-  'forma_triangulo',
-];
+  const draw = ['boligrafo','lapiz','marcador','borrador','borrador_trazo','regla','forma_rect','forma_circulo','forma_triangulo'].includes(h);
+  const sel = h === 'seleccion' || h === 'lasso';
+  const eraser = h === 'borrador' || h === 'borrador_trazo';
 
-const isDrawing = DRAW_TOOLS.includes(herramientaActiva);
-const isSelecting = herramientaActiva === 'seleccion';
-const isDrawingMode = isDrawing || isSelecting;
-const isEraserLike = ['borrador', 'borrador_trazo'].includes(herramientaActiva);
-
-  const insertLatex = () => {
-    const formula = prompt('Formula LaTeX (ej: x^2 + y^2 = z^2):');
-    if (!formula) return;
-    onInsertHtml(`<span class="latex-formula" contenteditable="false" style="display:inline-block;background:#f0f4ff;border:1px solid #c7d2fe;border-radius:6px;padding:2px 8px;font-family:monospace;font-size:13px;color:#4338ca;cursor:default;user-select:none;">📐 ${formula}</span>`);
+  const TB = ({ id, ch, tit }: { id: Herramienta; ch: React.ReactNode; tit: string }) => {
+    const on = h === id;
+    return <button onClick={() => { go(id); setOpen(''); }} title={tit} style={{
+      width: 40, height: 40, borderRadius: 11, border: on ? `2px solid ${G}` : '2px solid transparent',
+      background: on ? `${G}15` : 'transparent', color: on ? G : '#6b7280',
+      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s',
+    }}>{ch}</button>;
   };
 
-  const Div = ({ dark }: { dark?: boolean }) => (
-    <div style={{ width: '1px', height: '20px', background: dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)', margin: '0 4px', flexShrink: 0 }} />
-  );
+  const S = () => <div style={{ width: 1, height: 24, background: '#2a2a3a', margin: '0 4px', flexShrink: 0 }} />;
+
+  const SmBtn = ({ fn, ch, tit }: { fn: () => void; ch: React.ReactNode; tit: string }) =>
+    <button onClick={fn} title={tit} style={{ width: 36, height: 36, borderRadius: 9, border: 'none', background: 'transparent', color: '#6b7280', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{ch}</button>;
 
   return (
-    <div style={{ userSelect: 'none' }}>
-      {/* ══════ FILA 1 — Herramientas ══════ */}
+    <div style={{ userSelect: 'none', position: 'relative' }}>
       <div style={{
-        display: 'flex', alignItems: 'center', gap: '2px', padding: '6px 12px', flexWrap: 'wrap',
-        background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
-        borderBottom: `2px solid ${temaColor}`,
-        boxShadow: `0 2px 12px rgba(0,0,0,0.15), 0 0 0 1px rgba(255,255,255,0.05)`,
-        position: 'relative',
+        display: 'flex', alignItems: 'center', gap: 2, padding: '5px 10px',
+        background: '#18181b', overflowX: 'auto', WebkitOverflowScrolling: 'touch',
       }}>
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: `linear-gradient(90deg, transparent, ${temaColor}88, ${temaColor}, ${temaColor}88, transparent)`, opacity: 0.6 }} />
+        {/* ── Cursor / Text ── */}
+        <TB id="texto" tit="Text mode" ch={
+          <svg width="16" height="16" viewBox="0 0 24 24" fill={h==='texto'?G:'currentColor'}><path d="M2.5 4v3h5v12h3V7h5V4h-13zm19 5h-9v3h3v7h3v-7h3V9z"/></svg>
+        } />
+        <TB id="seleccion" tit="Rectangle select" ch={
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={h==='seleccion'?'#818cf8':'currentColor'} strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="1" strokeDasharray="4 2"/></svg>
+        } />
+        <TB id="lasso" tit="Lasso select" ch={
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={h==='lasso'?'#818cf8':'currentColor'} strokeWidth="2"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c1.5 0 3-.3 4.3-.9" strokeDasharray="4 2"/><circle cx="18" cy="18" r="3" fill="none"/><line x1="20" y1="20" x2="22" y2="22"/></svg>
+        } />
 
-        {/* MODO TEXTO / SELECCIÓN */}
-        <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
-          <button onClick={() => onHerramienta('texto')} title="Modo texto" style={{
-            height: '32px', padding: '0 12px', borderRadius: '8px',
-            border: herramientaActiva === 'texto' ? `1.5px solid ${temaColor}` : '1.5px solid rgba(255,255,255,0.12)',
-            background: herramientaActiva === 'texto' ? `linear-gradient(135deg, ${temaColor}33, ${temaColor}11)` : 'rgba(255,255,255,0.05)',
-            color: herramientaActiva === 'texto' ? temaColor : 'rgba(255,255,255,0.6)',
-            fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, transition: 'all 0.15s',
-            boxShadow: herramientaActiva === 'texto' ? `0 0 12px ${temaColor}30` : 'none',
+        <S />
+
+        {/* ── Draw tools ── */}
+        <TB id="boligrafo" tit="Pen" ch={
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
+        } />
+        <TB id="lapiz" tit="Pencil" ch={
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5z"/></svg>
+        } />
+        <TB id="marcador" tit="Highlighter" ch={
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M15.5 4.5l4 4L8 20H4v-4z"/><path d="M18 2l4 4" strokeOpacity=".3"/></svg>
+        } />
+
+        <S />
+
+        {/* ── Erasers ── */}
+        <TB id="borrador" tit="Stroke eraser" ch={
+          <svg width="18" height="13" viewBox="0 0 28 18" fill="none" stroke={h==='borrador'?'#f87171':'currentColor'} strokeWidth="1.5"><rect x="1" y="1" width="26" height="16" rx="3"/><rect x="1" y="1" width="9" height="16" rx="3" fill={h==='borrador'?'#f8717130':'currentColor'} fillOpacity=".1"/><line x1="10" y1="1" x2="10" y2="17" strokeOpacity=".3"/></svg>
+        } />
+        <TB id="borrador_trazo" tit="Pixel eraser" ch={
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={h==='borrador_trazo'?'#f87171':'currentColor'} strokeWidth="2"><circle cx="12" cy="12" r="8"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
+        } />
+
+        <S />
+
+        {/* ── Shapes ── */}
+        <TB id="regla" tit="Line" ch={
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={h==='regla'?'#a78bfa':'currentColor'} strokeWidth="2.5" strokeLinecap="round"><line x1="5" y1="19" x2="19" y2="5"/></svg>
+        } />
+        <TB id="forma_rect" tit="Rectangle" ch={
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={h==='forma_rect'?'#a78bfa':'currentColor'} strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="1.5"/></svg>
+        } />
+        <TB id="forma_circulo" tit="Ellipse" ch={
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={h==='forma_circulo'?'#a78bfa':'currentColor'} strokeWidth="2"><circle cx="12" cy="12" r="9"/></svg>
+        } />
+        <TB id="forma_triangulo" tit="Triangle" ch={
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={h==='forma_triangulo'?'#a78bfa':'currentColor'} strokeWidth="2"><path d="M12 4L21 20H3z"/></svg>
+        } />
+
+        <S />
+
+        {/* ── Color picker (draw only) ── */}
+        {draw && !eraser && (
+          <button onClick={() => tog('clr')} title="Ink color" style={{
+            width: 40, height: 40, borderRadius: 11, border: open==='clr' ? `2px solid ${G}` : '2px solid transparent',
+            background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M2.5 4v3h5v12h3V7h5V4h-13zm19 5h-9v3h3v7h3v-7h3V9z"/></svg>
-            Texto
+            <div style={{ width: 22, height: 22, borderRadius: '50%', background: bc, border: bc==='#ffffff'||bc==='#000000' ? '2px solid #555' : 'none', boxShadow: `0 2px 8px ${bc}40` }} />
           </button>
-          <button onClick={() => onHerramienta('seleccion')} title="Seleccionar trazos" style={{
-            height: '32px', padding: '0 10px', borderRadius: '8px',
-            border: isSelecting ? '1.5px solid #6366f1' : '1.5px solid rgba(255,255,255,0.12)',
-            background: isSelecting ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.05)',
-            color: isSelecting ? '#818cf8' : 'rgba(255,255,255,0.6)',
-            fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, transition: 'all 0.15s',
+        )}
+
+        {/* ── Size picker (draw only) ── */}
+        {draw && (
+          <button onClick={() => tog('sz')} title="Brush size" style={{
+            width: 40, height: 40, borderRadius: 11, border: open==='sz' ? `2px solid ${G}` : '2px solid transparent',
+            background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 3l14 9-7 1-3 7L5 3z"/></svg>
-            Sel.
+            <div style={{ width: Math.min(bs*1.5,20), height: Math.min(bs*1.5,20), borderRadius: '50%', background: eraser ? '#888' : bc, opacity: h==='marcador'?.4:1 }} />
           </button>
-        </div>
+        )}
 
-        <Div dark />
+        <S />
 
-        {/* HERRAMIENTAS DIBUJO */}
-        {/* HERRAMIENTAS DIBUJO */}
-{/* HERRAMIENTAS DIBUJO */}
-<div style={{ display: 'flex', gap: '2px' }}>
-  {[
-    { id: 'boligrafo' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>, color: '#fb923c' },
-    { id: 'lapiz' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>, color: '#a3e635' },
-    { id: 'marcador' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 22v-3l11-11"/><path d="M11.5 5.5l7 7"/><path d="M14 3l3 3-9 9-3-3 9-9z" fill="currentColor" fillOpacity="0.2"/></svg>, color: '#facc15' },
-    { id: 'borrador' as Herramienta, icon: <svg width="17" height="12" viewBox="0 0 28 20" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="1" y="2" width="26" height="16" rx="3"/><rect x="1" y="2" width="9" height="16" rx="3" fill="rgba(255,255,255,0.15)"/><line x1="10" y1="2" x2="10" y2="18" strokeOpacity="0.4"/></svg>, color: '#94a3b8' },
-    { id: 'borrador_trazo' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor" fillOpacity="0.3"/></svg>, color: '#f9a8d4' },
-    { id: 'regla' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 20L20 4"/><path d="M4 20l3-3"/><path d="M8 16l2-2"/><path d="M12 12l2-2"/><path d="M16 8l4-4"/></svg>, color: '#38bdf8' },
-    { id: 'forma_rect' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>, color: '#a78bfa' },
-    { id: 'forma_circulo' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/></svg>, color: '#34d399' },
-    { id: 'forma_triangulo' as Herramienta, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3L22 21H2L12 3z"/></svg>, color: '#fbbf24' },
-  ].map(({ id, icon, color }) => {
-    const active = herramientaActiva === id;
-    return (
-      <button key={id} onClick={() => onHerramienta(id)} title={id.replace('_', ' ')} style={{
-        height: '32px', width: '36px', borderRadius: '8px',
-        border: active ? `1.5px solid ${color}66` : '1.5px solid transparent',
-        background: active ? `${color}20` : 'transparent',
-        color: active ? color : 'rgba(255,255,255,0.5)',
-        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s',
-        boxShadow: active ? `0 0 10px ${color}30` : 'none',
-      }}
-        onMouseEnter={(e: any) => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = color; } }}
-        onMouseLeave={(e: any) => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.5)'; } }}
-      >{icon}</button>
-    );
-  })}
-</div>
+        {/* ── Undo / Redo ── */}
+        <SmBtn fn={onUndo} tit="Undo ⌘Z" ch={
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg>
+        } />
+        <SmBtn fn={onRedo} tit="Redo ⌘Y" ch={
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 000 11H13"/></svg>
+        } />
 
-       {/* COLORES PINCEL */}
-{isDrawingMode && !isEraserLike && (
-  <>
-    <Div dark />
-    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-      {COLORES.map(c => (
-        <button key={c} onClick={() => onBrushColor(c)} title={c} style={{
-          width: brushColor === c ? '22px' : '16px',
-          height: brushColor === c ? '22px' : '16px',
-          borderRadius: '50%',
-          background: c,
-          border: 'none',
-          cursor: 'pointer',
-          flexShrink: 0,
-          boxShadow: brushColor === c
-            ? `0 0 0 2px #1e293b, 0 0 0 4px ${c}, 0 0 12px ${c}60`
-            : '0 1px 4px rgba(0,0,0,0.4)',
-          transition: 'all 0.15s',
-        }} />
-      ))}
-      <input
-        type="color"
-        value={brushColor}
-        onChange={e => onBrushColor(e.target.value)}
-        title="Color personalizado"
-        style={{
-          width: '24px',
-          height: '24px',
-          borderRadius: '50%',
-          border: '2px solid rgba(255,255,255,0.2)',
-          cursor: 'pointer',
-          padding: 0,
-          flexShrink: 0,
-          background: 'transparent',
-        }}
-      />
-    </div>
-  </>
-)}
+        <S />
 
-{/* TAMAÑO PINCEL / BORRADOR */}
-{isDrawingMode && (
-  <>
-    <Div dark />
-    <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-      {[1, 3, 6, 12, 20].map(s => {
-        const previewBg =
-          herramientaActiva === 'borrador'
-            ? '#94a3b8'
-            : herramientaActiva === 'borrador_trazo'
-              ? '#ffffff'
-              : brushColor;
+        {/* ── Insert ── */}
+        <button onClick={() => tog('ins')} title="Insert" style={{
+          height: 36, padding: '0 12px', borderRadius: 10,
+          background: open==='ins' ? `${G}15` : 'transparent', border: open==='ins' ? `1.5px solid ${G}40` : '1.5px solid transparent',
+          color: open==='ins' ? G : '#6b7280', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, flexShrink: 0,
+        }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
 
-        const previewBorder =
-          herramientaActiva === 'borrador_trazo'
-            ? '1px solid #cbd5e1'
-            : 'none';
+        {/* ── Text format auto-shows in text mode ── */}
+      </div>
 
-        return (
-          <button
-            key={s}
-            onClick={() => onBrushSize(s)}
-            title={`${s}px`}
-            style={{
-              width: '28px',
-              height: '28px',
-              borderRadius: '7px',
-              border: brushSize === s ? `1.5px solid ${temaColor}88` : '1.5px solid rgba(255,255,255,0.1)',
-              background: brushSize === s ? `${temaColor}20` : 'rgba(255,255,255,0.05)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-              transition: 'all 0.12s',
-            }}
-          >
-            <div style={{
-              width: `${Math.min(s * 1.6, 18)}px`,
-              height: `${Math.min(s * 1.6, 18)}px`,
-              borderRadius: '50%',
-              background: previewBg,
-              border: previewBorder,
-              opacity: herramientaActiva === 'lapiz' ? 0.6 : herramientaActiva === 'marcador' ? 0.4 : 1,
-              boxShadow: brushSize === s
-                ? herramientaActiva === 'borrador_trazo'
-                  ? '0 0 0 1px #cbd5e1, 0 0 8px rgba(255,255,255,0.35)'
-                  : `0 0 6px ${brushColor}80`
-                : 'none',
+      {/* ════════ SUB-PANELS ════════ */}
+
+      {open === 'clr' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 14px', background: '#111116', borderTop: '1px solid #222' }}>
+          {INKS.map(c => (
+            <button key={c} onClick={() => setBC(c)} style={{
+              width: bc===c ? 28 : 21, height: bc===c ? 28 : 21, borderRadius: '50%', background: c, flexShrink: 0,
+              border: bc===c ? `3px solid ${G}` : c==='#ffffff' ? '2px solid #444' : c==='#000000' ? '2px solid #444' : '2px solid transparent',
+              cursor: 'pointer', transition: 'all .12s', boxShadow: bc===c ? `0 0 12px ${c}50` : 'none',
             }} />
-          </button>
-        );
-      })}
+          ))}
+          <input type="color" value={bc} onChange={e => setBC(e.target.value)}
+            style={{ width: 26, height: 26, borderRadius: '50%', border: '2px solid #333', cursor: 'pointer', padding: 0 }} />
+        </div>
+      )}
 
-      <input
-        type="number"
-        min={1}
-        max={60}
-        value={brushSize}
-        onChange={e => onBrushSize(Math.min(60, Math.max(1, parseInt(e.target.value) || 1)))}
-        style={{
-          width: '44px',
-          height: '28px',
-          padding: '0 6px',
-          borderRadius: '7px',
-          border: '1.5px solid rgba(255,255,255,0.1)',
-          background: 'rgba(255,255,255,0.05)',
-          color: 'rgba(255,255,255,0.8)',
-          fontSize: '11px',
-          fontWeight: 700,
-          textAlign: 'center',
-          flexShrink: 0,
-          outline: 'none',
-        }}
-      />
-    </div>
-  </>
-)}
-
-        <Div dark />
-
-        {/* UNDO / REDO */}
-        <div style={{ display: 'flex', gap: '2px' }}>
-          {[
-            { fn: onUndo, title: '⌘Z', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg> },
-            { fn: onRedo, title: '⌘Y', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 000 11H13"/></svg> },
-          ].map(({ fn, title, icon }) => (
-            <button key={title} onClick={fn} title={title} style={{
-              height: '32px', width: '32px', borderRadius: '8px', border: '1.5px solid rgba(255,255,255,0.1)',
-              background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.6)', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
-            }}
-              onMouseEnter={(e: any) => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = 'white'; }}
-              onMouseLeave={(e: any) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; }}
-            >{icon}</button>
+      {open === 'sz' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#111116', borderTop: '1px solid #222' }}>
+          {[1,2,4,8,14,22].map(s => (
+            <button key={s} onClick={() => setBS(s)} style={{
+              width: 36, height: 36, borderRadius: 10,
+              border: bs===s ? `2px solid ${G}` : '2px solid transparent', background: bs===s ? `${G}12` : 'transparent',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              <div style={{ width: Math.min(s*1.5,22), height: Math.min(s*1.5,22), borderRadius: '50%', background: eraser ? '#888' : bc, opacity: h==='marcador'?.35:1 }} />
+            </button>
           ))}
         </div>
+      )}
 
-        <Div dark />
-
-        {/* INSERTAR */}
-        <div style={{ display: 'flex', gap: '2px' }}>
+      {open === 'ins' && (
+        <div style={{ display: 'flex', gap: 5, padding: '8px 14px', background: '#111116', borderTop: '1px solid #222', flexWrap: 'wrap' }}>
           {[
-            { fn: onInsertImagen, label: 'Imagen', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>, color: '#38bdf8' },
-            { fn: onInsertDibujo, label: 'Lienzo', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="20" height="20" rx="3"/><path d="M7 14c1-3 3-5 5-5s4 2 5 5"/></svg>, color: '#a78bfa' },
-            { fn: onInsertPdfFondo, label: '📋 Fondo', icon: null, color: '#f472b6' },
-            { fn: insertLatex, label: '∑ Math', icon: null, color: '#34d399' },
-          ].map(({ fn, label, icon, color }) => (
-            <button key={label} onClick={fn} title={label} style={{
-              height: '32px', padding: '0 10px', borderRadius: '8px', border: `1.5px solid ${color}30`, background: `${color}12`,
-              color: color, fontSize: '11px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
-              flexShrink: 0, transition: 'all 0.15s', letterSpacing: '0.3px',
-            }}
-              onMouseEnter={(e: any) => { e.currentTarget.style.background = `${color}22`; e.currentTarget.style.borderColor = `${color}60`; e.currentTarget.style.boxShadow = `0 0 12px ${color}25`; }}
-              onMouseLeave={(e: any) => { e.currentTarget.style.background = `${color}12`; e.currentTarget.style.borderColor = `${color}30`; e.currentTarget.style.boxShadow = 'none'; }}
-            >{icon}{label}</button>
+            { fn: () => { onInsertImagen(); setOpen(''); }, l: '🖼 Image', c: '#38bdf8' },
+            { fn: () => { onInsertDibujo(); setOpen(''); }, l: '🎨 Canvas', c: '#a78bfa' },
+            { fn: () => { onInsertPdfFondo(); setOpen(''); }, l: '📄 PDF', c: '#f472b6' },
+            { fn: () => { html(`<div style="background:${temaColor}0d;border-left:3px solid ${temaColor};padding:10px 14px;border-radius:0 8px 8px 0;margin:8px 0"><strong style="color:${temaColor}">📌 Note:</strong> ...</div>`); setOpen(''); }, l: '📌 Note', c: G },
+            { fn: () => { html('<hr style="border:none;border-top:1.5px solid #ddd;margin:12px 0"/>'); setOpen(''); }, l: '— Line', c: '#64748b' },
+          ].map(i => (
+            <button key={i.l} onClick={i.fn} style={{
+              padding: '6px 14px', borderRadius: 9, border: `1px solid ${i.c}30`, background: `${i.c}10`,
+              color: i.c, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+            }}>{i.l}</button>
           ))}
         </div>
+      )}
 
-        <Div dark />
-
-        {/* BLOQUES */}
-        <div style={{ display: 'flex', gap: '2px' }}>
-          {[
-            { label: '📌 Nota', color: temaColor, fn: () => onInsertHtml(`<div style="background:${temaColor}0d;border-left:3px solid ${temaColor};padding:10px 14px;border-radius:0 8px 8px 0;margin:8px 0"><strong style="color:${temaColor}">📌 Nota:</strong> escribe aquí...</div>`) },
-            { label: '⚠️', color: '#eab308', fn: () => onInsertHtml('<div style="background:#fef9c3;border-left:3px solid #eab308;padding:10px 14px;border-radius:0 8px 8px 0;margin:8px 0"><strong style="color:#854d0e">⚠️ Importante:</strong> escribe aquí...</div>') },
-            { label: '💡', color: '#22c55e', fn: () => onInsertHtml('<div style="background:#f0fdf4;border-left:3px solid #22c55e;padding:10px 14px;border-radius:0 8px 8px 0;margin:8px 0"><strong style="color:#15803d">💡 Tip:</strong> escribe aquí...</div>') },
-            { label: '—', color: '#64748b', fn: () => onInsertHtml('<hr style="border:none;border-top:1.5px solid #e2e8f0;margin:12px 0"/>') },
-          ].map(({ label, color, fn }) => (
-            <button key={label} onClick={fn} title={label} style={{
-              height: '32px', padding: '0 9px', borderRadius: '8px', border: `1.5px solid rgba(255,255,255,0.08)`,
-              background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.65)', fontSize: '12px', fontWeight: 600,
-              cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0, transition: 'all 0.15s',
-            }}
-              onMouseEnter={(e: any) => { e.currentTarget.style.background = `${color}20`; e.currentTarget.style.borderColor = `${color}50`; e.currentTarget.style.color = color; }}
-              onMouseLeave={(e: any) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'rgba(255,255,255,0.65)'; }}
-            >{label}</button>
+      {false && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '6px 12px', background: '#111116', borderTop: '1px solid #222', overflowX: 'auto' }}>
+          <select onChange={e => ex('fontName', e.target.value)} style={{ height: 28, padding: '0 6px', borderRadius: 7, border: '1px solid #333', background: '#1a1a1a', color: '#ccc', fontSize: 11, cursor: 'pointer', outline: 'none' }}>
+            {['Georgia','Arial','Helvetica','Times New Roman','Courier New','Verdana'].map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+          <select onChange={e => ex('fontSize', e.target.value)} style={{ height: 28, width: 50, borderRadius: 7, border: '1px solid #333', background: '#1a1a1a', color: '#ccc', fontSize: 11, cursor: 'pointer', outline: 'none' }}>
+            {[{v:'1',l:'10'},{v:'2',l:'12'},{v:'3',l:'14'},{v:'4',l:'16'},{v:'5',l:'20'},{v:'6',l:'28'},{v:'7',l:'36'}].map(s => <option key={s.v} value={s.v}>{s.l}</option>)}
+          </select>
+          <S />
+          {[{c:'bold',l:'B',s:{fontWeight:900}},{c:'italic',l:'I',s:{fontStyle:'italic'}},{c:'underline',l:'U',s:{textDecoration:'underline'}},{c:'strikeThrough',l:'S',s:{textDecoration:'line-through',opacity:.5}}].map(x => (
+            <button key={x.c} onClick={() => ex(x.c)} style={{ height: 28, width: 28, borderRadius: 7, border: 'none', background: 'transparent', color: G, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, ...(x.s as any) }}>{x.l}</button>
           ))}
-        </div>
-      </div>
-
-      {/* ══════ FILA 2 — Formato texto ══════ */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '2px', padding: '4px 12px', flexWrap: 'wrap', background: 'linear-gradient(to bottom, #f8fafc, #f1f5f9)', borderBottom: '1px solid #e2e8f0' }}>
-        <select onChange={e => onExecCmd('fontName', e.target.value)} style={{ height: '26px', padding: '0 8px', borderRadius: '6px', border: '1.5px solid #e2e8f0', background: 'white', color: '#374151', fontSize: '11px', cursor: 'pointer', outline: 'none', flexShrink: 0, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
-          {['Georgia', 'Arial', 'Helvetica', 'Times New Roman', 'Courier New', 'Verdana'].map(f => <option key={f} value={f}>{f}</option>)}
-        </select>
-        <select onChange={e => onExecCmd('fontSize', e.target.value)} style={{ height: '26px', width: '60px', padding: '0 4px', borderRadius: '6px', border: '1.5px solid #e2e8f0', background: 'white', color: '#374151', fontSize: '11px', cursor: 'pointer', outline: 'none', flexShrink: 0, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
-          {[{ val: '1', l: '10' }, { val: '2', l: '12' }, { val: '3', l: '14' }, { val: '4', l: '16' }, { val: '5', l: '20' }, { val: '6', l: '28' }, { val: '7', l: '36' }].map(s => <option key={s.val} value={s.val}>{s.l}px</option>)}
-        </select>
-        <Div />
-        {[
-          { cmd: 'bold', label: 'B', style: { fontWeight: 900, fontSize: '13px' } as any },
-          { cmd: 'italic', label: 'I', style: { fontStyle: 'italic', fontWeight: 600, fontSize: '13px' } as any },
-          { cmd: 'underline', label: 'U', style: { textDecoration: 'underline', fontWeight: 600, fontSize: '13px' } as any },
-          { cmd: 'strikeThrough', label: 'S', style: { textDecoration: 'line-through', fontWeight: 600, fontSize: '13px' } as any },
-        ].map(({ cmd, label, style: s }) => (
-          <button key={cmd} onClick={() => onExecCmd(cmd)} title={cmd} style={{
-            height: '26px', width: '28px', borderRadius: '6px', border: '1.5px solid transparent', background: 'transparent',
-            color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.12s', flexShrink: 0, ...s,
-          }}
-            onMouseEnter={(e: any) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.08)'; }}
-            onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.boxShadow = 'none'; }}
-          >{label}</button>
-        ))}
-        <Div />
-        {[
-          { cmd: 'h1', label: 'H1', color: temaColor, fw: 900, fs: '13px' },
-          { cmd: 'h2', label: 'H2', color: '#1e293b', fw: 800, fs: '12px' },
-          { cmd: 'h3', label: 'H3', color: '#475569', fw: 700, fs: '11px' },
-          { cmd: 'p', label: 'P', color: '#94a3b8', fw: 500, fs: '11px' },
-        ].map(h => (
-          <button key={h.cmd} onClick={() => onExecCmd('formatBlock', h.cmd)} title={h.cmd} style={{
-            height: '26px', padding: '0 7px', borderRadius: '6px', border: '1.5px solid transparent', background: 'transparent',
-            color: h.color, fontSize: h.fs, fontWeight: h.fw, cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0, transition: 'all 0.12s',
-          }}
-            onMouseEnter={(e: any) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
-            onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
-          >{h.label}</button>
-        ))}
-        <Div />
-        {[
-          { cmd: 'insertUnorderedList', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3" cy="6" r="1.2" fill="currentColor"/><circle cx="3" cy="12" r="1.2" fill="currentColor"/><circle cx="3" cy="18" r="1.2" fill="currentColor"/></svg> },
-          { cmd: 'insertOrderedList', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M4 6h1v4M4 10h2M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/></svg> },
-          { cmd: 'justifyLeft', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M3 12h12M3 18h15"/></svg> },
-          { cmd: 'justifyCenter', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M6 12h12M4 18h16"/></svg> },
-          { cmd: 'justifyRight', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M9 12h12M6 18h15"/></svg> },
-          { cmd: 'indent', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/><line x1="9" y1="12" x2="21" y2="12"/><polyline points="3,9 6,12 3,15"/></svg> },
-          { cmd: 'outdent', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/><line x1="9" y1="12" x2="21" y2="12"/><polyline points="7,9 4,12 7,15"/></svg> },
-        ].map(({ cmd, icon }) => (
-          <button key={cmd} onClick={() => onExecCmd(cmd)} title={cmd} style={{
-            height: '26px', width: '28px', borderRadius: '6px', border: '1.5px solid transparent', background: 'transparent',
-            color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.12s',
-          }}
-            onMouseEnter={(e: any) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
-            onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
-          >{icon}</button>
-        ))}
-        <Div />
-        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }} title="Color del texto">
-            <span style={{ fontSize: '13px', fontWeight: 900, color: '#111827' }}>A</span>
-            <input type="color" defaultValue="#000000" onChange={e => onExecCmd('foreColor', e.target.value)} style={{ width: '18px', height: '18px', borderRadius: '4px', border: '1.5px solid #e2e8f0', cursor: 'pointer', padding: 0 }} />
+          <S />
+          {[{c:'h1',l:'H1',w:900},{c:'h2',l:'H2',w:800},{c:'h3',l:'H3',w:700},{c:'p',l:'P',w:500}].map(x => (
+            <button key={x.c} onClick={() => ex('formatBlock', x.c)} style={{ height: 28, padding: '0 5px', borderRadius: 7, border: 'none', background: 'transparent', color: '#888', fontSize: 11, fontWeight: x.w, cursor: 'pointer' }}>{x.l}</button>
+          ))}
+          <S />
+          <button onClick={() => ex('insertUnorderedList')} style={{ height: 28, width: 28, borderRadius: 7, border: 'none', background: 'transparent', color: '#888', cursor: 'pointer', fontSize: 14 }}>•</button>
+          <button onClick={() => ex('insertOrderedList')} style={{ height: 28, width: 28, borderRadius: 7, border: 'none', background: 'transparent', color: '#888', cursor: 'pointer', fontSize: 12 }}>1.</button>
+          <S />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}>
+            <span style={{ fontSize: 13, fontWeight: 900, color: G }}>A</span>
+            <input type="color" defaultValue="#000000" onChange={e => ex('foreColor', e.target.value)} style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid #444', cursor: 'pointer', padding: 0 }} />
           </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }} title="Resaltar texto">
-            <span style={{ fontSize: '12px' }}>🖊</span>
-            <input type="color" defaultValue="#fef08a" onChange={e => onExecCmd('hiliteColor', e.target.value)} style={{ width: '18px', height: '18px', borderRadius: '4px', border: '1.5px solid #e2e8f0', cursor: 'pointer', padding: 0 }} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}>
+            <span style={{ fontSize: 11, color: '#666' }}>bg</span>
+            <input type="color" defaultValue="#fef08a" onChange={e => ex('hiliteColor', e.target.value)} style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid #444', cursor: 'pointer', padding: 0 }} />
           </label>
         </div>
-      </div>
+      )}
     </div>
   );
 }

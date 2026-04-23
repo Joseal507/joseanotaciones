@@ -7,6 +7,10 @@ export interface AppSettings {
   notifAsignaciones: boolean;
   notifRacha: boolean;
   notifLogros: boolean;
+  timerEnabled: boolean;
+  chatEnabled: boolean;
+  timerCorner: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
+  chatCorner: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 }
 
 const KEY = 'josea_settings';
@@ -18,6 +22,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notifAsignaciones: true,
   notifRacha: true,
   notifLogros: true,
+  timerEnabled: true,
+  chatEnabled: true,
+  timerCorner: 'bottom-right',
+  chatCorner: 'bottom-right',
 };
 
 export const getSettings = (): AppSettings => {
