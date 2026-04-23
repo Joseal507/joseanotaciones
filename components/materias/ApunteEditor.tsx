@@ -383,57 +383,57 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
   }, [setPaginasSync, triggerAutoSave, savePageSnapshot]);
 
   const handleClickEditor = useCallback((e: React.MouseEvent<HTMLDivElement>, paginaId: string) => {
-  if (isDrawingMode || newBlockId) return;
-  const target = e.target as HTMLElement;
-  if (
-    target.closest('[data-textblock]') || target.closest('[contenteditable="true"]') ||
-    target.closest('[data-image]') || target.closest('button') ||
-    target.closest('canvas') || target.closest('img') || target.closest('svg')
-  ) return;
+    // Solo en modo texto
+    if (herramienta !== 'texto') return;
+    if (isDrawingMode) return;
 
-  const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-  let x = (e.clientX - rect.left) / zoomState.scale;
-  let y = (e.clientY - rect.top) / zoomState.scale;
+    const target = e.target as HTMLElement;
 
-  // ✅ Clampar dentro de la página con margen
-  const MARGIN = 12;
-  const TEXT_WIDTH = isMobile ? 260 : 300;
-  const pageW = BASE_PAGE_WIDTH;
-  const pageH = BASE_PAGE_HEIGHT;
+    // Si tocó un bloque existente, canvas, o botón, ignorar
+    if (
+      target.closest('[data-textblock]') ||
+      target.closest('[contenteditable="true"]') ||
+      target.closest('[data-image]') ||
+      target.closest('button') ||
+      target.closest('canvas') ||
+      target.closest('img')
+    ) return;
 
-  x = Math.max(MARGIN, Math.min(x, pageW - TEXT_WIDTH - MARGIN));
-  y = Math.max(MARGIN, Math.min(y, pageH - 40));
+    // Si hay un bloque nuevo pendiente, no crear otro
+    if (newBlockId) return;
 
-  // ✅ Solo evitar crear si tocaste literalmente encima del área principal de otro bloque de texto
-  const paginaActual = paginasRef.current.find((pg) => pg.id === paginaId);
-  if (paginaActual?.bloques.some((b) => {
-    if (b.tipo !== 'texto') return false;
-    const bx = b.x ?? 0;
-    const by = b.y ?? 0;
-    const bw = b.width ?? TEXT_WIDTH;
-    const approxH = 42;
-    return x >= bx && x <= bx + bw && y >= by && y <= by + approxH;
-  })) return;
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    const scale = zoomState.scale || 1;
+    let x = (e.clientX - rect.left) / scale;
+    let y = (e.clientY - rect.top) / scale;
 
-  const id = genId();
-  setPaginasSync((prev) => prev.map((pg) =>
-    pg.id === paginaId
-      ? {
-          ...pg,
-          bloques: [...pg.bloques, {
-            id,
-            tipo: 'texto' as const,
-            html: '',
-            x: Math.round(x),
-            y: Math.round(y),
-            width: TEXT_WIDTH,
-          }],
-        }
-      : pg
-  ));
-  setNewBlockId(id);
-  triggerAutoSave();
-}, [isDrawingMode, newBlockId, triggerAutoSave, zoomState.scale, setPaginasSync, isMobile]);
+    const MARGIN = 10;
+    const TEXT_WIDTH = isMobile ? 260 : 320;
+    const pageW = BASE_PAGE_WIDTH;
+    const pageH = BASE_PAGE_HEIGHT;
+
+    x = Math.max(MARGIN, Math.min(x, pageW - TEXT_WIDTH - MARGIN));
+    y = Math.max(MARGIN, Math.min(y, pageH - 40));
+
+    // No crear encima de un bloque existente
+    const paginaActual = paginasRef.current.find(pg => pg.id === paginaId);
+    const overlap = paginaActual?.bloques.some(b => {
+      if (b.tipo !== 'texto') return false;
+      const bw = b.width ?? TEXT_WIDTH;
+      const approxH = 50;
+      return x >= b.x - 4 && x <= b.x + bw + 4 && y >= b.y - 4 && y <= b.y + approxH;
+    });
+    if (overlap) return;
+
+    const id = genId();
+    setPaginasSync(prev => prev.map(pg =>
+      pg.id === paginaId
+        ? { ...pg, bloques: [...pg.bloques, { id, tipo: 'texto' as const, html: '', x: Math.round(x), y: Math.round(y), width: TEXT_WIDTH }] }
+        : pg
+    ));
+    setNewBlockId(id);
+    triggerAutoSave();
+  }, [herramienta, isDrawingMode, newBlockId, triggerAutoSave, zoomState.scale, setPaginasSync, isMobile, BASE_PAGE_WIDTH, BASE_PAGE_HEIGHT]);
 
   const handleTextInsert = useCallback((text: string, canvasY: number, paginaId: string) => {
   if (!text.trim()) return;

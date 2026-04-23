@@ -218,13 +218,17 @@ export default function EditorCanvas({
     return {
       x: (e.clientX - rect.left) / scale,
       y: (e.clientY - rect.top) / scale,
-      pressure: e.pressure > 0 ? e.pressure : 1,
+      pressure: e.pressure > 0 ? Math.max(0.2, e.pressure) : 1,
     };
   };
 
   const shouldIgnore = (e: PointerEvent) => {
-    if (e.pointerType === 'touch') return true;
-    if (activePenId.current !== null && e.pointerId !== activePenId.current) return true;
+    // Palm rejection: si hay un Apple Pencil activo, ignorar todos los touch
+    if (e.pointerType === 'touch' && activePenId.current !== null) return true;
+    // Si hay otro pencil activo, ignorar otros pointers
+    if (activePenId.current !== null && e.pointerId !== activePenId.current && e.pointerType === 'pen') return true;
+    // Ignorar touch con area grande (palma) — width y height grandes = palma
+    if (e.pointerType === 'touch' && (e as any).width > 40 && (e as any).height > 40) return true;
     return false;
   };
 
@@ -235,8 +239,9 @@ export default function EditorCanvas({
     if (!isDrawingTool && !isSelecting) return;
     if (shouldIgnore(e)) return;
 
-    const isEraserBtn = e.button === 5 || e.buttons === 32;
-    const efectiveTool = isEraserBtn ? 'borrador' : herramienta;
+    const isEraserBtn = e.button === 5 || e.buttons === 32 || (e.pointerType === 'pen' && e.button === 2);
+    const isSelectBtn = e.pointerType === 'pen' && e.button === 1;
+    const efectiveTool = isEraserBtn ? 'borrador' : isSelectBtn ? 'seleccion' : herramienta;
     if (e.pointerType === 'pen') activePenId.current = e.pointerId;
     e.preventDefault();
     const pos = getPos(e);
@@ -604,9 +609,23 @@ export default function EditorCanvas({
     const useOverlay = isSelecting || isShapeTool;
     const target = useOverlay ? overlay : canvas;
 
-    const onDown = (e: PointerEvent) => startDraw(e);
-    const onMove = (e: PointerEvent) => drawMove(e);
-    const onUp = (e: PointerEvent) => stopDraw(e);
+    // Contador de touches activos para detectar 2 dedos (scroll)
+    let activeTouches = 0;
+
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') activeTouches++;
+      // 2+ dedos = scroll, no dibujar
+      if (e.pointerType === 'touch' && activeTouches >= 2) return;
+      startDraw(e);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerType === 'touch' && activeTouches >= 2) return;
+      drawMove(e);
+    };
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') activeTouches = Math.max(0, activeTouches - 1);
+      stopDraw(e);
+    };
     const onCancel = (e: PointerEvent) => {
       movingRef.current = false;
       selecting.current = false;
