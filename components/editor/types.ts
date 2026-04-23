@@ -56,6 +56,11 @@ export interface Pagina {
   // ✅ NUEVO: strokes como JSON para restaurar al cargar
   strokesData?: string | null;
   backgroundImage?: string;
+
+  // ✅ plantilla por página
+  paperStyle?: PaperStyle;
+  paperColor?: 'white' | 'dark' | 'yellow';
+  paperSize?: string;
 }
 
 export type PaperStyle = 'blank' | 'lined' | 'grid' | 'dotted';
@@ -70,16 +75,34 @@ export const parsePaginas = (contenido: string): Pagina[] => {
         canvasData: pg.canvasData || null,
         strokesData: pg.strokesData || null,
         backgroundImage: pg.backgroundImage || undefined,
+        paperStyle: pg.paperStyle || undefined,
+        paperColor: pg.paperColor || undefined,
+        paperSize: pg.paperSize || undefined,
         bloques: (pg.bloques || []).map((b: any) => ({
           ...b, id: genId(), x: b.x ?? 80, y: b.y ?? 20, width: b.width ?? 600,
         })),
       }));
     }
     if (p && p.bloques && Array.isArray(p.bloques)) {
-      return [{ id: genId(), canvasData: p.canvasData || null, strokesData: p.strokesData || null, bloques: p.bloques.map((b: any) => ({ ...b, id: genId(), x: b.x ?? 80, y: b.y ?? 20, width: b.width ?? 600 })) }];
+      return [{
+        id: genId(),
+        canvasData: p.canvasData || null,
+        strokesData: p.strokesData || null,
+        paperStyle: p.paperStyle || undefined,
+        paperColor: p.paperColor || undefined,
+        paperSize: p.paperSize || undefined,
+        bloques: p.bloques.map((b: any) => ({ ...b, id: genId(), x: b.x ?? 80, y: b.y ?? 20, width: b.width ?? 600 }))
+      }];
     }
     if (Array.isArray(p)) {
-      return [{ id: genId(), canvasData: null, bloques: p.map((b: any) => ({ ...b, id: genId(), x: b.x ?? 80, y: b.y ?? 20, width: b.width ?? 600 })) }];
+      return [{
+      id: genId(),
+      canvasData: null,
+      paperStyle: undefined,
+      paperColor: undefined,
+      paperSize: undefined,
+      bloques: p.map((b: any) => ({ ...b, id: genId(), x: b.x ?? 80, y: b.y ?? 20, width: b.width ?? 600 }))
+    }];
     }
   } catch {}
   if (contenido.trim()) {

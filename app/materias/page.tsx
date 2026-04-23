@@ -185,13 +185,14 @@ export default function MateriasPage() {
     });
   };
 
-  const crearApunte = (data: { titulo: string; paperColor?: string; paperStyle?: string; paperSize?: string }) => {
+  const crearApunte = (data: { titulo: string; paperColor?: string; paperStyle?: string; paperSize?: string; scrollDirection?: 'vertical' | 'horizontal' }) => {
     if (!temaActual) return;
     // Guardar config del papel en el contenido inicial
     const paperConfig = {
       paperColor: data.paperColor || 'white',
       paperStyle: data.paperStyle || 'lined',
       paperSize: data.paperSize || 'normal',
+      scrollDirection: data.scrollDirection || 'vertical',
     };
     const nuevo: Apunte = {
       id: generateId(),

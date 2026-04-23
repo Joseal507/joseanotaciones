@@ -122,6 +122,7 @@ export function ModalApunte({ onClose, onConfirm, colorTema }: ModalProps & { co
   const [paperColor, setPaperColor] = useState<'white' | 'dark' | 'yellow'>('white');
   const [paperStyle, setPaperStyle] = useState<'lined' | 'grid' | 'dotted' | 'blank'>('lined');
   const [paperSize, setPaperSize] = useState('normal');
+  const [scrollDirection, setScrollDirection] = useState<'vertical' | 'horizontal'>('vertical');
   const { tr, idioma } = useIdioma();
 
   const PAPER_COLORS: { id: 'white' | 'dark' | 'yellow'; label: string; bg: string; fg: string }[] = [
@@ -378,6 +379,45 @@ export function ModalApunte({ onClose, onConfirm, colorTema }: ModalProps & { co
             ))}
           </div>
 
+          {/* Direction */}
+          <h3 style={{ fontSize: '14px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 12px' }}>
+            {idioma === 'en' ? 'Scroll direction' : 'Sentido de desplazamiento'}
+          </h3>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+            <button
+              onClick={() => setScrollDirection('vertical')}
+              style={{
+                flex: 1,
+                padding: '12px',
+                borderRadius: '12px',
+                border: scrollDirection === 'vertical' ? `2px solid ${colorTema}` : '2px solid var(--border-color)',
+                background: scrollDirection === 'vertical' ? `${colorTema}10` : 'transparent',
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: 800,
+                color: scrollDirection === 'vertical' ? colorTema : 'var(--text-muted)',
+              }}
+            >
+              ↕ {idioma === 'en' ? 'Vertical' : 'Vertical'}
+            </button>
+            <button
+              onClick={() => setScrollDirection('horizontal')}
+              style={{
+                flex: 1,
+                padding: '12px',
+                borderRadius: '12px',
+                border: scrollDirection === 'horizontal' ? `2px solid ${colorTema}` : '2px solid var(--border-color)',
+                background: scrollDirection === 'horizontal' ? `${colorTema}10` : 'transparent',
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: 800,
+                color: scrollDirection === 'horizontal' ? colorTema : 'var(--text-muted)',
+              }}
+            >
+              ↔ {idioma === 'en' ? 'Horizontal' : 'Horizontal'}
+            </button>
+          </div>
+
           {/* Preview */}
           <h3 style={{ fontSize: '14px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 12px' }}>
             Preview
@@ -431,7 +471,7 @@ export function ModalApunte({ onClose, onConfirm, colorTema }: ModalProps & { co
             </button>
 
             <button
-              onClick={() => titulo.trim() && onConfirm({ titulo, paperColor, paperStyle, paperSize })}
+              onClick={() => titulo.trim() && onConfirm({ titulo, paperColor, paperStyle, paperSize, scrollDirection })}
               disabled={!titulo.trim()}
               style={{
                 flex: 2,

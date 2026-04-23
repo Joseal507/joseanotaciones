@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Bloque, BloqueImagen, BloqueTexto, Herramienta, Pagina, PaperStyle } from '../editor/types';
 import EditorCanvas from '../editor/EditorCanvas';
 import PaperBackground from '../editor/PaperBackground';
@@ -32,6 +33,17 @@ interface Props {
   onFinishNew: () => void;
   onEliminarPagina: (id: string) => void;
   onAgregarPagina: (despuesDeIdx: number) => void;
+  onInsertarPaginaAntes?: (idx: number) => void;
+  onDuplicarPagina?: (id: string, idx: number) => void;
+  onCambiarPlantillaPagina?: (
+    paginaId: string,
+    data: {
+      paperStyle?: PaperStyle;
+      paperColor?: 'white' | 'dark' | 'yellow';
+      paperSize?: string;
+    }
+  ) => void;
+  onIrAPagina?: (n: number) => void;
   onClickEditor: (e: React.MouseEvent<HTMLDivElement>, paginaId: string) => void;
   onTextInsert: (text: string, canvasY: number, paginaId: string) => void;
   registerCanvasExport: (paginaId: string, fn: () => string | null) => void;
@@ -66,6 +78,10 @@ export default function PaginaEditor({
   onFinishNew,
   onEliminarPagina,
   onAgregarPagina,
+  onInsertarPaginaAntes,
+  onDuplicarPagina,
+  onCambiarPlantillaPagina,
+  onIrAPagina,
   onClickEditor,
   onTextInsert,
   registerCanvasExport,
@@ -73,31 +89,149 @@ export default function PaginaEditor({
   registerUndoRedo,
   onPeterSauPeter,
 }: Props) {
+  const [menuOpen, setMenuOpen] = useState<'closed'|'main'|'plantilla'>('closed');
+
+  const effectivePaperStyle = pagina.paperStyle || paperStyle;
+  const effectivePaperColor = pagina.paperColor || paperColor;
+
+  const pageBg =
+    effectivePaperColor === 'dark'
+      ? '#111827'
+      : effectivePaperColor === 'yellow'
+        ? '#fef7d7'
+        : '#ffffff';
+
   return (
-    <div style={{ marginBottom: '0px' }}>
-      {/* Page number minimal */}
-      {totalPaginas > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '6px 0' }}>
-          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.2)', fontWeight: 600 }}>
-            {paginaIdx + 1} / {totalPaginas}
-          </span>
+    <div style={{ marginBottom: '0px', position: 'relative' }}>
+      {/* Top bar de página */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '4px 4px',
+        }}
+      >
+        <button
+          onClick={() => onIrAPagina?.(paginaIdx + 1)}
+          title="Ir a esta página"
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'rgba(255,255,255,0.35)',
+            fontSize: '10px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            padding: '4px 8px',
+            borderRadius: '8px',
+          }}
+        >
+          Página {paginaIdx + 1}
+        </button>
+
+        <div style={{ position: 'relative', display: 'inline-flex' }}>
           <button
-            onClick={() => onEliminarPagina(pagina.id)}
+            onClick={() => setMenuOpen(prev => prev === 'closed' ? 'main' : 'closed')}
+            title="Opciones de página"
             style={{
-              background: 'none',
+              height: '26px',
+              padding: '0 8px',
+              borderRadius: '8px',
               border: 'none',
-              color: 'rgba(255,255,255,0.15)',
-              fontSize: '10px',
+              background: menuOpen !== 'closed' ? 'rgba(245,200,66,0.15)' : 'rgba(255,255,255,0.04)',
+              color: menuOpen !== 'closed' ? '#f5c842' : 'rgba(255,255,255,0.3)',
               cursor: 'pointer',
-              padding: '2px 6px',
+              fontSize: '14px',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
             }}
           >
-            ✕
+            ⋯
           </button>
-        </div>
-      )}
 
-      {/* Editor area */}
+          {menuOpen !== 'closed' && (
+            <div
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: 'calc(100% + 4px)',
+                background: '#1a1a2e',
+                borderRadius: '12px',
+                border: '1px solid rgba(245,200,66,0.15)',
+                boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+                padding: '6px',
+                zIndex: 400,
+                display: 'flex',
+                gap: '4px',
+              }}
+            >
+              {/* Submenu plantilla */}
+              {menuOpen === 'plantilla' && (
+                <div style={{ minWidth: '130px' }}>
+                  <button onClick={() => setMenuOpen('main')}
+                    style={{ width: '100%', textAlign: 'left', padding: '6px 10px', borderRadius: '8px', border: 'none', background: 'transparent', color: '#f5c842', fontSize: '11px', fontWeight: 700, cursor: 'pointer', marginBottom: '4px' }}>
+                    ← Volver
+                  </button>
+                  {[
+                    { id: 'lined' as PaperStyle, label: 'Con líneas', icon: '─' },
+                    { id: 'grid' as PaperStyle, label: 'Cuadrícula', icon: '▦' },
+                    { id: 'dotted' as PaperStyle, label: 'Puntos', icon: '⠿' },
+                    { id: 'blank' as PaperStyle, label: 'Limpio', icon: '▢' },
+                  ].map(s => (
+                    <button key={s.id}
+                      onClick={() => { onCambiarPlantillaPagina?.(pagina.id, { paperStyle: s.id }); setMenuOpen('closed'); }}
+                      style={{
+                        width: '100%', textAlign: 'left', padding: '7px 10px', borderRadius: '8px', border: 'none',
+                        background: effectivePaperStyle === s.id ? 'rgba(245,200,66,0.1)' : 'transparent',
+                        color: effectivePaperStyle === s.id ? '#f5c842' : '#d4d4d8',
+                        fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = effectivePaperStyle === s.id ? 'rgba(245,200,66,0.1)' : 'transparent'; }}
+                    >
+                      <span style={{ fontSize: '14px', opacity: 0.6 }}>{s.icon}</span> {s.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Main menu */}
+              {menuOpen === 'main' && (
+                <div style={{ minWidth: '190px' }}>
+                  {[
+                    { label: '➕ Agregar antes', action: () => { onInsertarPaginaAntes?.(paginaIdx); setMenuOpen('closed'); } },
+                    { label: '➕ Agregar después', action: () => { onAgregarPagina(paginaIdx); setMenuOpen('closed'); } },
+                    { label: '📄 Duplicar página', action: () => { onDuplicarPagina?.(pagina.id, paginaIdx); setMenuOpen('closed'); } },
+                    { label: '🎨 Cambiar plantilla →', action: () => setMenuOpen('plantilla') },
+                    { label: '🔢 Ir a página...', action: () => {
+                      const val = prompt('Ir a página número:');
+                      const n = Number(val);
+                      if (!Number.isNaN(n) && n >= 1 && n <= totalPaginas) onIrAPagina?.(n);
+                      setMenuOpen('closed');
+                    }},
+                  ].map(item => (
+                    <button key={item.label} onClick={item.action}
+                      style={{ width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: '8px', border: 'none', background: 'transparent', color: '#d4d4d8', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                    >{item.label}</button>
+                  ))}
+                  <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '4px 0' }} />
+                  <button onClick={() => { onEliminarPagina(pagina.id); setMenuOpen('closed'); }}
+                    style={{ width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: '8px', border: 'none', background: 'transparent', color: '#ef4444', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                  >🗑️ Borrar página</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Área del editor */}
       <div
         className="editor-area-principal"
         onClick={(e) => {
@@ -109,7 +243,7 @@ export default function PaginaEditor({
           position: 'relative',
           width: `${pageWidth}px`,
           height: `${pageHeight}px`,
-          background: paperColor === 'dark' ? '#111827' : paperColor === 'yellow' ? '#fef7d7' : '#ffffff',
+          background: pageBg,
           borderRadius: '6px',
           border: isSelecting
             ? '2px solid #6366f1'
@@ -122,12 +256,16 @@ export default function PaginaEditor({
           WebkitUserSelect: 'none',
         }}
       >
-        {/* Paper background */}
+        {/* Fondo papel */}
         <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
-          <PaperBackground style={paperStyle} temaColor={temaColor} paperColor={paperColor} />
+          <PaperBackground
+            style={effectivePaperStyle}
+            temaColor={temaColor}
+            paperColor={effectivePaperColor}
+          />
         </div>
 
-        {/* Background image / PDF */}
+        {/* Fondo PDF / imagen */}
         {pagina.backgroundImage && (
           <img
             src={pagina.backgroundImage}
@@ -146,7 +284,7 @@ export default function PaginaEditor({
           />
         )}
 
-        {/* Drawing canvas */}
+        {/* Canvas */}
         <EditorCanvas
           herramienta={herramienta}
           brushColor={brushColor}
@@ -163,13 +301,13 @@ export default function PaginaEditor({
           onPeterSauPeter={onPeterSauPeter}
         />
 
-        {/* Blocks layer */}
+        {/* Bloques */}
         <div
           style={{
             position: 'absolute',
             inset: 0,
             zIndex: 10,
-            pointerEvents: 'none', // ← CLAVE: no bloquear clicks vacíos
+            pointerEvents: 'none',
           }}
         >
           {pagina.bloques.map((b) => {
@@ -218,14 +356,14 @@ export default function PaginaEditor({
           })}
         </div>
 
-        {/* Page number corner */}
+        {/* Número de esquina */}
         <div
           style={{
             position: 'absolute',
             bottom: 6,
             right: 10,
             fontSize: '10px',
-            color: paperColor === 'dark' ? 'rgba(255,255,255,0.35)' : '#9ca3af',
+            color: effectivePaperColor === 'dark' ? 'rgba(255,255,255,0.35)' : '#9ca3af',
             fontWeight: 500,
             pointerEvents: 'none',
             zIndex: 5,
@@ -236,33 +374,8 @@ export default function PaginaEditor({
         </div>
       </div>
 
-      {/* Add page */}
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0' }}>
-        <button
-          onClick={() => onAgregarPagina(paginaIdx)}
-          style={{
-            padding: '8px 20px',
-            borderRadius: '12px',
-            border: '1px dashed rgba(255,255,255,0.12)',
-            background: 'transparent',
-            color: 'rgba(255,255,255,0.25)',
-            fontSize: '12px',
-            fontWeight: 700,
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'rgba(245,200,66,0.3)';
-            e.currentTarget.style.color = '#f5c842';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
-            e.currentTarget.style.color = 'rgba(255,255,255,0.25)';
-          }}
-        >
-          + New page
-        </button>
-      </div>
+      {/* separador entre páginas */}
+      <div style={{ height: '8px' }} />
     </div>
   );
 }
