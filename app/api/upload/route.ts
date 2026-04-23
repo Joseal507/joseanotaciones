@@ -196,6 +196,50 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Estrategia 4: Groq Vision si Gemini y Mistral no alcanzaron
+      if (!content || content.length < 200) {
+        const groqKeys = [
+          process.env.GROQ_API_KEY,
+          process.env.GROQ_API_KEY_2,
+          process.env.GROQ_API_KEY_3,
+          process.env.GROQ_API_KEY_4,
+          process.env.GROQ_API_KEY_5,
+          process.env.GROQ_API_KEY_6,
+        ].filter(Boolean) as string[];
+
+        if (groqKeys.length > 0 && buffer.length < 10 * 1024 * 1024) {
+          for (const gk of groqKeys.slice(0, 3)) {
+            try {
+              const base64 = buffer.toString('base64');
+              const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gk}` },
+                body: JSON.stringify({
+                  model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+                  messages: [{
+                    role: 'user',
+                    content: [
+                      { type: 'image_url', image_url: { url: `data:application/pdf;base64,${base64}` } },
+                      { type: 'text', text: 'Extract ALL text and content from this document completely.' },
+                    ],
+                  }],
+                  temperature: 0.1,
+                  max_tokens: 4096,
+                }),
+              });
+              if (!res.ok) continue;
+              const data = await res.json();
+              const groqText = data?.choices?.[0]?.message?.content || '';
+              if (groqText && groqText.length > (content?.length || 0)) {
+                content = groqText;
+                console.log(`✅ Groq Vision: ${content.length} chars`);
+                break;
+              }
+            } catch { continue; }
+          }
+        }
+      }
+
     // ─── TXT ───
     } else if (nombre.endsWith('.txt')) {
       mimeType = 'text/plain';
