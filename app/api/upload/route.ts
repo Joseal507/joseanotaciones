@@ -386,6 +386,16 @@ export async function POST(request: NextRequest) {
 
     const fileBase64 = buffer.toString('base64');
 
+    // Limpiar referencias de imágenes de Markdown
+    if (content) {
+      content = content
+        .replace(/!\[.*?\]\(.*?\)/g, '')
+        .replace(/^!\[.*\n?/gm, '')
+        .replace(/\b\S+\.(jpeg|jpg|png|gif|webp|svg|bmp|tiff)\b/gi, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    }
+
     return NextResponse.json({
       success: true,
       content: content.trim(),
