@@ -22,6 +22,7 @@ const TEMAS: { id: AppSettings['tema']; label: string; desc: string; colors: str
 
 export default function SettingsPage() {
   const [seccion, setSeccion] = useState<Seccion>('perfil');
+  const [visibleLeaderboard, setVisibleLeaderboard] = useState(true);
   const [usuario, setUsuario] = useState<any>(null);
   const [cargando, setCargando] = useState(true);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -52,6 +53,16 @@ export default function SettingsPage() {
       setUserId(data.user.id);
       setNombre(data.user.user_metadata?.nombre || '');
 
+      // Cargar visible_leaderboard
+      try {
+        const { data: lb } = await supabase
+          .from('leaderboard')
+          .select('visible_leaderboard')
+          .eq('user_id', data.user.id)
+          .single();
+        if (lb !== null) setVisibleLeaderboard(lb?.visible_leaderboard !== false);
+      } catch {}
+
       const localSettings = getSettings();
       try {
         const remoteSettings = await getSettingsDB(data.user.id);
@@ -76,7 +87,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (seccion === 'personalizacion' && nombreAppRef.current) {
-      nombreAppRef.current.value = settings.nombreApp || 'JoseAnotaciones';
+      nombreAppRef.current.value = settings.nombreApp || 'StudyAL';
     }
   }, [seccion, settings.nombreApp]);
 
@@ -91,7 +102,7 @@ export default function SettingsPage() {
   };
 
   const guardarNombreApp = async () => {
-    const valor = nombreAppRef.current?.value?.trim() || 'JoseAnotaciones';
+    const valor = nombreAppRef.current?.value?.trim() || 'StudyAL';
     const nuevas = { ...settings, nombreApp: valor };
     setSettings(nuevas);
     saveSettings(nuevas);
@@ -101,8 +112,8 @@ export default function SettingsPage() {
   };
 
   const restablecerNombreApp = async () => {
-    if (nombreAppRef.current) nombreAppRef.current.value = 'JoseAnotaciones';
-    const nuevas = { ...settings, nombreApp: 'JoseAnotaciones' };
+    if (nombreAppRef.current) nombreAppRef.current.value = 'StudyAL';
+    const nuevas = { ...settings, nombreApp: 'StudyAL' };
     setSettings(nuevas);
     saveSettings(nuevas);
     if (userId) await saveSettingsDB(userId, nuevas);
@@ -190,7 +201,7 @@ export default function SettingsPage() {
     if (!('Notification' in window)) { alert('Not supported'); return; }
     const permiso = await Notification.requestPermission();
     if (permiso === 'granted') {
-      new Notification('JoseAnotaciones', { body: tr('notifActivadas') });
+      new Notification('StudyAL', { body: tr('notifActivadas') });
       await updateSettings({ notifAsignaciones: true, notifRacha: true, notifLogros: true });
     }
   };
@@ -442,7 +453,7 @@ export default function SettingsPage() {
                   <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>{tr('personalizaNombre')}</p>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>{tr('nombre')}</label>
-                    <input ref={nombreAppRef} defaultValue={settings.nombreApp || 'JoseAnotaciones'} placeholder="JoseAnotaciones" type="text"
+                    <input ref={nombreAppRef} defaultValue={settings.nombreApp || 'StudyAL'} placeholder="StudyAL" type="text"
                       style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '16px', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
                       onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
                       onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
@@ -537,6 +548,41 @@ export default function SettingsPage() {
                 </div>
               </div>
 
+              {/* LEADERBOARD VISIBILITY */}
+              <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                <div style={{ height: '3px', background: 'var(--gold)' }} />
+                <div style={{ padding: '20px' }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>🏆 Leaderboard</h3>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>
+                    {idioma === 'en' ? 'Show your profile in the public leaderboard' : 'Mostrar tu perfil en el leaderboard público'}
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>
+                      {idioma === 'en' ? 'Visible in leaderboard' : 'Visible en el leaderboard'}
+                    </span>
+                    <button
+                      onClick={async () => {
+                        const newVal = !visibleLeaderboard;
+                        setVisibleLeaderboard(newVal);
+                        if (userId) {
+                          try {
+                            await supabase
+                              .from('leaderboard')
+                              .update({ visible_leaderboard: newVal })
+                              .eq('user_id', userId);
+                          } catch {}
+                        }
+                      }}
+                      style={{ width: '48px', height: '26px', borderRadius: '13px', border: 'none', background: visibleLeaderboard ? 'var(--gold)' : 'var(--border-color)', cursor: 'pointer', position: 'relative', transition: 'background 0.3s' }}>
+                      <div style={{ position: 'absolute', top: '3px', left: visibleLeaderboard ? '24px' : '3px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.3s', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }} />
+                    </button>
+                  </div>
+                  <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '8px 0 0' }}>
+                    {idioma === 'en' ? 'You can change this at any time' : 'Puedes cambiar esto cuando quieras'}
+                  </p>
+                </div>
+              </div>
+
               {/* NOTIFICACIONES ORIGINALES */}
             <Card color="var(--blue)">
               <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('notificaciones')}</h2>
@@ -616,7 +662,7 @@ export default function SettingsPage() {
                     <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>{tr('limpiarQuizzesDecks')}</h2>
                     <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>{tr('eliminarTodos')}</p>
                   </div>
-                  <button onClick={() => { if (!confirm('?')) return; localStorage.removeItem('josea_quizzes_guardados'); localStorage.removeItem('josea_flashcard_decks'); alert('✅'); }}
+                  <button onClick={() => { if (!confirm('?')) return; localStorage.removeItem('studyal_quizzes_guardados'); localStorage.removeItem('studyal_flashcard_decks'); alert('✅'); }}
                     style={{ padding: '10px 20px', borderRadius: '10px', border: '2px solid var(--blue)', background: 'transparent', color: 'var(--blue)', fontSize: '13px', fontWeight: 800, cursor: 'pointer', flexShrink: 0 }}>
                     {tr('limpiarStats')}
                   </button>

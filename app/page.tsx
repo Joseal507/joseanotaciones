@@ -15,6 +15,7 @@ import GraficasEstudio from '../components/GraficasEstudio';
 import HorarioWidget from '../components/HorarioWidget';
 import Leaderboard from '../components/Leaderboard';
 import OnboardingCheck from '../components/OnboardingCheck';
+import Footer from '../components/Footer';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useIdioma } from '../hooks/useIdioma';
@@ -24,7 +25,7 @@ export default function Home() {
   const [materias, setMaterias] = useState<Materia[]>([]);
   const [verificando, setVerificando] = useState(true);
   const [showBuscador, setShowBuscador] = useState(false);
-  const [appNombre, setAppNombre] = useState('JoseAnotaciones');
+  const [appNombre, setAppNombre] = useState('StudyAL');
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
 
@@ -38,7 +39,7 @@ export default function Home() {
         // ✅ TEMPORAL: Notificar login por email
         const user = data.session.user;
         const nombre = user.user_metadata?.nombre || user.email?.split('@')[0] || '';
-        const loginKey = `josea_login_notified_${new Date().toDateString()}`;
+        const loginKey = `studyal_login_notified_${new Date().toDateString()}`;
 
         // Solo notificar 1 vez por día por usuario
         if (!sessionStorage.getItem(loginKey)) {
@@ -59,7 +60,7 @@ export default function Home() {
 
   useEffect(() => {
     try {
-      const s = localStorage.getItem('josea_settings');
+      const s = localStorage.getItem('studyal_settings');
       if (s) {
         const parsed = JSON.parse(s);
         if (parsed.nombreApp) setAppNombre(parsed.nombreApp);
@@ -125,7 +126,7 @@ export default function Home() {
           />
         </div>
         <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>
-          {tr('cargando')} {appNombre}...
+          {tr('cargando')} StudyAL...
         </p>
       </div>
     );
@@ -159,7 +160,7 @@ export default function Home() {
               />
               <div>
                 <h1 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
-                  {appNombre}
+                  <span className="brand-studyal"><span className="brand-study">Study</span><span className="brand-al">AL</span></span>
                 </h1>
                 <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>
                   {tr('tuPlataforma')}
@@ -233,7 +234,7 @@ export default function Home() {
             letterSpacing: isMobile ? '-1px' : '-2px',
             lineHeight: 1,
           }}>
-            {appNombre.toUpperCase()}
+            <span className="brand-studyal"><span className="brand-study-hero">Study</span><span className="brand-al-hero">AL</span></span>
           </h1>
 
           <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', margin: '12px 0 16px' }}>
@@ -473,6 +474,7 @@ export default function Home() {
           </div>
         </div>
       </div>
+      <Footer />
     </div>
   );
 }

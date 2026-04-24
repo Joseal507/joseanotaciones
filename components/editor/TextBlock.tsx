@@ -178,16 +178,49 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
     }, 30);
   }, [computeToolbarPlacement]);
 
+  const savedSelection = useRef<Range | null>(null);
+
+  // Guardar selección cada vez que cambia
+  useEffect(() => {
+    if (!editing) return;
+    const saveSelection = () => {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && ref.current?.contains(sel.anchorNode)) {
+        savedSelection.current = sel.getRangeAt(0).cloneRange();
+      }
+    };
+    document.addEventListener('selectionchange', saveSelection);
+    return () => document.removeEventListener('selectionchange', saveSelection);
+  }, [editing]);
+
+  const restoreSelection = () => {
+    if (savedSelection.current && ref.current) {
+      ref.current.focus();
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(savedSelection.current);
+    } else {
+      ref.current?.focus();
+    }
+  };
+
   const exec = (cmd: string, val?: string) => {
-    ref.current?.focus();
+    restoreSelection();
     document.execCommand(cmd, false, val);
     html.current = ref.current?.innerHTML || '';
     onUpdate({ html: html.current });
-    setTimeout(computeToolbarPlacement, 50);
+    // Re-guardar selección después del comando
+    setTimeout(() => {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        savedSelection.current = sel.getRangeAt(0).cloneRange();
+      }
+      computeToolbarPlacement();
+    }, 10);
   };
 
   const applyFontSize = (px: number) => {
-    ref.current?.focus();
+    restoreSelection();
     const s = window.getSelection();
     if (s && s.rangeCount > 0 && !s.isCollapsed) {
       try {

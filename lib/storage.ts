@@ -76,9 +76,9 @@ export interface PerfilEstudio {
 
 const isBrowser = () => typeof window !== 'undefined';
 
-const KEY = 'joseanotaciones_materias';
-const KEY_PERFIL = 'josea_perfil';
-const KEY_LAST_SYNC = 'josea_last_sync';
+const KEY = 'studyal_materias';
+const KEY_PERFIL = 'studyal_perfil';
+const KEY_LAST_SYNC = 'studyal_last_sync';
 
 // ─── LOCAL STORAGE ───────────────────────────────────────
 
@@ -193,7 +193,7 @@ export const exportarBackup = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `joseanotaciones_backup_${new Date().toLocaleDateString('es-ES').replace(/\//g, '-')}.json`;
+    a.download = `studyal_backup_${new Date().toLocaleDateString('es-ES').replace(/\//g, '-')}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

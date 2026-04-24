@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     // ✅ Enviar email con todos los datos
     if (body.es_nuevo) {
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://joseanotacioness.vercel.app';
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://studyals.vercel.app';
         const emailRes = await fetch(`${baseUrl}/api/notify-new-user`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

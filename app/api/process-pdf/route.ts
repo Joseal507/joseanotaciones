@@ -19,10 +19,10 @@ export async function POST(req: NextRequest) {
     if (!r2Url) return NextResponse.json({ error: 'r2Url required' }, { status: 400 });
 
     const urlParts = new URL(r2Url);
-    const key = urlParts.pathname.replace(`/${process.env.R2_BUCKET || 'joseanotaciones'}/`, '');
+    const key = urlParts.pathname.replace(`/${process.env.R2_BUCKET || 'studyal'}/`, '');
 
     console.log('Descargando:', key);
-    const r2Response = await r2Client.send(new GetObjectCommand({ Bucket: process.env.R2_BUCKET || 'joseanotaciones', Key: key }));
+    const r2Response = await r2Client.send(new GetObjectCommand({ Bucket: process.env.R2_BUCKET || 'studyal', Key: key }));
     if (!r2Response.Body) throw new Error('Empty R2 response');
     const buffer = Buffer.from(await r2Response.Body.transformToByteArray());
     console.log(`Descargado: ${(buffer.length/1024/1024).toFixed(1)}MB`);

@@ -5,8 +5,8 @@ import PomodoroFlotante from '../components/PomodoroFlotante';
 import ChatFlotante from '../components/ChatFlotante';
 
 export const metadata: Metadata = {
-  title: 'JoseAnotaciones',
-  description: 'Tu plataforma de estudio',
+  title: 'StudyAL',
+  description: 'Tu plataforma de estudio definitiva',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -14,6 +14,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <head>
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&display=swap" rel="stylesheet" />
       </head>
       <body>
         <ThemeInit />

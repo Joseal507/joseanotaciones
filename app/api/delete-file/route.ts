@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
         const url = new URL(archivoUrl);
         const key = url.pathname.replace(/^\/[^/]+\//, '');
         await r2Client.send(new DeleteObjectCommand({
-          Bucket: process.env.R2_BUCKET || 'joseanotaciones',
+          Bucket: process.env.R2_BUCKET || 'studyal',
           Key: key,
         }));
         console.log(`🗑️ Borrado de R2: ${key}`);

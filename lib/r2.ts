@@ -1,7 +1,7 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, HeadBucketCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-const R2_BUCKET = process.env.R2_BUCKET || 'joseanotaciones';
+const R2_BUCKET = process.env.R2_BUCKET || 'studyal';
 const MAX_STORAGE_BYTES = 9.5 * 1024 * 1024 * 1024; // 🛡️ 9.5GB = Candado antes de llegar a 10GB
 
 export const r2Client = new S3Client({

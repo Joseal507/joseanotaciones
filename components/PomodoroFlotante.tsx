@@ -206,19 +206,19 @@ export default function PomodoroFlotante() {
     <>
       {/* Botón flotante */}
       <button
-        onMouseDown={startDrag}
-        onTouchStart={startDrag}
+        
+        
         onClick={handleBtnClick}
         style={{
           position: 'fixed',
-          left: pos.x,
-          top: pos.y,
+          bottom: '24px',
+          right: '24px',
           width: minimizado ? '32px' : '52px',
           height: minimizado ? '32px' : '52px',
           borderRadius: '50%',
           background: corriendo ? colorFase : 'var(--bg-card)',
           border: `3px solid ${colorFase}`,
-          cursor: dragging ? 'grabbing' : 'grab',
+          cursor: 'pointer',
           fontSize: minimizado ? '13px' : '20px',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           boxShadow: corriendo ? `0 0 20px ${colorFase}60` : '0 4px 20px rgba(0,0,0,0.3)',

@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     // ✅ Si es login (no registro), enviar email simple
     if (es_login) {
       await transporter.sendMail({
-        from: `"JoseAnotaciones 🎓" <${GMAIL_USER}>`,
+        from: `"StudyAL 🎓" <${GMAIL_USER}>`,
         to: ADMIN_EMAIL,
         subject: `🔑 ${nombre || email} acaba de entrar`,
         html: `
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
               </tr>
             </table>
             <p style="color:#475569;font-size:11px;margin:16px 0 0;text-align:center;">
-              JoseAnotaciones · Notificación de login
+              StudyAL · Notificación de login
             </p>
           </div>
         `,
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     };
 
     await transporter.sendMail({
-      from: `"JoseAnotaciones 🎓" <${GMAIL_USER}>`,
+      from: `"StudyAL 🎓" <${GMAIL_USER}>`,
       to: ADMIN_EMAIL,
       subject: `🎉 Nuevo usuario: ${nombre} (${carrera || tipo_estudiante || 'sin carrera'})`,
       html: `
@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
               </div>
             </div>
             <p style="text-align:center;color:#475569;font-size:11px;margin:16px 0 0;">
-              JoseAnotaciones · Notificación automática
+              StudyAL · Notificación automática
             </p>
           </div>
         </div>

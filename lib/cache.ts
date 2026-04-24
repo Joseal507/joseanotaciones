@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { r2Client } from './r2';
 import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 
-const R2_BUCKET = process.env.R2_BUCKET || 'joseanotaciones';
+const R2_BUCKET = process.env.R2_BUCKET || 'studyal';
 const CACHE_PREFIX = 'cache/';
 
 export function getContentHash(content: string): string {

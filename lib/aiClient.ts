@@ -86,8 +86,8 @@ export const getOpenRouterClient = () => {
     apiKey: OPENROUTER_API_KEY,
     baseURL: 'https://openrouter.ai/api/v1',
     defaultHeaders: {
-      'HTTP-Referer': 'https://joseanotacioness.vercel.app',
-      'X-Title': 'Jose Anotaciones',
+      'HTTP-Referer': 'https://studyals.vercel.app',
+      'X-Title': 'StudyAL',
     },
   }) as OpenAI & { _provider: string };
 

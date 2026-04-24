@@ -37,7 +37,7 @@ export default function AuthGuard({ children }: Props) {
       <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>📚</div>
-          <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>Cargando JoseAnotaciones...</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>Cargando StudyAL...</p>
         </div>
       </div>
     );

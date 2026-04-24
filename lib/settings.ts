@@ -13,10 +13,10 @@ export interface AppSettings {
   chatCorner: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 }
 
-const KEY = 'josea_settings';
+const KEY = 'studyal_settings';
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  nombreApp: 'JoseAnotaciones',
+  nombreApp: 'StudyAL',
   tema: 'default',
   fotoPerfil: '',
   notifAsignaciones: true,
@@ -48,6 +48,6 @@ export const applyTheme = (tema: AppSettings['tema']) => {
 
 export const limpiarDatosEstudio = () => {
   if (!isBrowser()) return;
-  localStorage.removeItem('josea_racha');
-  localStorage.removeItem('josea_perfil');
+  localStorage.removeItem('studyal_racha');
+  localStorage.removeItem('studyal_perfil');
 };

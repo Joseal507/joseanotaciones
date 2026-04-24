@@ -1,7 +1,6 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { subirBase64AlStorage } from '../../lib/storageUpload';
 
 interface Props {
   temaColor: string;
@@ -66,20 +65,9 @@ export default function PdfBackgroundInserter({ temaColor, onInsert, onClose }: 
         pagesBase64 = [base64];
       }
 
-      // ✅ Subir al Storage para no llenar la DB
-      setProgress('Subiendo al cloud...');
-      const pagesUrls = await Promise.all(
-        pagesBase64.map(async (base64, i) => {
-          const url = await subirBase64AlStorage(
-            base64,
-            `fondo_${file.name.replace(/\.[^.]+$/, '')}_p${i + 1}`,
-            'fondo',
-          );
-          return url;
-        }),
-      );
-
-      setPreview(pagesUrls);
+      // ✅ Usar directamente base64 como preview/fondo
+      // Esto hace que el fondo funcione sin depender del storage
+      setPreview(pagesBase64);
     } catch (err) {
       console.error(err);
       alert('Error procesando el archivo');

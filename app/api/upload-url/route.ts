@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
 
     const key = generateR2Key(userId, fileName);
     const presignedUrl = await getPresignedUploadUrl(key, contentType);
-    const r2Url = `${process.env.R2_ENDPOINT}/${process.env.R2_BUCKET || 'joseanotaciones'}/${key}`;
+    const r2Url = `${process.env.R2_ENDPOINT}/${process.env.R2_BUCKET || 'studyal'}/${key}`;
 
     return NextResponse.json({ presignedUrl, r2Url, key });
   } catch (error: any) {

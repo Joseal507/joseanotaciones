@@ -244,11 +244,11 @@ export default function ExportMenu({
         pdf.addImage(logoData, 'PNG', x - logoSize / 2, 5, logoSize, logoSize);
       }
 
-      // "JoseAnotaciones" debajo del logo
+      // "StudyAL" debajo del logo
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(5.5);
       pdf.setTextColor(160, 160, 160);
-      pdf.text('JoseAnotaciones', x, 5 + logoSize + 3, { align: 'center' });
+      pdf.text('StudyAL', x, 5 + logoSize + 3, { align: 'center' });
 
       // Número de página abajo
       pdf.setFont('helvetica', 'normal');
@@ -396,7 +396,7 @@ export default function ExportMenu({
           alignment: AlignmentType.RIGHT,
           children: [
             new TextRun({
-              text: 'JoseAnotaciones',
+              text: 'StudyAL',
               size: 14,
               color: 'CCCCCC',
               italics: true,

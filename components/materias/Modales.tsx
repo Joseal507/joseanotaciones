@@ -139,7 +139,7 @@ export function ModalApunte({ onClose, onConfirm, colorTema }: ModalProps & { co
   ];
 
   const PAPER_SIZES = [
-    { id: 'normal', label: idioma === 'en' ? 'JoseAnotaciones Paper' : 'Papel normal de JoseAnotaciones', desc: 'Default' },
+    { id: 'normal', label: idioma === 'en' ? 'StudyAL Paper' : 'Papel normal de StudyAL', desc: 'Default' },
     { id: 'a7', label: 'A7', desc: '74 × 105 mm' },
     { id: 'a6', label: 'A6', desc: '105 × 148 mm' },
     { id: 'a5', label: 'A5', desc: '148 × 210 mm' },

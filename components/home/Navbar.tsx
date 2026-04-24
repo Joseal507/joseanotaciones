@@ -30,8 +30,8 @@ export default function Navbar({ screen, darkMode, onToggleDark, onSetScreen }: 
             onError={(e: any) => { e.target.style.display = 'none'; }}
           />
           <div>
-            <h1 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>JoseAnotaciones</h1>
-            <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>Tu plataforma de estudio</p>
+            <h1 style={{ fontSize: '22px', fontWeight: 900, margin: 0 }}><span style={{ fontSize: '85%', fontWeight: 700, color: 'var(--text-primary)' }}>Study</span><span style={{ color: 'var(--gold)' }}>AL</span></h1>
+            <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>Tu plataforma de estudio definitiva</p>
           </div>
         </div>
 

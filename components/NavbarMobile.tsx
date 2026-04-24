@@ -13,7 +13,7 @@ interface Props {
 
 export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: Props) {
   const [menuAbierto, setMenuAbierto] = useState(false);
-  const [appNombre, setAppNombre] = useState('JoseAnotaciones');
+  const [appNombre, setAppNombre] = useState('StudyAL');
   const { darkMode: currentDark, toggle } = useDarkMode();
   const { tr } = useIdioma();
 
@@ -22,7 +22,7 @@ export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: P
 
   useEffect(() => {
     try {
-      const s = localStorage.getItem('josea_settings');
+      const s = localStorage.getItem('studyal_settings');
       if (s) {
         const parsed = JSON.parse(s);
         if (parsed.nombreApp) setAppNombre(parsed.nombreApp);
@@ -62,7 +62,7 @@ export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: P
             onError={(e: any) => { e.target.style.display = 'none'; }}
           />
           <span style={{ fontSize: '16px', fontWeight: 900, color: 'var(--text-primary)' }}>
-            {appNombre}
+            <span style={{ fontSize: '85%', fontWeight: 700, color: 'var(--text-primary)' }}>Study</span><span style={{ color: 'var(--gold)' }}>AL</span>
           </span>
         </div>
 

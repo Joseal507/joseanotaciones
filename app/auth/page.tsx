@@ -138,10 +138,10 @@ export default function AuthPage() {
             />
           </div>
           <h1 style={{ fontSize: '24px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 4px' }}>
-            JoseAnotaciones
+            <span style={{ fontSize: '85%', fontWeight: 700, color: 'var(--text-primary)' }}>Study</span><span style={{ color: 'var(--gold)' }}>AL</span>
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>
-            Tu plataforma de estudio
+            Tu plataforma de estudio definitiva
           </p>
         </div>
 

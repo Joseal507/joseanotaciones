@@ -34,6 +34,7 @@ export async function GET() {
     const { data, error } = await getAdmin()
       .from('leaderboard')
       .select('*')
+      .or('visible_leaderboard.eq.true,visible_leaderboard.is.null')
       .order('xp_total', { ascending: false })
       .limit(50);
 
