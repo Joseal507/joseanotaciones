@@ -348,6 +348,10 @@ export default function PaginaEditor({
                     );
                   }}
                   onDelete={() => onEliminarBloque(pagina.id, b.id)}
+                  onDuplicate={() => {
+                    const duped = { ...JSON.parse(JSON.stringify(img)), id: `img_${Date.now()}`, x: img.x + 20, y: img.y + 20 };
+                    onBloques(pagina.id, [...pagina.bloques, duped]);
+                  }}
                 />
               );
             }

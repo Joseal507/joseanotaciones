@@ -56,6 +56,28 @@ export default function PdfBackgroundInserter({ temaColor, onInsert, onClose }: 
           await page.render({ canvasContext: ctx, viewport }).promise;
           pagesBase64.push(canvas.toDataURL('image/png'));
         }
+      } else if (file.name.toLowerCase().endsWith('.docx') || file.name.toLowerCase().endsWith('.doc')) {
+        // Word → convertir a imagen via mammoth + canvas
+        setProgress('Procesando Word...');
+        try {
+          const mammoth = await import('mammoth');
+          const arrayBuffer = await file.arrayBuffer();
+          const result = await mammoth.convertToHtml({ arrayBuffer });
+          const html = result.value;
+          // Renderizar HTML en un canvas
+          const div = document.createElement('div');
+          div.innerHTML = html;
+          div.style.cssText = 'width:816px;padding:60px;background:white;font-family:Times New Roman,serif;font-size:12pt;position:fixed;left:-9999px;top:0';
+          document.body.appendChild(div);
+          await new Promise(r => setTimeout(r, 200));
+          const html2canvas = (await import('html2canvas')).default;
+          const canvas = await html2canvas(div, { scale: 1.5, useCORS: true, backgroundColor: '#ffffff' });
+          document.body.removeChild(div);
+          pagesBase64 = [canvas.toDataURL('image/png')];
+        } catch (e) {
+          console.error('Word error:', e);
+          alert('Error procesando Word. Intenta convertirlo a PDF primero.');
+        }
       } else if (file.type.startsWith('image/')) {
         const base64 = await new Promise<string>((resolve) => {
           const reader = new FileReader();
@@ -83,7 +105,7 @@ export default function PdfBackgroundInserter({ temaColor, onInsert, onClose }: 
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div style={{ background: 'var(--bg-card)', borderRadius: '24px', border: `2px solid ${temaColor}`, padding: '30px', width: '90%', maxWidth: '500px', boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
-        <h2 style={{ marginTop: 0, color: 'var(--text-primary)' }}>📋 Insertar Fondo</h2>
+        <h2 style={{ marginTop: 0, color: 'var(--text-primary)' }}>📋 Insertar Fondo (PDF, Word, Imagen)</h2>
 
         {!preview.length ? (
           <div
@@ -102,7 +124,7 @@ export default function PdfBackgroundInserter({ temaColor, onInsert, onClose }: 
                   Haz clic o arrastra un PDF/Imagen aquí
                 </p>
                 <p style={{ color: 'var(--text-faint)', fontSize: '12px', margin: 0 }}>
-                  PDF, PNG, JPG, WEBP
+                  PDF, Word (.docx), PNG, JPG, WEBP
                 </p>
               </>
             )}
@@ -135,7 +157,7 @@ export default function PdfBackgroundInserter({ temaColor, onInsert, onClose }: 
           </div>
         )}
 
-        <input ref={inputRef} type="file" accept=".pdf,image/*" hidden
+        <input ref={inputRef} type="file" accept=".pdf,.doc,.docx,image/*" hidden
           onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
       </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

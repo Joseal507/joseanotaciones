@@ -18,17 +18,38 @@ const limpiarPaginasParaGuardar = (paginas: PaginaParaGuardar[]): PaginaParaGuar
   return paginas.map(pg => ({
     ...pg,
     canvasData: pg.canvasData || null,
+    // Limitar backgroundImage a 500KB — si es más grande, comprimir o quitar
     backgroundImage: pg.backgroundImage
-      ? pg.backgroundImage
+      ? (pg.backgroundImage.length > 500_000 ? comprimirBase64(pg.backgroundImage) : pg.backgroundImage)
       : undefined,
     bloques: (pg.bloques || []).map((b: any) => {
-      if (b.tipo === 'imagen' && b.src?.startsWith('data:') && b.src.length > 2_000_000) {
-        return { ...b, src: '' };
+      if (b.tipo === 'imagen' && b.src?.startsWith('data:') && b.src.length > 500_000) {
+        return { ...b, src: comprimirBase64(b.src) };
       }
       return b;
     }),
   }));
 };
+
+function comprimirBase64(dataUrl: string): string {
+  try {
+    if (typeof document === 'undefined') return dataUrl;
+    const img = new Image();
+    img.src = dataUrl;
+    const canvas = document.createElement('canvas');
+    // Reducir a max 800px de ancho
+    const maxW = 800;
+    const scale = img.naturalWidth > maxW ? maxW / img.naturalWidth : 1;
+    canvas.width = img.naturalWidth * scale;
+    canvas.height = img.naturalHeight * scale;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return dataUrl;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.6);
+  } catch {
+    return dataUrl.substring(0, 500_000); // Último recurso: truncar
+  }
+}
 
 export function useGuardar({
   getPaginas,

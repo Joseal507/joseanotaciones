@@ -390,8 +390,9 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
     // Con transform: scale() en el padre, getBoundingClientRect ya incluye el scale
     // Así que NO dividimos por scale — las coordenadas son directas al espacio de la página
-    let x = e.clientX - rect.left;
-    let y = e.clientY - rect.top;
+    const scale = zoomState.scale || 1;
+    let x = (e.clientX - rect.left) / scale;
+    let y = (e.clientY - rect.top) / scale;
 
     const MARGIN = 10;
     const TEXT_WIDTH = isMobile ? 260 : 320;
@@ -544,51 +545,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
             >
               {scrollDirection === 'vertical' ? '↕ Vertical' : '↔ Horizontal'}
             </button>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <button
-                onClick={() => handleScaleChange(Math.max(0.6, zoomState.scale - 0.1), zoomState.tx, zoomState.ty)}
-                style={{
-                  width: '28px', height: '28px', borderRadius: '8px',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  background: 'rgba(255,255,255,0.05)',
-                  color: '#d4d4d8',
-                  cursor: 'pointer',
-                  fontWeight: 800,
-                }}
-              >
-                −
-              </button>
-              <button
-                onClick={() => handleScaleChange(1, 0, 0)}
-                style={{
-                  minWidth: '54px', height: '28px', borderRadius: '8px',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  background: 'rgba(255,255,255,0.05)',
-                  color: '#f5c842',
-                  cursor: 'pointer',
-                  fontSize: '11px',
-                  fontWeight: 800,
-                  padding: '0 8px',
-                }}
-              >
-                {Math.round(zoomState.scale * 100)}%
-              </button>
-              <button
-                onClick={() => handleScaleChange(Math.min(4, zoomState.scale + 0.1), zoomState.tx, zoomState.ty)}
-                style={{
-                  width: '28px', height: '28px', borderRadius: '8px',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  background: 'rgba(255,255,255,0.05)',
-                  color: '#d4d4d8',
-                  cursor: 'pointer',
-                  fontWeight: 800,
-                }}
-              >
-                +
-              </button>
-            </div>
-
-            <div style={{
+<div style={{
               padding: '3px 8px', borderRadius: '6px',
               background: guardando ? 'rgba(245,200,66,0.12)' : guardado ? 'rgba(34,197,94,0.1)' : 'rgba(245,200,66,0.12)',
               display: 'flex', alignItems: 'center', gap: '4px',
@@ -656,7 +613,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
           paddingBottom: isMobile ? '70px' : '80px',
         }}>
           <div style={{
-            transform: `translate(${zoomState.tx}px, ${zoomState.ty}px) scale(${zoomState.scale})`,
+            transform: 'none',
             transformOrigin: '0 0',
             willChange: 'transform',
             display: 'flex',

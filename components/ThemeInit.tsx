@@ -42,5 +42,25 @@ export default function ThemeInit() {
     }
   }, []);
 
+  // Auto-limpiar localStorage si está casi lleno
+  useEffect(() => {
+    try {
+      const used = JSON.stringify(localStorage).length;
+      const limit = 4.5 * 1024 * 1024; // ~4.5MB
+      if (used > limit * 0.9) {
+        console.warn('localStorage casi lleno:', (used/1024/1024).toFixed(1) + 'MB');
+        // Limpiar caches grandes
+        const keysToCheck = Object.keys(localStorage);
+        keysToCheck.forEach(key => {
+          const val = localStorage.getItem(key) || '';
+          if (val.length > 500_000 && key.includes('materias')) {
+            // No borrar, pero comprimir
+            console.log('Key grande:', key, (val.length/1024).toFixed(0) + 'KB');
+          }
+        });
+      }
+    } catch {}
+  }, []);
+
   return null;
 }

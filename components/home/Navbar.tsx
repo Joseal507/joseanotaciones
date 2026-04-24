@@ -1,4 +1,5 @@
 'use client';
+import { BetaBadge } from '../BetaBanner';
 
 type Screen = 'home' | 'upload' | 'document' | 'flashcards';
 
@@ -16,21 +17,23 @@ export default function Navbar({ screen, darkMode, onToggleDark, onSetScreen }: 
         background: 'var(--bg-card)',
         borderBottom: '3px solid var(--gold)',
         padding: '0 40px',
-        position: 'sticky',
-        top: 0,
-        zIndex: 100,
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
+        position: 'sticky', top: 0, zIndex: 100,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         height: '68px',
       }}>
-        <div onClick={() => onSetScreen('home')} style={{ display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer' }}>
+        <div onClick={() => onSetScreen('home')} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
           <img src="/logo.png" alt="Logo"
             style={{ width: '42px', height: '42px', borderRadius: '10px', objectFit: 'cover' }}
             onError={(e: any) => { e.target.style.display = 'none'; }}
           />
           <div>
-            <h1 style={{ fontSize: '22px', fontWeight: 900, margin: 0 }}><span style={{ fontSize: '85%', fontWeight: 700, color: 'var(--text-primary)' }}>Study</span><span style={{ color: 'var(--gold)' }}>AL</span></h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <h1 style={{ fontSize: '22px', fontWeight: 900, margin: 0 }}>
+                <span style={{ fontSize: '85%', fontWeight: 700, color: 'var(--text-primary)' }}>Study</span>
+                <span style={{ color: 'var(--gold)' }}>AL</span>
+              </h1>
+              <BetaBadge size="sm" />
+            </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>Tu plataforma de estudio definitiva</p>
           </div>
         </div>
@@ -67,12 +70,10 @@ export default function Navbar({ screen, darkMode, onToggleDark, onSetScreen }: 
           </button>
         </div>
       </header>
-
       <div style={{ display: 'flex', height: '3px' }}>
-        <div style={{ flex: 1, background: 'var(--gold)' }} />
-        <div style={{ flex: 1, background: 'var(--red)' }} />
-        <div style={{ flex: 1, background: 'var(--blue)' }} />
-        <div style={{ flex: 1, background: 'var(--pink)' }} />
+        {['var(--gold)', 'var(--red)', 'var(--blue)', 'var(--pink)'].map((c, i) => (
+          <div key={i} style={{ flex: 1, background: c }} />
+        ))}
       </div>
     </>
   );

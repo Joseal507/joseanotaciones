@@ -16,6 +16,7 @@ import HorarioWidget from '../components/HorarioWidget';
 import Leaderboard from '../components/Leaderboard';
 import OnboardingCheck from '../components/OnboardingCheck';
 import Footer from '../components/Footer';
+import { BetaBadge, BetaBanner } from '../components/BetaBanner';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useIdioma } from '../hooks/useIdioma';
@@ -137,6 +138,7 @@ export default function Home() {
 
       {/* ✅ Onboarding check */}
       <OnboardingCheck />
+      <div style={{maxWidth:"1100px",margin:"0 auto",padding:"12px 40px 0"}}><BetaBanner/></div>
 
       {showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
 
@@ -160,7 +162,7 @@ export default function Home() {
               />
               <div>
                 <h1 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
-                  <span className="brand-studyal"><span className="brand-study">Study</span><span className="brand-al">AL</span></span>
+                  <span style={{display:"flex",alignItems:"center",gap:"8px"}}><span className="brand-studyal"><span className="brand-study">Study</span><span className="brand-al">AL</span></span><BetaBadge/></span>
                 </h1>
                 <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>
                   {tr('tuPlataforma')}
