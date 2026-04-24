@@ -18,6 +18,8 @@ interface Props {
   onExec: (cmd: string, val?: string) => void;
   onFontSize: (px: number) => void;
   onFontFamily: (f: string) => void;
+  onColor: (color: string) => void;
+  onHighlight: (color: string) => void;
   onHeading: (tag: string) => void;
   onDelete: () => void;
   onSaveSelection: () => void;
