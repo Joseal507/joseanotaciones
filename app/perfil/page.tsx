@@ -329,6 +329,14 @@ export default function PerfilPage() {
 
         {/* Botones acción */}
         <div style={{ display: 'flex', gap: '12px', marginTop: '24px', flexWrap: 'wrap' }}>
+          <button onClick={() => window.location.href = '/mi-perfil'}
+            style={{ padding: '12px 24px', borderRadius: '12px', border: '2px solid #a78bfa', background: 'transparent', color: '#a78bfa', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
+            👤 Ver mi perfil social
+          </button>
+          <button onClick={() => window.location.href = '/guardados'}
+            style={{ padding: '12px 24px', borderRadius: '12px', border: '2px solid #4ade80', background: 'transparent', color: '#4ade80', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
+            📌 Posts guardados
+          </button>
           <button onClick={() => window.location.href = '/materias'}
             style={{ padding: '12px 24px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
             {tr('irAEstudiar')}

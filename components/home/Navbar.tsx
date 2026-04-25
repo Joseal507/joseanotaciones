@@ -60,6 +60,10 @@ export default function Navbar({ screen, darkMode, onToggleDark, onSetScreen }: 
               <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 4px' }} />
             </>
           )}
+          <button onClick={() => window.location.href = '/comunidad'}
+            style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid #22c55e', background: 'transparent', color: '#22c55e', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+            🌍 Comunidad
+          </button>
           <button onClick={() => window.location.href = '/materias'}
             style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
             📚 Materias

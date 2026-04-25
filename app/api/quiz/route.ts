@@ -6,7 +6,7 @@ export const maxDuration = 60;
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { content, count = 5, idioma } = body;
+    const { content, count = 5, idioma, difficulty = 'medium' } = body;
     const lang = idioma === 'en' ? 'en' : 'es';
     const textToUse = content.substring(0, 6000);
 
@@ -69,10 +69,10 @@ export async function POST(request: NextRequest) {
     ].filter(Boolean).join('\n\n---\n\n');
 
     const systemPrompt = lang === 'en'
-      ? `You are an expert quiz creator. Create ${count} challenging multiple choice questions. Wrong options must be PLAUSIBLE. Respond ONLY with valid JSON, no extra text:
+      ? `You are an expert quiz creator. Create ${count} multiple choice questions at ${difficulty === 'easy' ? 'EASY difficulty (basic concepts, straightforward questions, clearly distinct options)' : difficulty === 'hard' ? 'HARD difficulty (deep understanding required, very similar and tricky options, edge cases, requires analysis and critical thinking)' : 'MEDIUM difficulty (moderate complexity, some similar options)'}. Wrong options must be PLAUSIBLE. Respond ONLY with valid JSON, no extra text:
 [{"pregunta":"question","opciones":["opt0","opt1","opt2","opt3"],"correcta":0,"explicacion":"why correct"}]
 Mix correct answer position randomly (0-3).${extraContext ? `\n\nEXPERT ANALYSIS:\n${extraContext}` : ''}`
-      : `Eres un experto creador de quizzes. Crea ${count} preguntas de opción múltiple desafiantes. Las opciones incorrectas deben ser PLAUSIBLES. Responde SOLO con JSON válido, sin texto extra:
+      : `Eres un experto creador de quizzes. Crea ${count} preguntas de opción múltiple con dificultad ${difficulty === 'easy' ? 'FÁCIL (conceptos básicos, preguntas directas, opciones claramente distintas)' : difficulty === 'hard' ? 'DIFÍCIL (comprensión profunda, opciones muy similares y engañosas, casos límite, requiere análisis)' : 'MEDIA (complejidad moderada, algunas opciones similares)'}. Las opciones incorrectas deben ser PLAUSIBLES. Responde SOLO con JSON válido, sin texto extra:
 [{"pregunta":"pregunta","opciones":["op0","op1","op2","op3"],"correcta":0,"explicacion":"por qué es correcta"}]
 Mezcla la posición de la correcta aleatoriamente (0-3).${extraContext ? `\n\nANÁLISIS EXPERTO:\n${extraContext}` : ''}`;
 
@@ -86,7 +86,7 @@ Mezcla la posición de la correcta aleatoriamente (0-3).${extraContext ? `\n\nAN
             content: `${lang === 'en' ? 'Create' : 'Crea'} ${count} ${lang === 'en' ? 'questions from this text' : 'preguntas de este texto'}:\n\n${textToUse}`,
           },
         ],
-        temperature: 0.4,
+        temperature: difficulty === 'hard' ? 0.6 : difficulty === 'easy' ? 0.2 : 0.4,
         max_tokens: 3000,
       });
 

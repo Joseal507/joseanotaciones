@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import PublicarModal from '../comunidad/PublicarModal';
 import { Apunte, Materia, Tema } from '../../lib/storage';
 import { Bloque, Herramienta, Pagina, PaperStyle, parsePaginas, genId } from '../editor/types';
 import Toolbar from '../editor/Toolbar';
@@ -71,6 +72,7 @@ export default function ApunteEditor({
     }
   });
   const [newBlockId, setNewBlockId] = useState<string | null>(null);
+  const [showPublicar, setShowPublicar] = useState(false);
   const [zoomState, setZoomState] = useState({ scale: 1, tx: 0, ty: 0 });
   const [showPeterSauPeter, setShowPeterSauPeter] = useState(false);
   const [peterImage, setPeterImage] = useState<{ base64: string; mime: string } | null>(null);
@@ -601,6 +603,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/></svg>
               {!isMobile && 'Save'}
             </button>
+            <button onClick={() => setShowPublicar(true)} style={{ padding: isMobile ? '6px 10px' : '6px 14px', borderRadius: '8px', border: 'none', background: '#a78bfa', color: '#000', fontSize: '11px', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🚀{!isMobile && ' Publicar'}</button>
           </div>
         </div>
 
@@ -700,6 +703,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
             />
           </div>
         </div>
+
       </div>
 
       <style>{`
@@ -724,6 +728,13 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
         .editor-area-principal [contenteditable="true"] { -webkit-user-select: text !important; user-select: text !important; }
         * { -webkit-tap-highlight-color: transparent; }
       `}</style>
+      {showPublicar && (
+        <PublicarModal
+          onClose={() => setShowPublicar(false)}
+          onPublicado={() => setShowPublicar(false)}
+          tipoInicial="apunte"
+        />
+      )}
     </>
   );
 }

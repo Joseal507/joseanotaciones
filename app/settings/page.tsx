@@ -36,6 +36,10 @@ export default function SettingsPage() {
   const [nombre, setNombre] = useState('');
   const [guardandoPerfil, setGuardandoPerfil] = useState(false);
   const [mensajePerfil, setMensajePerfil] = useState('');
+  const [carrera, setCarrera] = useState('');
+  const [universidad, setUniversidad] = useState('');
+  const [bio, setBio] = useState('');
+  const [cargandoPerfilPublico, setCargandoPerfilPublico] = useState(false);
   const [passwordNueva, setPasswordNueva] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [guardandoPassword, setGuardandoPassword] = useState(false);
@@ -52,6 +56,16 @@ export default function SettingsPage() {
       setUsuario(data.user);
       setUserId(data.user.id);
       setNombre(data.user.user_metadata?.nombre || '');
+      // Cargar carrera/universidad/bio desde user_profiles
+      try {
+        const res = await fetch('/api/user/profile?uid=' + data.user.id);
+        const d = await res.json();
+        if (d.profile) {
+          setCarrera(d.profile.carrera || '');
+          setUniversidad(d.profile.universidad || '');
+          setBio(d.profile.bio || '');
+        }
+      } catch {}
 
       // Cargar visible_leaderboard
       try {
@@ -127,7 +141,17 @@ export default function SettingsPage() {
     try {
       const { error } = await supabase.auth.updateUser({ data: { nombre } });
       if (error) throw error;
-      setMensajePerfil(tr('perfilActualizado'));
+      // Guardar también en user_profiles
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (token) {
+        await fetch('/api/user-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+          body: JSON.stringify({ nombre, carrera, universidad, bio }),
+        });
+      }
+      setMensajePerfil('✅ Perfil actualizado');
     } catch (err: any) {
       setMensajePerfil('❌ Error: ' + err.message);
     } finally {
@@ -383,6 +407,24 @@ export default function SettingsPage() {
               </div>
               <InputField label={tr('nombre')} value={nombre} onChange={(e: any) => setNombre(e.target.value)} placeholder={tr('nombre')} />
               <InputField label={tr('email')} value={usuario?.email || ''} disabled />
+              <InputField label='📚 Carrera' value={carrera} onChange={(e: any) => setCarrera(e.target.value)} placeholder='Ej: Ingeniería, Medicina, Derecho...' />
+              <InputField label='🏫 Universidad' value={universidad} onChange={(e: any) => setUniversidad(e.target.value)} placeholder='Ej: UNAM, Harvard, UBA...' />
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  ✍️ Bio / Descripción
+                </label>
+                <textarea
+                  value={bio}
+                  onChange={(e: any) => setBio(e.target.value)}
+                  placeholder='Cuéntale a otros estudiantes sobre ti...'
+                  rows={3}
+                  maxLength={200}
+                  style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
+                  onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
+                  onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                />
+                <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '4px 0 0', textAlign: 'right' }}>{bio.length}/200</p>
+              </div>
               <Alert msg={mensajePerfil} />
               <button onClick={guardarPerfil} disabled={guardandoPerfil}
                 style={{ padding: '13px 24px', borderRadius: '10px', border: 'none', background: guardandoPerfil ? 'var(--bg-card2)' : 'var(--gold)', color: guardandoPerfil ? 'var(--text-faint)' : '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer', alignSelf: 'flex-start' }}>

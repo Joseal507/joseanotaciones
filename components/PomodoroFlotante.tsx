@@ -48,15 +48,15 @@ export default function PomodoroFlotante() {
         const p = JSON.parse(saved);
         // Asegurar que esté dentro de la pantalla
         setPos({
-          x: Math.min(Math.max(p.x, 0), w - 60),
-          y: Math.min(Math.max(p.y, 0), h - 60),
+          x: Math.min(Math.max(p.x, 0), w - 68),
+          y: Math.min(Math.max(p.y, 0), h - 68),
         });
       } else {
         // Default: esquina bottom-right, separado del chat
-        setPos({ x: w - 80, y: h - 80 });
+        setPos({ x: w - 68, y: h - 76 });
       }
     } catch {
-      setPos({ x: window.innerWidth - 80, y: window.innerHeight - 80 });
+      setPos({ x: window.innerWidth - 68, y: window.innerHeight - 76 });
     }
 
     // Pomodoros de hoy
@@ -125,8 +125,8 @@ export default function PomodoroFlotante() {
       hasMoved.current = true;
       const cx = 'touches' in ev ? ev.touches[0].clientX : ev.clientX;
       const cy = 'touches' in ev ? ev.touches[0].clientY : ev.clientY;
-      const newX = Math.min(Math.max(cx - dragOffset.current.x, 0), window.innerWidth - 60);
-      const newY = Math.min(Math.max(cy - dragOffset.current.y, 0), window.innerHeight - 60);
+      const newX = Math.min(Math.max(cx - dragOffset.current.x, 0), window.innerWidth - 68);
+      const newY = Math.min(Math.max(cy - dragOffset.current.y, 0), window.innerHeight - 68);
       setPos({ x: newX, y: newY });
     };
 
@@ -206,13 +206,51 @@ export default function PomodoroFlotante() {
     <>
       {/* Botón flotante */}
       <button
-        
-        
+        onMouseDown={(e) => {
+          hasMoved.current = false;
+          dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
+          setDragging(true);
+          const onMove = (ev: MouseEvent) => {
+            hasMoved.current = true;
+            const nx = Math.min(Math.max(ev.clientX - dragOffset.current.x, 0), window.innerWidth - 60);
+            const ny = Math.min(Math.max(ev.clientY - dragOffset.current.y, 0), window.innerHeight - 60);
+            setPos({ x: nx, y: ny });
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: nx, y: ny }));
+          };
+          const onUp = () => {
+            setDragging(false);
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        }}
+        onTouchStart={(e) => {
+          hasMoved.current = false;
+          const t = e.touches[0];
+          dragOffset.current = { x: t.clientX - pos.x, y: t.clientY - pos.y };
+          setDragging(true);
+          const onMove = (ev: TouchEvent) => {
+            hasMoved.current = true;
+            const tc = ev.touches[0];
+            const nx = Math.min(Math.max(tc.clientX - dragOffset.current.x, 0), window.innerWidth - 60);
+            const ny = Math.min(Math.max(tc.clientY - dragOffset.current.y, 0), window.innerHeight - 60);
+            setPos({ x: nx, y: ny });
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: nx, y: ny }));
+          };
+          const onUp = () => {
+            setDragging(false);
+            window.removeEventListener('touchmove', onMove);
+            window.removeEventListener('touchend', onUp);
+          };
+          window.addEventListener('touchmove', onMove, { passive: true });
+          window.addEventListener('touchend', onUp);
+        }}
         onClick={handleBtnClick}
         style={{
           position: 'fixed',
-          bottom: '24px',
-          right: '24px',
+          left: pos.x + 'px',
+          top: pos.y + 'px',
           width: minimizado ? '32px' : '52px',
           height: minimizado ? '32px' : '52px',
           borderRadius: '50%',

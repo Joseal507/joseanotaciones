@@ -85,11 +85,12 @@ export default function UserMenu() {
             </div>
 
             {[
-              { label: '⚙️ ' + tr('configuracion'), href: '/settings' },
-              { label: '📊 ' + tr('perfil'), href: '/perfil' },
+              { label: '👤 Mi Perfil Social', href: '/mi-perfil' },
+              { label: '📊 Stats de Estudio', href: '/perfil' },
               { label: '📚 ' + tr('misMaterias'), href: '/materias' },
               { label: '📅 ' + tr('agenda'), href: '/agenda' },
               { label: '🎓 ' + tr('quizzes'), href: '/quizzes' },
+              { label: '⚙️ ' + tr('configuracion'), href: '/settings' },
             ].map((item, i) => (
               <button key={i}
                 onClick={() => { window.location.href = item.href; setOpen(false); }}

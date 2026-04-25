@@ -145,6 +145,25 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
         console.log('Update directo OK');
       }
 
+      // ✅ Guardar también en user_profiles
+      await fetch('/api/user-profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + session.access_token,
+        },
+        body: JSON.stringify({
+          nombre,
+          genero,
+          tipo_estudiante: tipoEstudiante,
+          universidad: tipoEstudiante === 'universitario' ? universidadFinal : null,
+          carrera: tipoEstudiante === 'universitario' ? carreraFinal : null,
+          que_quieres_estudiar: queQuieresEstudiar || null,
+          bio: queQuieresEstudiar ? 'Quiero: ' + queQuieresEstudiar : null,
+          es_nuevo: true,
+        }),
+      }).catch(() => {});
+
       // ✅ Enviar email
       fetch('/api/notify-new-user', {
         method: 'POST',

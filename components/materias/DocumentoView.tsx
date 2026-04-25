@@ -16,6 +16,7 @@ import BannerCargando from './BannerCargando';
 import AIExhausted from '../AIExhausted';
 import TabAnalisis from './TabAnalisis';
 import TabFlashcards from './TabFlashcards';
+import TabQuiz from './TabQuiz';
 
 interface Props {
   documento: Documento;
@@ -34,7 +35,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   const [flashcards, setFlashcards] = useState(documento.flashcards || []);
   const [currentCard, setCurrentCard] = useState(0);
   const [flipped, setFlipped] = useState(false);
-  const [tab, setTab] = useState<'leer' | 'analisis' | 'flashcards'>('leer');
+  const [tab, setTab] = useState<'leer' | 'analisis' | 'flashcards' | 'quiz'>('leer');
   const [addCount, setAddCount] = useState(10);
   const [addingMore, setAddingMore] = useState(false);
   const [showChat, setShowChat] = useState(false);
@@ -292,6 +293,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
             { id: 'leer', label: esImagen ? `🖼️ ${idioma === 'en' ? 'Image' : 'Imagen'}` : `📖 ${documento.archivoUrl || docBase64 ? trAny('verDocumento') : trAny('leerTexto')}` },
             { id: 'analisis', label: `🔍 ${trAny('analisisAI')}${analisisLocal ? ' ✓' : ''}` },
             { id: 'flashcards', label: `🎴 ${trAny('flashcards')}${flashcards.length > 0 ? ` (${flashcards.length})` : ''}` },
+            { id: 'quiz', label: `🤓 Quiz` },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id as any)}
               style={{ padding: '12px 20px', border: 'none', background: 'transparent', borderBottom: tab === t.id ? `3px solid ${tema.color}` : '3px solid transparent', color: tab === t.id ? tema.color : 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer', marginBottom: '-2px', whiteSpace: 'nowrap' }}>
@@ -378,12 +380,25 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
           />
         )}
 
+        {/* TAB QUIZ */}
+        {tab === 'quiz' && (
+          <TabQuiz
+            contenido={documento.contenido || ''}
+            tema={tema}
+            materia={materia}
+            isMobile={isMobile}
+            idioma={idioma}
+            tr={trAny}
+            documentoId={documento.id}
+          />
+        )}
+
         {/* TAB FLASHCARDS */}
         {tab === 'flashcards' && (
           <TabFlashcards
             flashcards={flashcards} currentCard={currentCard} flipped={flipped}
             addCount={addCount} addingMore={addingMore} recommendedCount={recommendedCount}
-            recommendedReason={recommendedReason} tema={tema} isMobile={isMobile}
+            recommendedReason={recommendedReason} tema={tema} materia={materia} documento={documento} isMobile={isMobile}
             idioma={idioma} esImagen={esImagen} analizando={analizando} tr={trAny}
             onFlip={() => setFlipped(!flipped)}
             onPrev={() => { setFlipped(false); setCurrentCard((currentCard - 1 + flashcards.length) % flashcards.length); }}

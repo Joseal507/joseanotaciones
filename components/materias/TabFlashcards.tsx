@@ -1,5 +1,7 @@
 'use client';
+import { useState } from 'react';
 import MathText from '../MathText';
+import PublicarModal from '../comunidad/PublicarModal';
 
 interface Props {
   flashcards: any[];
@@ -10,6 +12,8 @@ interface Props {
   recommendedCount: number | null;
   recommendedReason: string;
   tema: any;
+  materia: any;
+  documento: any;
   isMobile: boolean;
   idioma: string;
   esImagen: boolean;
@@ -28,7 +32,8 @@ interface Props {
   onGuardar: () => void;
 }
 
-export default function TabFlashcards({ flashcards, currentCard, flipped, addCount, addingMore, recommendedCount, recommendedReason, tema, isMobile, idioma, esImagen, analizando, tr, onFlip, onPrev, onNext, onSetCard, onSetAddCount, onAddMore, onAnalizar, onEstudio, onQuiz, onEditor, onGuardar }: Props) {
+export default function TabFlashcards({ flashcards, currentCard, flipped, addCount, addingMore, recommendedCount, recommendedReason, tema, materia, documento, isMobile, idioma, esImagen, analizando, tr, onFlip, onPrev, onNext, onSetCard, onSetAddCount, onAddMore, onAnalizar, onEstudio, onQuiz, onEditor, onGuardar }: Props) {
+  const [showPublicar, setShowPublicar] = useState(false);
 
   const Indicadores = () => {
     if (flashcards.length <= 15) {
@@ -68,6 +73,30 @@ export default function TabFlashcards({ flashcards, currentCard, flipped, addCou
 
   return (
     <div>
+      {showPublicar && (
+        <PublicarModal
+          onClose={() => setShowPublicar(false)}
+          onPublicado={() => setShowPublicar(false)}
+          tipoInicial="flashcard"
+          directPost={{
+            tipo: 'flashcard',
+            titulo: documento?.nombre || 'Flashcards',
+            materia: materia?.nombre || 'General',
+            color: materia?.color || tema?.color || '#f5c842',
+            emoji: materia?.emoji || '🎴',
+            contenido: {
+              tipo: 'flashcard',
+              nombre: documento?.nombre || 'Flashcards',
+              flashcards,
+              total: flashcards.length,
+              materiaNombre: materia?.nombre,
+              materiaColor: materia?.color,
+              materiaEmoji: materia?.emoji,
+            },
+          }}
+        />
+      )}
+
       {recommendedCount && (
         <div style={{ background: '#4ade8015', border: '1px solid #4ade8044', borderRadius: '12px', padding: '12px 18px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
           <span style={{ fontSize: '18px' }}>🤖</span>
@@ -86,6 +115,7 @@ export default function TabFlashcards({ flashcards, currentCard, flipped, addCou
           {!esImagen && <button onClick={onQuiz} style={{ padding: '10px 14px', borderRadius: '10px', border: '2px solid #a78bfa', background: 'transparent', color: '#a78bfa', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>{tr('quiz')}</button>}
           <button onClick={onEditor} style={{ padding: '10px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>✏️ {tr('editar')}</button>
           <button onClick={onGuardar} style={{ padding: '10px 14px', borderRadius: '10px', border: '2px solid #4ade80', background: 'transparent', color: '#4ade80', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>💾 {tr('guardarDeck')}</button>
+          <button onClick={() => setShowPublicar(true)} style={{ padding: '10px 14px', borderRadius: '10px', border: 'none', background: '#f5c842', color: '#000', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>🚀 Comunidad</button>
         </div>
         <span style={{ fontSize: '12px', color: 'var(--text-faint)' }}>{flashcards.length} {tr('tarjetas')}</span>
       </div>

@@ -1,4 +1,5 @@
 'use client';
+import PublicarModal from '../../components/comunidad/PublicarModal';
 
 import { useState } from 'react';
 import { registrarEstudioHoy } from '../../lib/racha';
@@ -38,6 +39,7 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
   const [nombreQuiz, setNombreQuiz] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [guardadoExito, setGuardadoExito] = useState(false);
+  const [showPublicar, setShowPublicar] = useState(false);
   const [aiExhausted, setAiExhausted] = useState(false);
   const [quizzesGuardados, setQuizzesGuardados] = useState<QuizGuardado[]>(() => getQuizzesGuardados());
   const [quizSeleccionado, setQuizSeleccionado] = useState<QuizGuardado | null>(null);
@@ -151,6 +153,14 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
 
   return (
     <>
+    {showPublicar && (
+      <PublicarModal
+        token={typeof window !== 'undefined' ? localStorage.getItem('token') || '' : ''}
+        onClose={() => setShowPublicar(false)}
+        onPublicado={() => setShowPublicar(false)}
+        tipoInicial="quiz"
+      />
+    )}
     {aiExhausted && <AIExhausted onClose={() => setAiExhausted(false)} />}
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.97)', display: 'flex', flexDirection: 'column', zIndex: 2000, fontFamily: '-apple-system, sans-serif' }}>
 
@@ -384,6 +394,7 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
                       style={{ padding: '10px 18px', borderRadius: '10px', border: 'none', background: nombreQuiz.trim() ? temaColor : '#333', color: nombreQuiz.trim() ? '#000' : '#555', fontWeight: 800, fontSize: '13px', cursor: nombreQuiz.trim() ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}>
                       {tr('guardarQuiz')}
                     </button>
+                    <button onClick={() => setShowPublicar(true)} style={{ padding: '10px 18px', borderRadius: '10px', border: 'none', background: '#f5c842', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>🚀 Comunidad</button>
                   </div>
                 )}
               </div>

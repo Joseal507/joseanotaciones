@@ -203,3 +203,34 @@ body {
   background: rgba(245, 200, 66, 0.4) !important;
   color: inherit !important;
 }
+.pagina-apunte {
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  font-family: 'Inter', sans-serif;
+  line-height: 1.6;
+}
+.pagina-apunte h1, .pagina-apunte h2 {
+  margin-top: 0;
+}
+/* Estilo de la hoja de Biología/Apuntes */
+.paper-dark-grid {
+  background-color: #0f1117;
+  background-image: 
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 20px 20px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+.bloque-canvas {
+  position: absolute;
+  user-select: none;
+  pointer-events: none; /* Para que no interfiera con el scroll */
+}
+
+.bloque-canvas img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}

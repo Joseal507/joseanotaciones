@@ -6,6 +6,7 @@ import { getQuizzesGuardados, eliminarQuizGuardado, QuizGuardado, getFlashcardDe
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
+import PublicarModal from '../../components/comunidad/PublicarModal';
 import EstudioModal from '../../components/flashcards/EstudioModal';
 import ModoExamen from '../../components/flashcards/ModoExamen';
 import MathText from '../../components/MathText';
@@ -32,9 +33,12 @@ export default function QuizzesPage() {
   // Deck viewer state
   const [currentCard, setCurrentCard] = useState(0);
   const [flipped, setFlipped] = useState(false);
+  const [showPublicar, setShowPublicar] = useState(false);
+  const [token, setToken] = useState('');
 
   const isMobile = useIsMobile();
 
+  useEffect(() => { setToken(localStorage.getItem('token') || ''); }, []);
   useEffect(() => {
     // Cargar local primero (rápido)
     setQuizzes(getQuizzesGuardados());
@@ -145,6 +149,9 @@ export default function QuizzesPage() {
               <div>
                 <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>🎓 {tr('materialesEstudio')}</h1>
                 <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>
+          <button onClick={() => setShowPublicar(true)} style={{ padding: '8px 16px', borderRadius: '10px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '13px', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            🚀 Compartir en Comunidad
+          </button>
                   {quizzes.length} {tr('quizzes').toLowerCase()} · {decks.length} decks
                 </p>
               </div>
@@ -467,6 +474,13 @@ export default function QuizzesPage() {
           </div>
         )}
       </div>
+      {showPublicar && (
+        <PublicarModal 
+          token={token} 
+          onClose={() => setShowPublicar(false)} 
+          onPublicado={() => { setShowPublicar(false); }} 
+        />
+      )}
     </div>
   );
 }

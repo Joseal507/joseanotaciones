@@ -18,10 +18,26 @@ export default function ChatFlotante() {
   const [inicializado, setInicializado] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [pos, setPos] = useState({ x: 24, y: -1 });
+  const [dragging, setDragging] = useState(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+  const hasMoved = useRef(false);
 
   useEffect(() => {
     setMounted(true);
     const s = getSettings();
+    // Leer posición guardada del chat
+    try {
+      const saved = localStorage.getItem('josea_chat_pos');
+      if (saved) {
+        const p = JSON.parse(saved);
+        setPos({ x: Math.min(Math.max(p.x, 0), window.innerWidth - 60), y: Math.min(Math.max(p.y, 0), window.innerHeight - 60) });
+      } else {
+        setPos({ x: 24, y: window.innerHeight - 80 });
+      }
+    } catch {
+      setPos({ x: 24, y: window.innerHeight - 80 });
+    }
     setEnabled(s.chatEnabled !== false);
     const poll = setInterval(() => {
       const s2 = getSettings();
@@ -73,23 +89,73 @@ export default function ChatFlotante() {
 
   return (
     <>
-      {/* Botón: bottom-left */}
+      {/* Botón: draggable */}
       <button
-        onClick={() => { if (minimizado) { setMinimizado(false); return; } setAbierto(!abierto); }}
+        onMouseDown={(e) => {
+          hasMoved.current = false;
+          dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
+          setDragging(true);
+          const onMove = (ev: MouseEvent) => {
+            hasMoved.current = true;
+            const nx = Math.min(Math.max(ev.clientX - dragOffset.current.x, 0), window.innerWidth - 60);
+            const ny = Math.min(Math.max(ev.clientY - dragOffset.current.y, 0), window.innerHeight - 60);
+            setPos({ x: nx, y: ny });
+            localStorage.setItem('josea_chat_pos', JSON.stringify({ x: nx, y: ny }));
+          };
+          const onUp = () => {
+            setDragging(false);
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        }}
+        onTouchStart={(e) => {
+          hasMoved.current = false;
+          const t = e.touches[0];
+          dragOffset.current = { x: t.clientX - pos.x, y: t.clientY - pos.y };
+          setDragging(true);
+          const onMove = (ev: TouchEvent) => {
+            hasMoved.current = true;
+            const tc = ev.touches[0];
+            const nx = Math.min(Math.max(tc.clientX - dragOffset.current.x, 0), window.innerWidth - 60);
+            const ny = Math.min(Math.max(tc.clientY - dragOffset.current.y, 0), window.innerHeight - 60);
+            setPos({ x: nx, y: ny });
+            localStorage.setItem('josea_chat_pos', JSON.stringify({ x: nx, y: ny }));
+          };
+          const onUp = () => {
+            setDragging(false);
+            window.removeEventListener('touchmove', onMove);
+            window.removeEventListener('touchend', onUp);
+          };
+          window.addEventListener('touchmove', onMove, { passive: true });
+          window.addEventListener('touchend', onUp);
+        }}
+        onClick={() => {
+          if (hasMoved.current) return;
+          if (minimizado) { setMinimizado(false); return; }
+          setAbierto(!abierto);
+        }}
         style={{
-          position: 'fixed', bottom: '24px', left: '24px',
-          width: minimizado ? '32px' : '52px', height: minimizado ? '32px' : '52px',
+          position: 'fixed',
+          left: pos.x + 'px',
+          top: pos.y + 'px',
+          width: minimizado ? '32px' : '52px',
+          height: minimizado ? '32px' : '52px',
           borderRadius: '50%',
           background: abierto && !minimizado ? 'var(--red)' : 'var(--pink)',
-          border: 'none', cursor: 'pointer',
+          border: 'none',
+          cursor: dragging ? 'grabbing' : 'grab',
           fontSize: minimizado ? '14px' : '22px',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
           zIndex: 9999,
-          transition: 'all 0.2s',
+          transition: dragging ? 'none' : 'width 0.2s, height 0.2s',
           opacity: minimizado ? 0.5 : 1,
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
         }}
-        title="JeffreyBot"
+        title="JeffreyBot — arrastra para mover"
       >
         {abierto && !minimizado ? '✕' : '🤖'}
       </button>
@@ -97,7 +163,7 @@ export default function ChatFlotante() {
       {/* Panel */}
       {abierto && !minimizado && (
         <div style={{
-          position: 'fixed', bottom: '86px', left: '24px',
+          position: 'fixed', left: pos.x + 'px', top: Math.max(10, pos.y - 450) + 'px',
           width: '320px', height: '440px',
           background: 'var(--bg-card)', borderRadius: '20px',
           border: '2px solid var(--pink)',

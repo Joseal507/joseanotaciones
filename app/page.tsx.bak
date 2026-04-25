@@ -16,7 +16,6 @@ import HorarioWidget from '../components/HorarioWidget';
 import Leaderboard from '../components/Leaderboard';
 import OnboardingCheck from '../components/OnboardingCheck';
 import Footer from '../components/Footer';
-import PerfilPublicoWidget from '../components/home/PerfilPublicoWidget';
 import { BetaBadge, BetaBanner } from '../components/BetaBanner';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -301,9 +300,6 @@ export default function Home() {
             </div>
           ))}
         </div>
-
-        {/* PERFIL PUBLICO */}
-        <PerfilPublicoWidget />
 
         {/* HORARIO HOY */}
         <div style={{ marginBottom: isMobile ? '28px' : '48px' }}>
