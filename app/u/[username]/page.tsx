@@ -301,7 +301,7 @@ function EditModal({
             ? universidadFinal
             : tipo === 'escuela'
             ? escuelaFinal
-            : null,
+            : undefined,
       };
 
       // Si cambió la foto, incluirla
