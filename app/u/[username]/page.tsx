@@ -295,7 +295,7 @@ function EditModal({
         descripcion,
         genero,
         tipo_estudiante: tipo,
-        carrera: tipo === 'universitario' ? carreraFinal : null,
+        carrera: tipo === 'universitario' ? carreraFinal : undefined,
         universidad:
           tipo === 'universitario'
             ? universidadFinal
