@@ -18,11 +18,21 @@ export default function ChatFlotante() {
   const [inicializado, setInicializado] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [pos, setPos] = useState({ x: 24, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+  const hasMoved = useRef(false);
 
   useEffect(() => {
     setMounted(true);
     const s = getSettings();
     setEnabled(s.chatEnabled !== false);
+    // Posición inicial bottom-left
+    try {
+      const saved = localStorage.getItem('josea_chat_pos');
+      if (saved) { setPos(JSON.parse(saved)); }
+      else { setPos({ x: 24, y: window.innerHeight - 80 }); }
+    } catch { setPos({ x: 24, y: window.innerHeight - 80 }); }
     const poll = setInterval(() => {
       const s2 = getSettings();
       setEnabled(s2.chatEnabled !== false);
@@ -71,13 +81,57 @@ export default function ChatFlotante() {
     }
   };
 
+  const handleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    dragOffset.current = { x: clientX - pos.x, y: clientY - pos.y };
+    hasMoved.current = false;
+    setDragging(true);
+
+    const handleMove = (ev: MouseEvent | TouchEvent) => {
+      const cx = 'touches' in ev ? ev.touches[0].clientX : (ev as MouseEvent).clientX;
+      const cy = 'touches' in ev ? ev.touches[0].clientY : (ev as MouseEvent).clientY;
+      const nx = Math.max(0, Math.min(cx - dragOffset.current.x, window.innerWidth - 60));
+      const ny = Math.max(0, Math.min(cy - dragOffset.current.y, window.innerHeight - 60));
+      setPos({ x: nx, y: ny });
+      hasMoved.current = true;
+    };
+
+    const handleEnd = () => {
+      setDragging(false);
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleEnd);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleEnd);
+      try { localStorage.setItem('josea_chat_pos', JSON.stringify(pos)); } catch {}
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleEnd);
+    window.addEventListener('touchmove', handleMove);
+    window.addEventListener('touchend', handleEnd);
+  };
+
+  const handleButtonClick = () => {
+    if (hasMoved.current) return;
+    if (minimizado) { setMinimizado(false); return; }
+    setAbierto(!abierto);
+  };
+
+  // Panel posición: arriba o abajo del botón
+  const panelAbajo = pos.y < (typeof window !== 'undefined' ? window.innerHeight : 600) / 2;
+
   return (
     <>
-      {/* Botón: bottom-left */}
+      {/* Botón flotante draggable */}
       <button
-        onClick={() => { if (minimizado) { setMinimizado(false); return; } setAbierto(!abierto); }}
+        onMouseDown={handleDragStart}
+        onTouchStart={handleDragStart}
+        onClick={handleButtonClick}
         style={{
-          position: 'fixed', bottom: '24px', left: '24px',
+          position: 'fixed',
+          left: pos.x,
+          top: pos.y,
           width: minimizado ? '32px' : '52px', height: minimizado ? '32px' : '52px',
           borderRadius: '50%',
           background: abierto && !minimizado ? 'var(--red)' : 'var(--pink)',
@@ -97,7 +151,9 @@ export default function ChatFlotante() {
       {/* Panel */}
       {abierto && !minimizado && (
         <div style={{
-          position: 'fixed', bottom: '86px', left: '24px',
+          position: 'fixed',
+          left: Math.min(Math.max(pos.x - 130, 8), (typeof window !== 'undefined' ? window.innerWidth : 800) - 330),
+          top: panelAbajo ? pos.y + 62 : pos.y - 455,
           width: '320px', height: '440px',
           background: 'var(--bg-card)', borderRadius: '20px',
           border: '2px solid var(--pink)',

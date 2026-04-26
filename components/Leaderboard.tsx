@@ -215,12 +215,17 @@ function UserProfileModal({
             ))}
           </div>
 
-          <button onClick={onClose} style={{
-            width: '100%', padding: '12px', borderRadius: '12px', border: 'none',
-            background: color, color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer',
-          }}>
-            Cerrar
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => window.location.href = '/u/' + entry.user_id}
+              style={{ flex: 1, padding: '12px', borderRadius: '12px', border: 'none', background: color, color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
+              🌐 Ver Perfil
+            </button>
+            <button onClick={onClose}
+              style={{ padding: '12px 16px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
+              ✕
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -359,8 +364,8 @@ export default function Leaderboard() {
 
                     {/* Avatar clickeable */}
                     <div
-                      onClick={() => setSelectedEntry({ entry, rank })}
-                      title={`Ver perfil de ${entry.nombre}`}
+                      onClick={() => window.location.href = '/u/' + entry.user_id}
+                      title={`Ver perfil público de ${entry.nombre}`}
                       style={{
                         width: '38px', height: '38px', borderRadius: '50%',
                         background: 'var(--bg-secondary)',

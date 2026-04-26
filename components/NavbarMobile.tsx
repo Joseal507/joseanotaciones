@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import UserMenu from './UserMenu';
 import RachaWidget from './RachaWidget';
 import { useDarkMode } from '../hooks/useDarkMode';
+import { supabase } from '../lib/supabase';
 import { useIdioma } from '../hooks/useIdioma';
 
 interface Props {
@@ -13,12 +14,19 @@ interface Props {
 
 export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: Props) {
   const [menuAbierto, setMenuAbierto] = useState(false);
+  const [userId, setUserId] = useState('');
   const [appNombre, setAppNombre] = useState('StudyAL');
   const { darkMode: currentDark, toggle } = useDarkMode();
   const { tr } = useIdioma();
 
   const isDark = darkModeProp !== undefined ? darkModeProp : currentDark;
   const handleToggle = onToggleDark || toggle;
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) setUserId(data.user.id);
+    });
+  }, []);
 
   useEffect(() => {
     try {
@@ -37,8 +45,9 @@ export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: P
     { label: '📅 ' + tr('agenda'), href: '/agenda' },
     { label: '🤖 JeffreyBot', href: '/chat' },
     { label: '🎓 ' + tr('quizzes'), href: '/quizzes' },
-    { label: '📊 ' + tr('perfil'), href: '/perfil' },
     { label: '⚙️ ' + tr('configuracion'), href: '/settings' },
+    { label: '🌐 Mi Perfil Público', href: `/u/${userId}` },
+    { label: '📊 Mis Stats', href: '/perfil' },
   ];
 
   return (

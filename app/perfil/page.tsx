@@ -94,7 +94,7 @@ export default function PerfilPage() {
                 ← {tr('inicio')}
               </button>
               <div>
-                <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{tr('perfilEstudio')}</h1>
+                <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{'Mis Stats'}</h1>
                 <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>{tr('tuProgresoYStats')}</p>
               </div>
             </div>
@@ -332,6 +332,14 @@ export default function PerfilPage() {
           <button onClick={() => window.location.href = '/materias'}
             style={{ padding: '12px 24px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
             {tr('irAEstudiar')}
+          </button>
+          <button onClick={async () => {
+            const { supabase } = await import('../../lib/supabase');
+            const { data } = await supabase.auth.getUser();
+            if (data.user?.id) window.location.href = '/u/' + data.user.id;
+          }}
+            style={{ padding: '12px 24px', borderRadius: '12px', border: '2px solid #a78bfa', background: 'transparent', color: '#a78bfa', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
+            🌐 Ver Perfil Público
           </button>
           <button onClick={() => window.location.href = '/chat'}
             style={{ padding: '12px 24px', borderRadius: '12px', border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
