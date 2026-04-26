@@ -5,7 +5,6 @@ import { Documento, Materia, Tema } from '../../lib/storage';
 import ChatDocumento from '../flashcards/ChatDocumento';
 import EstudioModal from '../flashcards/EstudioModal';
 import FlashcardEditor from '../flashcards/FlashcardEditor';
-import QuizModal from '../flashcards/QuizModal';
 import ModoExamen from '../flashcards/ModoExamen';
 import VisorDocumento from '../VisorDocumento';
 import { guardarDeck } from '../../lib/quizStorage';
@@ -16,6 +15,7 @@ import BannerCargando from './BannerCargando';
 import AIExhausted from '../AIExhausted';
 import TabAnalisis from './TabAnalisis';
 import TabFlashcards from './TabFlashcards';
+import TabQuiz from './TabQuiz';
 
 interface Props {
   documento: Documento;
@@ -34,13 +34,12 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   const [flashcards, setFlashcards] = useState(documento.flashcards || []);
   const [currentCard, setCurrentCard] = useState(0);
   const [flipped, setFlipped] = useState(false);
-  const [tab, setTab] = useState<'leer' | 'analisis' | 'flashcards'>('leer');
+  const [tab, setTab] = useState<'leer' | 'analisis' | 'flashcards' | 'quiz'>('leer');
   const [addCount, setAddCount] = useState(10);
   const [addingMore, setAddingMore] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [showEstudio, setShowEstudio] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
-  const [showQuiz, setShowQuiz] = useState(false);
   const [showModoExamen, setShowModoExamen] = useState(false);
   const [showGuardarDeck, setShowGuardarDeck] = useState(false);
   const [nombreDeck, setNombreDeck] = useState('');
@@ -100,13 +99,17 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
           idioma: idiomaActual,
           imageBase64: esImagen ? docBase64 : undefined,
           imageMime: esImagen ? docMime : undefined,
+          esImagen,
         }),
       });
       const d2 = await r2.json();
-      const recommended = d2.success ? d2.recommended : 10;
-      setRecommendedCount(recommended);
-      setRecommendedReason(d2.success ? d2.reason : '');
       setPasoActual(3);
+
+      const recommended = d2.recommendedCount || 10;
+      if (d2.recommendedCount) {
+        setRecommendedCount(d2.recommendedCount);
+        setRecommendedReason(d2.reason || '');
+      }
 
       const r3 = await fetch('/api/flashcards', {
         method: 'POST',
@@ -115,29 +118,25 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
           content: documento.contenido,
           count: recommended,
           idioma: idiomaActual,
-          existingQuestions: [],
           imageBase64: esImagen ? docBase64 : undefined,
           imageMime: esImagen ? docMime : undefined,
+          esImagen,
         }),
       });
       const d3 = await r3.json();
-      setPasoActual(4);
 
       const docActualizado = {
         ...documento,
         analisis: d1.success ? d1.analysis : documento.analisis,
         flashcards: d3.success ? d3.flashcards : documento.flashcards,
       };
-
-      if (d3.success) setFlashcards(d3.flashcards);
       onActualizar(docActualizado);
-      setTab('analisis');
-      setCurrentCard(0);
-      setFlipped(false);
+      if (d3.success) setFlashcards(d3.flashcards);
 
-    } catch (err: any) {
-      if (err?.message === "AI_EXHAUSTED" || err?.message?.includes("All providers")) setAiExhausted(true);
-      console.error(err);
+      setTab('analisis');
+    } catch (e: any) {
+      if (e?.message === 'AI_EXHAUSTED' || e?.message?.includes('All providers')) setAiExhausted(true);
+      console.error(e);
     } finally {
       setAnalizando(false);
       setPasoActual(0);
@@ -145,8 +144,8 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   };
 
   const addMore = async () => {
+    if (addingMore) return;
     setAddingMore(true);
-    const idiomaActual = getIdioma();
     try {
       const res = await fetch('/api/flashcards', {
         method: 'POST',
@@ -154,10 +153,8 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
         body: JSON.stringify({
           content: documento.contenido,
           count: addCount,
-          idioma: idiomaActual,
+          idioma: getIdioma(),
           existingQuestions: flashcards.map((f: any) => f.question),
-          imageBase64: esImagen ? docBase64 : undefined,
-          imageMime: esImagen ? docMime : undefined,
         }),
       });
       const data = await res.json();
@@ -166,23 +163,20 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
         setFlashcards(nuevas);
         onActualizar({ ...documento, flashcards: nuevas });
       }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setAddingMore(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { setAddingMore(false); }
   };
 
-  const handleGuardarDeck = () => {
+  const handleGuardarDeck = async () => {
     if (!nombreDeck.trim()) return;
     guardarDeck({ nombre: nombreDeck, flashcards, materiaNombre: materia.nombre, materiaColor: materia.color, temaColor: tema.color });
     setDeckGuardado(true);
-    setNombreDeck('');
   };
 
   return (
     <div>
-      {showChat && <ChatDocumento contexto={documento.contenido} nombreDoc={documento.nombre} temaColor={tema.color} onClose={() => setShowChat(false)} />}
+      {aiExhausted && <AIExhausted onClose={() => setAiExhausted(false)} />}
+
       {showEstudio && flashcards.length > 0 && (
         <EstudioModal flashcards={flashcards} temaColor={tema.color} materiaId={materia.id} materiaNombre={materia.nombre} materiaColor={materia.color} onClose={() => setShowEstudio(false)} onModoExamen={() => { setShowEstudio(false); setShowModoExamen(true); }} />
       )}
@@ -191,110 +185,110 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
           onSave={(cards: any) => { setFlashcards(cards); onActualizar({ ...documento, flashcards: cards }); setShowEditor(false); }}
           onClose={() => setShowEditor(false)} />
       )}
-      {showQuiz && (
-        <QuizModal contenido={documento.contenido} temaColor={tema.color} materiaNombre={materia.nombre} materiaColor={materia.color} onClose={() => setShowQuiz(false)} />
-      )}
       {showModoExamen && (
         <ModoExamen flashcards={flashcards} contenido={documento.contenido} nombreDoc={documento.nombre} temaColor={documento.nombre} onClose={() => setShowModoExamen(false)} />
       )}
 
       {/* Modal guardar deck */}
       {showGuardarDeck && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '20px' }}>
-          <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '420px', border: '1px solid var(--border-color)' }}>
-            <div style={{ height: '4px', background: tema.color, borderRadius: '2px', marginBottom: '24px' }} />
-            <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>💾 {trAny('guardarDeck')}</h2>
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 20px' }}>
-              {flashcards.length} {trAny('tarjetas')} · &quot;{documento.nombre}&quot;
-            </p>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '32px', maxWidth: '420px', width: '100%', border: `2px solid ${tema.color}44` }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>💾 {trAny('guardarDeck')}</h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 20px' }}>{flashcards.length} {trAny('tarjetas')} · &quot;{documento.nombre}&quot;</p>
             {deckGuardado ? (
-              <div style={{ background: '#4ade8015', border: '1px solid #4ade8044', borderRadius: '10px', padding: '14px', marginBottom: '20px' }}>
-                <p style={{ fontSize: '14px', color: '#4ade80', margin: 0, fontWeight: 600 }}>✅ {trAny('deckGuardado')}</p>
+              <div style={{ padding: '14px', background: '#4ade8015', borderRadius: '12px', border: '1px solid #4ade8044', textAlign: 'center' }}>
+                <p style={{ color: '#4ade80', fontWeight: 700, margin: 0 }}>✅ {idioma === 'en' ? 'Deck saved!' : '¡Deck guardado!'}</p>
               </div>
             ) : (
-              <div style={{ marginBottom: '20px' }}>
-                <input value={nombreDeck} onChange={e => setNombreDeck(e.target.value)}
+              <>
+                <input autoFocus value={nombreDeck} onChange={e => setNombreDeck(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleGuardarDeck()}
-                  placeholder={trAny('nombreDeck')} autoFocus
-                  style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }} />
-              </div>
+                  placeholder={idioma === 'en' ? 'Deck name...' : 'Nombre del deck...'}
+                  style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: `2px solid ${tema.color}`, background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box', marginBottom: '16px' }} />
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button onClick={handleGuardarDeck} disabled={!nombreDeck.trim()}
+                    style={{ flex: 1, padding: '12px', borderRadius: '12px', border: 'none', background: nombreDeck.trim() ? tema.color : '#333', color: nombreDeck.trim() ? '#000' : '#666', fontWeight: 800, fontSize: '14px', cursor: nombreDeck.trim() ? 'pointer' : 'not-allowed' }}>
+                    💾 {trAny('guardar')}
+                  </button>
+                  <button onClick={() => setShowGuardarDeck(false)}
+                    style={{ padding: '12px 20px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontWeight: 700, fontSize: '14px', cursor: 'pointer' }}>
+                    {trAny('cancelar')}
+                  </button>
+                </div>
+              </>
             )}
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => { setShowGuardarDeck(false); setDeckGuardado(false); }}
-                style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-                {deckGuardado ? trAny('cerrar') : trAny('cancelar')}
-              </button>
-              {!deckGuardado && (
-                <button onClick={handleGuardarDeck} disabled={!nombreDeck.trim()}
-                  style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: nombreDeck.trim() ? tema.color : 'var(--bg-card2)', color: nombreDeck.trim() ? '#000' : 'var(--text-faint)', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-                  💾 {trAny('guardar')}
-                </button>
-              )}
-            </div>
           </div>
         </div>
       )}
 
-      <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+      {/* Chat flotante */}
+      {showChat && (
+        <ChatDocumento contenido={documento.contenido} temaColor={tema.color} nombreDoc={documento.nombre} onClose={() => setShowChat(false)} />
+      )}
 
-        {/* Breadcrumb */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-          <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--gold)', fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>📚 {trAny('materias')}</button>
-          <span style={{ color: 'var(--text-faint)' }}>/</span>
-          <button onClick={onBackMateria} style={{ background: 'none', border: 'none', color: materia.color, fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>{materia.emoji} {materia.nombre}</button>
-          <span style={{ color: 'var(--text-faint)' }}>/</span>
-          <button onClick={onBackTema} style={{ background: 'none', border: 'none', color: tema.color, fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>📁 {tema.nombre}</button>
-          <span style={{ color: 'var(--text-faint)' }}>/</span>
-          <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{esImagen ? '🖼️' : '📄'} {documento.nombre}</span>
-        </div>
+      <div style={{ background: 'var(--bg-card)', borderRadius: '20px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+        <div style={{ height: '4px', background: `linear-gradient(90deg, ${tema.color}, ${materia.color})` }} />
 
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ width: '4px', height: '32px', background: tema.color, borderRadius: '2px' }} />
-            <div>
-              <h1 style={{ fontSize: isMobile ? '16px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{documento.nombre}</h1>
-              <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0 }}>
-                {trAny('subido')}: {documento.fechaSubida}
-                {' · '}
-                <span style={{ background: esImagen ? 'var(--pink-dim)' : 'var(--blue-dim)', color: esImagen ? 'var(--pink)' : 'var(--blue)', padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 700 }}>
-                  {documento.tipo.toUpperCase()}
+        {/* Header documento */}
+        <div style={{ padding: isMobile ? '16px' : '24px 28px', borderBottom: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '20px' }}>
+                  {documento.tipo === 'youtube' ? '🎬' : documento.tipo === 'imagen' ? '🖼️' : documento.tipo === 'pdf' ? '📄' : documento.tipo === 'audio' ? '🎵' : '📝'}
                 </span>
-                {analisisLocal && <span style={{ color: '#4ade80', marginLeft: '8px', fontWeight: 700 }}>✓ {trAny('analizado')}</span>}
-                {recommendedCount && <span style={{ color: tema.color, marginLeft: '8px', fontWeight: 700 }}>· {recommendedCount} {idioma === 'en' ? 'recommended' : 'recomendadas'}</span>}
-              </p>
+                <h2 style={{ fontSize: isMobile ? '16px' : '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: isMobile ? '200px' : '400px' }}>
+                  {documento.nombre}
+                </h2>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-faint)' }}>{documento.fechaSubida}</span>
+                {flashcards.length > 0 && <span style={{ fontSize: '12px', color: tema.color, fontWeight: 600 }}>🎴 {flashcards.length} {trAny('tarjetas')}</span>}
+              </div>
             </div>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <button onClick={() => setShowChat(true)}
-              style={{ padding: '9px 14px', borderRadius: '10px', border: `2px solid ${tema.color}`, background: 'transparent', color: tema.color, fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-              {trAny('chat')}
-            </button>
-            {!esImagen && (
-              <button onClick={() => setShowQuiz(true)}
-                style={{ padding: '9px 14px', borderRadius: '10px', border: '2px solid #a78bfa', background: 'transparent', color: '#a78bfa', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                {trAny('quiz')}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
+              <button onClick={() => setShowChat(true)}
+                style={{ padding: '8px 14px', borderRadius: '8px', border: `2px solid ${tema.color}`, background: 'transparent', color: tema.color, fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                💬 Chat
               </button>
-            )}
-            <button onClick={analizar} disabled={analizando}
-              style={{ padding: '9px 16px', borderRadius: '10px', border: 'none', background: analizando ? 'var(--bg-card2)' : 'var(--gold)', color: analizando ? 'var(--text-faint)' : '#000', fontSize: '12px', fontWeight: 800, cursor: analizando ? 'not-allowed' : 'pointer', minWidth: '130px' }}>
-              {analizando ? '⏳ ...' : analisisLocal ? '🔄 ' + trAny('reAnalizar') : esImagen ? '🔍 ' + (idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen') : '🔍 ' + trAny('analizar')}
-            </button>
+              <button onClick={analizar} disabled={analizando}
+                style={{ padding: '9px 16px', borderRadius: '10px', border: 'none', background: analizando ? 'var(--bg-card2)' : 'var(--gold)', color: analizando ? 'var(--text-faint)' : '#000', fontSize: '12px', fontWeight: 800, cursor: analizando ? 'not-allowed' : 'pointer', minWidth: '130px' }}>
+                {analizando ? '⏳ ...' : analisisLocal ? '🔄 ' + trAny('reAnalizar') : esImagen ? '🔍 ' + (idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen') : '🔍 ' + trAny('analizar')}
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Banner cargando */}
         {analizando && <BannerCargando pasoActual={pasoActual} temaColor={tema.color} esImagen={esImagen} idioma={idioma} />}
 
-        {/* Tabs */}
+        {/* ── TABS ── */}
         <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', marginBottom: '24px', overflowX: 'auto' }}>
           {[
-            { id: 'leer', label: esImagen ? `🖼️ ${idioma === 'en' ? 'Image' : 'Imagen'}` : `📖 ${documento.archivoUrl || docBase64 ? trAny('verDocumento') : trAny('leerTexto')}` },
-            { id: 'analisis', label: `🔍 ${trAny('analisisAI')}${analisisLocal ? ' ✓' : ''}` },
+            {
+              id: 'leer',
+              label: esImagen
+                ? `🖼️ ${idioma === 'en' ? 'Image' : 'Imagen'}`
+                : `📖 ${documento.archivoUrl || docBase64 ? trAny('verDocumento') : trAny('leerTexto')}`,
+            },
+            { id: 'analisis',   label: `🔍 ${trAny('analisisAI')}${analisisLocal ? ' ✓' : ''}` },
             { id: 'flashcards', label: `🎴 ${trAny('flashcards')}${flashcards.length > 0 ? ` (${flashcards.length})` : ''}` },
+            { id: 'quiz',       label: `🤓 Quiz` },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id as any)}
-              style={{ padding: '12px 20px', border: 'none', background: 'transparent', borderBottom: tab === t.id ? `3px solid ${tema.color}` : '3px solid transparent', color: tab === t.id ? tema.color : 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer', marginBottom: '-2px', whiteSpace: 'nowrap' }}>
+              style={{
+                padding: '12px 20px',
+                border: 'none',
+                background: 'transparent',
+                borderBottom: tab === t.id ? `3px solid ${t.id === 'quiz' ? '#a78bfa' : tema.color}` : '3px solid transparent',
+                color: tab === t.id ? (t.id === 'quiz' ? '#a78bfa' : tema.color) : 'var(--text-muted)',
+                fontSize: '14px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                marginBottom: '-2px',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.2s',
+              }}>
               {t.label}
             </button>
           ))}
@@ -390,10 +384,23 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
             onNext={() => { setFlipped(false); setCurrentCard((currentCard + 1) % flashcards.length); }}
             onSetCard={(i) => { setCurrentCard(i); setFlipped(false); }}
             onSetAddCount={setAddCount} onAddMore={addMore} onAnalizar={analizar}
-            onEstudio={() => setShowEstudio(true)} onQuiz={() => setShowQuiz(true)}
+            onEstudio={() => setShowEstudio(true)} onQuiz={() => setTab('quiz')}
             onEditor={() => setShowEditor(true)} onGuardar={() => { setShowGuardarDeck(true); setDeckGuardado(false); }}
           />
         )}
+
+        {/* TAB QUIZ */}
+        {tab === 'quiz' && (
+          <TabQuiz
+            contenido={documento.contenido}
+            temaColor={tema.color}
+            materiaNombre={materia.nombre}
+            materiaColor={materia.color}
+            idioma={idioma}
+            esImagen={esImagen}
+          />
+        )}
+
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const KEY_QUIZZES = 'josea_quizzes_guardados';
 const KEY_DECKS = 'josea_flashcard_decks';
+const KEY_QUIZ_TEMP = 'josea_quizzes_temp';
 
 const isBrowser = () => typeof window !== 'undefined';
 const genId = () => Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
@@ -18,10 +19,13 @@ const getUserId = async (): Promise<string | null> => {
   } catch { return null; }
 };
 
+export type NivelQuiz = 'facil' | 'intermedio' | 'dificil';
+
 export interface QuizGuardado {
   id: string;
   nombre: string;
   fechaCreacion: string;
+  nivel?: NivelQuiz;
   preguntas: {
     pregunta: string;
     opciones: string[];
@@ -30,6 +34,9 @@ export interface QuizGuardado {
   }[];
   materiaNombre?: string;
   materiaColor?: string;
+  expiraEn?: number;
+  enDeck?: boolean;
+  esTemporal?: boolean;
 }
 
 export interface FlashcardDeck {
@@ -41,8 +48,6 @@ export interface FlashcardDeck {
   materiaColor?: string;
   temaColor?: string;
 }
-
-// ===== QUIZZES =====
 
 export const getQuizzesGuardados = (): QuizGuardado[] => {
   if (!isBrowser()) return [];
@@ -62,11 +67,11 @@ export const guardarQuiz = async (quiz: Omit<QuizGuardado, 'id' | 'fechaCreacion
     ...quiz,
     id: genId(),
     fechaCreacion: new Date().toLocaleDateString('es-ES'),
+    esTemporal: false,
+    expiraEn: undefined,
   };
-  // Guardar local
   saveQuizzesGuardados([...getQuizzesGuardados(), nuevo]);
 
-  // Sync Supabase
   const userId = await getUserId();
   if (userId) {
     try {
@@ -76,6 +81,7 @@ export const guardarQuiz = async (quiz: Omit<QuizGuardado, 'id' | 'fechaCreacion
         nombre: nuevo.nombre,
         fecha_creacion: nuevo.fechaCreacion,
         preguntas: nuevo.preguntas,
+        nivel: nuevo.nivel || 'intermedio',
         materia_nombre: nuevo.materiaNombre,
         materia_color: nuevo.materiaColor,
         updated_at: new Date().toISOString(),
@@ -87,7 +93,6 @@ export const guardarQuiz = async (quiz: Omit<QuizGuardado, 'id' | 'fechaCreacion
 
 export const eliminarQuizGuardado = async (id: string) => {
   saveQuizzesGuardados(getQuizzesGuardados().filter(q => q.id !== id));
-
   const userId = await getUserId();
   if (userId) {
     try {
@@ -112,6 +117,7 @@ export const cargarQuizzesDesdeDB = async (): Promise<QuizGuardado[]> => {
         id: r.id,
         nombre: r.nombre,
         fechaCreacion: r.fecha_creacion,
+        nivel: r.nivel || 'intermedio',
         preguntas: r.preguntas || [],
         materiaNombre: r.materia_nombre,
         materiaColor: r.materia_color,
@@ -123,7 +129,59 @@ export const cargarQuizzesDesdeDB = async (): Promise<QuizGuardado[]> => {
   return getQuizzesGuardados();
 };
 
-// ===== FLASHCARD DECKS =====
+export const getQuizzesTemporales = (): QuizGuardado[] => {
+  if (!isBrowser()) return [];
+  try {
+    const data = localStorage.getItem(KEY_QUIZ_TEMP);
+    const todos: QuizGuardado[] = data ? JSON.parse(data) : [];
+    const ahora = Date.now();
+    const vigentes = todos.filter(q => q.expiraEn && q.expiraEn > ahora && !q.enDeck);
+    if (vigentes.length !== todos.length) {
+      localStorage.setItem(KEY_QUIZ_TEMP, JSON.stringify(vigentes));
+    }
+    return vigentes;
+  } catch { return []; }
+};
+
+export const guardarQuizTemporal = (quiz: Omit<QuizGuardado, 'id' | 'fechaCreacion'>): QuizGuardado => {
+  const nuevo: QuizGuardado = {
+    ...quiz,
+    id: genId(),
+    fechaCreacion: new Date().toLocaleDateString('es-ES'),
+    expiraEn: Date.now() + 24 * 60 * 60 * 1000,
+    esTemporal: true,
+    enDeck: false,
+  };
+  const actuales = getQuizzesTemporales();
+  localStorage.setItem(KEY_QUIZ_TEMP, JSON.stringify([...actuales, nuevo]));
+  return nuevo;
+};
+
+export const pasarTemporalADeck = async (id: string, nombre: string): Promise<boolean> => {
+  const temporales = getQuizzesTemporales();
+  const quiz = temporales.find(q => q.id === id);
+  if (!quiz) return false;
+  // Eliminar de temporales directamente
+  const sinEste = temporales.filter(q => q.id !== id);
+  localStorage.setItem(KEY_QUIZ_TEMP, JSON.stringify(sinEste));
+  // Guardar en permanentes
+  await guardarQuiz({ ...quiz, nombre, esTemporal: false });
+  return true;
+};
+
+export const eliminarQuizTemporal = (id: string) => {
+  const actuales = getQuizzesTemporales();
+  localStorage.setItem(KEY_QUIZ_TEMP, JSON.stringify(actuales.filter(q => q.id !== id)));
+};
+
+export const getTiempoRestante = (expiraEn: number): string => {
+  const diff = expiraEn - Date.now();
+  if (diff <= 0) return 'Expirado';
+  const horas = Math.floor(diff / (1000 * 60 * 60));
+  const minutos = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  if (horas > 0) return `${horas}h ${minutos}m`;
+  return `${minutos}m`;
+};
 
 export const getFlashcardDecks = (): FlashcardDeck[] => {
   if (!isBrowser()) return [];
@@ -144,10 +202,8 @@ export const guardarDeck = async (deck: Omit<FlashcardDeck, 'id' | 'fechaCreacio
     id: genId(),
     fechaCreacion: new Date().toLocaleDateString('es-ES'),
   };
-  // Guardar local
   saveFlashcardDecks([...getFlashcardDecks(), nuevo]);
 
-  // Sync Supabase
   const userId = await getUserId();
   if (userId) {
     try {
@@ -184,7 +240,6 @@ export const actualizarDeck = async (id: string, changes: Partial<FlashcardDeck>
 
 export const eliminarDeck = async (id: string) => {
   saveFlashcardDecks(getFlashcardDecks().filter(d => d.id !== id));
-
   const userId = await getUserId();
   if (userId) {
     try {
