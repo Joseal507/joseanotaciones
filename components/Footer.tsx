@@ -144,7 +144,7 @@ export default function Footer() {
                 <button onClick={() => setShowSugerencia(true)} style={{ display: 'block', fontSize: '13px', color: 'var(--gold)', background: 'none', border: 'none', padding: 0, margin: '0 0 6px', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}>
                   💡 {idioma === 'en' ? 'Suggestion Box' : 'Buzón de sugerencias'}
                 </button>
-                <a href="mailto:jose.alberto.deobaldia@gmail.com" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', textDecoration: 'none', margin: '0 0 6px', fontWeight: 600 }}>
+                <a href="mailto:studyal496@gmail.com" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', textDecoration: 'none', margin: '0 0 6px', fontWeight: 600 }}>
                   📧 {idioma === 'en' ? 'Contact' : 'Contacto'}
                 </a>
                 <a href="/settings" style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', textDecoration: 'none', margin: '0 0 6px', fontWeight: 600 }}>

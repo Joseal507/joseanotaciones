@@ -46,7 +46,7 @@ export default function LegalPage() {
             <h3 style={{ color: 'var(--text-primary)', marginTop: '20px' }}>4. Uso aceptable</h3>
             <p>No uses la plataforma para actividades ilegales, spam, o compartir contenido inapropiado. Nos reservamos el derecho de suspender cuentas que violen estos términos.</p>
             <h3 style={{ color: 'var(--text-primary)', marginTop: '20px' }}>5. Contacto</h3>
-            <p>Para preguntas sobre estos términos: <a href="mailto:jose.alberto.deobaldia@gmail.com" style={{ color: 'var(--gold)' }}>jose.alberto.deobaldia@gmail.com</a></p>
+            <p>Para preguntas sobre estos términos: <a href="mailto:studyal496@gmail.com" style={{ color: 'var(--gold)' }}>studyal496@gmail.com</a></p>
           </>}
 
           {tab === 'privacy' && <>
@@ -70,7 +70,7 @@ export default function LegalPage() {
             <h3 style={{ color: 'var(--text-primary)', marginTop: '20px' }}>Tus derechos</h3>
             <p>Puedes solicitar la eliminación de tu cuenta y datos en cualquier momento desde Configuración o contactándonos.</p>
             <h3 style={{ color: 'var(--text-primary)', marginTop: '20px' }}>Contacto</h3>
-            <p><a href="mailto:jose.alberto.deobaldia@gmail.com" style={{ color: 'var(--gold)' }}>jose.alberto.deobaldia@gmail.com</a></p>
+            <p><a href="mailto:studyal496@gmail.com" style={{ color: 'var(--gold)' }}>studyal496@gmail.com</a></p>
           </>}
 
           {tab === 'cookies' && <>
