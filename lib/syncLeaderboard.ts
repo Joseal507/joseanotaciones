@@ -2,7 +2,6 @@ import { supabase } from './supabase';
 import { getPerfil } from './storage';
 import { verificarRacha } from './racha';
 import { savePerfilDB } from './db';
-import { calcularXpFlashcards, calcularXpDiario } from './xpSystem';
 import { getObjetivos } from './agenda';
 
 export const syncLeaderboard = async () => {
@@ -40,18 +39,17 @@ export const syncLeaderboard = async () => {
     const totalQuizPuntuacion = Object.values(perfil.materiasStats || {})
       .reduce((acc: number, m: any) => acc + (m.quizPuntuacion || 0), 0);
 
-    // ── XP por fuente ───────────────────────────────────────
-    const { total: xpFlashcards } = calcularXpFlashcards({
-      tarjetasRevisadas: totalEstudiadas,
-      correctas: totalAcertadas,
-    });
+    // ── XP por fuente (cálculo directo, sin xpSystem) ───────
+    const xpFlashcards = (Math.min(totalEstudiadas, 50) * 2) +
+      (Math.max(0, totalEstudiadas - 50) * 1) +
+      (totalEstudiadas > 0 && Math.round((totalAcertadas / totalEstudiadas) * 100) >= 85 ? 10 : 0);
 
     const xpQuizzes = (totalQuizzes * 35) + Math.round(totalQuizPuntuacion * 0.5);
 
-    const { total: xpDiario } = calcularXpDiario({
-      login: true,
-      rachaActual: racha.rachaActual,
-    });
+    const xpDiario = 10 +
+      (racha.rachaActual >= 30 ? 150 :
+       racha.rachaActual >= 7  ? 50  :
+       racha.rachaActual >= 3  ? 20  : 0);
 
     // ── XP de objetivos completados ─────────────────────────
     const objetivos = getObjetivos();
@@ -62,7 +60,7 @@ export const syncLeaderboard = async () => {
     const xpCalculado = xpFlashcards + xpQuizzes + xpDiario + xpObjetivos;
 
     // ── Nunca bajar el XP que ya está en Supabase ───────────
-    let xpFinal        = xpCalculado;
+    let xpFinal         = xpCalculado;
     let flashcardsFinal = totalEstudiadas;
     let mejorRachaFinal = racha.mejorRacha;
 
@@ -73,9 +71,9 @@ export const syncLeaderboard = async () => {
         .eq('user_id', session.user.id)
         .single();
       if (current) {
-        if (current.xp_total            > xpCalculado)    xpFinal         = current.xp_total;
+        if (current.xp_total             > xpCalculado)     xpFinal         = current.xp_total;
         if (current.flashcards_estudiadas > totalEstudiadas) flashcardsFinal = current.flashcards_estudiadas;
-        if (current.mejor_racha          > racha.mejorRacha) mejorRachaFinal = current.mejor_racha;
+        if (current.mejor_racha           > racha.mejorRacha) mejorRachaFinal = current.mejor_racha;
       }
     } catch {}
 
