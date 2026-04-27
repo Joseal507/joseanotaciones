@@ -187,3 +187,4 @@ export default function TabFlashcards({ flashcards, currentCard, flipped, addCou
     </div>
   );
 }
+// ─── Wrapper con boton publicar ───────────────────────────────────────────────

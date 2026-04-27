@@ -319,8 +319,21 @@ export default function VisorDocumento({
         .react-pdf__Page__canvas { display: block !important; border-radius: 4px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
         .react-pdf__Page__textContent { position: absolute !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; }
         .react-pdf__Page__textContent span { color: transparent !important; }
-        .react-pdf__Page__textContent .hl-phrase { background: ${temaColor} !important; color: transparent !important; opacity: 0.5; mix-blend-mode: multiply; border-radius: 2px; }
-        .react-pdf__Page__textContent .hl-keyword { background: #38bdf8 !important; color: transparent !important; opacity: 0.5; mix-blend-mode: multiply; border-radius: 2px; }
+        .react-pdf__Page__textContent .hl-phrase,
+        .react-pdf__Page__textContent .hl-keyword {
+          color: transparent !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          line-height: 1 !important;
+          display: inline !important;
+          position: relative !important;
+          top: -1px !important;
+          box-decoration-break: clone;
+          -webkit-box-decoration-break: clone;
+          border-radius: 2px;
+        }
+        .react-pdf__Page__textContent .hl-phrase { background: ${temaColor} !important; opacity: 0.5; mix-blend-mode: multiply; }
+        .react-pdf__Page__textContent .hl-keyword { background: #38bdf8 !important; opacity: 0.5; mix-blend-mode: multiply; }
       `}</style>
     </div>
   );

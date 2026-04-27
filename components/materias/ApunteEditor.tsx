@@ -13,6 +13,7 @@ import PaginaEditor from './PaginaEditor';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import PeterSauPeter from '../editor/PeterSauPeter';
 import { usePinchZoom } from '../../hooks/usePinchZoom';
+import PublicarComunidad from '../PublicarComunidad';
 import { useGuardar } from '../../hooks/useGuardar';
 
 interface Props {
@@ -31,6 +32,7 @@ export default function ApunteEditor({
 }: Props) {
   const [paginas, setPaginas] = useState<Pagina[]>(() => parsePaginas(apunte.contenido));
   const [guardando, setGuardando] = useState(false);
+  const [showPublicarComunidad, setShowPublicarComunidad] = useState(false);
   const [guardado, setGuardado] = useState(true);
   const [herramienta, setHerramienta] = useState<Herramienta>('texto');
   const [brushColor, setBrushColor] = useState('#000000');
@@ -149,6 +151,36 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
       paperSize: pg.paperSize || undefined,
     }));
   }, []);
+
+  const construirContenidoParaComunidad = useCallback(() => {
+    try {
+      const paginasActuales = getPaginasParaGuardar();
+      const texto = (paginasActuales || [])
+        .flatMap((pg: any) =>
+          (pg?.bloques || []).map((b: any) => {
+            const html = typeof b?.html === 'string'
+              ? b.html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ')
+              : '';
+            return (b?.texto || b?.contenido || b?.text || html || '').toString().trim();
+          })
+        )
+        .filter(Boolean)
+        .join('\n\n');
+
+      return {
+        texto,
+        contenido: JSON.stringify({
+          paginas: paginasActuales,
+          paperConfig: { paperStyle, paperColor, paperSize },
+        }),
+      };
+    } catch {
+      return {
+        texto: '',
+        contenido: apunte.contenido || '',
+      };
+    }
+  }, [getPaginasParaGuardar, paperStyle, paperColor, paperSize, apunte.contenido]);
 
   const guardarConConfig = useCallback((contenidoFinal: string) => {
     try {
@@ -501,6 +533,20 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
         fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
       }}>
 
+        {showPublicarComunidad && (
+          <PublicarComunidad
+            tipo="apunte"
+            titulo={apunte.titulo}
+            descripcionInicial={`${materia.nombre} / ${tema.nombre}`}
+            contenido={construirContenidoParaComunidad()}
+            materiaColor={materia.color}
+            materiaEmoji={materia.emoji}
+            materiaNombre={materia.nombre}
+            onClose={() => setShowPublicarComunidad(false)}
+            onPublicado={() => setShowPublicarComunidad(false)}
+          />
+        )}
+
         {/* ═══ TOP BAR ═══ */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -592,7 +638,29 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
             >
               ↷
             </button>
-            <ExportMenu bloques={todosLosBloques} paginas={paginas} titulo={apunte.titulo} temaColor={tema.color} paperColor={paperColor} textRefs={textRefs} htmlCache={htmlCache} canvasExporters={canvasExporters} />
+            {/* Acciones derecha */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                onClick={() => setShowPublicarComunidad(true)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '10px',
+                  border: '1px solid #34d39955',
+                  background: 'rgba(52,211,153,0.12)',
+                  color: '#34d399',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                🌍 Publicar
+              </button>
+              <ExportMenu bloques={todosLosBloques} paginas={paginas} titulo={apunte.titulo} temaColor={tema.color} paperColor={paperColor} textRefs={textRefs} htmlCache={htmlCache} canvasExporters={canvasExporters} />
+            </div>
             <button onClick={guardar} style={{
               padding: isMobile ? '6px 10px' : '6px 14px', borderRadius: '8px', border: 'none',
               background: '#f5c842', color: '#000', fontSize: '11px', fontWeight: 800, cursor: 'pointer',

@@ -38,6 +38,35 @@ const dedupeFlashcards = (cards: any[], existingQuestions: string[] = []) => {
   return unique;
 };
 
+const SYSTEM_PROMPT = (count: number, chunkIdx: number, totalChunks: number, lang: string, existingPreview: string) =>
+  lang === 'en'
+    ? `Act as an expert in pedagogy, active learning and advanced study material design. Create exactly ${count} flashcards from text fragment ${chunkIdx + 1} of ${totalChunks}.
+
+RULES:
+- Cover 100% of the relevant information in this fragment
+- Each flashcard: clear focused question + complete but concise answer
+- Use different question types: conceptual, explanatory, procedural, comparative, applied
+- Avoid redundancy but split complex topics into multiple cards
+- Clear, precise, academic but understandable language
+- Do NOT repeat or paraphrase existing questions
+
+Return ONLY a JSON array, no extra text:
+[{"question":"...","answer":"..."}]
+${existingPreview ? '\nEXISTING QUESTIONS TO AVOID:\n' + existingPreview : ''}`
+    : `Actua como experto en pedagogia, aprendizaje activo y diseno de material de estudio. Crea exactamente ${count} flashcards del fragmento ${chunkIdx + 1} de ${totalChunks}.
+
+REGLAS:
+- Cubre el 100% de la informacion relevante de este fragmento
+- Cada flashcard: pregunta clara y enfocada + respuesta completa pero concisa
+- Usa diferentes tipos de preguntas: conceptuales, explicativas, procedimentales, comparativas, aplicadas
+- Evita redundancia pero divide temas complejos en multiples tarjetas
+- Lenguaje claro, preciso, academico pero entendible
+- NO repitas ni parafrasees preguntas existentes
+
+Devuelve SOLO un array JSON, sin texto extra:
+[{"question":"...","answer":"..."}]
+${existingPreview ? '\nPREGUNTAS EXISTENTES A EVITAR:\n' + existingPreview : ''}`;
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -49,6 +78,7 @@ export async function POST(request: NextRequest) {
     const existing = Array.isArray(existingQuestions) ? existingQuestions.filter(Boolean) : [];
     const isAddingMore = existing.length > 0;
 
+    // ── CACHÉ solo si no estamos añadiendo más ──
     if (!isAddingMore) {
       const cache = await getCachedContent(content);
       if (cache && cache.flashcards) {
@@ -60,15 +90,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const flashcardCount = count || await groqRequest(async (client, model) => {
+    // ── CALCULAR CUÁNTAS FLASHCARDS NECESITA LA IA ──
+    const totalPosible = await groqRequest(async (client, model) => {
       const r = await client.chat.completions.create({
         model: model('llama-3.3-70b-versatile'),
         messages: [
           {
             role: 'system',
             content: lang === 'en'
-              ? 'You are an expert educator. Read the text and count EVERY distinct concept, fact, definition, formula, date, name, process or idea that deserves its own flashcard. Be generous, do not group concepts. Respond ONLY with JSON: {"count": number}'
-              : 'Eres un educador experto. Lee el texto y cuenta CADA concepto distinto, hecho, definicion, formula, fecha, nombre, proceso o idea que merece su propia flashcard. Se generoso, no agrupes conceptos. Responde SOLO con JSON: {"count": number}',
+              ? 'You are an expert educator. Read the text and count EVERY distinct concept, term, definition, formula, rule, process or fact that deserves its own flashcard. Be generous. Respond ONLY with JSON: {"count": number}'
+              : 'Eres un educador experto. Lee el texto y cuenta CADA concepto distinto, termino, definicion, formula, regla, proceso o dato que merece su propia flashcard. Se generoso. Responde SOLO con JSON: {"count": number}',
           },
           { role: 'user', content: content.substring(0, 8000) },
         ],
@@ -85,18 +116,35 @@ export async function POST(request: NextRequest) {
     });
 
     if (getRecommendation) {
-      return NextResponse.json({ success: true, recommended: flashcardCount });
+      return NextResponse.json({ success: true, recommended: totalPosible });
     }
 
+    // ── SI ESTAMOS AÑADIENDO MÁS: verificar si ya cubrimos el 100% ──
+    if (isAddingMore) {
+      const margenAgotado = Math.floor(totalPosible * 0.9);
+      if (existing.length >= margenAgotado) {
+        console.log(`📊 Documento agotado: ${existing.length} existentes vs ${totalPosible} posibles`);
+        return NextResponse.json({
+          success: false,
+          exhausted: true,
+          message: lang === 'en'
+            ? `The document has been analyzed 100%. You already have ${existing.length} flashcards covering all the content.`
+            : `El documento ya fue analizado al 100%. Ya tienes ${existing.length} flashcards cubriendo todo el contenido.`,
+        });
+      }
+    }
+
+    const flashcardCount = count || totalPosible;
     console.log(`📚 Generando ${flashcardCount} flashcards${isAddingMore ? ' (sin repetir)' : ''}`);
 
+    // ── DIVIDIR EN CHUNKS ──
     const chunkSize = 3000;
     const chunks: string[] = [];
     for (let i = 0; i < content.length; i += chunkSize) {
       chunks.push(content.substring(i, i + chunkSize));
     }
 
-    const flashcardsPerChunk = Math.ceil(flashcardCount / chunks.length) + (isAddingMore ? 3 : 0);
+    const flashcardsPerChunk = Math.ceil(flashcardCount / chunks.length) + (isAddingMore ? 5 : 0);
 
     const existingPreview = existing
       .slice(0, 100)
@@ -113,14 +161,12 @@ export async function POST(request: NextRequest) {
             messages: [
               {
                 role: 'system',
-                content: lang === 'en'
-                  ? `You are an expert flashcard creator. Create exactly ${flashcardsPerChunk} flashcards from this text fragment (${idx + 1} of ${chunks.length}). Cover ALL important concepts. Do NOT repeat any existing question. Return ONLY a JSON array: [{"question":"...","answer":"..."}]. No extra text.${existingPreview ? '\n\nEXISTING QUESTIONS TO AVOID:\n' + existingPreview : ''}`
-                  : `Eres un experto creador de flashcards. Crea exactamente ${flashcardsPerChunk} flashcards de este fragmento (${idx + 1} de ${chunks.length}). Cubre TODOS los conceptos importantes. NO repitas preguntas existentes. Devuelve SOLO un array JSON: [{"question":"...","answer":"..."}]. Sin texto extra.${existingPreview ? '\n\nPREGUNTAS EXISTENTES A EVITAR:\n' + existingPreview : ''}`,
+                content: SYSTEM_PROMPT(flashcardsPerChunk, idx, chunks.length, lang, existingPreview),
               },
               { role: 'user', content: chunks[idx] },
             ],
             temperature: 0.4,
-            max_tokens: 3000,
+            max_tokens: 4000,
           });
           return r.choices[0]?.message?.content || '';
         });
@@ -134,46 +180,20 @@ export async function POST(request: NextRequest) {
 
     let flashcards = dedupeFlashcards(rawFlashcards, existing).slice(0, flashcardCount);
 
-    if (isAddingMore && flashcards.length < flashcardCount) {
-      const faltan = flashcardCount - flashcards.length;
-      const prohibidas = [...existing, ...flashcards.map(f => f.question)]
-        .slice(0, 150)
-        .map((q, i) => `${i + 1}. ${q}`)
-        .join('\n');
-
-      try {
-        const extraText = await groqRequest(async (client, model) => {
-          const r = await client.chat.completions.create({
-            model: model('llama-3.3-70b-versatile'),
-            messages: [
-              {
-                role: 'system',
-                content: lang === 'en'
-                  ? `Create ${faltan + 5} NEW unique flashcards. Do NOT repeat any forbidden question. Return ONLY JSON array: [{"question":"...","answer":"..."}]\n\nFORBIDDEN:\n${prohibidas}`
-                  : `Crea ${faltan + 5} flashcards NUEVAS y unicas. NO repitas ninguna pregunta prohibida. Devuelve SOLO un array JSON: [{"question":"...","answer":"..."}]\n\nPROHIBIDAS:\n${prohibidas}`,
-              },
-              { role: 'user', content: content.substring(0, 9000) },
-            ],
-            temperature: 0.5,
-            max_tokens: 3000,
-          });
-          return r.choices[0]?.message?.content || '';
-        });
-
-        const extraCards = parseJSON(extraText);
-        flashcards = dedupeFlashcards(
-          [...flashcards, ...extraCards],
-          existing
-        ).slice(0, flashcardCount);
-
-      } catch (e) {
-        console.error('Error segunda pasada:', e);
-      }
+    // ── Si no generó nuevas únicas → documento agotado ──
+    if (isAddingMore && flashcards.length === 0) {
+      return NextResponse.json({
+        success: false,
+        exhausted: true,
+        message: lang === 'en'
+          ? `The document has been analyzed 100%. You already have ${existing.length} flashcards covering all the content.`
+          : `El documento ya fue analizado al 100%. Ya tienes ${existing.length} flashcards cubriendo todo el contenido.`,
+      });
     }
 
     if (flashcards.length === 0) throw new Error('No se generaron flashcards');
 
-    console.log(`✅ Generadas ${flashcards.length} flashcards`);
+    console.log(`✅ Generadas ${flashcards.length} flashcards nuevas`);
 
     if (!isAddingMore) {
       await saveToCache(content, { flashcards });

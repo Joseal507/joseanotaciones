@@ -78,41 +78,7 @@ export default function ExportMenu({
         compCtx.fillStyle = bgFill;
         compCtx.fillRect(0, 0, elW, elH);
 
-        // 2) Fondo del papel (líneas / cuadrícula / puntos)
-        if (html2canvasMod) {
-          try {
-            const paperLayer =
-              (el.querySelector(':scope > div[style*="z-index: 0"]') as HTMLElement | null) ||
-              (el.firstElementChild as HTMLElement | null);
-
-            if (paperLayer) {
-              const paperCanvas = await html2canvasMod(paperLayer, {
-                scale: scale,
-                useCORS: true,
-                allowTaint: true,
-                backgroundColor: null,
-                logging: false,
-                width: elW,
-                height: elH,
-                x: 0,
-                y: 0,
-                scrollX: 0,
-                scrollY: 0,
-                ignoreElements: (element: Element) => {
-                  if (element.tagName === 'BUTTON') return true;
-                  if (element.tagName === 'STYLE') return true;
-                  return false;
-                },
-              });
-
-              compCtx.drawImage(paperCanvas, 0, 0, elW, elH);
-            }
-          } catch (err) {
-            console.warn('Error capturando fondo de papel:', err);
-          }
-        }
-
-        // 3) Fondo imagen/PDF si existe
+        // 2) Fondo imagen/PDF si existe
         if (bgImage) {
           try {
             const bgImg = await loadImage(bgImage);
@@ -136,7 +102,7 @@ export default function ExportMenu({
           } catch {}
         }
 
-        // 4) Canvas de dibujo (strokes)
+        // 3) Canvas de dibujo (strokes)
         if (canvasData) {
           try {
             const strokeImg = await loadImage(canvasData);
@@ -144,7 +110,7 @@ export default function ExportMenu({
           } catch {}
         }
 
-        // 5) Capturar bloques de texto/imágenes con html2canvas
+        // 4) Capturar bloques de texto/imágenes con html2canvas
         if (html2canvasMod) {
           // Buscar el div de bloques (zIndex 10)
           const blockLayer = el.querySelector('[style*="z-index: 10"], [style*="zIndex"]') as HTMLElement;

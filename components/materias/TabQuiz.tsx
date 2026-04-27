@@ -19,6 +19,7 @@ interface Props {
   materiaColor?: string;
   idioma: string;
   esImagen?: boolean;
+  onQuizGenerado?: (preguntas: PreguntaQuiz[]) => void;
 }
 
 const NIVELES: { id: NivelQuiz; emoji: string; label: string; desc: string; color: string; presets: number[] }[] = [
@@ -27,7 +28,7 @@ const NIVELES: { id: NivelQuiz; emoji: string; label: string; desc: string; colo
   { id: 'dificil',    emoji: '🔴', label: 'Difícil',    desc: 'Análisis y casos especiales', color: '#ff4d6d', presets: [5, 10, 20, 35, 50] },
 ];
 
-export default function TabQuiz({ contenido, temaColor, materiaNombre, materiaColor, idioma, esImagen }: Props) {
+export default function TabQuiz({ contenido, temaColor, materiaNombre, materiaColor, idioma, esImagen, onQuizGenerado }: Props) {
   // ── config ──────────────────────────────────────────────────────────────────
   const [fase, setFase] = useState<'config' | 'jugando' | 'fin'>('config');
   const [nivel, setNivel] = useState<NivelQuiz>('intermedio');
@@ -65,6 +66,7 @@ export default function TabQuiz({ contenido, temaColor, materiaNombre, materiaCo
       });
       const data = await res.json();
       if (data.success && data.quiz.length > 0) {
+        onQuizGenerado?.(data.quiz);
         setPreguntas(data.quiz);
         setIdx(0); setSeleccionada(null); setRespondida(false);
         setPuntos(0); setResultados([]);

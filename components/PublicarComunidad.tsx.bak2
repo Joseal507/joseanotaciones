@@ -1,0 +1,812 @@
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import { supabase } from '../lib/supabase';
+import { getMaterias, Materia, Tema, Documento, Apunte } from '../lib/storage';
+import { getQuizzesGuardados, getFlashcardDecks, getQuizzesTemporales, QuizGuardado, FlashcardDeck } from '../lib/quizStorage';
+
+interface Props {
+  tipo?: 'apunte' | 'flashcards' | 'quiz' | 'post';
+  titulo?: string;
+  descripcionInicial?: string;
+  contenido?: any;
+  materiaColor?: string;
+  materiaEmoji?: string;
+  materiaNombre?: string;
+  onClose: () => void;
+  onPublicado?: (postId: string) => void;
+}
+
+const TIPO_INFO = {
+  apunte:     { emoji: '📝', label: 'Apunte',     color: '#f5c842' },
+  flashcards: { emoji: '🎴', label: 'Flashcards', color: '#a78bfa' },
+  quiz:       { emoji: '🧠', label: 'Quiz',       color: '#34d399' },
+  post:       { emoji: '💬', label: 'Post',       color: '#38bdf8' },
+};
+
+type Paso = 'tipo' | 'origen' | 'explorar' | 'decks' | 'quizzes' | 'detalles' | 'publicando' | 'exito';
+// origen = ¿de dónde viene? (mis materias / mis decks / mis quizzes / post libre)
+// explorar = navegador materia→tema→contenido
+
+export default function PublicarComunidad({
+  tipo: tipoProp,
+  titulo: tituloProp = '',
+  descripcionInicial = '',
+  contenido: contenidoProp,
+  materiaColor: materiaColorProp,
+  materiaEmoji: materiaEmojiProp,
+  materiaNombre: materiaNombreProp,
+  onClose,
+  onPublicado,
+}: Props) {
+
+  const [paso, setPaso]   = useState<Paso>(tipoProp ? (contenidoProp ? 'detalles' : 'origen') : 'tipo');
+  const [tipo, setTipo]   = useState<'apunte' | 'flashcards' | 'quiz' | 'post'>(tipoProp || 'post');
+
+  // user
+  const [userId,     setUserId]     = useState('');
+  const [userNombre, setUserNombre] = useState('');
+  const [userAvatar, setUserAvatar] = useState('');
+
+  // materias completas desde DB
+  const [materias,        setMaterias]        = useState<Materia[]>([]);
+  const [materiasLoading, setMateriasLoading] = useState(false);
+
+  // navegación materia→tema→contenido
+  const [materiaNav, setMateriaNav] = useState<Materia | null>(null);
+  const [temaNav,    setTemaNav]    = useState<Tema | null>(null);
+
+  // contenido seleccionado
+  const [apunteSeleccionado,   setApunteSeleccionado]   = useState<Apunte | null>(null);
+  const [docSeleccionado,      setDocSeleccionado]      = useState<Documento | null>(null);
+  const [quizSeleccionado,     setQuizSeleccionado]     = useState<QuizGuardado | null>(null);
+  const [deckSeleccionado,     setDeckSeleccionado]     = useState<FlashcardDeck | null>(null);
+  const [quizzesGuardados,     setQuizzesGuardados]     = useState<QuizGuardado[]>([]);
+  const [quizzesTemporales,    setQuizzesTemporales]    = useState<QuizGuardado[]>([]);
+  const [decksGuardados,       setDecksGuardados]       = useState<FlashcardDeck[]>([]);
+
+  // materia asociada al post (para el tag)
+  const [materiaTag, setMateriaTag] = useState<Materia | null>(null);
+
+  // detalles
+  const [titulo,          setTitulo]          = useState(tituloProp);
+  const [descripcion,     setDescripcion]     = useState(descripcionInicial);
+  const [commentsActivos, setCommentsActivos] = useState(true);
+
+  // portada
+  const [portadaUrl,      setPortadaUrl]      = useState('');
+  const [portadaPreview,  setPortadaPreview]  = useState('');
+  const [subiendoPortada, setSubiendoPortada] = useState(false);
+  const [portadaError,    setPortadaError]    = useState('');
+  const portadaRef = useRef<HTMLInputElement>(null);
+
+  const [error, setError] = useState('');
+
+  const info = TIPO_INFO[tipo];
+
+  // ─── cargar datos ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      setUserId(user.id);
+      setUserNombre(user.user_metadata?.nombre || user.email?.split('@')[0] || 'Usuario');
+      setUserAvatar(user.user_metadata?.avatar_url || '');
+
+      // Materias: local primero, luego DB
+      setMateriasLoading(true);
+      const local = getMaterias();
+      if (local.length > 0) setMaterias(local);
+
+      try {
+        const session = (await supabase.auth.getSession()).data.session;
+        if (session) {
+          const res  = await fetch('/api/materias', { headers: { 'Authorization': `Bearer ${session.access_token}` } });
+          const data = await res.json();
+          if (data.success && data.materias?.length > 0) setMaterias(data.materias);
+        }
+      } catch {}
+      setMateriasLoading(false);
+
+      setQuizzesGuardados(getQuizzesGuardados());
+      setQuizzesTemporales(getQuizzesTemporales());
+      setDecksGuardados(getFlashcardDecks());
+    };
+    init();
+  }, []);
+
+  // ─── portada ──────────────────────────────────────────────────────────────
+  const handlePortadaFile = async (file: File) => {
+    setPortadaError('');
+    if (file.size > 5 * 1024 * 1024) { setPortadaError('Máximo 5MB'); return; }
+    if (!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type)) { setPortadaError('Solo JPG, PNG, WEBP o GIF'); return; }
+
+    const reader = new FileReader();
+    reader.onload = e => setPortadaPreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+
+    setSubiendoPortada(true);
+    try {
+      const ext  = file.name.split('.').pop() || 'jpg';
+      const path = `portadas/${userId}_${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('comunidad-portadas').upload(path, file, { contentType: file.type, upsert: true });
+      if (upErr) throw upErr;
+      const { data: { publicUrl } } = supabase.storage.from('comunidad-portadas').getPublicUrl(path);
+      setPortadaUrl(publicUrl);
+    } catch (e: any) {
+      setPortadaError('Error: ' + (e.message || 'intenta de nuevo'));
+      setPortadaPreview(''); setPortadaUrl('');
+    } finally { setSubiendoPortada(false); }
+  };
+
+  // ─── construir contenido ──────────────────────────────────────────────────
+  const construirContenido = () => {
+    if (contenidoProp) return contenidoProp;
+
+    // Desde explorador de materias
+    if (apunteSeleccionado) {
+      try {
+        const parsed = JSON.parse(apunteSeleccionado.contenido || '{}');
+
+        const defaultPaperStyle =
+          parsed?.paperStyle ??
+          (apunteSeleccionado as any)?.paperStyle ??
+          (apunteSeleccionado as any)?.paper_style ??
+          null;
+
+        const defaultPaperColor =
+          parsed?.paperColor ??
+          (apunteSeleccionado as any)?.paperColor ??
+          (apunteSeleccionado as any)?.paper_color ??
+          null;
+
+        const defaultPaperSize =
+          parsed?.paperSize ??
+          (apunteSeleccionado as any)?.paperSize ??
+          (apunteSeleccionado as any)?.paper_size ??
+          null;
+
+        const defaultBackgroundImage =
+          parsed?.backgroundImage ??
+          (apunteSeleccionado as any)?.backgroundImage ??
+          (apunteSeleccionado as any)?.background_image ??
+          null;
+
+        const paginasNormalizadas = Array.isArray(parsed?.paginas)
+          ? parsed.paginas.map((pg: any) => ({
+              ...pg,
+              paperStyle: pg?.paperStyle ?? defaultPaperStyle,
+              paperColor: pg?.paperColor ?? defaultPaperColor,
+              paperSize: pg?.paperSize ?? defaultPaperSize,
+              backgroundImage: pg?.backgroundImage ?? defaultBackgroundImage,
+            }))
+          : [];
+
+        const contenidoNormalizado =
+          paginasNormalizadas.length > 0
+            ? { ...parsed, paginas: paginasNormalizadas }
+            : parsed;
+
+        const texto = paginasNormalizadas
+          .flatMap((pg: any) =>
+            (pg?.bloques || []).map((b: any) =>
+              String(b?.texto || b?.html || '')
+                .replace(/<[^>]*>/g, ' ')
+                .replace(/&nbsp;/g, ' ')
+                .trim()
+            )
+          )
+          .filter(Boolean)
+          .join('\n\n');
+
+        return { texto, contenido: contenidoNormalizado };
+      } catch {
+        return { texto: '', contenido: apunteSeleccionado.contenido };
+      }
+    }
+    if (docSeleccionado) {
+      const fc = docSeleccionado.flashcards || [];
+      const qz = docSeleccionado.quiz       || [];
+      if (tipo === 'flashcards' && fc.length > 0) return { flashcards: fc };
+      if (tipo === 'quiz'       && qz.length > 0) return { quiz: qz };
+      return { flashcards: fc, quiz: qz };
+    }
+    if (quizSeleccionado)  return { quiz: quizSeleccionado.preguntas, quiz_id: quizSeleccionado.id, nombre: quizSeleccionado.nombre };
+    if (deckSeleccionado)  return { flashcards: deckSeleccionado.flashcards, deck_id: deckSeleccionado.id, nombre: deckSeleccionado.nombre };
+    return null;
+  };
+
+  const resumen = () => {
+    if (contenidoProp) {
+      if (tipo === 'flashcards') return `🎴 ${contenidoProp?.flashcards?.length || 0} flashcards`;
+      if (tipo === 'quiz')       return `🧠 ${contenidoProp?.quiz?.length || 0} preguntas`;
+      if (tipo === 'apunte')     return `📝 Apunte listo`;
+    }
+    if (apunteSeleccionado)  return `📝 "${apunteSeleccionado.titulo}"`;
+    if (docSeleccionado) {
+      const fc = docSeleccionado.flashcards?.length || 0;
+      const qz = docSeleccionado.quiz?.length       || 0;
+      if (tipo === 'flashcards') return `🎴 ${fc} flashcards de "${docSeleccionado.nombre}"`;
+      if (tipo === 'quiz')       return `🧠 ${qz} preguntas de "${docSeleccionado.nombre}"`;
+      return `📄 "${docSeleccionado.nombre}"`;
+    }
+    if (quizSeleccionado)  return `🧠 ${quizSeleccionado.preguntas.length} preguntas · "${quizSeleccionado.nombre}"`;
+    if (deckSeleccionado)  return `🎴 ${deckSeleccionado.flashcards.length} tarjetas · "${deckSeleccionado.nombre}"`;
+    return null;
+  };
+
+  // ─── publicar ─────────────────────────────────────────────────────────────
+  const publicar = async () => {
+    setError('');
+    if (!titulo.trim()) { setError('El título es obligatorio'); return; }
+    if (!userId)        { setError('Debes iniciar sesión'); return; }
+
+    const contenidoFinal = construirContenido();
+    if (tipo !== 'post' && !contenidoFinal) { setError('Selecciona contenido para publicar'); return; }
+
+    setPaso('publicando');
+    try {
+      const mat = materiaTag || materiaNav;
+      const body = {
+        user_id: userId, user_nombre: userNombre, user_avatar: userAvatar || null,
+        tipo, titulo: titulo.trim(), descripcion: descripcion.trim() || null,
+        portada_url:    portadaUrl || null,
+        contenido:      contenidoFinal,
+        materia_nombre: mat?.nombre  || materiaNombreProp  || null,
+        materia_color:  mat?.color   || materiaColorProp   || null,
+        materia_emoji:  mat?.emoji   || materiaEmojiProp   || null,
+        es_partner: false, comments_activos: commentsActivos,
+      };
+
+      const res  = await fetch('/api/comunidad/posts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || `Error ${res.status}`);
+      if (!data.post) throw new Error('Sin confirmación');
+
+      setPaso('exito');
+      setTimeout(() => { onPublicado?.(data.post.id); onClose(); }, 2500);
+    } catch (e: any) {
+      setError(e.message || 'Error desconocido');
+      setPaso('detalles');
+    }
+  };
+
+  // ─── helpers ──────────────────────────────────────────────────────────────
+  const hayContenido = () => {
+    if (tipo === 'post')   return true;
+    if (contenidoProp)     return true;
+    if (apunteSeleccionado || docSeleccionado || quizSeleccionado || deckSeleccionado) return true;
+    return false;
+  };
+
+  const limpiarSeleccion = () => {
+    setApunteSeleccionado(null);
+    setDocSeleccionado(null);
+    setQuizSeleccionado(null);
+    setDeckSeleccionado(null);
+    setMateriaNav(null);
+    setTemaNav(null);
+  };
+
+  const irADetalles = () => {
+    if (!titulo && apunteSeleccionado)  setTitulo(apunteSeleccionado.titulo);
+    if (!titulo && docSeleccionado)     setTitulo(docSeleccionado.nombre);
+    if (!titulo && quizSeleccionado)    setTitulo(quizSeleccionado.nombre);
+    if (!titulo && deckSeleccionado)    setTitulo(deckSeleccionado.nombre);
+    setPaso('detalles');
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════════════════
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', backdropFilter: 'blur(4px)' }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div style={{ background: 'var(--bg-card)', borderRadius: '24px', border: `2px solid ${info.color}44`, width: '100%', maxWidth: '580px', maxHeight: '92vh', overflow: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+
+        {/* ── ÉXITO ───────────────────────────────────────────────────────── */}
+        {paso === 'exito' && (
+          <div style={{ padding: '64px 32px', textAlign: 'center' }}>
+            <div style={{ fontSize: '72px', marginBottom: '20px' }}>🎉</div>
+            <h2 style={{ fontSize: '26px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 10px' }}>¡Publicado!</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '15px', margin: 0 }}>Ya está en la comunidad</p>
+            <button onClick={() => window.location.href = '/comunidad'} style={{ marginTop: '24px', padding: '12px 28px', borderRadius: '14px', border: 'none', background: info.color, color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>
+              Ver en Comunidad →
+            </button>
+          </div>
+        )}
+
+        {/* ── PUBLICANDO ──────────────────────────────────────────────────── */}
+        {paso === 'publicando' && (
+          <div style={{ padding: '64px 32px', textAlign: 'center' }}>
+            <div style={{ fontSize: '48px', marginBottom: '20px' }}>⏳</div>
+            <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Publicando...</h2>
+          </div>
+        )}
+
+        {/* ── WIZARD ──────────────────────────────────────────────────────── */}
+        {!['exito','publicando'].includes(paso) && (
+          <div>
+            {/* Header */}
+            <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: `${info.color}22`, border: `2px solid ${info.color}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>
+                  {info.emoji}
+                </div>
+                <div>
+                  <h2 style={{ fontSize: '16px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>Publicar en Comunidad</h2>
+                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
+                    {paso === 'tipo'     && 'Elige qué publicar'}
+                    {paso === 'origen'   && 'Elige el origen del contenido'}
+                    {paso === 'explorar' && (temaNav ? `${materiaNav?.emoji} ${materiaNav?.nombre} → ${temaNav.nombre}` : materiaNav ? `${materiaNav.emoji} ${materiaNav.nombre}` : 'Elige una materia')}
+                    {paso === 'decks'    && 'Tus flashcard decks'}
+                    {paso === 'quizzes'  && 'Tus quizzes guardados'}
+                    {paso === 'detalles' && 'Detalles del post'}
+                  </p>
+                </div>
+              </div>
+              <button onClick={onClose} style={{ width: '30px', height: '30px', borderRadius: '8px', background: 'var(--bg-secondary)', border: 'none', fontSize: '15px', cursor: 'pointer', color: 'var(--text-muted)' }}>✕</button>
+            </div>
+
+            <div style={{ padding: '20px 24px' }}>
+
+              {/* ── PASO 1: TIPO ──────────────────────────────────────────── */}
+              {paso === 'tipo' && (
+                <div>
+                  <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', margin: '0 0 14px', letterSpacing: '1px' }}>¿QUÉ VAS A PUBLICAR?</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    {(Object.entries(TIPO_INFO) as [string, any][]).map(([key, val]) => (
+                      <button key={key}
+                        onClick={() => { setTipo(key as any); limpiarSeleccion(); setPaso(key === 'post' ? 'detalles' : 'origen'); }}
+                        style={{ padding: '18px 14px', borderRadius: '16px', border: `2px solid var(--border-color)`, background: 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s' }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = val.color; (e.currentTarget as HTMLElement).style.background = `${val.color}12`; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
+                      >
+                        <div style={{ fontSize: '26px', marginBottom: '8px' }}>{val.emoji}</div>
+                        <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>{val.label}</div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          {key === 'post'       && 'Texto libre'}
+                          {key === 'apunte'     && 'Hoja de apuntes'}
+                          {key === 'flashcards' && 'Tarjetas de estudio'}
+                          {key === 'quiz'       && 'Preguntas y respuestas'}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── PASO 2: ORIGEN ────────────────────────────────────────── */}
+              {paso === 'origen' && (
+                <div>
+                  <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', margin: '0 0 14px', letterSpacing: '1px' }}>¿DE DÓNDE VIENE EL CONTENIDO?</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+
+                    {/* Desde materias */}
+                    <button
+                      onClick={() => { limpiarSeleccion(); setPaso('explorar'); }}
+                      style={{ padding: '18px 20px', borderRadius: '16px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '14px', transition: 'all 0.2s' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = info.color; (e.currentTarget as HTMLElement).style.background = `${info.color}10`; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
+                    >
+                      <div style={{ fontSize: '32px' }}>📚</div>
+                      <div>
+                        <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>Desde mis Materias</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          Navega tus materias → temas → {tipo === 'apunte' ? 'apuntes' : tipo === 'flashcards' ? 'flashcards' : tipo === 'quiz' ? 'quizzes' : 'contenido'}
+                        </div>
+                      </div>
+                      <div style={{ marginLeft: 'auto', fontSize: '18px', color: 'var(--text-muted)' }}>→</div>
+                    </button>
+
+                    {/* Desde decks guardados (solo flashcards) */}
+                    {tipo === 'flashcards' && (
+                      <button
+                        onClick={() => { limpiarSeleccion(); setPaso('decks'); }}
+                        style={{ padding: '18px 20px', borderRadius: '16px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '14px', transition: 'all 0.2s' }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#a78bfa'; (e.currentTarget as HTMLElement).style.background = '#a78bfa10'; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
+                      >
+                        <div style={{ fontSize: '32px' }}>🎴</div>
+                        <div>
+                          <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>Mis Decks Guardados</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>{decksGuardados.length} decks disponibles</div>
+                        </div>
+                        <div style={{ marginLeft: 'auto', fontSize: '18px', color: 'var(--text-muted)' }}>→</div>
+                      </button>
+                    )}
+
+                    {/* Desde quizzes guardados (solo quiz) */}
+                    {tipo === 'quiz' && (
+                      <button
+                        onClick={() => { limpiarSeleccion(); setPaso('quizzes'); }}
+                        style={{ padding: '18px 20px', borderRadius: '16px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '14px', transition: 'all 0.2s' }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#34d399'; (e.currentTarget as HTMLElement).style.background = '#34d39910'; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
+                      >
+                        <div style={{ fontSize: '32px' }}>🧠</div>
+                        <div>
+                          <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>Mis Quizzes Guardados</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            {quizzesGuardados.length + quizzesTemporales.length} quizzes disponibles
+                          </div>
+                        </div>
+                        <div style={{ marginLeft: 'auto', fontSize: '18px', color: 'var(--text-muted)' }}>→</div>
+                      </button>
+                    )}
+                  </div>
+
+                  <button onClick={() => setPaso('tipo')} style={{ marginTop: '16px', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', padding: '8px 0' }}>
+                    ← Atrás
+                  </button>
+                </div>
+              )}
+
+              {/* ── PASO 3: EXPLORAR MATERIAS ─────────────────────────────── */}
+              {paso === 'explorar' && (
+                <div>
+                  {/* Breadcrumb */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '16px', fontSize: '13px', flexWrap: 'wrap' }}>
+                    <button onClick={() => { setMateriaNav(null); setTemaNav(null); }} style={{ background: 'none', border: 'none', color: materiaNav ? info.color : 'var(--text-primary)', fontWeight: 700, cursor: 'pointer', padding: 0 }}>
+                      📚 Materias
+                    </button>
+                    {materiaNav && <>
+                      <span style={{ color: 'var(--text-faint)' }}>›</span>
+                      <button onClick={() => setTemaNav(null)} style={{ background: 'none', border: 'none', color: temaNav ? info.color : 'var(--text-primary)', fontWeight: 700, cursor: 'pointer', padding: 0 }}>
+                        {materiaNav.emoji} {materiaNav.nombre}
+                      </button>
+                    </>}
+                    {temaNav && <>
+                      <span style={{ color: 'var(--text-faint)' }}>›</span>
+                      <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{temaNav.nombre}</span>
+                    </>}
+                  </div>
+
+                  {/* Lista materias */}
+                  {!materiaNav && (
+                    materiasLoading ? (
+                      <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>⏳ Cargando materias...</div>
+                    ) : materias.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '40px' }}>
+                        <div style={{ fontSize: '40px', marginBottom: '8px' }}>📚</div>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No tienes materias creadas</p>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '340px', overflowY: 'auto' }}>
+                        {materias.map(m => (
+                          <button key={m.id} onClick={() => { setMateriaNav(m); setMateriaTag(m); }}
+                            style={{ padding: '14px 16px', borderRadius: '14px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '12px', transition: 'all 0.2s' }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = m.color; (e.currentTarget as HTMLElement).style.background = `${m.color}12`; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
+                          >
+                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: m.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', flexShrink: 0 }}>{m.emoji}</div>
+                            <div>
+                              <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>{m.nombre}</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                {m.temas.length} temas ·{' '}
+                                {m.temas.reduce((a, t) => a + t.apuntes.length, 0)} apuntes ·{' '}
+                                {m.temas.reduce((a, t) => a + t.documentos.length, 0)} docs
+                              </div>
+                            </div>
+                            <div style={{ marginLeft: 'auto', fontSize: '16px', color: 'var(--text-muted)' }}>→</div>
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  )}
+
+                  {/* Lista temas */}
+                  {materiaNav && !temaNav && (
+                    materiaNav.temas.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: '40px', marginBottom: '8px' }}>📂</div>
+                        <p>Esta materia no tiene temas</p>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '340px', overflowY: 'auto' }}>
+                        {materiaNav.temas.map(t => (
+                          <button key={t.id} onClick={() => setTemaNav(t)}
+                            style={{ padding: '14px 16px', borderRadius: '14px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '12px', transition: 'all 0.2s' }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = materiaNav.color; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; }}
+                          >
+                            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: `${materiaNav.color}22`, border: `2px solid ${materiaNav.color}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', flexShrink: 0 }}>📂</div>
+                            <div>
+                              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{t.nombre}</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                {t.apuntes.length} apuntes · {t.documentos.length} documentos
+                                {tipo === 'flashcards' && ` · ${t.documentos.reduce((a, d) => a + (d.flashcards?.length || 0), 0)} flashcards`}
+                                {tipo === 'quiz'       && ` · ${t.documentos.reduce((a, d) => a + (d.quiz?.length || 0), 0)} preguntas`}
+                              </div>
+                            </div>
+                            <div style={{ marginLeft: 'auto', fontSize: '16px', color: 'var(--text-muted)' }}>→</div>
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  )}
+
+                  {/* Lista contenido del tema */}
+                  {materiaNav && temaNav && (
+                    <div style={{ maxHeight: '340px', overflowY: 'auto' }}>
+
+                      {/* APUNTES */}
+                      {(tipo === 'apunte' || tipo === 'post') && temaNav.apuntes.length > 0 && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', margin: '0 0 8px', letterSpacing: '1px' }}>📝 APUNTES</p>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {temaNav.apuntes.map(a => (
+                              <div key={a.id}
+                                onClick={() => { setApunteSeleccionado(apunteSeleccionado?.id === a.id ? null : a); setDocSeleccionado(null); }}
+                                style={{ padding: '12px 14px', borderRadius: '12px', cursor: 'pointer', border: `2px solid ${apunteSeleccionado?.id === a.id ? '#f5c842' : 'var(--border-color)'}`, background: apunteSeleccionado?.id === a.id ? '#f5c84215' : 'var(--bg-secondary)', transition: 'all 0.2s', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                              >
+                                <div>
+                                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>📝 {a.titulo}</div>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{new Date(a.fechaModificacion).toLocaleDateString('es')}</div>
+                                </div>
+                                {apunteSeleccionado?.id === a.id && <span style={{ fontSize: '18px' }}>✅</span>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* DOCUMENTOS con flashcards */}
+                      {tipo === 'flashcards' && temaNav.documentos.filter(d => (d.flashcards?.length || 0) > 0).length > 0 && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', margin: '0 0 8px', letterSpacing: '1px' }}>🎴 FLASHCARDS</p>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {temaNav.documentos.filter(d => (d.flashcards?.length || 0) > 0).map(d => (
+                              <div key={d.id}
+                                onClick={() => { setDocSeleccionado(docSeleccionado?.id === d.id ? null : d); setApunteSeleccionado(null); }}
+                                style={{ padding: '12px 14px', borderRadius: '12px', cursor: 'pointer', border: `2px solid ${docSeleccionado?.id === d.id ? '#a78bfa' : 'var(--border-color)'}`, background: docSeleccionado?.id === d.id ? '#a78bfa15' : 'var(--bg-secondary)', transition: 'all 0.2s', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                              >
+                                <div>
+                                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>📄 {d.nombre}</div>
+                                  <div style={{ fontSize: '11px', color: '#a78bfa', marginTop: '2px' }}>🎴 {d.flashcards?.length} flashcards</div>
+                                </div>
+                                {docSeleccionado?.id === d.id && <span style={{ fontSize: '18px' }}>✅</span>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* DOCUMENTOS con quizzes */}
+                      {tipo === 'quiz' && temaNav.documentos.filter(d => (d.quiz?.length || 0) > 0).length > 0 && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', margin: '0 0 8px', letterSpacing: '1px' }}>🧠 QUIZZES</p>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {temaNav.documentos.filter(d => (d.quiz?.length || 0) > 0).map(d => (
+                              <div key={d.id}
+                                onClick={() => { setDocSeleccionado(docSeleccionado?.id === d.id ? null : d); setApunteSeleccionado(null); }}
+                                style={{ padding: '12px 14px', borderRadius: '12px', cursor: 'pointer', border: `2px solid ${docSeleccionado?.id === d.id ? '#34d399' : 'var(--border-color)'}`, background: docSeleccionado?.id === d.id ? '#34d39915' : 'var(--bg-secondary)', transition: 'all 0.2s', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                              >
+                                <div>
+                                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>📄 {d.nombre}</div>
+                                  <div style={{ fontSize: '11px', color: '#34d399', marginTop: '2px' }}>🧠 {d.quiz?.length} preguntas</div>
+                                </div>
+                                {docSeleccionado?.id === d.id && <span style={{ fontSize: '18px' }}>✅</span>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Vacío */}
+                      {tipo === 'apunte'     && temaNav.apuntes.length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
+                          <div style={{ fontSize: '36px', marginBottom: '8px' }}>📝</div>
+                          <p style={{ fontSize: '14px' }}>No hay apuntes en este tema</p>
+                        </div>
+                      )}
+                      {tipo === 'flashcards' && temaNav.documentos.filter(d => d.flashcards?.length).length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
+                          <div style={{ fontSize: '36px', marginBottom: '8px' }}>🎴</div>
+                          <p style={{ fontSize: '14px' }}>No hay flashcards en este tema</p>
+                          <p style={{ fontSize: '12px', color: 'var(--text-faint)' }}>Analiza un documento para generarlas</p>
+                        </div>
+                      )}
+                      {tipo === 'quiz'       && temaNav.documentos.filter(d => d.quiz?.length).length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
+                          <div style={{ fontSize: '36px', marginBottom: '8px' }}>🧠</div>
+                          <p style={{ fontSize: '14px' }}>No hay quizzes en este tema</p>
+                          <p style={{ fontSize: '12px', color: 'var(--text-faint)' }}>Genera un quiz desde el documento</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Nav explorar */}
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+                    <button
+                      onClick={() => { if (temaNav) setTemaNav(null); else if (materiaNav) setMateriaNav(null); else setPaso('origen'); }}
+                      style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      ← Atrás
+                    </button>
+                    {hayContenido() && (
+                      <button onClick={irADetalles}
+                        style={{ flex: 2, padding: '12px', borderRadius: '12px', border: 'none', background: info.color, color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}
+                      >
+                        Continuar con esto →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── PASO: DECKS ───────────────────────────────────────────── */}
+              {paso === 'decks' && (
+                <div>
+                  {decksGuardados.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px' }}>
+                      <div style={{ fontSize: '40px', marginBottom: '8px' }}>🎴</div>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '0 0 12px' }}>No tienes decks guardados</p>
+                      <button onClick={() => window.location.href = '/materias'} style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>Ir a Materias →</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '340px', overflowY: 'auto' }}>
+                      {decksGuardados.map(d => (
+                        <div key={d.id} onClick={() => setDeckSeleccionado(deckSeleccionado?.id === d.id ? null : d)}
+                          style={{ padding: '14px 16px', borderRadius: '14px', cursor: 'pointer', border: `2px solid ${deckSeleccionado?.id === d.id ? '#a78bfa' : 'var(--border-color)'}`, background: deckSeleccionado?.id === d.id ? '#a78bfa15' : 'var(--bg-secondary)', transition: 'all 0.2s', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                        >
+                          <div>
+                            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{d.nombre}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>🎴 {d.flashcards.length} tarjetas · {d.materiaNombre || 'Sin materia'}</div>
+                          </div>
+                          {deckSeleccionado?.id === d.id && <span style={{ fontSize: '18px' }}>✅</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+                    <button onClick={() => setPaso('origen')} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>← Atrás</button>
+                    {deckSeleccionado && <button onClick={irADetalles} style={{ flex: 2, padding: '12px', borderRadius: '12px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>Continuar →</button>}
+                  </div>
+                </div>
+              )}
+
+              {/* ── PASO: QUIZZES ─────────────────────────────────────────── */}
+              {paso === 'quizzes' && (
+                <div>
+                  {(quizzesGuardados.length + quizzesTemporales.length) === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px' }}>
+                      <div style={{ fontSize: '40px', marginBottom: '8px' }}>🧠</div>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '0 0 12px' }}>No tienes quizzes guardados</p>
+                      <button onClick={() => window.location.href = '/materias'} style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#34d399', color: '#000', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>Ir a Materias →</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '340px', overflowY: 'auto' }}>
+                      {quizzesTemporales.length > 0 && <p style={{ fontSize: '11px', fontWeight: 700, color: '#f5c842', margin: '0 0 4px', letterSpacing: '1px' }}>⏳ POR GUARDAR</p>}
+                      {quizzesTemporales.map(q => (
+                        <div key={q.id} onClick={() => setQuizSeleccionado(quizSeleccionado?.id === q.id ? null : q)}
+                          style={{ padding: '14px 16px', borderRadius: '14px', cursor: 'pointer', border: `2px solid ${quizSeleccionado?.id === q.id ? '#34d399' : '#f5c84244'}`, background: quizSeleccionado?.id === q.id ? '#34d39915' : '#f5c84208', transition: 'all 0.2s', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                        >
+                          <div>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{q.nombre}</span>
+                              <span style={{ fontSize: '10px', background: '#f5c84222', color: '#f5c842', padding: '2px 6px', borderRadius: '8px', fontWeight: 700 }}>temporal</span>
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>🧠 {q.preguntas.length} preguntas · {q.materiaNombre || 'Sin materia'}</div>
+                          </div>
+                          {quizSeleccionado?.id === q.id && <span style={{ fontSize: '18px' }}>✅</span>}
+                        </div>
+                      ))}
+                      {quizzesGuardados.length > 0 && quizzesTemporales.length > 0 && <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', margin: '8px 0 4px', letterSpacing: '1px' }}>💾 GUARDADOS</p>}
+                      {quizzesGuardados.map(q => (
+                        <div key={q.id} onClick={() => setQuizSeleccionado(quizSeleccionado?.id === q.id ? null : q)}
+                          style={{ padding: '14px 16px', borderRadius: '14px', cursor: 'pointer', border: `2px solid ${quizSeleccionado?.id === q.id ? '#34d399' : 'var(--border-color)'}`, background: quizSeleccionado?.id === q.id ? '#34d39915' : 'var(--bg-secondary)', transition: 'all 0.2s', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                        >
+                          <div>
+                            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{q.nombre}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>🧠 {q.preguntas.length} preguntas · {q.materiaNombre || 'Sin materia'}</div>
+                          </div>
+                          {quizSeleccionado?.id === q.id && <span style={{ fontSize: '18px' }}>✅</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+                    <button onClick={() => setPaso('origen')} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>← Atrás</button>
+                    {quizSeleccionado && <button onClick={irADetalles} style={{ flex: 2, padding: '12px', borderRadius: '12px', border: 'none', background: '#34d399', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>Continuar →</button>}
+                  </div>
+                </div>
+              )}
+
+              {/* ── PASO DETALLES ─────────────────────────────────────────── */}
+              {paso === 'detalles' && (
+                <div>
+                  {/* Resumen contenido */}
+                  {resumen() && (
+                    <div style={{ background: `${info.color}15`, border: `1px solid ${info.color}33`, borderRadius: '12px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', fontWeight: 600, color: info.color }}>
+                      {resumen()}
+                      {(materiaTag || materiaNav || materiaNombreProp) && (
+                        <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: '8px' }}>
+                          · {materiaTag?.emoji || materiaNav?.emoji} {materiaTag?.nombre || materiaNav?.nombre || materiaNombreProp}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Título */}
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px' }}>TÍTULO *</label>
+                  <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Dale un nombre..." autoFocus
+                    style={{ width: '100%', padding: '13px', borderRadius: '12px', border: `2px solid ${titulo.trim() ? info.color + '66' : 'var(--border-color)'}`, background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', fontWeight: 600, outline: 'none', boxSizing: 'border-box', marginBottom: '12px' }}
+                    onFocus={e => (e.target.style.borderColor = info.color)}
+                    onBlur={e => (e.target.style.borderColor = titulo.trim() ? info.color + '66' : 'var(--border-color)')}
+                  />
+
+                  {/* Descripción */}
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px' }}>DESCRIPCIÓN <span style={{ fontWeight: 400, letterSpacing: 0 }}>(opcional)</span></label>
+                  <textarea value={descripcion} onChange={e => setDescripcion(e.target.value)} placeholder="¿De qué trata? ¿Para qué curso?" rows={2}
+                    style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', resize: 'vertical', outline: 'none', boxSizing: 'border-box', marginBottom: '12px' }}
+                    onFocus={e => (e.target.style.borderColor = info.color)}
+                    onBlur={e => (e.target.style.borderColor = 'var(--border-color)')}
+                  />
+
+                  {/* Portada */}
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', letterSpacing: '1px' }}>PORTADA <span style={{ fontWeight: 400, letterSpacing: 0 }}>(opcional)</span></label>
+                  <input ref={portadaRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handlePortadaFile(f); }} />
+
+                  {portadaPreview ? (
+                    <div style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', marginBottom: '12px', border: '2px solid var(--border-color)' }}>
+                      <img src={portadaPreview} alt="Portada" style={{ width: '100%', height: '140px', objectFit: 'cover', display: 'block' }} />
+                      {subiendoPortada && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '14px' }}>⏳ Subiendo...</div>}
+                      {!subiendoPortada && (
+                        <div style={{ position: 'absolute', top: '8px', right: '8px', display: 'flex', gap: '6px' }}>
+                          <button onClick={() => portadaRef.current?.click()} style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', background: 'rgba(0,0,0,0.75)', color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>Cambiar</button>
+                          <button onClick={() => { setPortadaPreview(''); setPortadaUrl(''); }} style={{ padding: '5px 8px', borderRadius: '6px', border: 'none', background: 'rgba(239,68,68,0.85)', color: '#fff', fontSize: '11px', cursor: 'pointer' }}>✕</button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div onClick={() => portadaRef.current?.click()}
+                      style={{ border: '2px dashed var(--border-color)', borderRadius: '12px', padding: '20px', textAlign: 'center', cursor: 'pointer', background: 'var(--bg-secondary)', marginBottom: '12px', transition: 'all 0.2s' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = info.color; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; }}
+                    >
+                      <div style={{ fontSize: '28px', marginBottom: '4px' }}>🖼️</div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>Subir imagen de portada</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-faint)', marginTop: '2px' }}>JPG, PNG, WEBP · Máx 5MB</div>
+                    </div>
+                  )}
+                  {portadaError && <div style={{ background: '#ef444422', border: '1px solid #ef4444', borderRadius: '10px', padding: '10px 14px', marginBottom: '10px', fontSize: '13px', color: '#ef4444' }}>⚠️ {portadaError}</div>}
+
+                  {/* Toggle comentarios */}
+                  <div onClick={() => setCommentsActivos(!commentsActivos)} style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', padding: '12px 16px', borderRadius: '12px', background: 'var(--bg-secondary)', marginBottom: '16px', border: '1px solid var(--border-color)' }}>
+                    <div style={{ width: '40px', height: '22px', borderRadius: '11px', background: commentsActivos ? info.color : 'var(--border-color)', position: 'relative', flexShrink: 0, transition: 'background 0.2s' }}>
+                      <div style={{ position: 'absolute', top: '2px', left: commentsActivos ? '20px' : '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>💬 Permitir comentarios</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{commentsActivos ? 'La comunidad puede comentar' : 'Sin comentarios'}</div>
+                    </div>
+                  </div>
+
+                  {error && <div style={{ background: '#ef444422', border: '1px solid #ef4444', borderRadius: '12px', padding: '12px 16px', marginBottom: '14px', fontSize: '13px', color: '#ef4444', fontWeight: 600 }}>⚠️ {error}</div>}
+
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    {!contenidoProp && (
+                      <button onClick={() => { setPaso(tipo === 'post' ? 'tipo' : 'origen'); setError(''); }} style={{ flex: 1, padding: '14px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
+                        ← Atrás
+                      </button>
+                    )}
+                    <button onClick={publicar} disabled={!titulo.trim() || subiendoPortada}
+                      style={{ flex: 2, padding: '14px', borderRadius: '12px', border: 'none', background: titulo.trim() && !subiendoPortada ? info.color : 'var(--border-color)', color: titulo.trim() && !subiendoPortada ? '#000' : 'var(--text-muted)', fontSize: '15px', fontWeight: 900, cursor: titulo.trim() && !subiendoPortada ? 'pointer' : 'not-allowed', transition: 'all 0.2s' }}
+                    >
+                      {subiendoPortada ? '⏳ Subiendo imagen...' : `🚀 Publicar ${info.label}`}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

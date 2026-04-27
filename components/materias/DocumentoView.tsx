@@ -16,6 +16,7 @@ import AIExhausted from '../AIExhausted';
 import TabAnalisis from './TabAnalisis';
 import TabFlashcards from './TabFlashcards';
 import TabQuiz from './TabQuiz';
+import PublicarComunidad from '../PublicarComunidad';
 
 interface Props {
   documento: Documento;
@@ -44,6 +45,9 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   const [showGuardarDeck, setShowGuardarDeck] = useState(false);
   const [nombreDeck, setNombreDeck] = useState('');
   const [deckGuardado, setDeckGuardado] = useState(false);
+  const [showPublicarComunidad, setShowPublicarComunidad] = useState(false);
+  const [tipoPublicar, setTipoPublicar] = useState<'flashcards' | 'quiz'>('flashcards');
+  const [preguntasParaPublicar, setPreguntasParaPublicar] = useState<any[]>([]);
   const [recommendedCount, setRecommendedCount] = useState<number | null>(null);
   const [recommendedReason, setRecommendedReason] = useState('');
   const [flashcardsMessage, setFlashcardsMessage] = useState('');
@@ -216,6 +220,23 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
       )}
       {showModoExamen && (
         <ModoExamen flashcards={flashcards} contenido={documento.contenido} nombreDoc={documento.nombre} temaColor={documento.nombre} onClose={() => setShowModoExamen(false)} />
+      )}
+
+      {showPublicarComunidad && (
+        <PublicarComunidad
+          tipo={tipoPublicar}
+          titulo={documento.nombre}
+          contenido={
+            tipoPublicar === 'flashcards'
+              ? { flashcards }
+              : { quiz: preguntasParaPublicar }
+          }
+          materiaColor={materia.color}
+          materiaEmoji={materia.emoji}
+          materiaNombre={materia.nombre}
+          onClose={() => setShowPublicarComunidad(false)}
+          onPublicado={() => setShowPublicarComunidad(false)}
+        />
       )}
 
       {/* Modal guardar deck */}
@@ -403,31 +424,69 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
 
         {/* TAB FLASHCARDS */}
         {tab === 'flashcards' && (
-          <TabFlashcards
-            flashcards={flashcards} currentCard={currentCard} flipped={flipped}
-            addCount={addCount} addingMore={addingMore} flashcardsMessage={flashcardsMessage} recommendedCount={recommendedCount}
-            recommendedReason={recommendedReason} tema={tema} isMobile={isMobile}
-            idioma={idioma} esImagen={esImagen} analizando={analizando} tr={trAny}
-            onFlip={() => setFlipped(!flipped)}
-            onPrev={() => { setFlipped(false); setCurrentCard((currentCard - 1 + flashcards.length) % flashcards.length); }}
-            onNext={() => { setFlipped(false); setCurrentCard((currentCard + 1) % flashcards.length); }}
-            onSetCard={(i) => { setCurrentCard(i); setFlipped(false); }}
-            onSetAddCount={setAddCount} onAddMore={addMore} onAnalizar={analizar}
-            onEstudio={() => setShowEstudio(true)} onQuiz={() => setTab('quiz')}
-            onEditor={() => setShowEditor(true)} onGuardar={() => { setShowGuardarDeck(true); setDeckGuardado(false); }}
-          />
+          <div>
+            {flashcards.length > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+                <button
+                  onClick={() => { setTipoPublicar('flashcards'); setShowPublicarComunidad(true); }}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '20px',
+                    border: '2px solid #a78bfa',
+                    background: '#a78bfa22',
+                    color: '#a78bfa',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  🌍 Publicar en Comunidad
+                </button>
+              </div>
+            )}
+            <TabFlashcards
+              flashcards={flashcards} currentCard={currentCard} flipped={flipped}
+              addCount={addCount} addingMore={addingMore} flashcardsMessage={flashcardsMessage} recommendedCount={recommendedCount}
+              recommendedReason={recommendedReason} tema={tema} isMobile={isMobile}
+              idioma={idioma} esImagen={esImagen} analizando={analizando} tr={trAny}
+              onFlip={() => setFlipped(!flipped)}
+              onPrev={() => { setFlipped(false); setCurrentCard((currentCard - 1 + flashcards.length) % flashcards.length); }}
+              onNext={() => { setFlipped(false); setCurrentCard((currentCard + 1) % flashcards.length); }}
+              onSetCard={(i) => { setCurrentCard(i); setFlipped(false); }}
+              onSetAddCount={setAddCount} onAddMore={addMore} onAnalizar={analizar}
+              onEstudio={() => setShowEstudio(true)} onQuiz={() => setTab('quiz')}
+              onEditor={() => setShowEditor(true)} onGuardar={() => { setShowGuardarDeck(true); setDeckGuardado(false); }}
+            />
+          </div>
         )}
 
         {/* TAB QUIZ */}
         {tab === 'quiz' && (
-          <TabQuiz
-            contenido={documento.contenido}
-            temaColor={tema.color}
-            materiaNombre={materia.nombre}
-            materiaColor={materia.color}
-            idioma={idioma}
-            esImagen={esImagen}
-          />
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+              <button
+                onClick={() => { setTipoPublicar('quiz'); setShowPublicarComunidad(true); }}
+                style={{
+                  padding: '8px 16px', borderRadius: '20px', border: '2px solid #34d399',
+                  background: '#34d39922', color: '#34d399', fontSize: '13px',
+                  fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+                }}>
+                🌍 Publicar en Comunidad
+              </button>
+            </div>
+            <TabQuiz
+              contenido={documento.contenido}
+              temaColor={tema.color}
+              materiaNombre={materia.nombre}
+              materiaColor={materia.color}
+              idioma={idioma}
+              esImagen={esImagen}
+              onQuizGenerado={setPreguntasParaPublicar}
+            />
+          </div>
         )}
 
       </div>

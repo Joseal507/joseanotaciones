@@ -21,92 +21,105 @@ const NIVEL_CONFIG = {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { content, count = 5, idioma, nivel = 'intermedio' } = body;
+    const { content, count = 10, idioma, nivel = 'intermedio' } = body;
     const lang = idioma === 'en' ? 'en' : 'es';
-    const textToUse = content.substring(0, 8000);
     const nivelCfg = NIVEL_CONFIG[nivel as keyof typeof NIVEL_CONFIG] || NIVEL_CONFIG.intermedio;
     const cfg = nivelCfg[lang as 'es' | 'en'];
 
-    let keyPoints = '';
-    try {
-      keyPoints = await groqRequest(async (client, model) => {
-        const r = await client.chat.completions.create({
-          model: model('llama-3.3-70b-versatile'),
-          messages: [
-            {
-              role: 'system',
-              content: lang === 'en'
-                ? `Identify the ${count * 2} most important testable concepts from this text for a ${nivel.toUpperCase()} level quiz. ${cfg.descripcion}`
-                : `Identifica los ${count * 2} conceptos mas importantes evaluables de este texto para un quiz de nivel ${nivel.toUpperCase()}. ${cfg.descripcion}`,
-            },
-            { role: 'user', content: textToUse },
-          ],
-          temperature: 0.2,
-          max_tokens: 800,
+    const nivelLabel = {
+      facil: lang === 'en' ? 'EASY' : 'FACIL',
+      intermedio: lang === 'en' ? 'INTERMEDIATE' : 'INTERMEDIO',
+      dificil: lang === 'en' ? 'HARD' : 'DIFICIL',
+    }[nivel as string] || 'INTERMEDIO';
+
+    // ── DIVIDIR EN CHUNKS PARA CUBRIR TODO EL DOCUMENTO ──
+    const chunkSize = 4000;
+    const chunks: string[] = [];
+    for (let i = 0; i < content.length; i += chunkSize) {
+      chunks.push(content.substring(i, i + chunkSize));
+    }
+
+    // ── DISTRIBUIR PREGUNTAS ENTRE CHUNKS ──
+    const questionsPerChunk = Math.ceil(count / chunks.length);
+
+    console.log(`📝 Quiz: ${chunks.length} chunks | ${count} preguntas | ${questionsPerChunk} por chunk | nivel: ${nivelLabel}`);
+
+    // ── GENERAR PREGUNTAS DE CADA CHUNK ──
+    const todasPreguntas: any[] = [];
+
+    for (let idx = 0; idx < chunks.length; idx++) {
+      try {
+        const systemPrompt = lang === 'en'
+          ? `You are an expert academic quiz creator. LEVEL: ${nivelLabel}. ${cfg.descripcion}
+Create exactly ${questionsPerChunk} multiple choice questions from text fragment ${idx + 1} of ${chunks.length}.
+RULES:
+- Each question MUST come from the content of THIS fragment, do NOT invent
+- Each question must have exactly 4 options
+- Mix correct answer position randomly (0, 1, 2 or 3)
+- Wrong options must be plausible for ${nivelLabel} level
+- Include detailed explanation for each answer
+Respond ONLY with valid JSON array, no extra text:
+[{"pregunta":"question","opciones":["opt0","opt1","opt2","opt3"],"correcta":0,"explicacion":"explanation"}]`
+          : `Eres un experto creador de quizzes academicos. NIVEL: ${nivelLabel}. ${cfg.descripcion}
+Crea exactamente ${questionsPerChunk} preguntas de opcion multiple del fragmento ${idx + 1} de ${chunks.length}.
+REGLAS:
+- Cada pregunta DEBE venir del contenido de ESTE fragmento, NO inventes
+- Cada pregunta debe tener exactamente 4 opciones
+- Mezcla la posicion de la correcta aleatoriamente (0, 1, 2 o 3)
+- Las opciones incorrectas deben ser plausibles para nivel ${nivelLabel}
+- Incluye explicacion detallada para cada respuesta
+Responde SOLO con JSON valido, sin texto extra:
+[{"pregunta":"pregunta","opciones":["op0","op1","op2","op3"],"correcta":0,"explicacion":"explicacion"}]`;
+
+        const result = await groqRequest(async (client, model) => {
+          const r = await client.chat.completions.create({
+            model: model('llama-3.3-70b-versatile'),
+            messages: [
+              { role: 'system', content: systemPrompt },
+              {
+                role: 'user',
+                content: lang === 'en'
+                  ? `Create ${questionsPerChunk} ${nivelLabel} questions from this fragment:\n\n${chunks[idx]}`
+                  : `Crea ${questionsPerChunk} preguntas ${nivelLabel} de este fragmento:\n\n${chunks[idx]}`,
+              },
+            ],
+            temperature: cfg.temperatura,
+            max_tokens: 3000,
+          });
+
+          const text = r.choices[0].message.content || '[]';
+          const match = text.match(/\[[\s\S]*\]/);
+          if (!match) return [];
+          const parsed = JSON.parse(match[0]);
+          return parsed.filter((q: any) =>
+            q.pregunta &&
+            Array.isArray(q.opciones) &&
+            q.opciones.length === 4 &&
+            typeof q.correcta === 'number' &&
+            q.explicacion
+          );
         });
-        return r.choices[0].message.content || '';
-      });
-    } catch (e) { console.log('Paso 1 fallo:', e); }
 
-    let distractorInfo = '';
-    try {
-      distractorInfo = await groqRequest(async (client, model) => {
-        const r = await client.chat.completions.create({
-          model: model('llama3-8b-8192'),
-          messages: [
-            {
-              role: 'system',
-              content: lang === 'en'
-                ? `For a ${nivel.toUpperCase()} quiz: ${cfg.descripcion} List specific wrong-but-plausible options.`
-                : `Para un quiz de nivel ${nivel.toUpperCase()}: ${cfg.descripcion} Lista opciones incorrectas-pero-plausibles especificas.`,
-            },
-            { role: 'user', content: textToUse },
-          ],
-          temperature: cfg.temperatura,
-          max_tokens: 500,
-        });
-        return r.choices[0].message.content || '';
-      });
-    } catch (e) { console.log('Paso 2 fallo:', e); }
+        todasPreguntas.push(...result);
 
-    const extraContext = [
-      keyPoints ? (lang === 'en' ? `KEY CONCEPTS:\n${keyPoints}` : `CONCEPTOS CLAVE:\n${keyPoints}`) : '',
-      distractorInfo ? (lang === 'en' ? `DISTRACTORS:\n${distractorInfo}` : `DISTRACTORES:\n${distractorInfo}`) : '',
-    ].filter(Boolean).join('\n\n---\n\n');
+        // Pequeña pausa entre chunks para no quemar rate limit
+        if (idx < chunks.length - 1) {
+          await new Promise(r => setTimeout(r, 300));
+        }
 
-    const nivelLabel = { facil: lang === 'en' ? 'EASY' : 'FACIL', intermedio: lang === 'en' ? 'INTERMEDIATE' : 'INTERMEDIO', dificil: lang === 'en' ? 'HARD' : 'DIFICIL' }[nivel as string] || 'INTERMEDIO';
+      } catch (e) {
+        console.error(`Error chunk ${idx}:`, e);
+      }
+    }
 
-    const systemPrompt = lang === 'en'
-      ? `You are an expert quiz creator. LEVEL: ${nivelLabel}. ${cfg.descripcion}
-Create exactly ${count} multiple choice questions. Respond ONLY with valid JSON array, no extra text:
-[{"pregunta":"question text","opciones":["opt0","opt1","opt2","opt3"],"correcta":0,"explicacion":"detailed explanation"}]
-Mix correct answer position randomly (0-3). Each question must have exactly 4 options.${extraContext ? `\n\nEXPERT ANALYSIS:\n${extraContext}` : ''}`
-      : `Eres un experto creador de quizzes academicos. NIVEL: ${nivelLabel}. ${cfg.descripcion}
-Crea exactamente ${count} preguntas de opcion multiple. Responde SOLO con JSON valido, sin texto extra:
-[{"pregunta":"texto de la pregunta","opciones":["op0","op1","op2","op3"],"correcta":0,"explicacion":"explicacion detallada"}]
-Mezcla la posicion de la correcta aleatoriamente (0-3). Cada pregunta debe tener exactamente 4 opciones.${extraContext ? `\n\nANALISIS EXPERTO:\n${extraContext}` : ''}`;
+    // ── LIMITAR AL NÚMERO PEDIDO EXACTO ──
+    const quiz = todasPreguntas.slice(0, count);
 
-    const quiz = await groqRequest(async (client, model) => {
-      const r = await client.chat.completions.create({
-        model: model('llama-3.3-70b-versatile'),
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `${lang === 'en' ? 'Create' : 'Crea'} ${count} preguntas de nivel ${nivelLabel} ${lang === 'en' ? 'from this text' : 'de este texto'}:\n\n${textToUse}` },
-        ],
-        temperature: cfg.temperatura,
-        max_tokens: 4000,
-      });
+    if (quiz.length === 0) {
+      return NextResponse.json({ success: false, error: 'No se generaron preguntas' }, { status: 500 });
+    }
 
-      const text = r.choices[0].message.content || '[]';
-      const match = text.match(/\[[\s\S]*\]/);
-      if (!match) throw new Error('No JSON found in response');
-      const parsed = JSON.parse(match[0]);
-      return parsed.filter((q: any) =>
-        q.pregunta && Array.isArray(q.opciones) && q.opciones.length === 4 &&
-        typeof q.correcta === 'number' && q.explicacion
-      );
-    });
-
+    console.log(`✅ Quiz generado: ${quiz.length} preguntas cubriendo todo el documento`);
     return NextResponse.json({ success: true, quiz, nivel });
 
   } catch (error: any) {

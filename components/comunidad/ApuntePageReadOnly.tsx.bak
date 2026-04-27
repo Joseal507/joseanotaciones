@@ -1,0 +1,179 @@
+'use client';
+
+import PaperBackground from '@/components/editor/PaperBackground';
+
+interface Props {
+  pagina: any;
+  scale: number;
+  pageWidth: number;
+  pageHeight: number;
+}
+
+export default function ApuntePageReadOnly({ pagina, scale, pageWidth, pageHeight }: Props) {
+  const paperStyle = pagina?.paperStyle || 'blank';
+  const paperColor = pagina?.paperColor || 'white';
+  const bloques = pagina?.bloques || [];
+
+  const pageBg =
+    paperColor === 'dark' ? '#111827' :
+    paperColor === 'yellow' ? '#fef7d7' :
+    '#ffffff';
+
+  return (
+    <div style={{
+      width: pageWidth * scale,
+      height: pageHeight * scale,
+      margin: '0 auto',
+      position: 'relative',
+      overflow: 'hidden',
+      borderRadius: `${12 * scale}px`,
+      boxShadow: '0 4px 24px rgba(0,0,0,0.15), 0 1px 4px rgba(0,0,0,0.08)',
+    }}>
+      <div style={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        width: pageWidth,
+        height: pageHeight,
+        transform: `scale(${scale})`,
+        transformOrigin: 'top left',
+        background: pageBg,
+        overflow: 'hidden',
+      }}>
+        {/* Fondo papel */}
+        <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
+          <PaperBackground
+            style={paperStyle}
+            temaColor="#f5c842"
+            paperColor={paperColor}
+          />
+        </div>
+
+        {/* Fondo PDF/imagen */}
+        {pagina?.backgroundImage && (
+          <img
+            src={pagina.backgroundImage}
+            alt=""
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              objectPosition: 'top',
+              zIndex: 1,
+              pointerEvents: 'none',
+              opacity: 0.92,
+            }}
+          />
+        )}
+
+        {/* Canvas de dibujo (strokes) */}
+        {pagina?.canvasData && (
+          <img
+            src={pagina.canvasData}
+            alt=""
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'fill',
+              zIndex: 5,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+
+        {/* Bloques de contenido */}
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none' }}>
+          {bloques.map((b: any, idx: number) => {
+            const tipo = b?.tipo || '';
+            const x = Number(b?.x ?? 0);
+            const y = Number(b?.y ?? 0);
+            const width = Number(b?.width ?? 320);
+
+            if (tipo === 'texto' && b?.html) {
+              const html = b.html.trim();
+              if (!html || html === '<p></p>' || html === '<br>') return null;
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    position: 'absolute',
+                    left: x,
+                    top: y,
+                    width,
+                    zIndex: 20,
+                    pointerEvents: 'none',
+                    wordBreak: 'break-word',
+                    overflowWrap: 'anywhere',
+                    color: paperColor === 'dark' ? '#e5e7eb' : '#1a1a2e',
+                  }}
+                  dangerouslySetInnerHTML={{ __html: html }}
+                />
+              );
+            }
+
+            if (tipo === 'imagen') {
+              const src = b?.src || '';
+              if (!src || src.length < 50) return null;
+              const rotation = Number(b?.rotation ?? 0);
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    position: 'absolute',
+                    left: x,
+                    top: y,
+                    width,
+                    zIndex: Number(b?.zIndex ?? 20),
+                    pointerEvents: 'none',
+                    transform: rotation ? `rotate(${rotation}deg)` : undefined,
+                  }}
+                >
+                  <img
+                    src={src}
+                    alt={b?.label || ''}
+                    style={{
+                      width: '100%',
+                      height: 'auto',
+                      borderRadius: 8,
+                      objectFit: 'contain',
+                      display: 'block',
+                    }}
+                    onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                </div>
+              );
+            }
+
+            if (tipo === 'trazos') {
+              const src = b?.dataUrl || '';
+              if (!src || src.length < 100) return null;
+              return (
+                <img
+                  key={idx}
+                  src={src}
+                  alt=""
+                  style={{
+                    position: 'absolute',
+                    left: x,
+                    top: y,
+                    width: Number(b?.width ?? 300),
+                    height: Number(b?.height ?? 160),
+                    zIndex: 20,
+                    pointerEvents: 'none',
+                    objectFit: 'contain',
+                  }}
+                />
+              );
+            }
+
+            return null;
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}

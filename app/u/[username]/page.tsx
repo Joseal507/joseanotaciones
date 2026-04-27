@@ -625,12 +625,24 @@ export default function PerfilPublicoPage() {
   const [showEdit,           setShowEdit]           = useState(false);
   const [partnerStatus,      setPartnerStatus]      = useState<'ninguno'|'partner'|'enviada'|'recibida'>('ninguno');
   const [enviandoSolicitud,  setEnviandoSolicitud]  = useState(false);
+  const [postsUsuario,       setPostsUsuario]       = useState<any[]>([]);
+  const [cargandoPosts,      setCargandoPosts]      = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) setMiUserId(data.user.id);
     });
   }, []);
+
+  const cargarPostsUsuario = async (userId: string) => {
+    setCargandoPosts(true);
+    try {
+      const res = await fetch(`/api/comunidad/posts?userId=${userId}&tipo=all&filtro=todos`);
+      const data = await res.json();
+      setPostsUsuario(data.posts || []);
+    } catch {}
+    finally { setCargandoPosts(false); }
+  };
 
   const cargarPerfil = async () => {
     setCargando(true);
@@ -647,6 +659,7 @@ export default function PerfilPublicoPage() {
         setPerfil(data.perfil);
         setRank(data.rank);
         setTotalUsers(data.totalUsers);
+        cargarPostsUsuario(data.perfil.user_id);
       }
     } catch {
       setError('Error al cargar el perfil');
@@ -1138,6 +1151,118 @@ export default function PerfilPublicoPage() {
             <button onClick={() => (window.location.href = '/')} style={{ width: '100%', padding: '11px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
               🏆 Ver Leaderboard
             </button>
+          </div>
+        </div>
+
+        {/* ── POSTS DEL USUARIO ── */}
+        <div style={{ marginTop: '24px', background: 'var(--bg-card)', borderRadius: '18px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+          <div style={{ height: '3px', background: 'var(--gold)' }} />
+          <div style={{ padding: '20px 24px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              🌍 Posts en la Comunidad
+              <span style={{ fontSize: '12px', background: 'var(--gold)', color: '#000', padding: '2px 8px', borderRadius: '20px', fontWeight: 700 }}>
+                {postsUsuario.length}
+              </span>
+            </h3>
+
+            {cargandoPosts ? (
+              <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-faint)' }}>
+                <div style={{ fontSize: '24px', marginBottom: '8px' }}>⏳</div>
+                <p style={{ margin: 0, fontSize: '13px' }}>Cargando posts...</p>
+              </div>
+            ) : postsUsuario.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-faint)' }}>
+                <div style={{ fontSize: '40px', marginBottom: '8px' }}>📭</div>
+                <p style={{ margin: 0, fontSize: '13px' }}>
+                  {esMiPerfil ? 'Aún no has publicado nada en la comunidad' : `${perfil.nombre} aún no ha publicado nada`}
+                </p>
+                {esMiPerfil && (
+                  <button
+                    onClick={() => window.location.href = '/comunidad'}
+                    style={{ marginTop: '12px', padding: '8px 18px', borderRadius: '8px', border: 'none', background: 'var(--gold)', color: '#000', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}
+                  >
+                    🌍 Ir a Comunidad
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px' }}>
+                {postsUsuario.map((post: any) => {
+                  const tipoEmoji: Record<string, string> = { apunte: '📝', flashcards: '🎴', quiz: '🤓', post: '💬' };
+                  const tipoColor: Record<string, string> = { apunte: 'var(--blue)', flashcards: 'var(--gold)', quiz: '#a78bfa', post: '#34d399' };
+                  const emoji = tipoEmoji[post.tipo] || '📄';
+                  const color = tipoColor[post.tipo] || 'var(--gold)';
+
+                  return (
+                    <div
+                      key={post.id}
+                      onClick={() => window.location.href = `/comunidad/${post.id}`}
+                      style={{
+                        background: 'var(--bg-secondary)',
+                        borderRadius: '14px',
+                        border: '1px solid var(--border-color)',
+                        overflow: 'hidden',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                      onMouseEnter={e => {
+                        (e.currentTarget as HTMLElement).style.borderColor = color;
+                        (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)';
+                      }}
+                      onMouseLeave={e => {
+                        (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)';
+                        (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
+                      }}
+                    >
+                      {post.portada_url ? (
+                        <div style={{ width: '100%', paddingBottom: '45%', position: 'relative', overflow: 'hidden', background: 'var(--bg-card)' }}>
+                          <img
+                            src={post.portada_url}
+                            alt={post.titulo}
+                            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                          />
+                        </div>
+                      ) : (
+                        <div style={{
+                          height: '80px',
+                          background: `linear-gradient(135deg, ${color}22, ${color}44)`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '36px',
+                        }}>
+                          {post.materia_emoji || emoji}
+                        </div>
+                      )}
+
+                      <div style={{ padding: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                          <span style={{ background: color, color: '#000', padding: '2px 8px', borderRadius: '20px', fontSize: '10px', fontWeight: 800 }}>
+                            {emoji} {post.tipo}
+                          </span>
+                          {post.materia_nombre && (
+                            <span style={{ fontSize: '10px', color: 'var(--text-faint)', fontWeight: 600 }}>
+                              {post.materia_nombre}
+                            </span>
+                          )}
+                        </div>
+
+                        <p style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px', lineHeight: 1.3,
+                          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                          {post.titulo}
+                        </p>
+
+                        <div style={{ display: 'flex', gap: '10px', fontSize: '11px', color: 'var(--text-faint)' }}>
+                          <span>👁️ {post.views || 0}</span>
+                          <span>❤️ {post.likes_count || 0}</span>
+                          <span>📖 {post.estudiados || 0}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 

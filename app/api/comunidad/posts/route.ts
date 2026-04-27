@@ -1,0 +1,169 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
+
+// GET - Obtener posts con filtros
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const tipo = searchParams.get('tipo'); // all | apunte | flashcards | quiz | post
+  const filtro = searchParams.get('filtro'); // todos | guardados | mios | partners
+  const userId = searchParams.get('userId');
+  const page = parseInt(searchParams.get('page') || '1');
+  const limit = 20;
+  const offset = (page - 1) * limit;
+
+  try {
+    let query = supabase
+      .from('comunidad_posts')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (tipo && tipo !== 'all') {
+      query = query.eq('tipo', tipo);
+    }
+
+    if (filtro === 'partners') {
+      query = query.eq('es_partner', true);
+    } else if (filtro === 'mios' && userId) {
+      query = query.eq('user_id', userId);
+    } else if (filtro === 'guardados' && userId) {
+      const { data: guardados } = await supabase
+        .from('comunidad_guardados')
+        .select('post_id')
+        .eq('user_id', userId);
+      const ids = guardados?.map(g => g.post_id) || [];
+      if (ids.length === 0) return NextResponse.json({ posts: [], total: 0 });
+      query = query.in('id', ids);
+    }
+
+    const { data: posts, error, count } = await query;
+    if (error) throw error;
+
+    // Enriquecer posts con likes, ratings, guardados
+    const enriched = await Promise.all((posts || []).map(async (post) => {
+      const [likesRes, ratingsRes, guardadosRes, comentariosRes] = await Promise.all([
+        supabase.from('comunidad_likes').select('user_id').eq('post_id', post.id),
+        supabase.from('comunidad_ratings').select('rating').eq('post_id', post.id),
+        userId ? supabase.from('comunidad_guardados').select('id').eq('post_id', post.id).eq('user_id', userId).single() : Promise.resolve({ data: null }),
+        supabase.from('comunidad_comentarios').select('id').eq('post_id', post.id),
+      ]);
+
+      const ratings = ratingsRes.data || [];
+      const avgRating = ratings.length > 0
+        ? ratings.reduce((a: number, r: any) => a + r.rating, 0) / ratings.length
+        : 0;
+
+      const userLiked = userId ? (likesRes.data || []).some((l: any) => l.user_id === userId) : false;
+      const userRating = userId ? (await supabase.from('comunidad_ratings').select('rating').eq('post_id', post.id).eq('user_id', userId).single()).data?.rating : null;
+
+      return {
+        ...post,
+        likes_count: (likesRes.data || []).length,
+        user_liked: userLiked,
+        avg_rating: Math.round(avgRating * 10) / 10,
+        ratings_count: ratings.length,
+        user_rating: userRating,
+        guardado: !!guardadosRes.data,
+        comentarios_count: (comentariosRes.data || []).length,
+      };
+    }));
+
+    return NextResponse.json({ posts: enriched, total: count || 0 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+// POST - Crear post
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const {
+      user_id, user_nombre, user_avatar, tipo, titulo, descripcion,
+      portada_url, contenido, materia_nombre, materia_color, materia_emoji,
+      es_partner, comments_activos
+    } = body;
+
+    if (!user_id || !titulo || !tipo) {
+      return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
+    }
+
+    const { data, error } = await supabase
+      .from('comunidad_posts')
+      .insert({
+        user_id, user_nombre, user_avatar, tipo, titulo, descripcion,
+        portada_url, contenido, materia_nombre, materia_color, materia_emoji,
+        es_partner: es_partner || false,
+        comments_activos: comments_activos !== false,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return NextResponse.json({ post: data });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+// DELETE - Borrar post (solo el dueño)
+export async function DELETE(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const postId = searchParams.get('postId');
+  const userId = searchParams.get('userId');
+
+  try {
+    const { data: post } = await supabase
+      .from('comunidad_posts')
+      .select('user_id')
+      .eq('id', postId)
+      .single();
+
+    if (post?.user_id !== userId) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+    }
+
+    await supabase.from('comunidad_posts').delete().eq('id', postId);
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+// PATCH - Editar post (solo el dueño)
+export async function PATCH(req: NextRequest) {
+  try {
+    const { postId, userId, titulo, descripcion } = await req.json();
+
+    if (!postId || !userId) {
+      return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 });
+    }
+
+    const { data: post } = await supabase
+      .from('comunidad_posts')
+      .select('user_id')
+      .eq('id', postId)
+      .single();
+
+    if (!post || post.user_id !== userId) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+    }
+
+    const { error } = await supabase
+      .from('comunidad_posts')
+      .update({
+        titulo,
+        descripcion,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', postId);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
