@@ -223,7 +223,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
 
       {/* Chat flotante */}
       {showChat && (
-        <ChatDocumento contenido={documento.contenido} temaColor={tema.color} nombreDoc={documento.nombre} onClose={() => setShowChat(false)} />
+        <ChatDocumento contexto={documento.contenido} temaColor={tema.color} nombreDoc={documento.nombre} onClose={() => setShowChat(false)} />
       )}
 
       <div style={{ background: 'var(--bg-card)', borderRadius: '20px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
