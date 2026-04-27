@@ -2,112 +2,60 @@ import { NextRequest, NextResponse } from 'next/server';
 import { groqRequest } from '../../../lib/groqClient';
 import { getCachedContent, saveToCache } from '../../../lib/cache';
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+export const maxDuration = 60;
 
-async function calcularFlashcardsNecesarias(content: string, lang: string): Promise<number> {
+export async function POST(request: NextRequest) {
   try {
-    const wordCount = content.split(/\s+/).length;
-    const estimadoBase = Math.ceil(wordCount / 60);
+    const body = await request.json();
+    const { content, count, idioma } = body;
+    if (!content) return NextResponse.json({ success: false, error: 'No hay contenido' }, { status: 400 });
 
-    const text = await groqRequest(async (client, model) => {
-      const r = await client.chat.completions.create({
+    // ── CACHÉ ──
+    const cache = await getCachedContent(content);
+    if (cache && cache.flashcards) {
+      console.log('🚀 Flashcards desde CACHÉ');
+      return NextResponse.json({ success: true, flashcards: cache.flashcards, fromCache: true });
+    }
+
+    const lang = idioma === 'en' ? 'en' : 'es';
+    const wordCount = content.split(/\s+/).length;
+    const flashcardCount = count || Math.min(30, Math.max(10, Math.ceil(wordCount / 50)));
+    const textToUse = content.substring(0, 6000);
+
+    // ── 1 SOLA LLAMADA (antes eran múltiples chunks con sleep) ──
+    const flashcardsText = await groqRequest(async (client, model) => {
+      const res = await client.chat.completions.create({
         model: model('llama-3.3-70b-versatile'),
         messages: [
           {
             role: 'system',
             content: lang === 'en'
-              ? 'Analyze educational content. Count ALL distinct concepts. Respond ONLY with JSON: {"count": number, "reason": "brief explanation"}'
-              : 'Analiza contenido educativo. Cuenta TODOS los conceptos distintos. Responde SOLO con JSON: {"count": number, "reason": "breve explicación"}',
+              ? `You are an expert flashcard creator. Create exactly ${flashcardCount} flashcards from the text. Return ONLY a JSON array: [{"question":"...","answer":"..."}]. No extra text.`
+              : `Eres un experto creador de flashcards. Crea exactamente ${flashcardCount} flashcards del texto. Devuelve SOLO un array JSON: [{"question":"...","answer":"..."}]. Sin texto extra.`,
           },
           {
             role: 'user',
-            content: `Texto (${wordCount} palabras):\n\n${content.substring(0, 3000)}`,
+            content: lang === 'en' ? `Create ${flashcardCount} flashcards from:\n\n${textToUse}` : `Crea ${flashcardCount} flashcards de:\n\n${textToUse}`,
           },
         ],
-        temperature: 0.1,
-        max_tokens: 200,
+        temperature: 0.3,
+        max_tokens: 4000,
       });
-      return r.choices[0]?.message?.content || '';
+      return res.choices[0]?.message?.content || '[]';
     });
 
-    const m = text.match(/\{[\s\S]*\}/);
-    if (m) {
-      const res = JSON.parse(m[0]);
-      return Math.max(10, Math.min(200, res.count || estimadoBase));
-    }
-    return Math.max(10, Math.min(150, estimadoBase));
-  } catch {
-    return 15;
-  }
-}
+    const match = flashcardsText.match(/\[[\s\S]*\]/);
+    const flashcards = match ? JSON.parse(match[0]) : [];
 
-async function generarFlashcardsCompletas(content: string, totalCount: number, lang: string): Promise<any[]> {
-  const todasFlashcards: any[] = [];
-  const words = content.split(/\s+/);
-  const wordsPerChunk = Math.min(Math.ceil(words.length / Math.ceil(totalCount / 10)), 400);
-  const chunks: string[] = [];
-
-  for (let i = 0; i < words.length; i += wordsPerChunk) {
-    chunks.push(words.slice(i, i + wordsPerChunk).join(' '));
-  }
-
-  const flashcardsPerChunk = Math.ceil(totalCount / chunks.length);
-
-  for (let idx = 0; idx < chunks.length; idx++) {
-    try {
-      const text = await groqRequest(async (client, model) => {
-        const r = await client.chat.completions.create({
-          model: model('llama-3.3-70b-versatile'),
-          messages: [
-            {
-              role: 'system',
-              content: `Crea ${flashcardsPerChunk} flashcards de este texto. Solo array JSON: [{"question":"...","answer":"..."}]`,
-            },
-            { role: 'user', content: chunks[idx] },
-          ],
-          temperature: 0.3,
-          max_tokens: 2000,
-        });
-        return r.choices[0]?.message?.content || '';
-      });
-
-      const m = text.match(/\[[\s\S]*\]/);
-      if (m) todasFlashcards.push(...JSON.parse(m[0]));
-      if (idx < chunks.length - 1) await sleep(1000);
-    } catch (e) {
-      console.error(`Error chunk ${idx}`, e);
-    }
-  }
-  return todasFlashcards;
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { content, count, idioma, getRecommendation } = body;
-    if (!content) return NextResponse.json({ success: false }, { status: 400 });
-
-    const cache = await getCachedContent(content);
-    if (cache && cache.flashcards) {
-      console.log('🚀 Sirviendo desde CACHÉ (Tokens ahorrados: 100%)');
-      return NextResponse.json({ success: true, flashcards: cache.flashcards, fromCache: true });
+    if (flashcards.length === 0) {
+      return NextResponse.json({ success: false, error: 'No se generaron flashcards' }, { status: 500 });
     }
 
-    if (getRecommendation) {
-      const realCount = await calcularFlashcardsNecesarias(content, idioma);
-      return NextResponse.json({ success: true, recommended: realCount });
-    }
+    await saveToCache(content, { flashcards });
+    return NextResponse.json({ success: true, flashcards });
 
-    const flashcardCount = count || await calcularFlashcardsNecesarias(content, idioma);
-    const flashcards = await generarFlashcardsCompletas(content, flashcardCount, idioma);
-
-    if (flashcards.length > 0) {
-      await saveToCache(content, { flashcards });
-      return NextResponse.json({ success: true, flashcards });
-    }
-
-    throw new Error('No se generaron flashcards');
   } catch (error: any) {
+    console.error('Flashcards error:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
