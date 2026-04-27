@@ -45,6 +45,7 @@ export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: P
     { label: '📅 ' + tr('agenda'), href: '/agenda' },
     { label: '🤖 JeffreyBot', href: '/chat' },
     { label: '🌍 Comunidad', href: '/comunidad' },
+    { label: '🤝 Partners', href: '/partners' },
     { label: '🎓 ' + tr('quizzes'), href: '/quizzes' },
     { label: '⚙️ ' + tr('configuracion'), href: '/settings' },
     { label: '🌐 Mi Perfil Público', href: `/u/${userId}` },
