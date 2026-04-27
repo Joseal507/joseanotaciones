@@ -2,71 +2,87 @@ import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const GROQ_KEYS = [
-  process.env.GROQ_API_KEY, process.env.GROQ_API_KEY_2, process.env.GROQ_API_KEY_3,
-  process.env.GROQ_API_KEY_4, process.env.GROQ_API_KEY_5, process.env.GROQ_API_KEY_6,
+  process.env.GROQ_API_KEY,
+  process.env.GROQ_API_KEY_2,
+  process.env.GROQ_API_KEY_3,
+  process.env.GROQ_API_KEY_4,
+  process.env.GROQ_API_KEY_5,
+  process.env.GROQ_API_KEY_6,
+  process.env.GROQ_API_KEY_7,
 ].filter(Boolean) as string[];
 
 const GEMINI_KEYS = [
-  process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_2,
-  process.env.GEMINI_API_KEY_3, process.env.GEMINI_API_KEY_4,
+  process.env.GEMINI_API_KEY,
+  process.env.GEMINI_API_KEY_2,
+  process.env.GEMINI_API_KEY_3,
+  process.env.GEMINI_API_KEY_4,
+  process.env.GEMINI_API_KEY_5,
 ].filter(Boolean) as string[];
 
 const CEREBRAS_KEYS = [
-  process.env.CEREBRAS_API_KEY, process.env.CEREBRAS_API_KEY_2,
-  process.env.CEREBRAS_API_KEY_3, process.env.CEREBRAS_API_KEY_4,
+  process.env.CEREBRAS_API_KEY,
+  process.env.CEREBRAS_API_KEY_2,
+  process.env.CEREBRAS_API_KEY_3,
+  process.env.CEREBRAS_API_KEY_4,
+  process.env.CEREBRAS_API_KEY_5,
 ].filter(Boolean) as string[];
 
 const SAMBANOVA_KEYS = [
-  process.env.SAMBANOVA_API_KEY, process.env.SAMBANOVA_API_KEY_2,
-  process.env.SAMBANOVA_API_KEY_3, process.env.SAMBANOVA_API_KEY_4,
+  process.env.SAMBANOVA_API_KEY,
+  process.env.SAMBANOVA_API_KEY_2,
+  process.env.SAMBANOVA_API_KEY_3,
+  process.env.SAMBANOVA_API_KEY_4,
+  process.env.SAMBANOVA_API_KEY_5,
 ].filter(Boolean) as string[];
 
 const HF_KEYS = [
-  process.env.HF_API_KEY, process.env.HF_API_KEY_2,
-  process.env.HF_API_KEY_3, process.env.HF_API_KEY_4,
+  process.env.HF_API_KEY,
+  process.env.HF_API_KEY_2,
+  process.env.HF_API_KEY_3,
+  process.env.HF_API_KEY_4,
+  process.env.HF_API_KEY_5, // ← Nueva que vas a agregar
 ].filter(Boolean) as string[];
 
 const keyStatus = new Map<string, number>();
-let currentGroqIndex = 0;
-let currentGeminiIndex = 0;
-let currentCerebrasIndex = 0;
-let currentSambanovaIndex = 0;
-let currentHfIndex = 0;
 
-const getNextKey = (keys: string[], currentIndex: number, setIndex: (i: number) => void) => {
+const getNextKey = (keys: string[]) => {
   if (keys.length === 0) return null;
   const now = Date.now();
   for (let i = 0; i < keys.length; i++) {
-    const idx = (currentIndex + i) % keys.length;
-    const key = keys[idx];
+    const key = keys[i];
     if (!keyStatus.has(key) || now >= keyStatus.get(key)!) {
-      setIndex((idx + 1) % keys.length);
       return key;
     }
   }
-  return null;
+  return keys[Math.floor(Math.random() * keys.length)];
 };
 
 export const markKeyAsBlocked = (key: string, seconds = 60) => {
   keyStatus.set(key, Date.now() + seconds * 1000);
 };
 
-// ✅ HF usa router.huggingface.co que es compatible con OpenAI SDK
-const getHFClient = () => {
-  const key = getNextKey(HF_KEYS, currentHfIndex, (i) => currentHfIndex = i);
-  return key ? new OpenAI({
-    apiKey: key,
-    baseURL: 'https://router.huggingface.co/v1',
-  }) : null;
-};
-
 export const getGroqClient = () => {
-  const key = getNextKey(GROQ_KEYS, currentGroqIndex, (i) => currentGroqIndex = i);
+  const key = getNextKey(GROQ_KEYS);
   return key ? new OpenAI({ apiKey: key, baseURL: 'https://api.groq.com/openai/v1' }) : null;
 };
 
+const getHFClient = () => {
+  const key = getNextKey(HF_KEYS);
+  return key ? new OpenAI({ apiKey: key, baseURL: 'https://router.huggingface.co/v1' }) : null;
+};
+
+const getCerebrasClient = () => {
+  const key = getNextKey(CEREBRAS_KEYS);
+  return key ? new OpenAI({ apiKey: key, baseURL: 'https://api.cerebras.ai/v1' }) : null;
+};
+
+const getSambanovaClient = () => {
+  const key = getNextKey(SAMBANOVA_KEYS);
+  return key ? new OpenAI({ apiKey: key, baseURL: 'https://api.sambanova.ai/v1' }) : null;
+};
+
 const callGemini = async (messages: any[], maxTokens: number = 2000): Promise<string> => {
-  const key = getNextKey(GEMINI_KEYS, currentGeminiIndex, (i) => currentGeminiIndex = i);
+  const key = getNextKey(GEMINI_KEYS);
   if (!key) throw new Error('No Gemini keys');
   const genAI = new GoogleGenerativeAI(key);
   const model = genAI.getGenerativeModel({
@@ -107,29 +123,29 @@ export const groqRequest = async <T>(
 ): Promise<T> => {
   let lastError: any;
 
-  const providers: (() => { client: any; provider: string } | null)[] = [
-    // ⚡ Groq x6
-    ...Array(6).fill(null).map(() => () => {
+  const providers = [
+    // ⚡ Groq x7
+    ...GROQ_KEYS.map(() => () => {
       const c = getGroqClient();
       return c ? { client: c, provider: 'groq' } : null;
     }),
-    // 🧠 Cerebras x4
-    ...Array(4).fill(null).map(() => () => {
-      const k = getNextKey(CEREBRAS_KEYS, currentCerebrasIndex, (i) => currentCerebrasIndex = i);
-      return k ? { client: new OpenAI({ apiKey: k, baseURL: 'https://api.cerebras.ai/v1' }), provider: 'cerebras' } : null;
+    // 🧠 Cerebras x5
+    ...CEREBRAS_KEYS.map(() => () => {
+      const c = getCerebrasClient();
+      return c ? { client: c, provider: 'cerebras' } : null;
     }),
-    // 🦙 SambaNova x4
-    ...Array(4).fill(null).map(() => () => {
-      const k = getNextKey(SAMBANOVA_KEYS, currentSambanovaIndex, (i) => currentSambanovaIndex = i);
-      return k ? { client: new OpenAI({ apiKey: k, baseURL: 'https://api.sambanova.ai/v1' }), provider: 'sambanova' } : null;
+    // 🦙 SambaNova x5
+    ...SAMBANOVA_KEYS.map(() => () => {
+      const c = getSambanovaClient();
+      return c ? { client: c, provider: 'sambanova' } : null;
     }),
-    // 🤗 HuggingFace x4 (router.huggingface.co - Llama 3.1 aprobado)
-    ...Array(4).fill(null).map(() => () => {
+    // 🤗 HuggingFace x5
+    ...HF_KEYS.map(() => () => {
       const c = getHFClient();
       return c ? { client: c, provider: 'hf' } : null;
     }),
-    // 🌟 Gemini x4
-    ...Array(4).fill(null).map(() => () => ({
+    // 🌟 Gemini x5
+    ...GEMINI_KEYS.map(() => () => ({
       client: {
         chat: {
           completions: {
@@ -141,7 +157,7 @@ export const groqRequest = async <T>(
       },
       provider: 'gemini',
     })),
-    // ☁️ Cloudflare
+    // ☁️ Cloudflare x1
     () => ({
       client: {
         chat: {
@@ -165,7 +181,7 @@ export const groqRequest = async <T>(
       return result;
     } catch (err: any) {
       lastError = err;
-      console.warn(`⚠️ Intento ${attempt + 1} (${err?.message?.slice(0, 50)})`);
+      console.warn(`⚠️ Intento ${attempt + 1} falló: ${err?.message?.slice(0, 50)}`);
       await new Promise(r => setTimeout(r, 200));
     }
   }
