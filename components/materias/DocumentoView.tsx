@@ -46,6 +46,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   const [deckGuardado, setDeckGuardado] = useState(false);
   const [recommendedCount, setRecommendedCount] = useState<number | null>(null);
   const [recommendedReason, setRecommendedReason] = useState('');
+  const [flashcardsMessage, setFlashcardsMessage] = useState('');
   const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
@@ -105,9 +106,9 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
       const d2 = await r2.json();
       setPasoActual(3);
 
-      const recommended = d2.recommendedCount || 10;
-      if (d2.recommendedCount) {
-        setRecommendedCount(d2.recommendedCount);
+      const recommended = d2.recommended || d2.recommendedCount || 30;
+      if (d2.recommended || d2.recommendedCount) {
+        setRecommendedCount(d2.recommended || d2.recommendedCount);
         setRecommendedReason(d2.reason || '');
       }
 
@@ -146,25 +147,53 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   const addMore = async () => {
     if (addingMore) return;
     setAddingMore(true);
+    setFlashcardsMessage('');
     try {
       const res = await fetch('/api/flashcards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           content: documento.contenido,
-          count: addCount,
           idioma: getIdioma(),
           existingQuestions: flashcards.map((f: any) => f.question),
         }),
       });
       const data = await res.json();
-      if (data.success) {
+
+      if (data.exhausted) {
+        setFlashcardsMessage(
+          data.message ||
+          (idioma === 'en'
+            ? 'This document has already been analyzed 100%. No more flashcards can be generated.'
+            : 'Este documento ya fue analizado al 100%. No se pueden generar más flashcards.')
+        );
+        return;
+      }
+
+      if (data.success && data.flashcards?.length > 0) {
         const nuevas = [...flashcards, ...data.flashcards];
         setFlashcards(nuevas);
         onActualizar({ ...documento, flashcards: nuevas });
+        setFlashcardsMessage(
+          idioma === 'en'
+            ? `${data.flashcards.length} new flashcards generated successfully.`
+            : `${data.flashcards.length} nuevas flashcards generadas correctamente.`
+        );
+      } else {
+        setFlashcardsMessage(
+          idioma === 'en'
+            ? 'No more unique flashcards could be generated.'
+            : 'No se pudieron generar más flashcards únicas.'
+        );
       }
-    } catch (e) { console.error(e); }
-    finally { setAddingMore(false); }
+    } catch (e) {
+      console.error(e);
+      setFlashcardsMessage(
+        idioma === 'en'
+          ? 'Error generating more flashcards.'
+          : 'Error al generar más flashcards.'
+      );
+    } finally { setAddingMore(false); }
   };
 
   const handleGuardarDeck = async () => {
@@ -376,7 +405,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
         {tab === 'flashcards' && (
           <TabFlashcards
             flashcards={flashcards} currentCard={currentCard} flipped={flipped}
-            addCount={addCount} addingMore={addingMore} recommendedCount={recommendedCount}
+            addCount={addCount} addingMore={addingMore} flashcardsMessage={flashcardsMessage} recommendedCount={recommendedCount}
             recommendedReason={recommendedReason} tema={tema} isMobile={isMobile}
             idioma={idioma} esImagen={esImagen} analizando={analizando} tr={trAny}
             onFlip={() => setFlipped(!flipped)}

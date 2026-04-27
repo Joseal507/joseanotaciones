@@ -7,6 +7,7 @@ interface Props {
   flipped: boolean;
   addCount: number;
   addingMore: boolean;
+  flashcardsMessage: string;
   recommendedCount: number | null;
   recommendedReason: string;
   tema: any;
@@ -28,7 +29,7 @@ interface Props {
   onGuardar: () => void;
 }
 
-export default function TabFlashcards({ flashcards, currentCard, flipped, addCount, addingMore, recommendedCount, recommendedReason, tema, isMobile, idioma, esImagen, analizando, tr, onFlip, onPrev, onNext, onSetCard, onSetAddCount, onAddMore, onAnalizar, onEstudio, onQuiz, onEditor, onGuardar }: Props) {
+export default function TabFlashcards({ flashcards, currentCard, flipped, addCount, addingMore, flashcardsMessage, recommendedCount, recommendedReason, tema, isMobile, idioma, esImagen, analizando, tr, onFlip, onPrev, onNext, onSetCard, onSetAddCount, onAddMore, onAnalizar, onEstudio, onQuiz, onEditor, onGuardar }: Props) {
 
   const Indicadores = () => {
     if (flashcards.length <= 15) {
@@ -130,16 +131,57 @@ export default function TabFlashcards({ flashcards, currentCard, flipped, addCou
         <div style={{ padding: '18px' }}>
           <p style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>➕ {tr('anadirMas')}</p>
           <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '0 0 10px' }}>{idioma === 'en' ? '🔄 New ones will never repeat existing questions' : '🔄 Las nuevas nunca repetirán las preguntas existentes'}</p>
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-            {[5, 10, 20, 50].map(n => (
-              <button key={n} onClick={() => onSetAddCount(n)} style={{ padding: '7px 13px', borderRadius: '7px', border: `2px solid ${addCount === n ? 'var(--blue)' : 'var(--border-color)'}`, cursor: 'pointer', fontSize: '13px', fontWeight: 700, background: addCount === n ? 'var(--blue)' : 'transparent', color: addCount === n ? '#000' : 'var(--text-muted)' }}>+{n}</button>
-            ))}
-            <input type="number" min={1} max={500} value={addCount} onChange={e => onSetAddCount(Math.max(1, parseInt(e.target.value) || 1))} style={{ width: '60px', padding: '7px 10px', borderRadius: '7px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center' }} />
-            <button onClick={onAddMore} disabled={addingMore} style={{ padding: '9px 18px', borderRadius: '8px', border: 'none', cursor: addingMore ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 800, color: addingMore ? 'var(--text-faint)' : '#000', background: addingMore ? 'var(--bg-card2)' : 'var(--blue)' }}>
-              {addingMore ? '⏳...' : `➕ ${addCount}`}
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginTop: '8px' }}>
+            <button
+              onClick={onAddMore}
+              disabled={addingMore}
+              style={{
+                padding: '12px 26px',
+                borderRadius: '12px',
+                border: 'none',
+                cursor: addingMore ? 'not-allowed' : 'pointer',
+                fontSize: '14px',
+                fontWeight: 900,
+                color: addingMore ? 'var(--text-faint)' : '#000',
+                background: addingMore ? 'var(--bg-card2)' : 'var(--gold)',
+                boxShadow: addingMore ? 'none' : '0 6px 20px rgba(255, 215, 0, 0.15)',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              {addingMore
+                ? (idioma === 'en' ? '⏳ Analyzing what is missing...' : '⏳ Analizando lo que falta...')
+                : (idioma === 'en' ? '✨ Generate more flashcards' : '✨ Generar más flashcards')}
             </button>
           </div>
-          <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '8px 0 0' }}>{tr('total')}: {flashcards.length} {tr('tarjetas')}</p>
+
+          {flashcardsMessage && (
+            <div
+              style={{
+                marginTop: '12px',
+                padding: '12px 14px',
+                borderRadius: '10px',
+                background: flashcardsMessage.toLowerCase().includes('100%') || flashcardsMessage.toLowerCase().includes('analizado')
+                  ? 'rgba(255, 215, 0, 0.12)'
+                  : 'rgba(74, 222, 128, 0.10)',
+                border: flashcardsMessage.toLowerCase().includes('100%') || flashcardsMessage.toLowerCase().includes('analizado')
+                  ? '1px solid rgba(255, 215, 0, 0.35)'
+                  : '1px solid rgba(74, 222, 128, 0.35)',
+                textAlign: 'center'
+              }}
+            >
+              <p style={{
+                margin: 0,
+                fontSize: '12px',
+                lineHeight: 1.5,
+                color: 'var(--text-primary)',
+                fontWeight: 700
+              }}>
+                {flashcardsMessage}
+              </p>
+            </div>
+          )}
+
+          <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '8px 0 0', textAlign: 'center' }}>{tr('total')}: {flashcards.length} {tr('tarjetas')}</p>
         </div>
       </div>
     </div>
