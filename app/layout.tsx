@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
 import ThemeInit from '../components/ThemeInit';
 import PomodoroFlotante from '../components/PomodoroFlotante';
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {children}
         <PomodoroFlotante />
         <ChatFlotante />
+              <Analytics />
       </body>
     </html>
   );

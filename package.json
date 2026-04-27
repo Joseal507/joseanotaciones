@@ -17,6 +17,7 @@
     "@tailwindcss/postcss": "^4.2.2",
     "@tailwindcss/typography": "^0.5.19",
     "@types/katex": "^0.16.8",
+    "@vercel/analytics": "^2.0.1",
     "canvas": "^3.2.3",
     "crypto": "^1.0.1",
     "docx": "^9.6.1",
