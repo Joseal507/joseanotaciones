@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
 
     await transporter.sendMail({
       from: `"StudyAL" <${GMAIL_USER}>`,
-      to: process.env.ADMIN_EMAIL || 'studyal496@gmail.com',
+      to: process.env.ADMIN_EMAIL || 'studyal694@gmail.com',
       subject: '💡 Nueva sugerencia — StudyAL',
       html: `
         <div style="font-family: -apple-system, sans-serif; max-width: 500px; margin: 0 auto; background: #0d0d1a; color: #fff; border-radius: 16px; overflow: hidden;">

@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       es_login,
     } = body;
 
-    const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'jose.alberto.deobaldia@gmail.com';
+    const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'studyal694@gmail.com';
     const GMAIL_USER = process.env.GMAIL_USER || 'jose.alberto.deobaldia@gmail.com';
     const GMAIL_PASS = process.env.GMAIL_APP_PASSWORD;
 
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
               </tr>
               <tr>
                 <td style="padding:6px 0;color:#94a3b8;font-size:13px;">📅 Hora</td>
-                <td style="padding:6px 0;color:#f1f5f9;font-weight:700;">${new Date().toLocaleString('es-ES')}</td>
+                <td style="padding:6px 0;color:#f1f5f9;font-weight:700;">${new Date().toLocaleString('es-PA', { hour12: true })}</td>
               </tr>
             </table>
             <p style="color:#475569;font-size:11px;margin:16px 0 0;text-align:center;">
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
             <div style="text-align:center;margin-bottom:32px;">
               <h1 style="color:#f5c842;margin:0;font-size:20px;">🎉 Nuevo usuario registrado</h1>
               <p style="color:#64748b;font-size:13px;margin:8px 0 0;">
-                ${new Date().toLocaleString('es-ES')}
+                ${new Date().toLocaleString('es-PA', { hour12: true })}
               </p>
             </div>
             <div style="background:#1e293b;border-radius:16px;border:1px solid #334155;overflow:hidden;">
