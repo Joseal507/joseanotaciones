@@ -46,7 +46,7 @@ export function BetaBanner() {
         </span>
       </div>
       <a
-        href="mailto:jose.alberto.deobaldia@gmail.com"
+        href="mailto:studyal496@gmail.com"
         style={{
           fontSize: '12px', fontWeight: 700,
           color: '#f97316',

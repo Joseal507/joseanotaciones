@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     } = body;
 
     const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'studyal694@gmail.com';
-    const GMAIL_USER = process.env.GMAIL_USER || 'jose.alberto.deobaldia@gmail.com';
+    const GMAIL_USER = process.env.GMAIL_USER || 'studyal496@gmail.com';
     const GMAIL_PASS = process.env.GMAIL_APP_PASSWORD;
 
     if (!GMAIL_PASS) {
