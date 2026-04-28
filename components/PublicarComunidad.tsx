@@ -6,7 +6,7 @@ import { getMaterias, Materia, Tema, Documento, Apunte } from '../lib/storage';
 import { getQuizzesGuardados, getFlashcardDecks, getQuizzesTemporales, QuizGuardado, FlashcardDeck } from '../lib/quizStorage';
 
 interface Props {
-  tipo?: 'apunte' | 'flashcards' | 'quiz' | 'post';
+  tipo?: 'apunte' | 'flashcards' | 'quiz' | 'post' | 'video';
   titulo?: string;
   descripcionInicial?: string;
   contenido?: any;
@@ -22,6 +22,7 @@ const TIPO_INFO = {
   flashcards: { emoji: '🎴', label: 'Flashcards', color: '#a78bfa' },
   quiz:       { emoji: '🧠', label: 'Quiz',       color: '#34d399' },
   post:       { emoji: '💬', label: 'Post',       color: '#38bdf8' },
+  video:      { emoji: '🎬', label: 'Video',      color: '#ff4d6d' },
 };
 
 type Paso = 'tipo' | 'origen' | 'explorar' | 'decks' | 'quizzes' | 'detalles' | 'publicando' | 'exito';
@@ -41,7 +42,7 @@ export default function PublicarComunidad({
 }: Props) {
 
   const [paso, setPaso]   = useState<Paso>(tipoProp ? (contenidoProp ? 'detalles' : 'origen') : 'tipo');
-  const [tipo, setTipo]   = useState<'apunte' | 'flashcards' | 'quiz' | 'post'>(tipoProp || 'post');
+  const [tipo, setTipo]   = useState<'apunte' | 'flashcards' | 'quiz' | 'post' | 'video'>(tipoProp || 'post');
 
   // user
   const [userId,     setUserId]     = useState('');
@@ -78,6 +79,13 @@ export default function PublicarComunidad({
   const [portadaPreview,  setPortadaPreview]  = useState('');
   const [subiendoPortada, setSubiendoPortada] = useState(false);
   const [portadaError,    setPortadaError]    = useState('');
+
+  // video
+  const [videoUrl,        setVideoUrl]        = useState('');
+  const [videoPreview,    setVideoPreview]    = useState('');
+  const [subiendoVideo,   setSubiendoVideo]   = useState(false);
+  const [videoError,      setVideoError]      = useState('');
+  const videoRef = useRef<HTMLInputElement>(null);
   const portadaRef = useRef<HTMLInputElement>(null);
 
   const [error, setError] = useState('');
@@ -261,10 +269,19 @@ export default function PublicarComunidad({
   const publicar = async () => {
     setError('');
     if (!titulo.trim()) { setError('El título es obligatorio'); return; }
+    if (tipo === 'video' && !videoUrl) { setError('Debes subir un video'); return; }
     if (!userId)        { setError('Debes iniciar sesión'); return; }
 
     const contenidoFinal = construirContenido();
-    if (tipo !== 'post' && !contenidoFinal) { setError('Selecciona contenido para publicar'); return; }
+    if (tipo !== 'post' && tipo !== 'video' && !contenidoFinal) { setError('Selecciona contenido para publicar'); return; }
+
+    const contenidoSeguro =
+      contenidoFinal ??
+      (tipo === 'video'
+        ? { tipo: 'video', video_url: videoUrl || null }
+        : tipo === 'post'
+          ? { texto: descripcion.trim() || '' }
+          : {});
 
     setPaso('publicando');
     try {
@@ -273,7 +290,8 @@ export default function PublicarComunidad({
         user_id: userId, user_nombre: userNombre, user_avatar: userAvatar || null,
         tipo, titulo: titulo.trim(), descripcion: descripcion.trim() || null,
         portada_url:    portadaUrl || null,
-        contenido:      contenidoFinal,
+        video_url:      videoUrl || null,
+        contenido:      contenidoSeguro,
         materia_nombre: mat?.nombre  || materiaNombreProp  || null,
         materia_color:  mat?.color   || materiaColorProp   || null,
         materia_emoji:  mat?.emoji   || materiaEmojiProp   || null,
@@ -296,6 +314,7 @@ export default function PublicarComunidad({
   // ─── helpers ──────────────────────────────────────────────────────────────
   const hayContenido = () => {
     if (tipo === 'post')   return true;
+    if (tipo === 'video')  return !!videoUrl;
     if (contenidoProp)     return true;
     if (apunteSeleccionado || docSeleccionado || quizSeleccionado || deckSeleccionado) return true;
     return false;
@@ -381,7 +400,7 @@ export default function PublicarComunidad({
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                     {(Object.entries(TIPO_INFO) as [string, any][]).map(([key, val]) => (
                       <button key={key}
-                        onClick={() => { setTipo(key as any); limpiarSeleccion(); setPaso(key === 'post' ? 'detalles' : 'origen'); }}
+                        onClick={() => { setTipo(key as any); limpiarSeleccion(); setPaso(key === 'post' || key === 'video' ? 'detalles' : 'origen'); }}
                         style={{ padding: '18px 14px', borderRadius: '16px', border: `2px solid var(--border-color)`, background: 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s' }}
                         onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = val.color; (e.currentTarget as HTMLElement).style.background = `${val.color}12`; }}
                         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
@@ -393,6 +412,7 @@ export default function PublicarComunidad({
                           {key === 'apunte'     && 'Hoja de apuntes'}
                           {key === 'flashcards' && 'Tarjetas de estudio'}
                           {key === 'quiz'       && 'Preguntas y respuestas'}
+                          {key === 'video'      && 'Video de estudio'}
                         </div>
                       </button>
                     ))}
@@ -768,6 +788,72 @@ export default function PublicarComunidad({
                     onFocus={e => (e.target.style.borderColor = info.color)}
                     onBlur={e => (e.target.style.borderColor = 'var(--border-color)')}
                   />
+
+                  {/* Video — solo si tipo === video */}
+                  {tipo === 'video' && (
+                    <div style={{ marginBottom: '16px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 700, color: '#ff4d6d', display: 'block', marginBottom: '8px', letterSpacing: '1px' }}>🎬 VIDEO DE ESTUDIO *</label>
+                      <input ref={videoRef} type="file" accept="video/mp4,video/webm,video/mov,video/quicktime" style={{ display: 'none' }}
+                        onChange={async e => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setVideoError('');
+                          if (file.size > 100 * 1024 * 1024) { setVideoError('Máximo 100MB'); return; }
+                          const preview = URL.createObjectURL(file);
+                          setVideoPreview(preview);
+                          setSubiendoVideo(true);
+                          try {
+                            const ext  = file.name.split('.').pop() || 'mp4';
+                            const path = `videos/${userId}_${Date.now()}.${ext}`;
+                            const { error: upErr } = await supabase.storage
+                              .from('comunidad-videos')
+                              .upload(path, file, { contentType: file.type, upsert: true });
+
+                            if (upErr) {
+                              if ((upErr as any).message?.toLowerCase().includes('bucket not found')) {
+                                throw new Error('El bucket comunidad-videos no existe en Supabase');
+                              }
+                              throw upErr;
+                            }
+                            const { data: { publicUrl } } = supabase.storage.from('comunidad-videos').getPublicUrl(path);
+                            setVideoUrl(publicUrl);
+                          } catch (e: any) {
+                            setVideoError('Error subiendo: ' + (e.message || 'intenta de nuevo'));
+                            setVideoPreview(''); setVideoUrl('');
+                          } finally { setSubiendoVideo(false); }
+                        }}
+                      />
+                      {videoPreview ? (
+                        <div style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', marginBottom: '8px', border: '2px solid #ff4d6d44', background: '#000' }}>
+                          <video src={videoPreview} controls muted style={{ width: '100%', maxHeight: '220px', objectFit: 'contain', display: 'block' }} />
+                          {subiendoVideo && (
+                            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '8px' }}>
+                              <div style={{ fontSize: '28px' }}>⏳</div>
+                              <p style={{ color: '#fff', fontWeight: 700, fontSize: '13px', margin: 0 }}>Subiendo video...</p>
+                            </div>
+                          )}
+                          {!subiendoVideo && videoUrl && (
+                            <div style={{ position: 'absolute', top: '8px', right: '8px', display: 'flex', gap: '6px' }}>
+                              <span style={{ background: '#22c55e', color: '#fff', padding: '3px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 700 }}>✅ Listo</span>
+                              <button onClick={() => { setVideoPreview(''); setVideoUrl(''); }} style={{ padding: '3px 8px', borderRadius: '8px', border: 'none', background: 'rgba(239,68,68,0.9)', color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>✕</button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div onClick={() => videoRef.current?.click()}
+                          style={{ border: '2px dashed #ff4d6d66', borderRadius: '12px', padding: '28px', textAlign: 'center', cursor: 'pointer', background: '#ff4d6d08', transition: 'all 0.2s' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#ff4d6d'; }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#ff4d6d66'; }}
+                        >
+                          <div style={{ fontSize: '36px', marginBottom: '6px' }}>🎬</div>
+                          <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>Subir video de estudio</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-faint)', marginTop: '4px' }}>MP4, WebM · Máx 100MB</div>
+                          <div style={{ fontSize: '11px', color: '#ff4d6d', marginTop: '4px', fontWeight: 600 }}>Se verá en StudyAL Blinks</div>
+                        </div>
+                      )}
+                      {videoError && <div style={{ background: '#ef444422', border: '1px solid #ef4444', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#ef4444' }}>⚠️ {videoError}</div>}
+                    </div>
+                  )}
 
                   {/* Portada */}
                   <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', letterSpacing: '1px' }}>PORTADA <span style={{ fontWeight: 400, letterSpacing: 0 }}>(opcional)</span></label>

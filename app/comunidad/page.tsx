@@ -1,6 +1,8 @@
 'use client';
+import { darXP } from '../../lib/xpClient';
+import { dispararXPToast } from '../../components/XPToast';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useDarkMode } from '@/hooks/useDarkMode';
@@ -15,7 +17,7 @@ interface Post {
   user_id: string;
   user_nombre: string;
   user_avatar?: string;
-  tipo: 'apunte' | 'flashcards' | 'quiz' | 'post';
+  tipo: 'apunte' | 'flashcards' | 'quiz' | 'post' | 'video';
   titulo: string;
   descripcion?: string;
   portada_url?: string;
@@ -31,6 +33,7 @@ interface Post {
   comentarios_count: number;
   views: number;
   estudiados: number;
+  video_url?: string;
   created_at: string;
 }
 
@@ -39,6 +42,7 @@ const TIPO_LABELS: Record<string, { label: string; emoji: string; color: string 
   flashcards: { label: 'Flashcards', emoji: '🎴', color: '#a78bfa' },
   quiz: { label: 'Quiz', emoji: '🧠', color: '#34d399' },
   post: { label: 'Post', emoji: '💬', color: '#38bdf8' },
+  video: { label: 'Video', emoji: '🎥', color: '#ff4d6d' },
 };
 
 function StarRating({ avg, count }: { avg: number; count: number }) {
@@ -54,9 +58,45 @@ function StarRating({ avg, count }: { avg: number; count: number }) {
 
 function PostCard({ post, userId, onLike, onGuardar }: { post: Post; userId: string; onLike: (id: string) => void; onGuardar: (id: string) => void }) {
   const tipo = TIPO_LABELS[post.tipo];
+  const lastTap = useRef(0);
+  const clickTimer = useRef<any>(null);
+  const [showHeart, setShowHeart] = useState(false);
+
+  const abrirPost = () => {
+    window.location.href = `/comunidad/${post.id}`;
+  };
+
+  const handleSingleOpen = () => {
+    if (clickTimer.current) clearTimeout(clickTimer.current);
+    clickTimer.current = setTimeout(() => {
+      abrirPost();
+    }, 220);
+  };
+
+  const handleDoubleLike = (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    if (clickTimer.current) clearTimeout(clickTimer.current);
+
+    setShowHeart(true);
+    setTimeout(() => setShowHeart(false), 700);
+
+    if (!post.user_liked) onLike(post.id);
+  };
+
+  const handleTouchEnd = (e: any) => {
+    const now = Date.now();
+    if (now - lastTap.current < 280) {
+      handleDoubleLike(e);
+    }
+    lastTap.current = now;
+  };
 
   return (
     <div
+      onClick={handleSingleOpen}
+      onDoubleClick={handleDoubleLike}
+      onTouchEnd={handleTouchEnd}
       style={{
         background: 'var(--bg-card)',
         borderRadius: '20px',
@@ -81,7 +121,7 @@ function PostCard({ post, userId, onLike, onGuardar }: { post: Post; userId: str
       }}
     >
       {/* Imagen o gradiente */}
-      <Link href={`/comunidad/${post.id}`} style={{ display: 'block', textDecoration: 'none' }}>
+      <div style={{ display: 'block', textDecoration: 'none', position: 'relative' }}>
         {post.portada_url ? (
           <div style={{ position: 'relative', width: '100%', overflow: 'hidden' }}>
             <img
@@ -159,7 +199,25 @@ function PostCard({ post, userId, onLike, onGuardar }: { post: Post; userId: str
             </h3>
           </div>
         )}
-      </Link>
+        {showHeart && (
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+          }}>
+            <div style={{
+              fontSize: '68px',
+              animation: 'heartPopMini 0.7s ease forwards',
+              textShadow: '0 8px 30px rgba(0,0,0,0.35)',
+            }}>
+              ❤️
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Footer minimalista: avatar + like + guardar */}
       <div style={{
@@ -284,11 +342,12 @@ export default function ComunidadPage() {
   };
 
   const tipoFiltros = [
-    { key: 'all', label: 'Todo', emoji: '🌟' },
-    { key: 'apunte', label: 'Apuntes', emoji: '📝' },
-    { key: 'flashcards', label: 'Flashcards', emoji: '🎴' },
-    { key: 'quiz', label: 'Quizzes', emoji: '🧠' },
-    { key: 'post', label: 'Posts', emoji: '💬' },
+    { key: 'all', label: 'Todo', emoji: '' },
+    { key: 'apunte', label: 'Apuntes', emoji: '' },
+    { key: 'flashcards', label: 'Flashcards', emoji: '' },
+    { key: 'quiz', label: 'Quizzes', emoji: '' },
+    { key: 'post', label: 'Posts', emoji: '' },
+    { key: 'video', label: 'Videos', emoji: '' },
   ];
 
   const filtroOpciones = [
@@ -316,7 +375,7 @@ export default function ComunidadPage() {
                 <span style={{ color: 'var(--gold)' }}>Study</span><span style={{ color: 'var(--red)' }}>AL</span>
               </button>
               <span style={{ color: 'var(--border-color)' }}>›</span>
-              <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>🌍 Comunidad</span>
+              <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>Comunidad</span>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button onClick={() => window.location.href = '/materias'} style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>📚 Materias</button>
@@ -338,7 +397,7 @@ export default function ComunidadPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h1 style={{ fontSize: isMobile ? '24px' : '32px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 4px' }}>
-              🌍 Comunidad
+              Comunidad
             </h1>
             <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: 0 }}>
               Aprende y comparte con otros estudiantes
@@ -372,10 +431,10 @@ export default function ComunidadPage() {
               fontSize: '13px',
               fontWeight: 800,
             }}>
-              🧱 Feed
+              📰 Feed
             </div>
 
-            <Link href="/comunidad/studytok" style={{ textDecoration: 'none' }}>
+            <Link href="/comunidad/blinks" style={{ textDecoration: 'none' }}>
               <div style={{
                 padding: '10px 14px',
                 borderRadius: '12px',
@@ -386,13 +445,13 @@ export default function ComunidadPage() {
                 fontWeight: 900,
                 cursor: 'pointer',
               }}>
-                🎬 StudyTok
+                🎥 StudyAL Blinks
               </div>
             </Link>
           </div>
 
           <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-            Swipe vertical para ver contenido de estudio estilo TikTok
+            📰 Feed vertical de estudio · swipe o scroll para navegar
           </p>
         </div>
 
@@ -426,7 +485,7 @@ export default function ComunidadPage() {
           ))}
         </div>
 
-        {/* Feed Pinterest */}
+        {/* 📰 Feed Pinterest */}
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
             <div style={{ fontSize: '40px', animation: 'spin 1s linear infinite' }}>⏳</div>
@@ -458,9 +517,26 @@ export default function ComunidadPage() {
       {showPublicar && (
         <PublicarComunidad
           onClose={() => setShowPublicar(false)}
-          onPublicado={() => { setShowPublicar(false); cargarPosts(); }}
+          onPublicado={() => { setShowPublicar(false); darXP('post', 15, { tipo: 'publicacion' }).then(res => {
+        dispararXPToast({
+          xp: res.ok ? res.xpGanado : 15,
+          fuente: '🌍 Post publicado',
+          emoji: '🌍',
+          color: '#34d399',
+          descripcion: 'Nuevo post en la comunidad',
+        });
+      });
+      cargarPosts(); }}
         />
       )}
+
+      <style>{`
+        @keyframes heartPopMini {
+          0%   { transform: scale(0.2); opacity: 0; }
+          30%  { transform: scale(1.15); opacity: 1; }
+          100% { transform: scale(1); opacity: 0; }
+        }
+      `}</style>
 
       <Footer />
     </div>

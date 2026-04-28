@@ -1,9 +1,17 @@
 import type { Metadata } from 'next';
 import { Analytics } from '@vercel/analytics/next';
+import { Caveat } from 'next/font/google';
 import './globals.css';
 import ThemeInit from '../components/ThemeInit';
-import PomodoroFlotante from '../components/PomodoroFlotante';
-import ChatFlotante from '../components/ChatFlotante';
+import PomodoroProvider from '../components/PomodoroProvider';
+import XPToast from '../components/XPToast';
+
+const caveat = Caveat({
+  subsets: ['latin'],
+  weight: ['600', '700'],
+  display: 'swap',
+  variable: '--font-caveat',
+});
 
 export const metadata: Metadata = {
   title: 'StudyAL',
@@ -12,19 +20,20 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es">
+    <html lang="es" className={caveat.variable}>
       <head>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&display=swap" rel="stylesheet" />
+        <link
+          rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css"
+        />
       </head>
       <body>
         <ThemeInit />
-        {children}
-        <PomodoroFlotante />
-        <ChatFlotante />
-              <Analytics />
+        <PomodoroProvider>
+          {children}
+        </PomodoroProvider>
+        <XPToast />
+        <Analytics />
       </body>
     </html>
   );

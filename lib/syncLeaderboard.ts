@@ -1,8 +1,12 @@
+/**
+ * syncLeaderboard.ts
+ * Solo sincroniza stats de actividad (flashcards, racha, precisión).
+ * El XP se maneja ÚNICAMENTE en /api/xp — nunca se recalcula aquí.
+ */
 import { supabase } from './supabase';
 import { getPerfil } from './storage';
 import { verificarRacha } from './racha';
 import { savePerfilDB } from './db';
-import { getObjetivos } from './agenda';
 
 export const syncLeaderboard = async () => {
   try {
@@ -13,18 +17,20 @@ export const syncLeaderboard = async () => {
     }
     if (!session) return;
 
-    const perfil = getPerfil();
-    const racha  = verificarRacha();
-    const nombre = session.user.user_metadata?.nombre || session.user.email?.split('@')[0] || 'Usuario';
+    const perfil  = getPerfil();
+    const racha   = verificarRacha();
+    const nombre  = session.user.user_metadata?.nombre
+      || session.user.email?.split('@')[0]
+      || 'Usuario';
 
-    // ── Avatar ──────────────────────────────────────────────
+    // Avatar desde settings
     let avatarUrl: string | null = null;
     try {
       const s = JSON.parse(localStorage.getItem('josea_settings') || '{}');
       if (s.fotoPerfil) avatarUrl = s.fotoPerfil;
     } catch {}
 
-    // ── Stats flashcards ────────────────────────────────────
+    // Stats flashcards desde localStorage
     const totalAcertadas = Object.values(perfil.flashcardsAcertadas || {})
       .reduce((a: number, b: any) => a + (typeof b === 'number' ? b : 0), 0);
     const totalFalladas = Object.values(perfil.flashcardsFalladas || {})
@@ -33,72 +39,35 @@ export const syncLeaderboard = async () => {
     const precision = totalEstudiadas > 0
       ? Math.round((totalAcertadas / totalEstudiadas) * 100) : 0;
 
-    // ── Stats quizzes ───────────────────────────────────────
-    const totalQuizzes = Object.values(perfil.materiasStats || {})
-      .reduce((acc: number, m: any) => acc + (m.quizzes || 0), 0);
-    const totalQuizPuntuacion = Object.values(perfil.materiasStats || {})
-      .reduce((acc: number, m: any) => acc + (m.quizPuntuacion || 0), 0);
+    // Leer valores actuales en Supabase para nunca bajar nada
+    const { data: current } = await supabase
+      .from('leaderboard')
+      .select('xp_total, mejor_racha, flashcards_estudiadas, nivel')
+      .eq('user_id', session.user.id)
+      .single();
 
-    // ── XP por fuente (cálculo directo, sin xpSystem) ───────
-    const xpFlashcards = (Math.min(totalEstudiadas, 50) * 2) +
-      (Math.max(0, totalEstudiadas - 50) * 1) +
-      (totalEstudiadas > 0 && Math.round((totalAcertadas / totalEstudiadas) * 100) >= 85 ? 10 : 0);
-
-    const xpQuizzes = (totalQuizzes * 35) + Math.round(totalQuizPuntuacion * 0.5);
-
-    const xpDiario = 10 +
-      (racha.rachaActual >= 30 ? 150 :
-       racha.rachaActual >= 7  ? 50  :
-       racha.rachaActual >= 3  ? 20  : 0);
-
-    // ── XP de objetivos completados ─────────────────────────
-    const objetivos = getObjetivos();
-    const xpObjetivos = objetivos
-      .filter(o => o.completado)
-      .reduce((acc, o) => acc + (o.xp || 0), 0);
-
-    const xpCalculado = xpFlashcards + xpQuizzes + xpDiario + xpObjetivos;
-
-    // ── Nunca bajar el XP que ya está en Supabase ───────────
-    let xpFinal         = xpCalculado;
-    let flashcardsFinal = totalEstudiadas;
-    let mejorRachaFinal = racha.mejorRacha;
-
-    try {
-      const { data: current } = await supabase
-        .from('leaderboard')
-        .select('xp_total, flashcards_estudiadas, mejor_racha')
-        .eq('user_id', session.user.id)
-        .single();
-      if (current) {
-        if (current.xp_total             > xpCalculado)     xpFinal         = current.xp_total;
-        if (current.flashcards_estudiadas > totalEstudiadas) flashcardsFinal = current.flashcards_estudiadas;
-        if (current.mejor_racha           > racha.mejorRacha) mejorRachaFinal = current.mejor_racha;
-      }
-    } catch {}
-
-    // ── POST al leaderboard ─────────────────────────────────
-    const body: any = {
+    const body: Record<string, any> = {
       nombre,
-      xp_total:              xpFinal,
-      flashcards_estudiadas: flashcardsFinal,
+      // Stats que SÍ sincronizamos desde local
+      flashcards_estudiadas: Math.max(totalEstudiadas, current?.flashcards_estudiadas ?? 0),
       racha_actual:          racha.rachaActual,
-      mejor_racha:           mejorRachaFinal,
+      mejor_racha:           Math.max(racha.mejorRacha, current?.mejor_racha ?? 0),
       precision_global:      precision,
+      // XP y nivel NUNCA los tocamos — son responsabilidad de /api/xp
     };
+
     if (avatarUrl) body.avatar_url = avatarUrl;
 
     await fetch('/api/leaderboard', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${session.access_token}`,
+        Authorization: `Bearer ${session.access_token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
     });
 
     await savePerfilDB(session.user.id, perfil);
-
   } catch (err) {
     console.error('Leaderboard sync error:', err);
   }

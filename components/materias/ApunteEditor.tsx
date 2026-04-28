@@ -167,10 +167,21 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
         .filter(Boolean)
         .join('\n\n');
 
+      // Asegurar que cada página tenga paperStyle y paperColor
+      const paginasConEstilo = paginasActuales.map((pg: any) => ({
+        ...pg,
+        paperStyle: pg.paperStyle || paperStyle,
+        paperColor: pg.paperColor || paperColor,
+        paperSize: pg.paperSize || paperSize,
+      }));
+
       return {
         texto,
         contenido: JSON.stringify({
-          paginas: paginasActuales,
+          paginas: paginasConEstilo,
+          paperStyle,
+          paperColor,
+          paperSize,
           paperConfig: { paperStyle, paperColor, paperSize },
         }),
       };

@@ -17,6 +17,7 @@ interface Post {
   titulo: string;
   descripcion?: string;
   portada_url?: string;
+  video_url?: string;
   contenido?: any;
   materia_nombre?: string;
   materia_color?: string;
@@ -531,6 +532,7 @@ export default function PostPage() {
     flashcards: { label: 'Flashcards', emoji: '🎴', color: '#a78bfa' },
     quiz:       { label: 'Quiz',       emoji: '🧠', color: '#34d399' },
     post:       { label: 'Post',       emoji: '💬', color: '#38bdf8' },
+    video:      { label: 'Video',      emoji: '🎥', color: '#ff4d6d' },
   }[post.tipo] || { label: 'Post', emoji: '💬', color: '#38bdf8' };
 
   const flashcards = post.contenido?.flashcards || [];
@@ -705,6 +707,42 @@ export default function PostPage() {
                 ? <QuizViewer preguntas={quiz} onTerminar={() => registrarEstudiado()} />
                 : <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}><div style={{ fontSize: '40px', marginBottom: '8px' }}>🧠</div><p>No hay preguntas disponibles</p></div>
               }
+            </div>
+          )}
+
+          {/* VIDEO */}
+          {post.tipo === 'video' && (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', paddingBottom: '14px', borderBottom: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '20px' }}>🎥</span>
+                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#ff4d6d', margin: 0 }}>Video de estudio</h3>
+              </div>
+              {post.video_url ? (
+                <div style={{ borderRadius: '16px', overflow: 'hidden', background: '#000', position: 'relative' }}>
+                  <video
+                    src={post.video_url}
+                    controls
+                    playsInline
+                    style={{
+                      width: '100%',
+                      maxHeight: '520px',
+                      display: 'block',
+                      objectFit: 'contain',
+                      background: '#000',
+                    }}
+                  />
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: '40px', marginBottom: '8px' }}>🎥</div>
+                  <p>Video no disponible</p>
+                </div>
+              )}
+              {post.descripcion && (
+                <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: '14px 0 0', lineHeight: 1.6 }}>
+                  {post.descripcion}
+                </p>
+              )}
             </div>
           )}
         </div>

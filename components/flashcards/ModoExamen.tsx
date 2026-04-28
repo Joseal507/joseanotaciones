@@ -1,4 +1,8 @@
 'use client';
+import React from 'react';
+import { darXP } from '../../lib/xpClient';
+import { dispararXPToast } from '../XPToast';
+import { calcularXpQuiz } from '../../lib/xpSystem';
 
 import { useState } from 'react';
 import { useIdioma } from '../../hooks/useIdioma';
@@ -157,6 +161,31 @@ export default function ModoExamen({ flashcards, contenido, nombreDoc, temaColor
   const preguntaActual = preguntas[idxActual];
   const progreso = preguntas.length > 0 ? Math.round((idxActual / preguntas.length) * 100) : 0;
   const totalRespondidas = resultadosDetalle.length;
+
+  // Dar XP cuando termina el examen (cuando hay resultados)
+  const [xpExamenDado, setXpExamenDado] = React.useState(false);
+  React.useEffect(() => {
+    if (totalRespondidas > 0 && totalRespondidas === preguntas.length && !xpExamenDado) {
+      setXpExamenDado(true);
+      const correctas2 = resultadosDetalle.filter(r => r.correcto).length;
+      const porcentaje2 = Math.round((correctas2 / totalRespondidas) * 100);
+      const xpResult2 = calcularXpQuiz({
+        preguntasTotales: totalRespondidas,
+        correctas: correctas2,
+        nivel: 'dificil',
+        esRepeticion: false,
+      });
+      darXP('quiz', xpResult2.total, { modo: 'examen', correctas: correctas2, total: totalRespondidas }).then(res => {
+        dispararXPToast({
+          xp: res.ok ? res.xpGanado : xpResult2.total,
+          fuente: '📝 Modo Examen',
+          emoji: porcentaje2 >= 90 ? '🏆' : porcentaje2 >= 70 ? '⭐' : '📝',
+          color: porcentaje2 >= 90 ? '#fbbf24' : porcentaje2 >= 70 ? '#4ade80' : '#60a5fa',
+          descripcion: `${correctas2}/${totalRespondidas} correctas · ${porcentaje2}%`,
+        });
+      });
+    }
+  }, [totalRespondidas]);
 
   // Evaluar flashcard escrita
   const evaluarEscrita = async () => {

@@ -1,4 +1,7 @@
 'use client';
+import { darXP } from '../../lib/xpClient';
+import { dispararXPToast } from '../XPToast';
+import { calcularXpQuiz } from '../../lib/xpSystem';
 
 import { useState } from 'react';
 import { registrarEstudioHoy } from '../../lib/racha';
@@ -85,6 +88,24 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
   const siguiente = () => {
     if (idx + 1 >= preguntas.length) {
       const porcentajeFinal = preguntas.length > 0 ? Math.round((puntos / preguntas.length) * 100) : 0;
+
+      // ── Dar XP por completar quiz ──
+      const xpResult = calcularXpQuiz({
+        preguntasTotales: preguntas.length,
+        correctas: puntos,
+        nivel: 'intermedio',
+        esRepeticion: false,
+        streakQuizzes: 0,
+      });
+      darXP('quiz', xpResult.total, { puntos, total: preguntas.length, porcentaje: porcentajeFinal }).then(res => {
+        dispararXPToast({
+          xp: res.ok ? res.xpGanado : xpResult.total,
+          fuente: '🤓 Quiz',
+          emoji: porcentajeFinal === 100 ? '🏆' : porcentajeFinal >= 80 ? '⭐' : '✅',
+          color: porcentajeFinal === 100 ? '#fbbf24' : porcentajeFinal >= 80 ? '#4ade80' : '#60a5fa',
+          descripcion: `${puntos}/${preguntas.length} correctas · ${porcentajeFinal}%`,
+        });
+      });
       try {
         const materiaId = materiaNombre?.toLowerCase().replace(/\s+/g, '_') || 'sin_materia';
         import('../../lib/storage').then(({ registrarQuiz }) => {

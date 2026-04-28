@@ -36,22 +36,25 @@ function parsearContenido(contenido: any): ParsedApunte {
   const raw = extraerRaw(contenido) || {};
 
   const defaultPaperStyle =
+    raw?.paperConfig?.paperStyle ??
     raw?.paperStyle ??
     contenido?.paperStyle ??
     contenido?.paper_style ??
-    'blank';
+    'lined';
 
   const defaultPaperColor =
+    raw?.paperConfig?.paperColor ??
     raw?.paperColor ??
     contenido?.paperColor ??
     contenido?.paper_color ??
     'white';
 
   const defaultPaperSize =
+    raw?.paperConfig?.paperSize ??
     raw?.paperSize ??
     contenido?.paperSize ??
     contenido?.paper_size ??
-    'letter';
+    'normal';
 
   let paginas: any[] = [];
 

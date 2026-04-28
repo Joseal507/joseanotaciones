@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const {
       user_id, user_nombre, user_avatar, tipo, titulo, descripcion,
-      portada_url, contenido, materia_nombre, materia_color, materia_emoji,
+      portada_url, video_url, contenido, materia_nombre, materia_color, materia_emoji,
       es_partner, comments_activos
     } = body;
 
@@ -88,11 +88,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
     }
 
+    const contenidoSeguro =
+      contenido ??
+      (tipo === 'video'
+        ? { tipo: 'video', video_url: video_url || null }
+        : tipo === 'post'
+          ? { texto: descripcion || '' }
+          : {});
+
     const { data, error } = await supabase
       .from('comunidad_posts')
       .insert({
         user_id, user_nombre, user_avatar, tipo, titulo, descripcion,
-        portada_url, contenido, materia_nombre, materia_color, materia_emoji,
+        portada_url: portada_url || null,
+        video_url: video_url || null,
+        contenido: contenidoSeguro,
+        materia_nombre, materia_color, materia_emoji,
         es_partner: es_partner || false,
         comments_activos: comments_activos !== false,
       })

@@ -1,4 +1,7 @@
 'use client';
+import { darXP } from '../../lib/xpClient';
+import { dispararXPToast } from '../XPToast';
+import { calcularXpFlashcards } from '../../lib/xpSystem';
 
 import { useState } from 'react';
 import { registrarEstudioHoy } from '../../lib/racha';
@@ -523,6 +526,22 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
   if (modo === 'fin') {
     const statsUsados = esRepaso ? repasoStats : stats;
     const completadosUsados = esRepaso ? repasoCompletados : completados;
+
+    // ── Dar XP por flashcards estudiadas ──
+    if (completadosUsados > 0) {
+      const statsUsados2 = esRepaso ? repasoStats : stats;
+      const acertadas2 = (statsUsados2.INSANE || 0) + (statsUsados2.correcta || 0);
+      const xpFlash = calcularXpFlashcards({ tarjetasRevisadas: completadosUsados, correctas: acertadas2 });
+      darXP('flashcards', xpFlash.total, { tarjetas: completadosUsados, acertadas: acertadas2 }).then(res => {
+        dispararXPToast({
+          xp: res.ok ? res.xpGanado : xpFlash.total,
+          fuente: '🎴 Flashcards',
+          emoji: '🎴',
+          color: '#f5c842',
+          descripcion: `${completadosUsados} tarjetas estudiadas`,
+        });
+      });
+    }
 
     const puntuacion = completadosUsados > 0
       ? Math.round(((statsUsados.INSANE * 100 + statsUsados.correcta * 80 + statsUsados.medio_correcta * 55 + statsUsados.incorrecta * 30) / completadosUsados))

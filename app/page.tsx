@@ -359,6 +359,7 @@ export default function Home() {
               { emoji: '🤖', label: 'JeffreyBot', desc: idioma === 'en' ? 'AI chat' : 'Chat con AI', color: 'var(--pink)', href: '/chat' },
               { emoji: '🎓', label: tr('quizzes'), desc: idioma === 'en' ? 'Saved materials' : 'Materiales guardados', color: '#a78bfa', href: '/quizzes' },
               { emoji: '📊', label: tr('perfil'), desc: idioma === 'en' ? 'Study stats' : 'Stats de estudio', color: 'var(--red)', href: '/perfil' },
+              { emoji: '⏱️', label: 'Timer', desc: idioma === 'en' ? 'Focus timer' : 'Método Pomodoro', color: '#ef4444', href: '/pomodoro' },
               { emoji: '⚙️', label: tr('configuracion'), desc: idioma === 'en' ? 'Settings' : 'Ajustes', color: 'var(--text-muted)', href: '/settings' },
             ].map((item, i) => (
               <div key={i}
