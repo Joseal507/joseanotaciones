@@ -175,12 +175,10 @@ export default function TikTokEstudio({ userId }: Props) {
       i === current ? { ...p, views: (p.views || 0) + 1 } : p
     ));
 
-    supabase
+    void supabase
       .from('comunidad_posts')
       .update({ views: (post.views || 0) + 1 })
-      .eq('id', post.id)
-      .then(() => {})
-      .catch(() => {});
+      .eq('id', post.id);
   }, [current, posts]);
 
   // ── Wheel scroll ─────────────────────────────────────────
