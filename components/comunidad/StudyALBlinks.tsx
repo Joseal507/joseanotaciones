@@ -53,7 +53,7 @@ export default function StudyALBlinks({
   const [videoHint, setVideoHint] = useState<{ id: string; text: string } | null>(null);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const itemRefs = useRef<Record<string, HTMLElement | null>>({});
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const loadedPages = useRef<Set<string>>(new Set());
   const viewedPosts = useRef<Set<string>>(new Set());
