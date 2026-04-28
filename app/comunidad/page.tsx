@@ -54,169 +54,166 @@ function StarRating({ avg, count }: { avg: number; count: number }) {
 
 function PostCard({ post, userId, onLike, onGuardar }: { post: Post; userId: string; onLike: (id: string) => void; onGuardar: (id: string) => void }) {
   const tipo = TIPO_LABELS[post.tipo];
-  const timeAgo = (date: string) => {
-    const diff = Date.now() - new Date(date).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return `${mins}m`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h`;
-    return `${Math.floor(hrs / 24)}d`;
-  };
 
   return (
-    <div style={{
-      background: 'var(--bg-card)',
-      borderRadius: '16px',
-      border: '1px solid var(--border-color)',
-      overflow: 'hidden',
-      cursor: 'pointer',
-      transition: 'all 0.2s ease',
-      breakInside: 'avoid',
-      marginBottom: '14px',
-      display: 'inline-block',
-      width: '100%',
-    }}
-    onMouseEnter={e => {
-      (e.currentTarget as HTMLElement).style.transform = 'translateY(-4px)';
-      (e.currentTarget as HTMLElement).style.boxShadow = '0 12px 40px rgba(0,0,0,0.15)';
-      (e.currentTarget as HTMLElement).style.borderColor = post.materia_color || tipo.color;
-    }}
-    onMouseLeave={e => {
-      (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
-      (e.currentTarget as HTMLElement).style.boxShadow = 'none';
-      (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)';
-    }}>
-
-      {/* Portada */}
-      {post.portada_url ? (
-        <Link href={`/comunidad/${post.id}`} style={{ display: 'block' }}>
-          <div style={{ position: 'relative', width: '100%', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
+    <div
+      style={{
+        background: 'var(--bg-card)',
+        borderRadius: '20px',
+        overflow: 'hidden',
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+        breakInside: 'avoid',
+        marginBottom: '14px',
+        display: 'inline-block',
+        width: '100%',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+        border: '1px solid var(--border-color)',
+        position: 'relative',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLElement).style.transform = 'translateY(-3px)';
+        (e.currentTarget as HTMLElement).style.boxShadow = '0 16px 48px rgba(0,0,0,0.18)';
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
+        (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)';
+      }}
+    >
+      {/* Imagen o gradiente */}
+      <Link href={`/comunidad/${post.id}`} style={{ display: 'block', textDecoration: 'none' }}>
+        {post.portada_url ? (
+          <div style={{ position: 'relative', width: '100%', overflow: 'hidden' }}>
             <img
               src={post.portada_url}
               alt={post.titulo}
-              style={{ width: '100%', display: 'block', objectFit: 'cover', maxHeight: '400px', minHeight: '120px' }}
+              style={{ width: '100%', display: 'block', objectFit: 'cover', maxHeight: '500px', minHeight: '180px' }}
             />
+            {/* Gradiente oscuro abajo para leer el texto */}
+            <div style={{
+              position: 'absolute', bottom: 0, left: 0, right: 0,
+              height: '60%',
+              background: 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)',
+              pointerEvents: 'none',
+            }} />
+            {/* Titulo encima de la imagen */}
+            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '14px' }}>
+              {post.materia_nombre && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
+                  <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: post.materia_color || tipo.color }} />
+                  <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.75)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{post.materia_nombre}</span>
+                </div>
+              )}
+              <h3 style={{ fontSize: '14px', fontWeight: 900, color: '#fff', margin: 0, lineHeight: 1.3,
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                textShadow: '0 1px 4px rgba(0,0,0,0.4)' }}>
+                {post.titulo}
+              </h3>
+            </div>
+            {/* Badge tipo */}
             <div style={{ position: 'absolute', top: '10px', left: '10px' }}>
-              <span style={{ background: tipo.color, color: '#000', padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 800 }}>
+              <span style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', color: '#fff', padding: '3px 9px', borderRadius: '20px', fontSize: '10px', fontWeight: 800 }}>
                 {tipo.emoji} {tipo.label}
               </span>
             </div>
             {post.es_partner && (
               <div style={{ position: 'absolute', top: '10px', right: '10px' }}>
-                <span style={{ background: '#38bdf8', color: '#000', padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 800 }}>
-                  ✨ Partner
+                <span style={{ background: '#38bdf8', color: '#000', padding: '3px 9px', borderRadius: '20px', fontSize: '10px', fontWeight: 800 }}>
+                  ✨
                 </span>
               </div>
             )}
           </div>
-        </Link>
-      ) : (
-        <Link href={`/comunidad/${post.id}`} style={{ display: 'block' }}>
+        ) : (
           <div style={{
-            height: '100px',
-            background: `linear-gradient(135deg, ${post.materia_color || tipo.color}15, ${post.materia_color || tipo.color}35)`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '40px',
-            position: 'relative',
+            height: '120px',
+            background: `linear-gradient(135deg, ${post.materia_color || tipo.color}30, ${post.materia_color || tipo.color}60)`,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            position: 'relative', gap: '6px',
           }}>
-            {post.materia_emoji || tipo.emoji}
-            <div style={{ position: 'absolute', top: '10px', left: '10px' }}>
-              <span style={{ background: tipo.color, color: '#000', padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 800 }}>
-                {tipo.emoji} {tipo.label}
-              </span>
-            </div>
+            <div style={{ fontSize: '40px' }}>{post.materia_emoji || tipo.emoji}</div>
+            <span style={{ fontSize: '10px', fontWeight: 800, color: post.materia_color || tipo.color, textTransform: 'uppercase', letterSpacing: '1px' }}>
+              {tipo.label}
+            </span>
             {post.es_partner && (
-              <div style={{ position: 'absolute', top: '10px', right: '10px' }}>
-                <span style={{ background: '#38bdf8', color: '#000', padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 800 }}>
-                  ✨ Partner
-                </span>
+              <div style={{ position: 'absolute', top: '8px', right: '8px' }}>
+                <span style={{ background: '#38bdf8', color: '#000', padding: '2px 8px', borderRadius: '20px', fontSize: '10px', fontWeight: 800 }}>✨</span>
               </div>
             )}
           </div>
-        </Link>
-      )}
+        )}
 
-      {/* Contenido */}
-      <div style={{ padding: '16px' }}>
-        {post.materia_nombre && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: post.materia_color || '#888' }} />
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>{post.materia_nombre}</span>
+        {/* Titulo (solo si no hay portada) */}
+        {!post.portada_url && (
+          <div style={{ padding: '12px 14px 4px' }}>
+            {post.materia_nombre && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
+                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: post.materia_color || '#888' }} />
+                <span style={{ fontSize: '10px', color: 'var(--text-faint)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{post.materia_nombre}</span>
+              </div>
+            )}
+            <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', margin: 0, lineHeight: 1.35,
+              display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+              {post.titulo}
+            </h3>
           </div>
         )}
+      </Link>
 
-        <Link href={`/comunidad/${post.id}`} style={{ textDecoration: 'none' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 6px', lineHeight: 1.3 }}>
-            {post.titulo}
-          </h3>
-        </Link>
-
-        {post.descripcion && (
-          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.5,
-            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-            {post.descripcion}
-          </p>
-        )}
-
-        <StarRating avg={post.avg_rating} count={post.ratings_count} />
-
-        {/* Stats */}
-        <div style={{ display: 'flex', gap: '12px', margin: '10px 0', fontSize: '11px', color: 'var(--text-muted)' }}>
-          <span>👁️ {post.views}</span>
-          <span>📖 {post.estudiados}</span>
-          <span>💬 {post.comentarios_count}</span>
+      {/* Footer minimalista: avatar + like + guardar */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 12px',
+        gap: '8px',
+      }}>
+        {/* Avatar + nombre */}
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: 'pointer', minWidth: 0 }}
+          onClick={e => { e.preventDefault(); e.stopPropagation(); window.location.href = `/u/${encodeURIComponent(post.user_id)}`; }}
+        >
+          <div style={{
+            width: '26px', height: '26px', borderRadius: '50%',
+            background: post.materia_color || 'var(--gold)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '11px', fontWeight: 800, color: '#000', overflow: 'hidden', flexShrink: 0,
+          }}>
+            {post.user_avatar
+              ? <img src={post.user_avatar} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+              : post.user_nombre?.[0]?.toUpperCase()}
+          </div>
+          <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80px' }}>
+            {post.user_nombre}
+          </span>
         </div>
 
-        {/* Footer */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
-          <div
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
-            onClick={e => { e.preventDefault(); e.stopPropagation(); window.location.href = `/u/${encodeURIComponent(post.user_id)}`; }}
-          >
-            <div style={{
-              width: '28px', height: '28px', borderRadius: '50%',
-              background: post.materia_color || 'var(--gold)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '12px', fontWeight: 800, color: '#000', overflow: 'hidden',
-              flexShrink: 0,
+        {/* Like + Guardar */}
+        <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+          <button
+            onClick={e => { e.preventDefault(); e.stopPropagation(); onLike(post.id); }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '4px',
+              background: post.user_liked ? '#ef444420' : 'transparent',
+              border: 'none', borderRadius: '20px', padding: '5px 10px',
+              fontSize: '12px', cursor: 'pointer', fontWeight: 700,
+              color: post.user_liked ? '#ef4444' : 'var(--text-faint)',
+              transition: 'all 0.15s',
             }}>
-              {post.user_avatar
-                ? <img src={post.user_avatar} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt={post.user_nombre} />
-                : post.user_nombre?.[0]?.toUpperCase()
-              }
-            </div>
-            <div>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>{post.user_nombre}</div>
-              <div style={{ fontSize: '10px', color: 'var(--text-faint)' }}>{timeAgo(post.created_at)}</div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <button
-              onClick={e => { e.preventDefault(); e.stopPropagation(); onLike(post.id); }}
-              style={{
-                background: post.user_liked ? '#ef4444' : 'var(--bg-secondary)',
-                border: 'none', borderRadius: '20px', padding: '5px 10px',
-                fontSize: '12px', cursor: 'pointer', fontWeight: 700,
-                color: post.user_liked ? '#fff' : 'var(--text-muted)',
-                transition: 'all 0.2s',
-              }}>
-              ❤️ {post.likes_count}
-            </button>
-            <button
-              onClick={e => { e.preventDefault(); e.stopPropagation(); onGuardar(post.id); }}
-              style={{
-                background: post.guardado ? '#f5c842' : 'var(--bg-secondary)',
-                border: 'none', borderRadius: '20px', padding: '5px 10px',
-                fontSize: '12px', cursor: 'pointer', fontWeight: 700,
-                color: post.guardado ? '#000' : 'var(--text-muted)',
-                transition: 'all 0.2s',
-              }}>
-              {post.guardado ? '🔖' : '🔖'}
-            </button>
-          </div>
+            {post.user_liked ? '❤️' : '🤍'} {post.likes_count}
+          </button>
+          <button
+            onClick={e => { e.preventDefault(); e.stopPropagation(); onGuardar(post.id); }}
+            style={{
+              display: 'flex', alignItems: 'center',
+              background: post.guardado ? '#f5c84220' : 'transparent',
+              border: 'none', borderRadius: '20px', padding: '5px 8px',
+              fontSize: '13px', cursor: 'pointer',
+              color: post.guardado ? '#f5c842' : 'var(--text-faint)',
+              transition: 'all 0.15s',
+            }}>
+            {post.guardado ? '🔖' : '🏷️'}
+          </button>
         </div>
       </div>
     </div>
@@ -354,6 +351,49 @@ export default function ComunidadPage() {
               ✨ Publicar
             </button>
           )}
+        </div>
+
+        {/* Modos de vista */}
+        <div style={{
+          display: 'flex',
+          gap: '10px',
+          marginBottom: '18px',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <div style={{
+              padding: '10px 14px',
+              borderRadius: '12px',
+              border: '1px solid var(--border-color)',
+              background: 'var(--bg-secondary)',
+              color: 'var(--text-primary)',
+              fontSize: '13px',
+              fontWeight: 800,
+            }}>
+              🧱 Feed
+            </div>
+
+            <Link href="/comunidad/studytok" style={{ textDecoration: 'none' }}>
+              <div style={{
+                padding: '10px 14px',
+                borderRadius: '12px',
+                border: '1px solid #ff4d6d55',
+                background: 'linear-gradient(135deg, #ff4d6d22, #a78bfa22)',
+                color: 'var(--text-primary)',
+                fontSize: '13px',
+                fontWeight: 900,
+                cursor: 'pointer',
+              }}>
+                🎬 StudyTok
+              </div>
+            </Link>
+          </div>
+
+          <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
+            Swipe vertical para ver contenido de estudio estilo TikTok
+          </p>
         </div>
 
         {/* Filtros tipo */}
