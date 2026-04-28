@@ -20,17 +20,16 @@ export default function OnboardingCheck() {
         const userId = session.user.id;
         const userName = session.user.user_metadata?.nombre || session.user.email?.split('@')[0] || '';
 
-        // Check en Supabase SOLAMENTE — no localStorage
+        // ── 1. Verificar leaderboard (fuente principal) ──
         const { data: entry } = await supabase
           .from('leaderboard')
-          .select('onboarding_completo, genero, tipo_estudiante, user_agreement')
+          .select('genero, tipo_estudiante, user_agreement, onboarding_completo')
           .eq('user_id', userId)
           .single();
 
-        // Si tiene genero Y tipo_estudiante → onboarding completo
         if (entry?.genero && entry?.tipo_estudiante) {
-          // Verificar si falta el user agreement
-          if (!entry?.user_agreement) {
+          // Onboarding completo — verificar solo el agreement
+          if (!entry.user_agreement) {
             setNombre(userName);
             setShowAgreement(true);
           }
@@ -38,11 +37,44 @@ export default function OnboardingCheck() {
           return;
         }
 
-        // No tiene datos → mostrar onboarding
+        // ── 2. Verificar user_profiles como segunda fuente ──
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('onboarding_completo, genero, tipo_estudiante')
+          .eq('id', userId)
+          .single();
+
+        if (profile?.onboarding_completo || (profile?.genero && profile?.tipo_estudiante)) {
+          // Ya completó el onboarding — sincronizar al leaderboard silenciosamente
+          if (profile.genero && profile.tipo_estudiante) {
+            await supabase
+              .from('leaderboard')
+              .upsert({
+                user_id: userId,
+                genero: profile.genero,
+                tipo_estudiante: profile.tipo_estudiante,
+                onboarding_completo: true,
+              }, { onConflict: 'user_id' });
+          }
+          setChecked(true);
+          return;
+        }
+
+        // ── 3. Verificar localStorage como tercera fuente ──
+        const localDone = localStorage.getItem(`josea_onboarding_done_${userId}`);
+        if (localDone === 'true') {
+          setChecked(true);
+          return;
+        }
+
+        // ── 4. Sin ninguna fuente → mostrar onboarding ──
         setNombre(userName);
         setShowOnboarding(true);
+
       } catch (err) {
         console.error('OnboardingCheck error:', err);
+        // En caso de error de red → NO mostrar onboarding, asumir que ya lo hizo
+        setChecked(true);
       } finally {
         setChecked(true);
       }
@@ -53,7 +85,7 @@ export default function OnboardingCheck() {
 
   if (!checked) return null;
 
-  // User Agreement modal
+  // ── User Agreement ──
   if (showAgreement) {
     return (
       <div style={{
@@ -104,14 +136,11 @@ export default function OnboardingCheck() {
                 try {
                   const { data } = await supabase.auth.getSession();
                   if (data.session) {
-                    await supabase
-                      .from('leaderboard')
-                      .update({
-                        user_agreement: true,
-                        user_agreement_date: new Date().toISOString(),
-                        visible_leaderboard: true,
-                      })
-                      .eq('user_id', data.session.user.id);
+                    await supabase.from('leaderboard').update({
+                      user_agreement: true,
+                      user_agreement_date: new Date().toISOString(),
+                      visible_leaderboard: true,
+                    }).eq('user_id', data.session.user.id);
                   }
                 } catch {}
                 setShowAgreement(false);
@@ -130,14 +159,11 @@ export default function OnboardingCheck() {
                 try {
                   const { data } = await supabase.auth.getSession();
                   if (data.session) {
-                    await supabase
-                      .from('leaderboard')
-                      .update({
-                        user_agreement: false,
-                        user_agreement_date: new Date().toISOString(),
-                        visible_leaderboard: false,
-                      })
-                      .eq('user_id', data.session.user.id);
+                    await supabase.from('leaderboard').update({
+                      user_agreement: false,
+                      user_agreement_date: new Date().toISOString(),
+                      visible_leaderboard: false,
+                    }).eq('user_id', data.session.user.id);
                   }
                 } catch {}
                 setShowAgreement(false);
