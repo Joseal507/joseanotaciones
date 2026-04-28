@@ -27,16 +27,57 @@ export default function AuthPage() {
 
   const checkOnboarding = async (userId: string, nombre: string) => {
     try {
-      const res = await fetch(`/api/user-profile?userId=${userId}`);
-      const data = await res.json();
-      if (!data.data || !data.data.onboarding_completo) {
-        // Necesita onboarding
-        setNombreUsuario(nombre);
-        setShowOnboarding(true);
-      } else {
+      // ── 1. Leaderboard (fuente principal) ──
+      const { data: entry } = await supabase
+        .from('leaderboard')
+        .select('genero, tipo_estudiante, onboarding_completo')
+        .eq('user_id', userId)
+        .single();
+
+      if (entry?.genero && entry?.tipo_estudiante) {
         window.location.href = '/';
+        return;
       }
+
+      if (entry?.onboarding_completo) {
+        window.location.href = '/';
+        return;
+      }
+
+      // ── 2. user_profiles como segunda fuente ──
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('onboarding_completo, genero, tipo_estudiante')
+        .eq('id', userId)
+        .single();
+
+      if (profile?.onboarding_completo || (profile?.genero && profile?.tipo_estudiante)) {
+        // Sincronizar al leaderboard silenciosamente
+        if (profile?.genero && profile?.tipo_estudiante) {
+          await supabase.from('leaderboard').upsert({
+            user_id: userId,
+            genero: profile.genero,
+            tipo_estudiante: profile.tipo_estudiante,
+            onboarding_completo: true,
+          }, { onConflict: 'user_id' });
+        }
+        window.location.href = '/';
+        return;
+      }
+
+      // ── 3. localStorage como tercera fuente ──
+      const localDone = localStorage.getItem(`josea_onboarding_done_${userId}`);
+      if (localDone === 'true') {
+        window.location.href = '/';
+        return;
+      }
+
+      // ── 4. Sin ninguna fuente → es usuario nuevo, mostrar onboarding ──
+      setNombreUsuario(nombre);
+      setShowOnboarding(true);
+
     } catch {
+      // Error de red → asumir que ya completó onboarding
       window.location.href = '/';
     }
   };
