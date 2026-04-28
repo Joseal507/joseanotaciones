@@ -45,6 +45,7 @@ export interface Tema {
 }
 
 export interface Materia {
+  calificaciones?: import("./calificaciones").CalificacionesMateria;
   id: string;
   nombre: string;
   color: string;

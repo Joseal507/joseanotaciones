@@ -1,7 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { Materia, Tema } from '../../lib/storage';
+import { CalificacionesMateria } from '../../lib/calificaciones';
 import { useIdioma } from '../../hooks/useIdioma';
+import TabCalificaciones from './TabCalificaciones';
 
 interface Props {
   materia: Materia;
@@ -9,83 +12,216 @@ interface Props {
   onAbrirTema: (t: Tema) => void;
   onEliminarTema: (id: string) => void;
   onNuevoTema: () => void;
+  onActualizarMateria?: (m: Materia) => void;
 }
 
-export default function MateriaView({ materia, onBack, onAbrirTema, onEliminarTema, onNuevoTema }: Props) {
+type TabActivo = 'temas' | 'calificaciones';
+
+const CAL_DEFAULT: CalificacionesMateria = {
+  notaObjetivo: 71,
+  evaluaciones: [],
+  escala: '0-100',
+  configurado: false,
+};
+
+export default function MateriaView({
+  materia,
+  onBack,
+  onAbrirTema,
+  onEliminarTema,
+  onNuevoTema,
+  onActualizarMateria,
+}: Props) {
   const { tr, idioma } = useIdioma();
+  const [tabActivo, setTabActivo] = useState<TabActivo>('temas');
+
+  const calificaciones: CalificacionesMateria = materia.calificaciones ?? CAL_DEFAULT;
+
+  const handleCalificacionesChange = (cal: CalificacionesMateria) => {
+    if (onActualizarMateria) {
+      onActualizarMateria({ ...materia, calificaciones: cal });
+    }
+  };
 
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+
+      {/* BREADCRUMB */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '28px' }}>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--gold)', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>
+        <button
+          onClick={onBack}
+          style={{ background: 'none', border: 'none', color: 'var(--gold)', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}
+        >
           📚 {tr('materias')}
         </button>
         <span style={{ color: 'var(--text-faint)' }}>/</span>
-        <span style={{ color: materia.color, fontWeight: 700, fontSize: '14px' }}>{materia.emoji} {materia.nombre}</span>
+        <span style={{ color: materia.color, fontWeight: 700, fontSize: '14px' }}>
+          {materia.emoji} {materia.nombre}
+        </span>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+      {/* HEADER */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '60px', height: '60px', borderRadius: '16px', background: materia.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px' }}>
+          <div style={{
+            width: '60px', height: '60px', borderRadius: '16px',
+            background: materia.color, display: 'flex', alignItems: 'center',
+            justifyContent: 'center', fontSize: '28px',
+          }}>
             {materia.emoji}
           </div>
           <div>
-            <h1 style={{ fontSize: '28px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{materia.nombre}</h1>
-            <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>{materia.temas.length} {tr('temas')}</p>
+            <h1 style={{ fontSize: '28px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
+              {materia.nombre}
+            </h1>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>
+              {materia.temas.length} {tr('temas')}
+            </p>
           </div>
         </div>
-        <button onClick={onNuevoTema}
-          style={{ padding: '12px 24px', borderRadius: '12px', border: 'none', background: materia.color, color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-          + {idioma === 'en' ? 'New Topic' : 'Nuevo Tema'}
-        </button>
+        {tabActivo === 'temas' && (
+          <button
+            onClick={onNuevoTema}
+            style={{
+              padding: '12px 24px', borderRadius: '12px', border: 'none',
+              background: materia.color, color: '#000', fontSize: '14px',
+              fontWeight: 800, cursor: 'pointer',
+            }}
+          >
+            + {idioma === 'en' ? 'New Topic' : 'Nuevo Tema'}
+          </button>
+        )}
       </div>
 
-      {materia.temas.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 0' }}>
-          <div style={{ fontSize: '60px', marginBottom: '16px' }}>📁</div>
-          <p style={{ fontSize: '18px', color: 'var(--text-faint)', fontWeight: 600, marginBottom: '24px' }}>
-            {idioma === 'en' ? 'No topics yet' : 'No hay temas todavía'}
-          </p>
-          <button onClick={onNuevoTema}
-            style={{ padding: '14px 32px', borderRadius: '12px', border: 'none', background: materia.color, color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>
-            + {idioma === 'en' ? 'Create first topic' : 'Crear primer tema'}
+      {/* TABS */}
+      <div style={{
+        display: 'flex',
+        gap: 0,
+        marginBottom: 28,
+        borderBottom: '2px solid var(--border-color)',
+      }}>
+        {([
+          { id: 'temas' as TabActivo, label: idioma === 'en' ? 'Topics' : 'Temas', emoji: '📁' },
+          { id: 'calificaciones' as TabActivo, label: idioma === 'en' ? 'Grades' : 'Calificaciones', emoji: '📊' },
+        ]).map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setTabActivo(tab.id)}
+            style={{
+              background: 'none',
+              border: 'none',
+              borderBottom: tabActivo === tab.id
+                ? `3px solid ${materia.color}`
+                : '3px solid transparent',
+              padding: '10px 20px',
+              cursor: 'pointer',
+              fontSize: 14,
+              fontWeight: tabActivo === tab.id ? 700 : 500,
+              color: tabActivo === tab.id ? materia.color : 'var(--text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              marginBottom: '-2px',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {tab.emoji} {tab.label}
           </button>
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '16px' }}>
-          {materia.temas.map(tema => (
-            <div key={tema.id}
-              style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden', transition: 'all 0.2s ease' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-3px)'; (e.currentTarget as HTMLDivElement).style.borderColor = tema.color; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'; (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border-color)'; }}
-            >
-              <div style={{ height: '4px', background: tema.color }} />
-              <div style={{ padding: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                  <div onClick={() => onAbrirTema(tema)} style={{ cursor: 'pointer', flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: tema.color }} />
-                      <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tema.nombre}</h3>
-                    </div>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>✏️ {tema.apuntes.length} {idioma === 'en' ? 'notes' : 'apuntes'}</span>
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>📄 {tema.documentos.length} docs</span>
-                    </div>
-                  </div>
-                  <button onClick={() => onEliminarTema(tema.id)}
-                    style={{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: '16px' }}>
-                    🗑️
-                  </button>
-                </div>
-                <button onClick={() => onAbrirTema(tema)}
-                  style={{ width: '100%', padding: '8px', borderRadius: '8px', border: `2px solid ${tema.color}`, background: 'transparent', color: tema.color, fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-                  {idioma === 'en' ? 'Open →' : 'Abrir →'}
-                </button>
-              </div>
+        ))}
+      </div>
+
+      {/* TAB: TEMAS */}
+      {tabActivo === 'temas' && (
+        <>
+          {materia.temas.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 0' }}>
+              <div style={{ fontSize: '60px', marginBottom: '16px' }}>📁</div>
+              <p style={{ fontSize: '18px', color: 'var(--text-faint)', fontWeight: 600, marginBottom: '24px' }}>
+                {idioma === 'en' ? 'No topics yet' : 'No hay temas todavia'}
+              </p>
+              <button
+                onClick={onNuevoTema}
+                style={{
+                  padding: '14px 32px', borderRadius: '12px', border: 'none',
+                  background: materia.color, color: '#000', fontSize: '15px',
+                  fontWeight: 800, cursor: 'pointer',
+                }}
+              >
+                + {idioma === 'en' ? 'Create first topic' : 'Crear primer tema'}
+              </button>
             </div>
-          ))}
-        </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '16px' }}>
+              {materia.temas.map(tema => (
+                <div
+                  key={tema.id}
+                  style={{
+                    background: 'var(--bg-card)', borderRadius: '16px',
+                    border: '1px solid var(--border-color)', overflow: 'hidden',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onMouseEnter={e => {
+                    (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-3px)';
+                    (e.currentTarget as HTMLDivElement).style.borderColor = tema.color;
+                  }}
+                  onMouseLeave={e => {
+                    (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
+                    (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border-color)';
+                  }}
+                >
+                  <div style={{ height: '4px', background: tema.color }} />
+                  <div style={{ padding: '20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                      <div onClick={() => onAbrirTema(tema)} style={{ cursor: 'pointer', flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: tema.color }} />
+                          <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                            {tema.nombre}
+                          </h3>
+                        </div>
+                        <div style={{ display: 'flex', gap: '12px' }}>
+                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                            ✏️ {tema.apuntes.length} {idioma === 'en' ? 'notes' : 'apuntes'}
+                          </span>
+                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                            📄 {tema.documentos.length} docs
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => onEliminarTema(tema.id)}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: '16px' }}
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => onAbrirTema(tema)}
+                      style={{
+                        width: '100%', padding: '8px', borderRadius: '8px',
+                        border: `2px solid ${tema.color}`, background: 'transparent',
+                        color: tema.color, fontSize: '13px', fontWeight: 700, cursor: 'pointer',
+                      }}
+                    >
+                      {idioma === 'en' ? 'Open →' : 'Abrir →'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
+
+      {/* TAB: CALIFICACIONES */}
+      {tabActivo === 'calificaciones' && (
+        <TabCalificaciones
+          calificaciones={calificaciones}
+          colorMateria={materia.color}
+          onChange={handleCalificacionesChange}
+        />
+      )}
+
     </div>
   );
 }
