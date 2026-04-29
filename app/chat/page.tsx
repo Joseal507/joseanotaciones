@@ -34,9 +34,18 @@ export default function ChatPage() {
   const [audioGrabado, setAudioGrabado] = useState<{ blob: Blob; url: string } | null>(null);
   const [transcribiendo, setTranscribiendo] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
+  const [nombreUsuario, setNombreUsuario] = useState('');
   const [modoLlamada, setModoLlamada] = useState(false);
   const [aiExhausted, setAiExhausted] = useState(false);
   const [llamandoAI, setLlamandoAI] = useState(false);
+  const [llamadaEscuchando, setLlamadaEscuchando] = useState(false);
+  const [llamadaHablando, setLlamadaHablando] = useState(false);
+  const [llamadaProcesando, setLlamadaProcesando] = useState(false);
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const llamadaMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const llamadaStreamRef = useRef<MediaStream | null>(null);
+  const modoLlamadaRef = useRef(false);
+  const mensajesRef = useRef<Mensaje[]>([]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -47,11 +56,21 @@ export default function ChatPage() {
 
   useEffect(() => {
     const saludo = idioma === 'en'
-      ? "Hi! I'm JeffreyBot 🤖 Disciple of José Alberto de Obaldia. I can help you with text, images or voice messages! How can I help?"
-      : '¡Hola! Soy JeffreyBot 🤖 Discípulo de José Alberto de Obaldia. ¡Puedes enviarme texto, imágenes o mensajes de voz! ¿En qué te ayudo?';
+      ? "Hi! I'm The Chap 🤖 Your AI on StudyAL. I can help you with text, images or voice messages! How can I help?"
+      : '¡Hola! Soy El Chap 🤖 Tu IA en StudyAL. ¡Puedes enviarme texto, imágenes o mensajes de voz! ¿En qué te ayudo?';
     setMensajes([{ role: 'assistant', content: saludo }]);
     setPerfil(getPerfil());
     setFotoPerfil(getSettings().fotoPerfil || '');
+
+    // Cargar nombre del usuario para la llamada
+    import('../../lib/supabase').then(({ supabase }) => {
+      supabase.auth.getUser().then(({ data }) => {
+        if (data.user) {
+          const n = data.user.user_metadata?.nombre || data.user.email?.split('@')[0] || '';
+          setNombreUsuario(n);
+        }
+      });
+    });
 
     const materias = getMaterias();
     const docs: any[] = [];
@@ -63,7 +82,12 @@ export default function ChatPage() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    mensajesRef.current = mensajes;
   }, [mensajes]);
+
+  useEffect(() => {
+    modoLlamadaRef.current = modoLlamada;
+  }, [modoLlamada]);
 
   useEffect(() => {
     if ('speechSynthesis' in window) {
@@ -107,6 +131,8 @@ export default function ChatPage() {
           idioma: getIdioma(),
           imageBase64: imgToSend?.base64 || undefined,
           imageMime: imgToSend?.mime || undefined,
+          nombreUsuario,
+          enLlamada: modoLlamada,
         }),
       });
       const data = await res.json();
@@ -136,12 +162,20 @@ export default function ChatPage() {
       window.speechSynthesis.cancel();
 
       const textoLimpio = texto
-        .replace(/#{1,3}\s/g, '')
+        .replace(/#{1,6}\s?/g, '')
+        .replace(/\*\*\*([^*]+)\*\*\*/g, '$1')
         .replace(/\*\*([^*]+)\*\*/g, '$1')
         .replace(/\*([^*]+)\*/g, '$1')
-        .replace(/`([^`]+)`/g, '$1')
+        .replace(/`{1,3}[^`]*`{1,3}/g, '')
+        .replace(/```[\s\S]*?```/g, '')
         .replace(/[-•]/g, ',')
-        .substring(0, 1000);
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/[_~]/g, '')
+        .replace(/\n/g, '. ')
+        .replace(/\.{2,}/g, '.')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+        .substring(0, 800);
 
       const utterance = new SpeechSynthesisUtterance(textoLimpio);
       const idiomaActual = getIdioma();
@@ -158,10 +192,7 @@ export default function ChatPage() {
           voices.find(v => v.name === 'Alex') ||
           voices.find(v => v.lang.startsWith('en') && !['Karen', 'Samantha', 'Moira', 'Tessa', 'Veena', 'Victoria'].includes(v.name));
       } else {
-        bestVoice =
-          voices.find(v => v.name === 'Juan') ||
-          voices.find(v => v.name === 'Jorge') ||
-          voices.find(v => v.lang.startsWith('es') && !['Monica', 'Paulina'].includes(v.name));
+        bestVoice = voices.find(v => v.name === 'Google español' && v.lang === 'es-ES') || undefined;
       }
       if (bestVoice) utterance.voice = bestVoice;
 
@@ -267,6 +298,8 @@ export default function ChatPage() {
           perfil,
           todosDocumentos: usarDocumentos ? todosDocumentos : [],
           idioma: getIdioma(),
+          nombreUsuario,
+          enLlamada: modoLlamada,
         }),
       });
       const data = await res.json();
@@ -296,18 +329,221 @@ export default function ChatPage() {
     finally { setTranscribiendo(false); e.target.value = ''; }
   };
 
+  // Sonidos de llamada generados por código
+  const playRingtone = () => {
+    try {
+      const ctx = new AudioContext();
+      // Sonido tipo "ring ring" — dos tonos alternos
+      const playTone = (freq: number, start: number, dur: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0, ctx.currentTime + start);
+        gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + start + 0.02);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime + start + dur - 0.02);
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + start + dur);
+        osc.start(ctx.currentTime + start);
+        osc.stop(ctx.currentTime + start + dur);
+      };
+      // Ring 1
+      playTone(440, 0, 0.4);
+      playTone(480, 0, 0.4);
+      // Pausa
+      // Ring 2
+      playTone(440, 0.6, 0.4);
+      playTone(480, 0.6, 0.4);
+      // Ring 3
+      playTone(440, 1.2, 0.4);
+      playTone(480, 1.2, 0.4);
+    } catch {}
+  };
+
+  const playHangup = () => {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(480, ctx.currentTime);
+      osc.frequency.linearRampToValueAtTime(340, ctx.currentTime + 0.3);
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.5);
+    } catch {}
+  };
+
+  const playConnect = () => {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(520, ctx.currentTime);
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.15);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.15);
+    } catch {}
+  };
+
   const toggleModoLlamada = async () => {
     if (modoLlamada) {
+      // Colgar
+      playHangup();
       window.speechSynthesis?.cancel();
       setModoLlamada(false);
+      modoLlamadaRef.current = false;
       setAudioEnabled(false);
+      setLlamadaEscuchando(false);
+      setLlamadaHablando(false);
+      setLlamadaProcesando(false);
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (llamadaMediaRecorderRef.current?.state === 'recording') {
+        llamadaMediaRecorderRef.current.stop();
+      }
+      llamadaStreamRef.current?.getTracks().forEach(t => t.stop());
     } else {
       setModoLlamada(true);
+      modoLlamadaRef.current = true;
       setAudioEnabled(true);
+      playRingtone();
+      // Esperar que suene el ring
+      await new Promise(r => setTimeout(r, 1800));
+      playConnect();
       const saludo = idioma === 'en'
-        ? "Hi! I'm JeffreyBot, disciple of José Alberto de Obaldia. I'm listening!"
-        : '¡Hola! Soy JeffreyBot, discípulo de José Alberto de Obaldia. ¡Te escucho!';
-      await reproducirRespuesta(saludo);
+        ? "Hey! I'm The Chap. Go ahead, I'm all ears!"
+        : '¡Hey! Soy El Chap. Dale, te escucho.';
+      setLlamadaHablando(true);
+      await reproducirRespuestaCon(saludo, () => {
+        setLlamadaHablando(false);
+        iniciarEscuchaLlamada();
+      });
+    }
+  };
+
+  const reproducirRespuestaCon = (texto: string, onEnd?: () => void): Promise<void> => {
+    return new Promise(resolve => {
+      if (!('speechSynthesis' in window)) { resolve(); onEnd?.(); return; }
+      window.speechSynthesis.cancel();
+      const textoLimpio = texto
+        .replace(/#{1,6}\s?/g, '')
+        .replace(/\*\*\*([^*]+)\*\*\*/g, '$1')
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/\*([^*]+)\*/g, '$1')
+        .replace(/`{1,3}[^`]*`{1,3}/g, '')
+        .replace(/[-•]/g, ',')
+        .replace(/[_~]/g, '')
+        .trim()
+        .substring(0, 800);
+      const utterance = new SpeechSynthesisUtterance(textoLimpio);
+      utterance.lang = idioma === 'en' ? 'en-US' : 'es-MX';
+      utterance.rate = 0.95;
+      utterance.pitch = 1.15;
+      utterance.volume = 1.0;
+      const voices = window.speechSynthesis.getVoices();
+      let voz = null;
+      if (idioma === 'en') {
+        voz = voices.find(v => v.name === 'Daniel')
+           || voices.find(v => v.name === 'Alex')
+           || voices.find(v => v.lang.startsWith('en')) || null;
+      } else {
+        voz = voices.find(v => v.name === 'Google español' && v.lang === 'es-ES') || null;
+      }
+      if (voz) utterance.voice = voz;
+      setLlamandoAI(true);
+      setLlamadaHablando(true);
+      utterance.onend = () => { setLlamandoAI(false); setLlamadaHablando(false); resolve(); onEnd?.(); };
+      utterance.onerror = () => { setLlamandoAI(false); setLlamadaHablando(false); resolve(); onEnd?.(); };
+      window.speechSynthesis.speak(utterance);
+    });
+  };
+
+  const iniciarEscuchaLlamada = async () => {
+    if (!modoLlamadaRef.current) return;
+    setLlamadaEscuchando(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      llamadaStreamRef.current = stream;
+      const chunks: Blob[] = [];
+      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      llamadaMediaRecorderRef.current = mr;
+
+      mr.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        setLlamadaEscuchando(false);
+        if (!modoLlamadaRef.current) return;
+        if (chunks.length === 0) {
+          // Nada grabado, volver a escuchar
+          if (modoLlamadaRef.current) iniciarEscuchaLlamada();
+          return;
+        }
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        // Verificar que el audio tiene contenido real (>1KB)
+        if (blob.size < 1000) {
+          if (modoLlamadaRef.current) iniciarEscuchaLlamada();
+          return;
+        }
+        setLlamadaProcesando(true);
+        const formData = new FormData();
+        formData.append('audio', blob, 'llamada.webm');
+        formData.append('idioma', getIdioma());
+        try {
+          const res = await fetch('/api/audio/transcribe', { method: 'POST', body: formData });
+          const data = await res.json();
+          if (data.success && data.text?.trim() && data.text.trim().length > 2) {
+            setMensajes(prev => [...prev, { role: 'user', content: data.text, isAudio: true }]);
+            setCargando(true);
+            const histActual = mensajesRef.current.slice(-6).map(m => ({ role: m.role, content: m.content }));
+            const chatRes = await fetch('/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                mensaje: data.text,
+                contexto: null,
+                historial: histActual,
+                perfil,
+                todosDocumentos: usarDocumentos ? todosDocumentos : [],
+                idioma: getIdioma(),
+                nombreUsuario,
+                enLlamada: true,
+              }),
+            });
+            const chatData = await chatRes.json();
+            setCargando(false);
+            if (chatData.success && modoLlamadaRef.current) {
+              setMensajes(prev => [...prev, { role: 'assistant', content: chatData.respuesta }]);
+              setLlamadaProcesando(false);
+              setLlamadaHablando(true);
+              await reproducirRespuestaCon(chatData.respuesta, () => {
+                setLlamadaHablando(false);
+                if (modoLlamadaRef.current) iniciarEscuchaLlamada();
+              });
+            }
+          } else {
+            // No se entendió, volver a escuchar
+            setLlamadaProcesando(false);
+            if (modoLlamadaRef.current) iniciarEscuchaLlamada();
+          }
+        } catch {
+          setLlamadaProcesando(false);
+          if (modoLlamadaRef.current) iniciarEscuchaLlamada();
+        }
+      };
+
+      mr.start();
+      // Grabar máximo 10 segundos por turno
+      silenceTimerRef.current = setTimeout(() => {
+        if (mr.state === 'recording') mr.stop();
+      }, 10000);
+    } catch {
+      setLlamadaEscuchando(false);
+      alert(idioma === 'en' ? 'Cannot access microphone' : 'No se puede acceder al micrófono');
     }
   };
 
@@ -376,7 +612,7 @@ export default function ChatPage() {
           </button>
           <div>
             <h1 style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              🤖 JeffreyBot
+              🤖 ChapBot
               {modoLlamada && (
                 <span style={{ fontSize: '11px', background: '#4ade80', color: '#000', padding: '2px 8px', borderRadius: '6px', fontWeight: 800 }}>
                   📞 {idioma === 'en' ? 'CALL' : 'LLAMADA'}
@@ -389,7 +625,7 @@ export default function ChatPage() {
               )}
             </h1>
             <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>
-              {usarDocumentos ? `${todosDocumentos.length} docs` : idioma === 'en' ? 'Disciple of José Alberto de Obaldia' : 'Discípulo de José Alberto de Obaldia'}
+              {usarDocumentos ? `${todosDocumentos.length} docs` : idioma === 'en' ? 'Your AI on StudyAL' : 'Tu IA en StudyAL'}
             </p>
           </div>
         </div>
@@ -411,7 +647,7 @@ export default function ChatPage() {
             style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
             📊
           </button>
-          <button onClick={() => setMensajes([{ role: 'assistant', content: idioma === 'en' ? "Hi! I'm JeffreyBot 🤖" : '¡Hola! Soy JeffreyBot 🤖' }])}
+          <button onClick={() => setMensajes([{ role: 'assistant', content: idioma === 'en' ? "Hi! I'm The Chap 🤖" : '¡Hola! Soy El Chap 🤖' }])}
             style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
             🗑️
           </button>
@@ -424,6 +660,204 @@ export default function ChatPage() {
         <div style={{ flex: 1, background: 'var(--blue)' }} />
         <div style={{ flex: 1, background: 'var(--pink)' }} />
       </div>
+
+      {/* ── MODO LLAMADA (estilo celular) ── */}
+      {modoLlamada && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 200,
+          background: 'linear-gradient(180deg, #0a0a1a 0%, #0f1629 40%, #1a1a3e 100%)',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center',
+          paddingTop: '10vh',
+          gap: 0,
+        }}>
+          {/* Barra superior tipo celular */}
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0,
+            padding: '12px 24px', display: 'flex',
+            justifyContent: 'center', alignItems: 'center',
+          }}>
+            <span style={{ fontSize: 12, color: '#4ade80', fontWeight: 700, letterSpacing: 1 }}>
+              {llamadaHablando ? '🔊 EN LLAMADA' : llamadaEscuchando ? '🎤 EN LLAMADA' : llamadaProcesando ? '⏳ EN LLAMADA' : '📞 CONECTANDO...'}
+            </span>
+          </div>
+
+          {/* Avatar + Nombre */}
+          <div style={{ textAlign: 'center', marginBottom: 40 }}>
+            <p style={{ fontSize: 14, color: '#64748b', margin: '0 0 12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 2 }}>
+              {nombreUsuario ? `${nombreUsuario} ↔ El Chap` : 'StudyAL'}
+            </p>
+            <p style={{ fontSize: 32, fontWeight: 900, color: '#fff', margin: '0 0 6px' }}>El Chap</p>
+            <p style={{
+              fontSize: 14, fontWeight: 600, margin: 0,
+              color: llamadaHablando ? '#f5c842' : llamadaEscuchando ? '#4ade80' : llamadaProcesando ? '#a78bfa' : '#64748b',
+              transition: 'color 0.3s',
+            }}>
+              {llamadaHablando
+                ? (idioma === 'en' ? 'Speaking...' : 'Hablando...')
+                : llamadaEscuchando
+                ? (idioma === 'en' ? 'Listening to you...' : 'Escuchándote...')
+                : llamadaProcesando
+                ? (idioma === 'en' ? 'Thinking...' : 'Pensando...')
+                : (idioma === 'en' ? 'Connecting...' : 'Conectando...')}
+            </p>
+          </div>
+
+          {/* Bolita central con ondas */}
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 40 }}>
+            {/* Ondas */}
+            {(llamadaEscuchando || llamadaHablando) && [1,2,3,4].map(ring => (
+              <div key={ring} style={{
+                position: 'absolute',
+                width: 100 + ring * 50,
+                height: 100 + ring * 50,
+                borderRadius: '50%',
+                border: `1.5px solid ${llamadaHablando ? '#f5c842' : '#4ade80'}`,
+                opacity: 0.3 / ring,
+                animation: `llamada-ring ${1 + ring * 0.4}s ease-out infinite`,
+                animationDelay: `${ring * 0.2}s`,
+              }} />
+            ))}
+            {/* Procesando: gira */}
+            {llamadaProcesando && (
+              <div style={{
+                position: 'absolute', width: 180, height: 180,
+                borderRadius: '50%',
+                border: '2px solid transparent',
+                borderTopColor: '#a78bfa',
+                borderRightColor: '#6366f1',
+                animation: 'llamada-spin 1s linear infinite',
+              }} />
+            )}
+            {/* Bola */}
+            <div style={{
+              width: 140, height: 140, borderRadius: '50%',
+              background: llamadaHablando
+                ? 'radial-gradient(circle at 40% 35%, #f5c842, #f97316)'
+                : llamadaEscuchando
+                ? 'radial-gradient(circle at 40% 35%, #4ade80, #22d3ee)'
+                : llamadaProcesando
+                ? 'radial-gradient(circle at 40% 35%, #a78bfa, #6366f1)'
+                : 'radial-gradient(circle at 40% 35%, #334155, #1e293b)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 64,
+              cursor: llamadaHablando ? 'pointer' : 'default',
+              boxShadow: llamadaHablando
+                ? '0 0 60px rgba(245,200,66,0.4), 0 0 120px rgba(245,200,66,0.15)'
+                : llamadaEscuchando
+                ? '0 0 60px rgba(74,222,128,0.4), 0 0 120px rgba(74,222,128,0.15)'
+                : llamadaProcesando
+                ? '0 0 40px rgba(167,139,250,0.4)'
+                : '0 0 20px rgba(0,0,0,0.3)',
+              transition: 'all 0.5s ease',
+              animation: (llamadaEscuchando || llamadaHablando) ? 'llamada-pulse 2s ease-in-out infinite' : 'none',
+            }}
+            onClick={() => {
+              if (llamadaHablando) {
+                // Interrumpir
+                window.speechSynthesis?.cancel();
+                setLlamandoAI(false);
+                setLlamadaHablando(false);
+                setTimeout(() => iniciarEscuchaLlamada(), 300);
+              }
+            }}
+            title={llamadaHablando ? (idioma === 'en' ? 'Tap to interrupt' : 'Toca para interrumpir') : ''}
+            >
+              🤖
+            </div>
+            {llamadaHablando && (
+              <p style={{ position: 'absolute', bottom: -28, fontSize: 11, color: '#94a3b8', whiteSpace: 'nowrap' }}>
+                {idioma === 'en' ? 'Tap to interrupt' : 'Toca para interrumpir'}
+              </p>
+            )}
+          </div>
+
+          {/* Último mensaje */}
+          {mensajes.length > 1 && (
+            <div style={{
+              maxWidth: 340, padding: '12px 16px', marginBottom: 40,
+              background: 'rgba(255,255,255,0.04)',
+              borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)',
+              textAlign: 'center',
+            }}>
+              <p style={{ fontSize: 12, color: '#94a3b8', margin: 0, lineHeight: 1.5 }}>
+                {mensajes[mensajes.length - 1].content.slice(0, 100)}
+                {mensajes[mensajes.length - 1].content.length > 100 ? '...' : ''}
+              </p>
+            </div>
+          )}
+
+          {/* Botones inferiores tipo celular */}
+          <div style={{
+            position: 'absolute', bottom: '10vh',
+            display: 'flex', gap: 40, alignItems: 'center',
+          }}>
+            {/* Mute (decorativo) */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <div style={{
+                width: 52, height: 52, borderRadius: '50%',
+                background: 'rgba(255,255,255,0.08)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 22,
+              }}>
+                {llamadaEscuchando ? '🎤' : '🔇'}
+              </div>
+              <span style={{ fontSize: 10, color: '#64748b' }}>
+                {llamadaEscuchando ? (idioma === 'en' ? 'mic on' : 'mic on') : (idioma === 'en' ? 'mic off' : 'mic off')}
+              </span>
+            </div>
+
+            {/* Colgar */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <button
+                onClick={toggleModoLlamada}
+                style={{
+                  width: 72, height: 72, borderRadius: '50%',
+                  background: '#ef4444', border: 'none',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 30, cursor: 'pointer',
+                  boxShadow: '0 0 30px rgba(239,68,68,0.5)',
+                  transition: 'transform 0.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.transform = 'scale(1.08)'}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.transform = 'scale(1)'}
+              >
+                📵
+              </button>
+              <span style={{ fontSize: 10, color: '#ef4444', fontWeight: 700 }}>
+                {idioma === 'en' ? 'Hang up' : 'Colgar'}
+              </span>
+            </div>
+
+            {/* Speaker (decorativo) */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <div style={{
+                width: 52, height: 52, borderRadius: '50%',
+                background: 'rgba(255,255,255,0.08)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 22,
+              }}>
+                🔊
+              </div>
+              <span style={{ fontSize: 10, color: '#64748b' }}>speaker</span>
+            </div>
+          </div>
+
+          <style>{`
+            @keyframes llamada-ring {
+              0% { transform: scale(0.85); opacity: 0.4; }
+              100% { transform: scale(1.5); opacity: 0; }
+            }
+            @keyframes llamada-pulse {
+              0%, 100% { transform: scale(1); }
+              50% { transform: scale(1.06); }
+            }
+            @keyframes llamada-spin {
+              to { transform: rotate(360deg); }
+            }
+          `}</style>
+        </div>
+      )}
 
       {/* Mensajes */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '800px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
