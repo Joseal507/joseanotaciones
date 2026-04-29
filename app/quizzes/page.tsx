@@ -326,7 +326,7 @@ export default function QuizzesPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
               <button onClick={() => fase !== 'lista' ? setFase('lista') : window.location.href = '/'}
                 style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-                {fase !== 'lista' ? '← {tr('volver')}' : '← {tr('inicio')}'}
+                {fase !== 'lista' ? `← ${tr('volver')}` : `← ${tr('inicio')}`}
               </button>
               <div>
                 <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>🎓 {tr('materialesEstudioTitulo')}</h1>
@@ -356,7 +356,7 @@ export default function QuizzesPage() {
           )}
 
           <div style={{ position: 'relative', marginBottom: '24px' }}>
-            <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="{tr('buscarNombreMateria')}"
+            <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder={tr('buscarNombreMateria')}
               style={{ width: '100%', padding: '13px 16px 13px 46px', borderRadius: '14px', border: '2px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }}
               onFocus={e => e.currentTarget.style.borderColor = '#a78bfa'}
               onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'} />

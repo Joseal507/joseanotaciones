@@ -54,9 +54,9 @@ export default function HorarioPage() {
   const [formNombre, setFormNombre] = useState('');
   const [formProfesor, setFormProfesor] = useState('');
   const [formAula, setFormAula] = useState('');
-  const [form{tr('colorLabel')}, setForm{tr('colorLabel')}] = useState(COLORES[0]);
-  const [form{tr('inicioLabel')}, setForm{tr('inicioLabel')}] = useState('08:00');
-  const [form{tr('finLabel')}, setForm{tr('finLabel')}] = useState('09:00');
+  const [formColor, setFormColor] = useState(COLORES[0]);
+  const [formInicio, setFormInicio] = useState('08:00');
+  const [formFin, setFormFin] = useState('09:00');
 
   const hoy = new Date();
   const diaHoy = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'][hoy.getDay()] as typeof DIAS[number];
@@ -99,17 +99,17 @@ export default function HorarioPage() {
       setFormNombre(clase.nombre);
       setFormProfesor(clase.profesor || '');
       setFormAula(clase.aula || '');
-      setForm{tr('colorLabel')}(clase.color);
-      setForm{tr('inicioLabel')}(clase.hora{tr('inicioLabel')});
-      setForm{tr('finLabel')}(clase.hora{tr('finLabel')});
+      setFormColor(clase.color);
+      setFormInicio(clase.hora{tr('inicioLabel')});
+      setFormFin(clase.hora{tr('finLabel')});
     } else {
       setClaseEditando(null);
       setFormNombre('');
       setFormProfesor('');
       setFormAula('');
-      setForm{tr('colorLabel')}(COLORES[0]);
-      setForm{tr('inicioLabel')}('08:00');
-      setForm{tr('finLabel')}('09:00');
+      setFormColor(COLORES[0]);
+      setFormInicio('08:00');
+      setFormFin('09:00');
     }
     setModalAbierto(true);
   };
@@ -121,9 +121,9 @@ export default function HorarioPage() {
       nombre: formNombre,
       profesor: formProfesor,
       aula: formAula,
-      color: form{tr('colorLabel')},
-      hora{tr('inicioLabel')}: form{tr('inicioLabel')},
-      hora{tr('finLabel')}: form{tr('finLabel')},
+      color: formColor,
+      hora{tr('inicioLabel')}: formInicio,
+      hora{tr('finLabel')}: formFin,
     };
     const nuevoHorario = { ...horario };
     if (claseEditando) {
@@ -214,7 +214,7 @@ export default function HorarioPage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--blue)', margin: '0 0 2px', textTransform: 'uppercase' }}>{tr('proximaClaseHoy')}</p>
               <p style={{ fontSize: isMobile ? '16px' : '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{proximaClase.nombre}</p>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{tr('aLas')} {formatHora(proximaClase.hora{tr('inicioLabel')})}</p>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{tr('aLas')} {formatHora(proximaClase.horaInicio)}</p>
             </div>
           </div>
         )}
@@ -404,19 +404,19 @@ export default function HorarioPage() {
       {modalAbierto && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
           <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '28px', width: '100%', maxWidth: '460px', border: '1px solid var(--border-color)', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ height: '4px', background: form{tr('colorLabel')}, borderRadius: '2px', marginBottom: '20px' }} />
+            <div style={{ height: '4px', background: formColor, borderRadius: '2px', marginBottom: '20px' }} />
             <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 20px' }}>
-              {claseEditando ? '{tr('editarClaseBtn')}' : '+ Nueva clase'} — {DIAS_LABELS_I18N[diaSeleccionado]}
+              {claseEditando ? tr('editarClaseBtn') : '+ Nueva clase'} — {DIAS_LABELS_I18N[diaSeleccionado]}
             </h2>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('nombreClaseLabel')}</label>
                 <input value={formNombre} onChange={e => setFormNombre(e.target.value)}
-                  placeholder="{tr('nombreClasePlaceholder')}"
+                  placeholder={tr('nombreClasePlaceholder')}
                   autoFocus
                   style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }}
-                  onFocus={e => e.currentTarget.style.border{tr('colorLabel')} = form{tr('colorLabel')}}
+                  onFocus={e => e.currentTarget.style.border{tr('colorLabel')} = formColor}
                   onBlur={e => e.currentTarget.style.border{tr('colorLabel')} = 'var(--border-color)'}
                 />
               </div>
@@ -424,14 +424,14 @@ export default function HorarioPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('inicioLabel')}</label>
-                  <select value={form{tr('inicioLabel')}} onChange={e => setForm{tr('inicioLabel')}(e.target.value)}
+                  <select value={formInicio} onChange={e => setFormInicio(e.target.value)}
                     style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}>
                     {HORAS.map(h => <option key={h} value={h}>{formatHora(h)}</option>)}
                   </select>
                 </div>
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('finLabel')}</label>
-                  <select value={form{tr('finLabel')}} onChange={e => setForm{tr('finLabel')}(e.target.value)}
+                  <select value={formFin} onChange={e => setFormFin(e.target.value)}
                     style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}>
                     {HORAS.map(h => <option key={h} value={h}>{formatHora(h)}</option>)}
                   </select>
@@ -441,14 +441,14 @@ export default function HorarioPage() {
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('profesorLabel')}</label>
                 <input value={formProfesor} onChange={e => setFormProfesor(e.target.value)}
-                  placeholder="{tr('profesorPlaceholder')}"
+                  placeholder={tr('profesorPlaceholder')}
                   style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }} />
               </div>
 
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('aulaLabel')}</label>
                 <input value={formAula} onChange={e => setFormAula(e.target.value)}
-                  placeholder="{tr('aulaPlaceholder')}"
+                  placeholder={tr('aulaPlaceholder')}
                   style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }} />
               </div>
 
@@ -456,8 +456,8 @@ export default function HorarioPage() {
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>{tr('colorLabel')}</label>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   {COLORES.map(c => (
-                    <button key={c} onClick={() => setForm{tr('colorLabel')}(c)}
-                      style={{ width: '36px', height: '36px', borderRadius: '50%', background: c, border: form{tr('colorLabel')} === c ? '3px solid var(--text-primary)' : '3px solid transparent', cursor: 'pointer', transform: form{tr('colorLabel')} === c ? 'scale(1.2)' : 'scale(1)', transition: 'all 0.15s' }} />
+                    <button key={c} onClick={() => setFormColor(c)}
+                      style={{ width: '36px', height: '36px', borderRadius: '50%', background: c, border: formColor === c ? '3px solid var(--text-primary)' : '3px solid transparent', cursor: 'pointer', transform: formColor === c ? 'scale(1.2)' : 'scale(1)', transition: 'all 0.15s' }} />
                   ))}
                 </div>
               </div>
@@ -469,8 +469,8 @@ export default function HorarioPage() {
                 {tr('cancelar')}
               </button>
               <button onClick={guardarClase} disabled={!formNombre.trim()}
-                style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: formNombre.trim() ? form{tr('colorLabel')} : 'var(--bg-card2)', color: formNombre.trim() ? '#000' : 'var(--text-faint)', fontSize: '14px', fontWeight: 800, cursor: formNombre.trim() ? 'pointer' : 'not-allowed' }}>
-                {claseEditando ? '{tr('guardarClaseBtn')}' : '{tr('agregarClaseBtn')}'}
+                style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: formNombre.trim() ? formColor : 'var(--bg-card2)', color: formNombre.trim() ? '#000' : 'var(--text-faint)', fontSize: '14px', fontWeight: 800, cursor: formNombre.trim() ? 'pointer' : 'not-allowed' }}>
+                {claseEditando ? tr('guardarClaseBtn') : tr('agregarClaseBtn')}
               </button>
             </div>
           </div>

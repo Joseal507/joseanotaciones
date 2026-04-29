@@ -353,10 +353,10 @@ export default function ComunidadPage() {
   ];
 
   const filtroOpciones = [
-    { key: 'todos', label: '{tr('todosTipos')}' },
-    { key: 'partners', label: '✨ {tr('filtroPartners')}' },
+    { key: 'todos', label: tr('todosTipos') },
+    { key: 'partners', label: '✨ ' + tr('filtroPartners') },
     { key: 'mios', label: 'Mis posts' },
-    { key: 'guardados', label: '🔖 {tr('filtroGuardados')}' },
+    { key: 'guardados', label: '🔖 ' + tr('filtroGuardados') },
   ];
 
   // Columnas para Pinterest
@@ -499,7 +499,7 @@ export default function ComunidadPage() {
               No hay posts aquí todavía
             </h2>
             <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
-              {filtro === 'guardados' ? '{tr('guardaPostes')}' : '{tr('seElPrimero')}'}
+              {filtro === 'guardados' ? tr('guardaPostes') : tr('seElPrimero')}
             </p>
           </div>
         ) : (

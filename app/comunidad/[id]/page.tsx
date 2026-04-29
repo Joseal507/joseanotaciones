@@ -101,7 +101,7 @@ function FlashcardsViewer({ cards }: { cards: { question: string; answer: string
             <div style={{ fontSize: '12px', fontWeight: 700, color: '#6366f1', marginBottom: '12px' }}>PREGUNTA</div>
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}><MathText text={card.question} /></div>
           </div>
-          <textarea value={respuesta} onChange={e => setRespuesta(e.target.value)} placeholder="{tr('escribeTuRespuestaCom')}" rows={3}
+          <textarea value={respuesta} onChange={e => setRespuesta(e.target.value)} placeholder={tr('escribeTuRespuestaCom')} rows={3}
             style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', resize: 'vertical', outline: 'none', boxSizing: 'border-box', marginBottom: '10px' }} />
           {!mostrarRespuesta
             ? <button onClick={() => setMostrarRespuesta(true)} style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>{tr('verRespuestaBtn')}</button>
@@ -137,12 +137,12 @@ function QuizViewer({ preguntas, onTerminar }: { preguntas: any[]; onTerminar: (
   };
 
   if (terminado) {
-    const {tr('correctasQuiz')} = preguntas.filter((p, i) => seleccionadas[i] === p.correcta).length;
-    const pct = Math.round(({tr('correctasQuiz')} / preguntas.length) * 100);
+    const correctasQuiz = preguntas.filter((p, i) => seleccionadas[i] === p.correcta).length;
+    const pct = Math.round((correctasQuiz / preguntas.length) * 100);
     return (
       <div style={{ textAlign: 'center', padding: '40px 20px' }}>
         <div style={{ fontSize: '60px', marginBottom: '16px' }}>{pct >= 70 ? '🎉' : pct >= 50 ? '😅' : '😓'}</div>
-        <h2 style={{ fontSize: '28px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px' }}>{{tr('correctasQuiz')}} / {preguntas.length} {tr('correctasQuiz')}</h2>
+        <h2 style={{ fontSize: '28px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px' }}>{correctasQuiz} / {preguntas.length} correctasQuiz</h2>
         <div style={{ fontSize: '48px', fontWeight: 900, color: pct >= 70 ? '#34d399' : pct >= 50 ? '#f5c842' : '#ef4444', marginBottom: '16px' }}>{pct}%</div>
         <button onClick={() => { setIdx(0); setSeleccionadas({}); setTerminado(false); }} style={{ padding: '12px 24px', borderRadius: '12px', border: 'none', background: '#34d399', color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>🔄 Repetir</button>
       </div>
@@ -286,7 +286,7 @@ function SeccionComentarios({ postId, userId, userNombre, userAvatar, commentsAc
       </div>
       {respondiendo === c.id && (
         <div style={{ marginLeft: '32px', marginTop: '8px' }}>
-          <textarea value={respuestaTexto} onChange={e => setRespuestaTexto(e.target.value)} placeholder="{tr('escribeTuRespuestaCom')}" rows={2}
+          <textarea value={respuestaTexto} onChange={e => setRespuestaTexto(e.target.value)} placeholder={tr('escribeTuRespuestaCom')} rows={2}
             style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '2px solid #a78bfa', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '14px', resize: 'none', outline: 'none', boxSizing: 'border-box', marginBottom: '8px' }} />
           <div style={{ display: 'flex', gap: '8px' }}>
             <button onClick={() => enviar(respuestaTexto, c.id)} disabled={!respuestaTexto.trim()} style={{ padding: '6px 14px', borderRadius: '8px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>Responder</button>
