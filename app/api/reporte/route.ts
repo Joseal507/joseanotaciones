@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGroqClient } from '../../../lib/groqClient';
+import { groqRequest } from '../../../lib/groqClient';
 
 export async function POST(request: NextRequest) {
   try {
     const { perfil, racha, idioma } = await request.json();
     const lang = idioma === 'en' ? 'en' : 'es';
-    const client = getGroqClient();
 
     const totalAcertadas = Object.values(perfil.flashcardsAcertadas || {}).reduce((a: number, b: any) => a + b, 0);
     const totalFalladas = Object.values(perfil.flashcardsFalladas || {}).reduce((a: number, b: any) => a + b, 0);
@@ -18,43 +17,36 @@ export async function POST(request: NextRequest) {
       .slice(0, 3);
 
     const systemPrompt = lang === 'en'
-      ? 'You are a study assistant. Generate a motivating and concise weekly report in English based on the student\'s statistics.'
-      : 'Eres un asistente de estudio. Genera un reporte semanal motivador y conciso en español basado en las estadísticas del estudiante.';
+      ? 'You are a study assistant. Generate a motivating and concise weekly report in English.'
+      : 'Eres un asistente de estudio. Genera un reporte semanal motivador y conciso en español.';
 
     const userPrompt = lang === 'en'
-      ? `Generate a weekly study report with this data:
-- Total flashcards studied: ${total}
-- Correct: ${totalAcertadas} (${precision}%)
-- Wrong: ${totalFalladas}
-- Current streak: ${racha.rachaActual} days
-- Best streak: ${racha.mejorRacha} days
-- Most studied subjects: ${materiasTop.map((m: any) => m.nombre).join(', ')}
+      ? `Weekly study report:
+- Total flashcards: ${total} | Correct: ${totalAcertadas} (${precision}%) | Wrong: ${totalFalladas}
+- Streak: ${racha.rachaActual} days | Best: ${racha.mejorRacha} days
+- Top subjects: ${materiasTop.map((m: any) => m.nombre).join(', ') || 'None yet'}
+Include: progress summary, strengths, areas to improve, motivation. Max 200 words.`
+      : `Reporte semanal:
+- Total flashcards: ${total} | Acertadas: ${totalAcertadas} (${precision}%) | Falladas: ${totalFalladas}
+- Racha: ${racha.rachaActual} días | Mejor: ${racha.mejorRacha} días
+- Materias top: ${materiasTop.map((m: any) => m.nombre).join(', ') || 'Ninguna aún'}
+Incluir: resumen progreso, puntos fuertes, áreas de mejora, motivación. Máximo 200 palabras.`;
 
-The report should include: progress summary, strengths, areas for improvement and motivation. Max 200 words.`
-      : `Genera un reporte semanal de estudio con estos datos:
-- Total flashcards estudiadas: ${total}
-- Acertadas: ${totalAcertadas} (${precision}%)
-- Falladas: ${totalFalladas}
-- Racha actual: ${racha.rachaActual} días
-- Mejor racha: ${racha.mejorRacha} días
-- Materias más estudiadas: ${materiasTop.map((m: any) => m.nombre).join(', ')}
-
-El reporte debe incluir: resumen del progreso, puntos fuertes, áreas de mejora y motivación. Máximo 200 palabras.`;
-
-    const completion = await client!.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 400,
+    const reporte = await groqRequest(async (client, model) => {
+      const r = await client.chat.completions.create({
+        model: model('llama-3.3-70b-versatile'),
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 400,
+      });
+      return r.choices[0].message.content || '';
     });
 
-    const reporte = completion.choices[0].message.content || '';
     return NextResponse.json({
-      success: true,
-      reporte,
+      success: true, reporte,
       stats: { total, totalAcertadas, totalFalladas, precision, racha: racha.rachaActual },
     });
   } catch (error: any) {

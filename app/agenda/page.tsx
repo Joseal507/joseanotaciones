@@ -1,7 +1,7 @@
 'use client';
-import { getLevelFromXp, getLevelProgress, getXpInCurrentLevel, getXpNeededForNextLevel } from '../../lib/xpSystem';
 import { darXP } from '../../lib/xpClient';
 import { dispararXPToast } from '../../components/XPToast';
+import { useXP } from '../../hooks/useXP';
 
 import { useState, useEffect, useCallback } from 'react';
 import {
@@ -44,35 +44,10 @@ export default function AgendaPage() {
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
 
+  // ── XP con el sistema nuevo ──────────────────────────────────
+  const { xpTotal: xpReal, nivel, xpEnNivel: xpNivel, xpParaSiguiente } = useXP();
+
   const hoyStr = hoyISO();
-  const xpObjetivos = objetivos.filter(o => o.completado).reduce((s, o) => s + o.xp, 0);
-  const [xpReal, setXpReal] = useState(0);
-
-  useEffect(() => {
-    const cargarXP = async () => {
-      try {
-        const { data: s } = await supabase.auth.getSession();
-        const token = s.session?.access_token;
-        if (!token) { setXpReal(xpObjetivos); return; }
-        const res = await fetch('/api/xp', { headers: { Authorization: 'Bearer ' + token } });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.ok && typeof data.xp_total === 'number') {
-            setXpReal(data.xp_total);
-            return;
-          }
-        }
-        setXpReal(xpObjetivos);
-      } catch {
-        setXpReal(xpObjetivos);
-      }
-    };
-    cargarXP();
-  }, []);
-
-  const nivel = getLevelFromXp(xpReal);
-  const xpNivel = getXpInCurrentLevel(xpReal);
-  const xpParaSiguiente = getXpNeededForNextLevel(xpReal);
 
   // ── Carga inicial ────────────────────────────────────────────
   useEffect(() => {
@@ -102,13 +77,11 @@ export default function AgendaPage() {
     cargar();
   }, []);
 
-  // ── Toast helper ─────────────────────────────────────────────
   const showToast = (msg: string, xp: number) => {
     setToast({ msg, xp });
     setTimeout(() => setToast(null), 3000);
   };
 
-  // ── Persistir ────────────────────────────────────────────────
   const persist = useCallback(async (a: Asignacion[], o: ObjetivoAgenda[]) => {
     setAsignaciones(a); saveAsignaciones(a);
     setObjetivos(o);    saveObjetivos(o);
@@ -118,14 +91,12 @@ export default function AgendaPage() {
     }
   }, [userId]);
 
-  // ── Crear asignación → también crea objetivo vinculado ───────
   const crearAsignacion = useCallback(async (asig: Asignacion) => {
     const obj = objetivoDesdeAsignacion(asig);
     await persist([...asignaciones, asig], [...objetivos, obj]);
     showToast(idioma === 'en' ? 'Assignment created' : 'Asignación creada', asig.xp);
   }, [asignaciones, objetivos, persist, idioma]);
 
-  // ── Toggle asignación → sincroniza objetivo ──────────────────
   const toggleAsignacion = useCallback(async (id: string) => {
     const asig = asignaciones.find(a => a.id === id);
     if (!asig) return;
@@ -155,7 +126,6 @@ export default function AgendaPage() {
     }
   }, [asignaciones, objetivos, persist, idioma]);
 
-  // ── Eliminar asignación → también elimina su objetivo ────────
   const eliminarAsignacion = useCallback(async (id: string) => {
     await persist(
       asignaciones.filter(a => a.id !== id),
@@ -163,11 +133,9 @@ export default function AgendaPage() {
     );
   }, [asignaciones, objetivos, persist]);
 
-  // ── Toggle objetivo libre ────────────────────────────────────
   const toggleObjetivo = useCallback(async (id: string) => {
     const obj = objetivos.find(o => o.id === id);
     if (!obj) return;
-    // Si está vinculado a asignación, redirigir al toggle de asignación
     if (obj.asignacionId) {
       await toggleAsignacion(obj.asignacionId);
       return;
@@ -189,12 +157,10 @@ export default function AgendaPage() {
     }
   }, [objetivos, asignaciones, persist, toggleAsignacion]);
 
-  // ── Eliminar objetivo (libre o vinculado) ──────────────────
   const eliminarObjetivo = useCallback(async (id: string) => {
     const obj = objetivos.find(o => o.id === id);
     if (!obj) return;
     if (obj.asignacionId) {
-      // Borrar también la asignación vinculada
       await persist(
         asignaciones.filter(a => a.id !== obj.asignacionId),
         objetivos.filter(o => o.id !== id && o.asignacionId !== obj.asignacionId),
@@ -205,7 +171,6 @@ export default function AgendaPage() {
     showToast(`🗑️ Eliminado`, 0);
   }, [objetivos, asignaciones, persist]);
 
-  // ── Cambiar mes ──────────────────────────────────────────────
   const cambiarMes = (dir: 1 | -1) => {
     let m = mes + dir, a = anio;
     if (m < 0) { m = 11; a--; }
@@ -216,7 +181,6 @@ export default function AgendaPage() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', fontFamily: '-apple-system, sans-serif' }}>
 
-      {/* Toast */}
       {toast && (
         <div style={{
           position: 'fixed', top: '80px', right: '20px', zIndex: 9999,
@@ -233,7 +197,6 @@ export default function AgendaPage() {
 
       {isMobile && <NavbarMobile />}
 
-      {/* Header desktop */}
       {!isMobile && (
         <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: '0 32px', height: '62px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -243,18 +206,16 @@ export default function AgendaPage() {
             </button>
             <h1 style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>📅 Agenda</h1>
           </div>
-          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>⭐ {xpObjetivos} XP total</span>
+          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>⭐ {xpReal} XP total</span>
         </header>
       )}
 
-      {/* Barra de colores */}
       <div style={{ display: 'flex', height: '3px' }}>
         {['var(--gold)','var(--red)','var(--blue)','var(--pink)'].map((c,i) => (
           <div key={i} style={{ flex: 1, background: c }} />
         ))}
       </div>
 
-      {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', background: 'var(--bg-card)', padding: '0 24px' }}>
         {[
           { id: 'calendario', label: `📅 ${idioma === 'en' ? 'Calendar' : 'Calendario'}` },
@@ -272,9 +233,7 @@ export default function AgendaPage() {
         ))}
       </div>
 
-      {/* Contenido */}
       <div style={{ display: 'flex', gap: '24px', padding: isMobile ? '16px' : '24px', maxWidth: '1400px', margin: '0 auto' }}>
-
         <div style={{ flex: 1, minWidth: 0 }}>
           {tab === 'calendario' && (
             <Calendario
@@ -315,7 +274,6 @@ export default function AgendaPage() {
         )}
       </div>
 
-      {/* FAB mobile */}
       {isMobile && (
         <button
           onClick={() => tab === 'calendario' ? setModalAsig(true) : setModalObj(true)}

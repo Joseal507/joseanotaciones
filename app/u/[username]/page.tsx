@@ -4,6 +4,9 @@ export const dynamic = 'force-dynamic';
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '../../../lib/supabase';
+import { getRango, getProgresoRango, LOGROS, getLogrosObtenidos, LogroStats, getLevelFromXp, getXpInCurrentLevel, getXpNeededForNextLevel } from '../../../lib/xpSystem';
+import MarcoAvatar from '../../../components/MarcoAvatar';
+import RangoDisplay from '../../../components/RangoDisplay';
 
 interface PerfilPublico {
   user_id: string;
@@ -128,8 +131,9 @@ const ESCUELAS_PRIVADAS = [
 const TIPOS = ['universitario', 'escuela', 'profesional', 'autodidacta'];
 const GENEROS = ['hombre', 'mujer', 'otro'];
 
-const getNivel = (xp: number) => Math.floor((xp || 0) / 50) + 1;
-const getXpEnNivel = (xp: number) => (xp || 0) % 50;
+const getNivel = (xp: number) => getLevelFromXp(xp || 0);
+const getXpEnNivel = (xp: number) => getXpInCurrentLevel(xp || 0);
+const getXpParaSiguiente = (xp: number) => getXpNeededForNextLevel(xp || 0);
 const getRankMedal = (r: number) => r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : `#${r}`;
 const getRankColor = (r: number) => r === 1 ? '#f5c842' : r === 2 ? '#c0c0c0' : r === 3 ? '#cd7f32' : '#a78bfa';
 
@@ -141,6 +145,19 @@ const getTitulo = (nivel: number) => {
   return { titulo: 'Nuevo Estudiante', color: '#94a3b8' };
 };
 
+// Calcula logros reales del perfil publico
+const calcularLogrosPublicos = (perfil: PerfilPublico, nivel: number, rank: number): LogroStats => ({
+  xpTotal: perfil.xp_total || 0,
+  flashcardsEstudiadas: perfil.flashcards_estudiadas || 0,
+  quizzesCompletados: 0,
+  rachaActual: perfil.racha_actual || 0,
+  mejorRacha: perfil.mejor_racha || 0,
+  precision: perfil.precision_global || 0,
+  materiasCreadas: 0,
+  postsCreados: 0,
+  rangoId: getRango(perfil.xp_total || 0).id,
+});
+
 const generoEmoji: Record<string, string> = {
   hombre: '👦',
   mujer: '👧',
@@ -148,33 +165,13 @@ const generoEmoji: Record<string, string> = {
 };
 
 function Avatar({ perfil, size = 80 }: { perfil: PerfilPublico; size?: number }) {
-  const inicial = (perfil.nombre || 'U').trim().charAt(0).toUpperCase();
-
   return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: '50%',
-        background: perfil.avatar_url ? 'transparent' : 'var(--gold)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: size * 0.42,
-        fontWeight: 900,
-        color: '#000',
-        overflow: 'hidden',
-        flexShrink: 0,
-        border: '3px solid var(--gold)',
-        boxShadow: '0 0 0 6px rgba(245,200,66,0.15)',
-      }}
-    >
-      {perfil.avatar_url ? (
-        <img src={perfil.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-      ) : (
-        inicial
-      )}
-    </div>
+    <MarcoAvatar
+      xpTotal={perfil.xp_total || 0}
+      fotoPerfil={perfil.avatar_url}
+      nombre={perfil.nombre}
+      size={size}
+    />
   );
 }
 
@@ -759,24 +756,25 @@ export default function PerfilPublicoPage() {
 
   const nivel = getNivel(perfil.xp_total);
   const xpEnNivel = getXpEnNivel(perfil.xp_total);
+  const xpParaSiguiente = getXpParaSiguiente(perfil.xp_total);
+  const rango = getRango(perfil.xp_total || 0);
   const { titulo, color: tituloColor } = getTitulo(nivel);
   const rankColor = getRankColor(rank);
   const esMiPerfil = miUserId === perfil.user_id;
   const urlPublica = typeof window !== 'undefined' ? `${window.location.origin}/u/${perfil.user_id}` : '';
 
-  const logros = [
-    { emoji: '🌱', label: 'Primera flashcard', ok: (perfil.flashcards_estudiadas || 0) >= 1 },
-    { emoji: '⚡', label: '50 flashcards', ok: (perfil.flashcards_estudiadas || 0) >= 50 },
-    { emoji: '🔥', label: '100 flashcards', ok: (perfil.flashcards_estudiadas || 0) >= 100 },
-    { emoji: '💎', label: '500 flashcards', ok: (perfil.flashcards_estudiadas || 0) >= 500 },
-    { emoji: '👑', label: 'Nivel 10', ok: nivel >= 10 },
-    { emoji: '🌟', label: 'Nivel 20', ok: nivel >= 20 },
-    { emoji: '🎯', label: '80% precisión', ok: (perfil.precision_global || 0) >= 80 },
-    { emoji: '🔰', label: 'Racha 7 días', ok: (perfil.mejor_racha || 0) >= 7 },
-    { emoji: '🏆', label: 'Top 10 mundial', ok: rank <= 10 },
-  ];
+  const logroStatsPublicos = calcularLogrosPublicos(perfil, nivel, rank);
+  const logrosObtenidosReal = getLogrosObtenidos(logroStatsPublicos);
+  const logrosVisibles = LOGROS.filter(l => !l.secreto || l.condicion(logroStatsPublicos));
 
-  const logrosOk = logros.filter((l) => l.ok).length;
+  // Compatibilidad con el resto del código que usa 'logros'
+  const logros = logrosVisibles.map(l => ({
+    emoji: l.emoji,
+    label: l.nombre,
+    ok: l.condicion(logroStatsPublicos),
+  }));
+
+  const logrosOk = logrosObtenidosReal.length;
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', fontFamily: '-apple-system, sans-serif' }}>
@@ -961,12 +959,15 @@ export default function PerfilPublicoPage() {
             ) : null}
 
             <div style={{ background: 'var(--bg-secondary)', borderRadius: '12px', padding: '14px 18px', border: '1px solid var(--border-color)' }}>
+              <div style={{ marginBottom: 12 }}>
+                <RangoDisplay xpTotal={perfil.xp_total || 0} size="sm" mostrarProgreso />
+              </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                 <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--gold)' }}>⚡ {perfil.xp_total || 0} XP Total</span>
-                <span style={{ fontSize: '12px', color: 'var(--text-faint)' }}>{xpEnNivel}/50 XP → Nivel {nivel + 1}</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-faint)' }}>{xpEnNivel}/{xpParaSiguiente} XP → Nivel {nivel + 1}</span>
               </div>
               <div style={{ background: 'var(--bg-card)', borderRadius: '8px', height: '10px', overflow: 'hidden' }}>
-                <div style={{ width: `${(xpEnNivel / 50) * 100}%`, height: '100%', background: 'linear-gradient(90deg, var(--gold), #ff9f43)', borderRadius: '8px', transition: 'width 1.2s ease' }} />
+                <div style={{ width: `${Math.min(100, Math.round((xpEnNivel / xpParaSiguiente) * 100))}%`, height: '100%', background: rango.marcoGradient, borderRadius: '8px', transition: 'width 1.2s ease' }} />
               </div>
             </div>
 
@@ -1075,41 +1076,48 @@ export default function PerfilPublicoPage() {
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-                {logros.map((logro, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '14px 8px',
-                      borderRadius: '14px',
-                      textAlign: 'center',
-                      background: logro.ok ? '#a78bfa18' : 'var(--bg-secondary)',
-                      border: `1px solid ${logro.ok ? '#a78bfa44' : 'var(--border-color)'}`,
-                      opacity: logro.ok ? 1 : 0.35,
-                    }}
-                  >
-                    <span style={{ fontSize: '26px', filter: logro.ok ? 'none' : 'grayscale(1)' }}>{logro.emoji}</span>
-                    <span style={{ fontSize: '10px', fontWeight: 700, color: logro.ok ? 'var(--text-primary)' : 'var(--text-faint)', lineHeight: 1.3 }}>{logro.label}</span>
-                    {logro.ok && <span style={{ fontSize: '10px', color: '#38bdf8', fontWeight: 900 }}>✓</span>}
-                  </div>
-                ))}
+                {logrosVisibles.map((logro, i) => {
+                  const obtenido = logro.condicion(logroStatsPublicos);
+                  return (
+                    <div
+                      key={i}
+                      title={obtenido ? logro.recompensa : logro.descripcion}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '14px 8px',
+                        borderRadius: '14px',
+                        textAlign: 'center',
+                        background: obtenido ? logro.color + '18' : 'var(--bg-secondary)',
+                        border: `1px solid ${obtenido ? logro.color + '44' : 'var(--border-color)'}`,
+                        opacity: obtenido ? 1 : 0.35,
+                        cursor: 'default',
+                      }}
+                    >
+                      <span style={{ fontSize: '26px', filter: obtenido ? 'none' : 'grayscale(1)' }}>{logro.emoji}</span>
+                      <span style={{ fontSize: '10px', fontWeight: 700, color: obtenido ? logro.color : 'var(--text-faint)', lineHeight: 1.3 }}>{logro.nombre}</span>
+                      {obtenido && <span style={{ fontSize: '10px', color: '#4ade80', fontWeight: 900 }}>✓</span>}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <div style={{ background: 'var(--bg-card)', borderRadius: '18px', border: '1px solid var(--gold-border)', overflow: 'hidden' }}>
-              <div style={{ height: '3px', background: 'var(--gold)' }} />
+            <div style={{ background: 'var(--bg-card)', borderRadius: '18px', border: `1px solid ${rango.color}44`, overflow: 'hidden', boxShadow: `0 0 20px ${rango.color}22` }}>
+              <div style={{ height: '3px', background: rango.marcoGradient }} />
               <div style={{ padding: '20px', textAlign: 'center' }}>
-                <div style={{ fontSize: '52px', fontWeight: 900, color: 'var(--gold)', lineHeight: 1 }}>{nivel}</div>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+                  <RangoDisplay xpTotal={perfil.xp_total || 0} size="sm" mostrarProgreso={false} />
+                </div>
+                <div style={{ fontSize: '42px', fontWeight: 900, color: rango.color, lineHeight: 1 }}>{nivel}</div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '14px' }}>Nivel actual</div>
-
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   {[
-                    { label: 'XP', val: perfil.xp_total || 0, color: 'var(--gold)' },
+                    { label: 'XP', val: perfil.xp_total || 0, color: rango.color },
                     { label: 'Ranking', val: `#${rank}`, color: rankColor },
                     { label: 'Racha', val: `${perfil.racha_actual || 0}🔥`, color: 'var(--red)' },
                     { label: 'Precisión', val: `${Math.round(perfil.precision_global || 0)}%`, color: '#4ade80' },

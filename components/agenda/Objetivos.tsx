@@ -3,6 +3,8 @@
 import { ObjetivoAgenda, Asignacion } from '../../lib/agenda';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
+import RangoDisplay from '../RangoDisplay';
+import { getLevelProgress, getXpInCurrentLevel, getXpNeededForNextLevel, getRango } from '../../lib/xpSystem';
 
 interface Props {
   objetivos:    ObjetivoAgenda[];
@@ -21,6 +23,11 @@ export default function Objetivos({
   const isMobile = useIsMobile();
   const { idioma } = useIdioma();
   const completados = objetivos.filter(o => o.completado).length;
+
+  const rango = getRango(xpTotal);
+  const xpParaSiguiente = getXpNeededForNextLevel(xpTotal);
+  const xpEnNivel = getXpInCurrentLevel(xpTotal);
+  const progreso = getLevelProgress(xpTotal);
 
   const CATS = [
     { id: 'asignacion', label: idioma === 'en' ? '📋 Assignments' : '📋 Asignaciones', color: 'var(--blue)'  },
@@ -111,8 +118,6 @@ export default function Objetivos({
                         opacity: obj.completado ? 0.7 : bloqueado ? 0.5 : 1,
                         transition: 'all 0.2s',
                       }}>
-
-                        {/* Checkbox */}
                         <div
                           onClick={() => !bloqueado && onToggle(obj.id)}
                           style={{
@@ -159,7 +164,6 @@ export default function Objetivos({
                           </div>
                         </div>
 
-                        {/* XP badge */}
                         <div style={{
                           background: bloqueado ? '#ff4d6d22' : obj.completado ? 'var(--gold)' : 'var(--gold-dim)',
                           border: `1px solid ${bloqueado ? '#ff4d6d44' : 'var(--gold-border)'}`,
@@ -170,13 +174,10 @@ export default function Objetivos({
                           {bloqueado ? '⛔ 0 XP' : `⭐ ${obj.xp} XP`}
                         </div>
 
-                        {/* Solo eliminar si NO es de asignación */}
-                        {(
-                          <button onClick={() => onEliminar(obj.id)}
-                            style={{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: '14px', flexShrink: 0, padding: '4px' }}>
-                            🗑️
-                          </button>
-                        )}
+                        <button onClick={() => onEliminar(obj.id)}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: '14px', flexShrink: 0, padding: '4px' }}>
+                          🗑️
+                        </button>
                       </div>
                     );
                   })}
@@ -190,33 +191,53 @@ export default function Objetivos({
       {/* ── Panel stats ── */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {!isMobile && (
-          <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--gold-border)', overflow: 'hidden' }}>
-            <div style={{ height: '4px', background: 'var(--gold)' }} />
+          <div style={{
+            background: 'var(--bg-card)', borderRadius: '16px',
+            border: `1px solid ${rango.color}44`, overflow: 'hidden',
+            boxShadow: `0 0 16px ${rango.color}22`,
+          }}>
+            <div style={{ height: '4px', background: rango.marcoGradient }} />
             <div style={{ padding: '20px' }}>
-              <h3 style={{ fontSize: '12px', fontWeight: 800, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 16px' }}>
-                ⭐ {idioma === 'en' ? 'Your Progress' : 'Tu Progreso'}
+              <h3 style={{ fontSize: '12px', fontWeight: 800, color: rango.color, textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 14px' }}>
+                {rango.emoji} {idioma === 'en' ? 'Your Progress' : 'Tu Progreso'}
               </h3>
-              <div style={{ textAlign: 'center', marginBottom: '14px' }}>
-                <div style={{ fontSize: '52px', fontWeight: 900, color: 'var(--gold)', lineHeight: 1 }}>{nivel}</div>
-                <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
+
+              {/* Rango display */}
+              <div style={{ marginBottom: 16 }}>
+                <RangoDisplay xpTotal={xpTotal} size="sm" mostrarProgreso />
+              </div>
+
+              {/* Nivel */}
+              <div style={{ textAlign: 'center', marginBottom: '10px' }}>
+                <div style={{ fontSize: '42px', fontWeight: 900, color: rango.color, lineHeight: 1 }}>{nivel}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                   {idioma === 'en' ? 'Level' : 'Nivel'}
                 </div>
               </div>
-              <div style={{ background: 'var(--bg-secondary)', borderRadius: '10px', height: '12px', overflow: 'hidden', marginBottom: '8px' }}>
-                <div style={{ width: `${xpNivel}%`, height: '100%', background: 'var(--gold)', borderRadius: '10px', transition: 'width 0.5s' }} />
+
+              {/* Barra de nivel */}
+              <div style={{ background: 'var(--bg-secondary)', borderRadius: '10px', height: '10px', overflow: 'hidden', marginBottom: '6px' }}>
+                <div style={{
+                  width: `${progreso}%`, height: '100%',
+                  background: rango.marcoGradient,
+                  borderRadius: '10px', transition: 'width 0.5s',
+                  boxShadow: `0 0 6px ${rango.color}`,
+                }} />
               </div>
-              <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0, textAlign: 'center' }}>
-                {xpNivel}/100 XP → {idioma === 'en' ? 'Level' : 'Nivel'} {nivel + 1}
+              <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '0 0 14px', textAlign: 'center' }}>
+                {xpEnNivel}/{xpParaSiguiente} XP → {idioma === 'en' ? 'Level' : 'Nivel'} {nivel + 1}
               </p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '14px' }}>
+
+              {/* Stats grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 {[
-                  { label: idioma === 'en' ? 'Done' : 'Hechos',     val: completados,                   color: 'var(--pink)' },
-                  { label: idioma === 'en' ? 'Pending' : 'Pend.',    val: objetivos.length - completados, color: 'var(--blue)' },
-                  { label: 'XP',                                      val: xpTotal,                       color: 'var(--gold)' },
-                  { label: idioma === 'en' ? 'Total' : 'Total',       val: objetivos.length,              color: 'var(--text-muted)' },
+                  { label: idioma === 'en' ? 'Done' : 'Hechos',  val: completados,                   color: 'var(--pink)' },
+                  { label: idioma === 'en' ? 'Pend.' : 'Pend.',  val: objetivos.length - completados, color: 'var(--blue)' },
+                  { label: 'XP Total',                            val: xpTotal,                       color: rango.color   },
+                  { label: 'Total',                               val: objetivos.length,              color: 'var(--text-muted)' },
                 ].map((s, i) => (
                   <div key={i} style={{ background: 'var(--bg-secondary)', borderRadius: '8px', padding: '8px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '18px', fontWeight: 900, color: s.color }}>{s.val}</div>
+                    <div style={{ fontSize: '16px', fontWeight: 900, color: s.color }}>{s.val}</div>
                     <div style={{ fontSize: '10px', color: 'var(--text-faint)', fontWeight: 600 }}>{s.label}</div>
                   </div>
                 ))}
@@ -229,10 +250,10 @@ export default function Objetivos({
         {isMobile && objetivos.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginTop: '8px' }}>
             {[
-              { label: idioma === 'en' ? 'Done' : 'Hechos', val: completados, color: 'var(--pink)' },
-              { label: idioma === 'en' ? 'Pend.' : 'Pend.', val: objetivos.length - completados, color: 'var(--blue)' },
-              { label: 'XP', val: xpTotal, color: 'var(--gold)' },
-              { label: 'Total', val: objetivos.length, color: 'var(--text-muted)' },
+              { label: idioma === 'en' ? 'Done' : 'Hechos', val: completados,                   color: 'var(--pink)' },
+              { label: 'Pend.',                              val: objetivos.length - completados, color: 'var(--blue)' },
+              { label: 'XP',                                 val: xpTotal,                       color: rango.color   },
+              { label: 'Total',                              val: objetivos.length,              color: 'var(--text-muted)' },
             ].map((s, i) => (
               <div key={i} style={{ background: 'var(--bg-card)', borderRadius: '10px', padding: '10px 6px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
                 <div style={{ fontSize: '18px', fontWeight: 900, color: s.color }}>{s.val}</div>
@@ -242,7 +263,7 @@ export default function Objetivos({
           </div>
         )}
 
-        {/* Leyenda XP */}
+        {/* Guia XP */}
         <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
           <div style={{ height: '4px', background: '#a78bfa' }} />
           <div style={{ padding: '16px' }}>

@@ -131,8 +131,8 @@ Responde SOLO con este JSON, sin texto extra:
           { role: 'system', content: prompt },
           { role: 'user', content: esImagen ? 'Analiza la imagen adjunta' : `Texto a analizar:\n\n${textToAnalyze}` },
         ],
-        temperature: 0.1, // ← Más bajo = más consistente y completo
-        max_tokens: 3000, // ← Más tokens para que no se corte
+        temperature: 0.2,
+        max_tokens: 2000, // ← Más tokens para que no se corte
       });
       return r.choices[0]?.message?.content || '{}';
     });

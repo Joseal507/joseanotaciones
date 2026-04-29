@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { groqRequest } from '../../../lib/groqClient';
 
-export const maxDuration = 30;
+export const maxDuration = 15;
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,52 +9,60 @@ export async function POST(request: NextRequest) {
     const { pregunta, respuestaCorrecta, respuestaUsuario, idioma } = body;
     const lang = idioma === 'en' ? 'en' : 'es';
 
-    const evalText = lang === 'en'
-      ? `Question: ${pregunta}\nCorrect answer: ${respuestaCorrecta}\nStudent's answer: ${respuestaUsuario}`
-      : `Pregunta: ${pregunta}\nRespuesta correcta: ${respuestaCorrecta}\nRespuesta del estudiante: ${respuestaUsuario}`;
+    if (!respuestaUsuario?.trim()) {
+      return NextResponse.json({
+        success: true,
+        resultado: { nivel: 'muy_incorrecta', porcentaje: 0, explicacion: lang === 'en' ? 'No answer provided.' : 'No se proporcionó respuesta.', consejo: '' },
+      });
+    }
 
     const systemPrompt = lang === 'en'
-      ? `You are an educational evaluator. Compare the student's answer to the correct answer carefully.
-Respond ONLY with valid JSON, no extra text:
-{"nivel":"INSANE","porcentaje":98,"explicacion":"clear explanation of what was right/wrong","consejo":"memory tip"}
+      ? `Educational evaluator. Compare student answer to correct answer. Be fair and constructive.
+Return ONLY this JSON (no extra text):
+{"nivel":"correcta","porcentaje":85,"explicacion":"what was right/wrong","consejo":"memory tip"}
 
-Levels:
-- INSANE = 95-100% (essentially perfect)
-- correcta = 75-94% (correct with minor gaps)
-- medio_correcta = 50-74% (partially correct)
-- incorrecta = 20-49% (mostly wrong)
-- muy_incorrecta = 0-19% (completely wrong)`
-      : `Eres un evaluador educativo. Compara la respuesta del estudiante con la correcta cuidadosamente.
-Responde SOLO con JSON válido, sin texto extra:
-{"nivel":"INSANE","porcentaje":98,"explicacion":"explicación clara de qué estuvo bien/mal","consejo":"tip para recordar"}
+Levels: INSANE=95-100, correcta=75-94, medio_correcta=50-74, incorrecta=20-49, muy_incorrecta=0-19`
+      : `Evaluador educativo. Compara la respuesta del estudiante con la correcta. Se justo y constructivo.
+Devuelve SOLO este JSON (sin texto extra):
+{"nivel":"correcta","porcentaje":85,"explicacion":"que estuvo bien/mal","consejo":"tip para recordar"}
 
-Niveles:
-- INSANE = 95-100% (esencialmente perfecta)
-- correcta = 75-94% (correcta con pequeñas omisiones)
-- medio_correcta = 50-74% (parcialmente correcta)
-- incorrecta = 20-49% (mayormente incorrecta)
-- muy_incorrecta = 0-19% (completamente incorrecta)`;
+Niveles: INSANE=95-100, correcta=75-94, medio_correcta=50-74, incorrecta=20-49, muy_incorrecta=0-19`;
+
+    const userMsg = lang === 'en'
+      ? `Question: ${pregunta}\nCorrect: ${respuestaCorrecta}\nStudent: ${respuestaUsuario}`
+      : `Pregunta: ${pregunta}\nCorrecta: ${respuestaCorrecta}\nEstudiante: ${respuestaUsuario}`;
 
     const resultado = await groqRequest(async (client, model) => {
       const r = await client.chat.completions.create({
         model: model('llama-3.3-70b-versatile'),
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: evalText },
+          { role: 'user', content: userMsg },
         ],
         temperature: 0.1,
-        max_tokens: 300,
+        max_tokens: 250,
       });
 
-      const text = r.choices[0].message.content || '{}';
-      const match = text.match(/\{[\s\S]*?\}/);
-      if (!match) throw new Error('No JSON in response');
+      const text = r.choices[0]?.message?.content || '';
 
-      const parsed = JSON.parse(match[0]);
+      // Parser robusto: intenta JSON directo, luego extrae
+      let parsed: any = null;
+      try { parsed = JSON.parse(text.trim()); } catch {}
+      if (!parsed) {
+        const match = text.match(/\{[^{}]*\}/);
+        if (match) { try { parsed = JSON.parse(match[0]); } catch {} }
+      }
 
-      // Validar que tenga los campos necesarios
-      if (!parsed.nivel || parsed.porcentaje === undefined) {
-        throw new Error('JSON incompleto');
+      if (!parsed?.nivel) {
+        // Fallback: inferir del porcentaje o texto
+        const pctMatch = text.match(/(\d+)/);
+        const pct = pctMatch ? parseInt(pctMatch[1]) : 50;
+        return {
+          nivel: pct >= 75 ? 'correcta' : pct >= 50 ? 'medio_correcta' : 'incorrecta',
+          porcentaje: pct,
+          explicacion: lang === 'en' ? 'Your answer was evaluated.' : 'Tu respuesta fue evaluada.',
+          consejo: '',
+        };
       }
 
       return parsed;
@@ -64,6 +72,15 @@ Niveles:
 
   } catch (error: any) {
     console.error('evaluar error:', error.message);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    // Nunca romper el modo estudio — devolver resultado neutral
+    return NextResponse.json({
+      success: true,
+      resultado: {
+        nivel: 'medio_correcta',
+        porcentaje: 60,
+        explicacion: 'No se pudo evaluar en este momento. Revisa la respuesta correcta.',
+        consejo: '',
+      },
+    });
   }
 }

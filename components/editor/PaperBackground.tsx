@@ -40,8 +40,7 @@ export default function PaperBackground({ style, temaColor, paperColor = 'white'
 
   if (style === 'lined') {
     const patId = `lined-${uid}`;
-    return (
-      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0 }}>
+    return (<div data-paper-bg="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0 }}>
         <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <pattern id={patId} x="0" y="0" width="100%" height={lineH} patternUnits="userSpaceOnUse">

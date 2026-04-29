@@ -4,44 +4,57 @@ import { useState, useEffect } from 'react';
 import { getPerfil, getMaterias, PerfilEstudio } from '../../lib/storage';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
+import { useXP } from '../../hooks/useXP';
 import NavbarMobile from '../../components/NavbarMobile';
 import ReporteSemanal from '../../components/ReporteSemanal';
+import RangoDisplay from '../../components/RangoDisplay';
+import MarcoAvatar from '../../components/MarcoAvatar';
+import LogrosPanel from '../../components/LogrosPanel';
+import TablaRangos from '../../components/TablaRangos';
+import { getRango, getLogrosObtenidos, LogroStats } from '../../lib/xpSystem';
 
 export default function PerfilPage() {
   const [perfil, setPerfil] = useState<PerfilEstudio | null>(null);
+  const [tabActivo, setTabActivo] = useState<'stats' | 'rangos' | 'logros'>('stats');
+  const [nombre, setNombre] = useState('');
+  const [fotoPerfil, setFotoPerfil] = useState('');
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
+  const { xpTotal, nivel, progreso, xpEnNivel, xpParaSiguiente, titulo, cargando: xpCargando } = useXP();
 
- useEffect(() => {
-  const cargar = async () => {
-    // Primero intentar localStorage
-    let perfilLocal = getPerfil();
+  useEffect(() => {
+    const cargar = async () => {
+      let perfilLocal = getPerfil();
+      const tieneDataLocal =
+        Object.keys(perfilLocal.flashcardsAcertadas || {}).length > 0 ||
+        Object.keys(perfilLocal.flashcardsFalladas || {}).length > 0 ||
+        Object.keys(perfilLocal.materiasStats || {}).length > 0;
 
-    const tieneDataLocal = Object.keys(perfilLocal.flashcardsAcertadas || {}).length > 0
-      || Object.keys(perfilLocal.flashcardsFalladas || {}).length > 0
-      || Object.keys(perfilLocal.materiasStats || {}).length > 0;
-
-    if (tieneDataLocal) {
-      setPerfil(perfilLocal);
-    } else {
-      // Si localStorage vacío, intentar cargar de Supabase
-      try {
-        const { cargarPerfilDesdeDB } = await import('../../lib/storage');
-        const perfilDB = await cargarPerfilDesdeDB();
-        if (perfilDB) {
-          setPerfil(perfilDB);
-        } else {
+      if (tieneDataLocal) {
+        setPerfil(perfilLocal);
+      } else {
+        try {
+          const { cargarPerfilDesdeDB } = await import('../../lib/storage');
+          const perfilDB = await cargarPerfilDesdeDB();
+          setPerfil(perfilDB || perfilLocal);
+        } catch {
           setPerfil(perfilLocal);
         }
-      } catch {
-        setPerfil(perfilLocal);
       }
-    }
-  };
 
-  cargar();
-  getMaterias();
-}, []);
+      // Cargar nombre y foto
+      const { supabase } = await import('../../lib/supabase');
+      const { data } = await supabase.auth.getUser();
+      if (data.user) {
+        setNombre(data.user.user_metadata?.nombre || data.user.email?.split('@')[0] || 'Estudiante');
+      }
+      const { getSettings } = await import('../../lib/settings');
+      const settings = getSettings();
+      setFotoPerfil(settings.fotoPerfil || '');
+    };
+    cargar();
+    getMaterias();
+  }, []);
 
   if (!perfil) return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -55,8 +68,7 @@ export default function PerfilPage() {
   const porcentajeGlobal = total > 0 ? Math.round((totalAcertadas / total) * 100) : 0;
 
   const topFalladas = Object.entries(perfil.flashcardsFalladas || {})
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6);
+    .sort((a, b) => b[1] - a[1]).slice(0, 6);
 
   const materiasOrdenadas = Object.entries(perfil.materiasStats || {})
     .map(([id, stats]) => ({ id, ...stats }))
@@ -70,16 +82,28 @@ export default function PerfilPage() {
     .filter(m => m.totalFlashcards > 0)
     .sort((a, b) => (b.acertadas / b.totalFlashcards) - (a.acertadas / a.totalFlashcards))[0];
 
-  const xpTotal = Object.values(perfil.materiasStats || {}).reduce((acc, m: any) => acc + m.totalFlashcards, 0);
-  const nivel = Math.floor(xpTotal / 50) + 1;
+  const quizzesTotales = Object.values(perfil.materiasStats || {}).reduce((a: number, m: any) => a + (m.quizzes || 0), 0);
 
-  const logros = [
-    { emoji: '🌱', label: idioma === 'en' ? 'First flashcard' : 'Primera flashcard', obtenido: total >= 1 },
-    { emoji: '⚡', label: idioma === 'en' ? '50 studied' : '50 estudiadas', obtenido: total >= 50 },
-    { emoji: '🔥', label: idioma === 'en' ? '100 studied' : '100 estudiadas', obtenido: total >= 100 },
-    { emoji: '💎', label: idioma === 'en' ? 'Level 5' : 'Nivel 5', obtenido: nivel >= 5 },
-    { emoji: '👑', label: idioma === 'en' ? 'Level 10' : 'Nivel 10', obtenido: nivel >= 10 },
-    { emoji: '🎯', label: idioma === 'en' ? '80% accuracy' : '80% precisión', obtenido: porcentajeGlobal >= 80 && total > 10 },
+  const rango = getRango(xpTotal);
+
+  const logroStats: LogroStats = {
+    xpTotal,
+    flashcardsEstudiadas: total,
+    quizzesCompletados: quizzesTotales,
+    rachaActual: 0,
+    mejorRacha: 0,
+    precision: porcentajeGlobal,
+    materiasCreadas: materiasOrdenadas.length,
+    postsCreados: 0,
+    rangoId: rango.id,
+  };
+
+  const logrosObtenidos = getLogrosObtenidos(logroStats);
+
+  const tabs = [
+    { id: 'stats' as const, label: '📊 Stats', emoji: '📊' },
+    { id: 'rangos' as const, label: '🏆 Rangos', emoji: '🏆' },
+    { id: 'logros' as const, label: `🎖️ Logros (${logrosObtenidos.length})`, emoji: '🎖️' },
   ];
 
   return (
@@ -88,22 +112,22 @@ export default function PerfilPage() {
       {isMobile ? <NavbarMobile /> : (
         <>
           <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: '0 40px', height: '68px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
               <button onClick={() => window.location.href = '/'}
-                style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
                 ← {tr('inicio')}
               </button>
               <div>
-                <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{'Mis Stats'}</h1>
-                <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>{tr('tuProgresoYStats')}</p>
+                <h1 style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>Mis Stats</h1>
+                <p style={{ color: 'var(--text-muted)', fontSize: 11, margin: 0 }}>{tr('tuProgresoYStats')}</p>
               </div>
             </div>
             <button onClick={() => window.location.href = '/chat'}
-              style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+              style={{ padding: '8px 16px', borderRadius: 8, border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
               🤖 JeffreyBot
             </button>
           </header>
-          <div style={{ display: 'flex', height: '3px' }}>
+          <div style={{ display: 'flex', height: 3 }}>
             <div style={{ flex: 1, background: 'var(--gold)' }} />
             <div style={{ flex: 1, background: 'var(--red)' }} />
             <div style={{ flex: 1, background: 'var(--blue)' }} />
@@ -112,249 +136,249 @@ export default function PerfilPage() {
         </>
       )}
 
-      <div style={{ maxWidth: '1000px', margin: '0 auto', padding: isMobile ? '16px' : '40px' }}>
+      <div style={{ maxWidth: 1000, margin: '0 auto', padding: isMobile ? 16 : 40 }}>
 
-        {/* Stats globales */}
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: '1px', background: 'var(--border-color)', borderRadius: '16px', overflow: 'hidden', marginBottom: '24px' }}>
-          {[
-            { label: tr('totalEstudiadas'), value: total, color: 'var(--gold)', emoji: '📚' },
-            { label: tr('acertadas'), value: totalAcertadas, color: '#4ade80', emoji: '✅' },
-            { label: tr('falladas'), value: totalFalladas, color: 'var(--red)', emoji: '❌' },
-            { label: tr('precision'), value: `${porcentajeGlobal}%`, color: 'var(--blue)', emoji: '🎯' },
-          ].map((s, i) => (
-            <div key={i} style={{ background: 'var(--bg-card)', padding: isMobile ? '16px 12px' : '24px 16px', textAlign: 'center' }}>
-              <div style={{ fontSize: isMobile ? '20px' : '24px', marginBottom: '4px' }}>{s.emoji}</div>
-              <div style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 900, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: isMobile ? '9px' : '12px', color: 'var(--text-muted)', fontWeight: 600, marginTop: '4px' }}>{s.label}</div>
+        {/* ── HERO: Avatar + Rango ── */}
+        <div style={{
+          background: `linear-gradient(135deg, ${rango.color}15, var(--bg-card))`,
+          border: `2px solid ${rango.color}44`,
+          borderRadius: 20,
+          padding: isMobile ? '20px 16px' : '28px 32px',
+          marginBottom: 24,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 24,
+          flexWrap: 'wrap',
+          boxShadow: `0 0 40px ${rango.color}22`,
+        }}>
+          <MarcoAvatar
+            xpTotal={xpTotal}
+            fotoPerfil={fotoPerfil}
+            nombre={nombre}
+            size={isMobile ? 72 : 96}
+          />
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 900, color: 'var(--text-primary)', marginBottom: 4 }}>
+              {nombre}
             </div>
+            <div style={{ marginBottom: 12 }}>
+              <RangoDisplay xpTotal={xpTotal} size={isMobile ? 'sm' : 'md'} mostrarProgreso />
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, background: 'var(--bg-secondary)', borderRadius: 8, padding: '3px 10px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                Nivel {nivel} · {titulo.emoji} {titulo.titulo}
+              </span>
+              <span style={{ fontSize: 11, background: rango.color + '22', borderRadius: 8, padding: '3px 10px', color: rango.color, fontWeight: 700 }}>
+                {xpTotal.toLocaleString()} XP totales
+              </span>
+              <span style={{ fontSize: 11, background: '#a78bfa22', borderRadius: 8, padding: '3px 10px', color: '#a78bfa', fontWeight: 600 }}>
+                🎖️ {logrosObtenidos.length} logros
+              </span>
+            </div>
+          </div>
+
+          {/* Botón perfil público */}
+          <button
+            onClick={async () => {
+              const { supabase } = await import('../../lib/supabase');
+              const { data } = await supabase.auth.getUser();
+              if (data.user?.id) window.location.href = '/u/' + data.user.id;
+            }}
+            style={{
+              padding: '10px 18px', borderRadius: 12,
+              border: `2px solid ${rango.color}`,
+              background: rango.color + '15',
+              color: rango.color, fontWeight: 700, fontSize: 13,
+              cursor: 'pointer', whiteSpace: 'nowrap',
+            }}
+          >
+            🌐 Ver Perfil Público
+          </button>
+        </div>
+
+        {/* ── TABS ── */}
+        <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '2px solid var(--border-color)' }}>
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setTabActivo(tab.id)}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                borderBottom: tabActivo === tab.id ? `3px solid ${rango.color}` : '3px solid transparent',
+                padding: '10px 20px', fontSize: 14,
+                fontWeight: tabActivo === tab.id ? 700 : 500,
+                color: tabActivo === tab.id ? rango.color : 'var(--text-muted)',
+                marginBottom: -2,
+                transition: 'all 0.15s',
+              }}
+            >
+              {tab.label}
+            </button>
           ))}
         </div>
 
-        {/* Cards resumen */}
-        {(materiaDificil || materiaFuerte) && (
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
-            {materiaDificil && (
-              <div style={{ background: 'var(--bg-card)', borderRadius: '14px', border: '1px solid var(--red-border)', padding: '18px', display: 'flex', gap: '14px', alignItems: 'center' }}>
-                <div style={{ fontSize: '36px' }}>😰</div>
-                <div>
-                  <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--red)', textTransform: 'uppercase', margin: '0 0 4px' }}>{tr('materiaDificil')}</p>
-                  <p style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px' }}>{materiaDificil.nombre}</p>
-                  <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>
-                    {Math.round((materiaDificil.acertadas / materiaDificil.totalFlashcards) * 100)}% {tr('precision').toLowerCase()}
-                  </p>
+        {/* ── TAB: STATS ── */}
+        {tabActivo === 'stats' && (
+          <div>
+            {/* Stats globales */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 1, background: 'var(--border-color)', borderRadius: 16, overflow: 'hidden', marginBottom: 24 }}>
+              {[
+                { label: tr('totalEstudiadas'), value: total, color: 'var(--gold)', emoji: '📚' },
+                { label: tr('acertadas'), value: totalAcertadas, color: '#4ade80', emoji: '✅' },
+                { label: tr('falladas'), value: totalFalladas, color: 'var(--red)', emoji: '❌' },
+                { label: tr('precision'), value: `${porcentajeGlobal}%`, color: 'var(--blue)', emoji: '🎯' },
+              ].map((s, i) => (
+                <div key={i} style={{ background: 'var(--bg-card)', padding: isMobile ? '16px 12px' : '24px 16px', textAlign: 'center' }}>
+                  <div style={{ fontSize: isMobile ? 20 : 24, marginBottom: 4 }}>{s.emoji}</div>
+                  <div style={{ fontSize: isMobile ? 22 : 28, fontWeight: 900, color: s.color }}>{s.value}</div>
+                  <div style={{ fontSize: isMobile ? 9 : 12, color: 'var(--text-muted)', fontWeight: 600, marginTop: 4 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* XP Card */}
+            <div style={{ background: 'var(--bg-card)', borderRadius: 16, border: `1px solid ${rango.color}44`, overflow: 'hidden', marginBottom: 24 }}>
+              <div style={{ height: 4, background: rango.marcoGradient }} />
+              <div style={{ padding: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+                  <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: rango.color, textTransform: 'uppercase', letterSpacing: 1 }}>
+                    {rango.emoji} Progreso de XP
+                  </h3>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    Nivel {nivel} · {xpEnNivel}/{xpParaSiguiente} XP
+                  </span>
+                </div>
+                <div style={{ height: 10, background: 'var(--bg-secondary)', borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
+                  <div style={{
+                    height: '100%', width: `${progreso}%`,
+                    background: rango.marcoGradient,
+                    borderRadius: 10, transition: 'width 0.6s ease',
+                    boxShadow: `0 0 8px ${rango.color}`,
+                  }} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
+                  <span>{progreso}% del nivel {nivel}</span>
+                  <span>→ Nivel {nivel + 1}</span>
                 </div>
               </div>
-            )}
-            {materiaFuerte && (
-              <div style={{ background: 'var(--bg-card)', borderRadius: '14px', border: '1px solid #4ade8044', padding: '18px', display: 'flex', gap: '14px', alignItems: 'center' }}>
-                <div style={{ fontSize: '36px' }}>💪</div>
-                <div>
-                  <p style={{ fontSize: '11px', fontWeight: 700, color: '#4ade80', textTransform: 'uppercase', margin: '0 0 4px' }}>{tr('materiaFuerte')}</p>
-                  <p style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px' }}>{materiaFuerte.nombre}</p>
-                  <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>
-                    {Math.round((materiaFuerte.acertadas / materiaFuerte.totalFlashcards) * 100)}% {tr('precision').toLowerCase()}
-                  </p>
+            </div>
+
+            {/* Materias + Falladas */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20, marginBottom: 24 }}>
+              {/* Precisión por materia */}
+              <div style={{ background: 'var(--bg-card)', borderRadius: 16, border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                <div style={{ height: 4, background: 'var(--gold)' }} />
+                <div style={{ padding: 20 }}>
+                  <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 16px' }}>
+                    {tr('precisionPorMateria')}
+                  </h2>
+                  {materiasOrdenadas.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
+                      📚 {tr('estudiaFlashcards')}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      {materiasOrdenadas.map((m, i) => {
+                        const prec = m.totalFlashcards > 0 ? Math.round((m.acertadas / m.totalFlashcards) * 100) : 0;
+                        return (
+                          <div key={i}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                <div style={{ width: 9, height: 9, borderRadius: '50%', background: m.color }} />
+                                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{m.nombre}</span>
+                              </div>
+                              <span style={{ fontSize: 13, fontWeight: 800, color: prec >= 70 ? '#4ade80' : prec >= 50 ? 'var(--gold)' : 'var(--red)' }}>
+                                {prec}%
+                              </span>
+                            </div>
+                            <div style={{ background: 'var(--bg-secondary)', borderRadius: 6, height: 7, overflow: 'hidden' }}>
+                              <div style={{ width: `${prec}%`, height: '100%', background: prec >= 70 ? '#4ade80' : prec >= 50 ? 'var(--gold)' : 'var(--red)', borderRadius: 6, transition: 'width 0.8s ease' }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
-            )}
+
+              {/* Temas que más fallas */}
+              <div style={{ background: 'var(--bg-card)', borderRadius: 16, border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                <div style={{ height: 4, background: 'var(--red)' }} />
+                <div style={{ padding: 20 }}>
+                  <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 16px' }}>
+                    {tr('temasQueFallas')}
+                  </h2>
+                  {topFalladas.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
+                      🎉 {tr('sinFallas')}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                      {topFalladas.map(([pregunta, veces], i) => (
+                        <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 10px', background: 'var(--bg-secondary)', borderRadius: 10, border: '1px solid var(--red-border)' }}>
+                          <div style={{ width: 26, height: 26, borderRadius: 7, background: 'var(--red)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: '#000', flexShrink: 0 }}>
+                            {veces}x
+                          </div>
+                          <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
+                            {pregunta.length > 80 ? pregunta.substring(0, 80) + '...' : pregunta}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <ReporteSemanal />
+
+            {/* Acciones */}
+            <div style={{ display: 'flex', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
+              <button onClick={() => window.location.href = '/materias'}
+                style={{ padding: '12px 24px', borderRadius: 12, border: 'none', background: 'var(--gold)', color: '#000', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>
+                {tr('irAEstudiar')}
+              </button>
+              <button onClick={() => window.location.href = '/chat'}
+                style={{ padding: '12px 24px', borderRadius: 12, border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                {tr('hablarJeffreyBot')}
+              </button>
+              <button onClick={() => {
+                if (!confirm(tr('limpiarRachaStats'))) return;
+                localStorage.removeItem('josea_racha');
+                localStorage.removeItem('josea_perfil');
+                window.location.reload();
+              }}
+                style={{ padding: '12px 24px', borderRadius: 12, border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                {tr('limpiarStats')}
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Grid principal */}
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 290px', gap: '24px', alignItems: 'flex-start', marginBottom: '24px' }}>
-
-          <div>
-            {/* Precisión por materia */}
-            <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden', marginBottom: '20px' }}>
-              <div style={{ height: '4px', background: 'var(--gold)' }} />
-              <div style={{ padding: '20px' }}>
-                <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 20px' }}>
-                  {tr('precisionPorMateria')}
-                </h2>
-                {materiasOrdenadas.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '32px 0' }}>
-                    <div style={{ fontSize: '40px', marginBottom: '8px' }}>📚</div>
-                    <p style={{ color: 'var(--text-faint)', fontSize: '13px', margin: 0 }}>{tr('estudiaFlashcards')}</p>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    {materiasOrdenadas.map((m, i) => {
-                      const precision = m.totalFlashcards > 0 ? Math.round((m.acertadas / m.totalFlashcards) * 100) : 0;
-                      return (
-                        <div key={i}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: m.color, flexShrink: 0 }} />
-                              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{m.nombre}</span>
-                            </div>
-                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                              <span style={{ fontSize: '11px', color: '#4ade80', fontWeight: 600 }}>✓ {m.acertadas}</span>
-                              <span style={{ fontSize: '11px', color: 'var(--red)', fontWeight: 600 }}>✗ {m.falladas}</span>
-                              <span style={{ fontSize: '13px', fontWeight: 800, color: precision >= 70 ? '#4ade80' : precision >= 50 ? 'var(--gold)' : 'var(--red)' }}>
-                                {precision}%
-                              </span>
-                            </div>
-                          </div>
-                          <div style={{ background: 'var(--bg-secondary)', borderRadius: '6px', height: '8px', overflow: 'hidden' }}>
-                            <div style={{ width: `${precision}%`, height: '100%', background: precision >= 70 ? '#4ade80' : precision >= 50 ? 'var(--gold)' : 'var(--red)', borderRadius: '6px', transition: 'width 0.8s ease' }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+        {/* ── TAB: RANGOS ── */}
+        {tabActivo === 'rangos' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <div style={{
+              background: 'var(--bg-card)', borderRadius: 16,
+              border: `2px solid ${rango.color}44`, padding: 24,
+              textAlign: 'center',
+            }}>
+              <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>
+                Tu rango actual
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+                <RangoDisplay xpTotal={xpTotal} size="lg" mostrarProgreso />
               </div>
             </div>
-
-            {/* Temas más fallados */}
-            <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
-              <div style={{ height: '4px', background: 'var(--red)' }} />
-              <div style={{ padding: '20px' }}>
-                <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 16px' }}>
-                  {tr('temasQueFallas')}
-                </h2>
-                {topFalladas.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                    <div style={{ fontSize: '36px', marginBottom: '8px' }}>🎉</div>
-                    <p style={{ color: 'var(--text-faint)', fontSize: '13px', margin: 0 }}>{tr('sinFallas')}</p>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {topFalladas.map(([pregunta, veces], i) => (
-                      <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '10px 12px', background: 'var(--bg-secondary)', borderRadius: '10px', border: '1px solid var(--red-border)' }}>
-                        <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'var(--red)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 900, color: '#000', flexShrink: 0 }}>
-                          {veces}x
-                        </div>
-                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
-                          {pregunta.length > 90 ? pregunta.substring(0, 90) + '...' : pregunta}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            <TablaRangos xpTotal={xpTotal} />
           </div>
+        )}
 
-          {/* Panel lateral */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
-            {/* XP y nivel */}
-            <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--gold-border)', overflow: 'hidden' }}>
-              <div style={{ height: '4px', background: 'var(--gold)' }} />
-              <div style={{ padding: '20px' }}>
-                <h3 style={{ fontSize: '12px', fontWeight: 800, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 14px' }}>
-                  {tr('tuProgreso')}
-                </h3>
-                <div style={{ textAlign: 'center', marginBottom: '14px' }}>
-                  <div style={{ fontSize: '48px', fontWeight: 900, color: 'var(--gold)', lineHeight: 1 }}>{nivel}</div>
-                  <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>{tr('nivelActual')}</div>
-                </div>
-                <div style={{ background: 'var(--bg-secondary)', borderRadius: '10px', height: '10px', overflow: 'hidden', marginBottom: '8px' }}>
-                  <div style={{ width: `${(xpTotal % 50) * 2}%`, height: '100%', background: 'var(--gold)', borderRadius: '10px', transition: 'width 0.5s' }} />
-                </div>
-                <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0, textAlign: 'center' }}>
-                  {xpTotal % 50}/50 XP → {idioma === 'en' ? 'Level' : 'Nivel'} {nivel + 1}
-                </p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '14px' }}>
-                  {[
-                    { label: tr('totalEstudiadas'), val: total, color: 'var(--gold)' },
-                    { label: tr('precision'), val: `${porcentajeGlobal}%`, color: 'var(--blue)' },
-                    { label: tr('materias'), val: materiasOrdenadas.length, color: 'var(--pink)' },
-                    { label: idioma === 'en' ? 'Level' : 'Nivel', val: nivel, color: 'var(--gold)' },
-                  ].map((s, i) => (
-                    <div key={i} style={{ background: 'var(--bg-secondary)', borderRadius: '8px', padding: '8px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '16px', fontWeight: 900, color: s.color }}>{s.val}</div>
-                      <div style={{ fontSize: '9px', color: 'var(--text-faint)', fontWeight: 600 }}>{s.label}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Logros */}
-            <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
-              <div style={{ height: '4px', background: '#a78bfa' }} />
-              <div style={{ padding: '20px' }}>
-                <h3 style={{ fontSize: '12px', fontWeight: 800, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 14px' }}>
-                  {tr('logros')}
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-                  {logros.map((logro, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', background: logro.obtenido ? '#a78bfa18' : 'var(--bg-secondary)', borderRadius: '10px', border: `1px solid ${logro.obtenido ? '#a78bfa44' : 'var(--border-color)'}`, opacity: logro.obtenido ? 1 : 0.4 }}>
-                      <span style={{ fontSize: '18px' }}>{logro.emoji}</span>
-                      <p style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, flex: 1 }}>{logro.label}</p>
-                      {logro.obtenido && <span style={{ fontSize: '14px' }}>✓</span>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Quizzes */}
-            {materiasOrdenadas.filter(m => m.quizzes > 0).length > 0 && (
-              <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
-                <div style={{ height: '4px', background: '#a78bfa' }} />
-                <div style={{ padding: '20px' }}>
-                  <h3 style={{ fontSize: '12px', fontWeight: 800, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 12px' }}>
-                    🤓 {tr('quizzes')}
-                  </h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {materiasOrdenadas.filter(m => m.quizzes > 0).map((m, i) => {
-                      const avgQuiz = m.quizzes > 0 ? Math.round(m.quizPuntuacion / m.quizzes) : 0;
-                      return (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: m.color }} />
-                            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>{m.nombre}</span>
-                          </div>
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{m.quizzes} {tr('quizzes').toLowerCase()}</span>
-                            <span style={{ fontSize: '12px', fontWeight: 800, color: avgQuiz >= 80 ? '#4ade80' : avgQuiz >= 60 ? 'var(--gold)' : 'var(--red)' }}>
-                              {avgQuiz}%
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Reporte semanal */}
-        <ReporteSemanal />
-
-        {/* Botones acción */}
-        <div style={{ display: 'flex', gap: '12px', marginTop: '24px', flexWrap: 'wrap' }}>
-          <button onClick={() => window.location.href = '/materias'}
-            style={{ padding: '12px 24px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-            {tr('irAEstudiar')}
-          </button>
-          <button onClick={async () => {
-            const { supabase } = await import('../../lib/supabase');
-            const { data } = await supabase.auth.getUser();
-            if (data.user?.id) window.location.href = '/u/' + data.user.id;
-          }}
-            style={{ padding: '12px 24px', borderRadius: '12px', border: '2px solid #a78bfa', background: 'transparent', color: '#a78bfa', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-            🌐 Ver Perfil Público
-          </button>
-          <button onClick={() => window.location.href = '/chat'}
-            style={{ padding: '12px 24px', borderRadius: '12px', border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-            {tr('hablarJeffreyBot')}
-          </button>
-          <button onClick={() => {
-            if (!confirm(tr('limpiarRachaStats'))) return;
-            localStorage.removeItem('josea_racha');
-            localStorage.removeItem('josea_perfil');
-            window.location.reload();
-          }}
-            style={{ padding: '12px 24px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-            {tr('limpiarStats')}
-          </button>
-        </div>
+        {/* ── TAB: LOGROS ── */}
+        {tabActivo === 'logros' && (
+          <LogrosPanel stats={logroStats} colorAccent={rango.color} />
+        )}
       </div>
     </div>
   );

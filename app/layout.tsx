@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Analytics } from '@vercel/analytics/next';
+import RangoWatcher from '../components/RangoWatcher';
 import { Caveat } from 'next/font/google';
 import './globals.css';
 import ThemeInit from '../components/ThemeInit';
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </PomodoroProvider>
         <XPToast />
         <Analytics />
+        <RangoWatcher />
       </body>
     </html>
   );

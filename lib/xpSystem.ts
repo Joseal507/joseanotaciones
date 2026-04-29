@@ -323,3 +323,327 @@ export const calcularXpDiario = (params: {
 
   return { total, desglose };
 };
+
+// ============================================================
+// SISTEMA DE RANGOS (tipo Marvel Rivals)
+// ============================================================
+
+export interface Rango {
+  id: string;
+  nombre: string;
+  division: 1 | 2 | 3;
+  emoji: string;
+  color: string;
+  colorSecundario: string;
+  marcoGradient: string;
+  xpMinimo: number;   // XP total mínimo para este rango
+  xpMaximo: number;   // XP total máximo (inicio del siguiente)
+  icono: string;      // símbolo del rango
+}
+
+// XP por rango (ajustado para que sea alcanzable)
+// Bronce:   0     - 2,999
+// Plata:    3,000 - 8,999
+// Oro:      9,000 - 24,999
+// Diamante: 25,000 - 74,999
+// Himmy:    75,000+
+
+export const RANGOS: Rango[] = [
+  // ── BRONCE ──
+  { id: 'bronce_1',   nombre: 'Bronce',   division: 1, emoji: '🥉', color: '#cd7f32', colorSecundario: '#8B4513', marcoGradient: 'linear-gradient(135deg, #cd7f32, #8B4513, #cd7f32)', xpMinimo: 0,     xpMaximo: 999,   icono: '🥉' },
+  { id: 'bronce_2',   nombre: 'Bronce',   division: 2, emoji: '🥉', color: '#cd7f32', colorSecundario: '#8B4513', marcoGradient: 'linear-gradient(135deg, #cd7f32, #a0522d, #cd7f32)', xpMinimo: 1000,  xpMaximo: 1999,  icono: '🥉' },
+  { id: 'bronce_3',   nombre: 'Bronce',   division: 3, emoji: '🥉', color: '#cd7f32', colorSecundario: '#8B4513', marcoGradient: 'linear-gradient(135deg, #cd7f32, #8B4513, #cd7f32)', xpMinimo: 2000,  xpMaximo: 2999,  icono: '🥉' },
+  // ── PLATA ──
+  { id: 'plata_1',    nombre: 'Plata',    division: 1, emoji: '🥈', color: '#C0C0C0', colorSecundario: '#808080', marcoGradient: 'linear-gradient(135deg, #e8e8e8, #a0a0a0, #e8e8e8)', xpMinimo: 3000,  xpMaximo: 4999,  icono: '🥈' },
+  { id: 'plata_2',    nombre: 'Plata',    division: 2, emoji: '🥈', color: '#C0C0C0', colorSecundario: '#808080', marcoGradient: 'linear-gradient(135deg, #d8d8d8, #909090, #d8d8d8)', xpMinimo: 5000,  xpMaximo: 6999,  icono: '🥈' },
+  { id: 'plata_3',    nombre: 'Plata',    division: 3, emoji: '🥈', color: '#C0C0C0', colorSecundario: '#808080', marcoGradient: 'linear-gradient(135deg, #e8e8e8, #b0b0b0, #e8e8e8)', xpMinimo: 7000,  xpMaximo: 8999,  icono: '🥈' },
+  // ── ORO ──
+  { id: 'oro_1',      nombre: 'Oro',      division: 1, emoji: '🥇', color: '#FFD700', colorSecundario: '#FFA500', marcoGradient: 'linear-gradient(135deg, #FFD700, #FFA500, #FFD700)', xpMinimo: 9000,  xpMaximo: 14999, icono: '🥇' },
+  { id: 'oro_2',      nombre: 'Oro',      division: 2, emoji: '🥇', color: '#FFD700', colorSecundario: '#FFA500', marcoGradient: 'linear-gradient(135deg, #FFE55C, #FFB700, #FFE55C)', xpMinimo: 15000, xpMaximo: 19999, icono: '🥇' },
+  { id: 'oro_3',      nombre: 'Oro',      division: 3, emoji: '🥇', color: '#FFD700', colorSecundario: '#FFA500', marcoGradient: 'linear-gradient(135deg, #FFD700, #FF8C00, #FFD700)', xpMinimo: 20000, xpMaximo: 24999, icono: '🥇' },
+  // ── DIAMANTE ──
+  { id: 'diamante_1', nombre: 'Diamante', division: 1, emoji: '💎', color: '#b9f2ff', colorSecundario: '#00bcd4', marcoGradient: 'linear-gradient(135deg, #b9f2ff, #00bcd4, #b9f2ff)', xpMinimo: 25000, xpMaximo: 39999, icono: '💎' },
+  { id: 'diamante_2', nombre: 'Diamante', division: 2, emoji: '💎', color: '#b9f2ff', colorSecundario: '#00bcd4', marcoGradient: 'linear-gradient(135deg, #e0f7fa, #0097a7, #e0f7fa)', xpMinimo: 40000, xpMaximo: 59999, icono: '💎' },
+  { id: 'diamante_3', nombre: 'Diamante', division: 3, emoji: '💎', color: '#b9f2ff', colorSecundario: '#00bcd4', marcoGradient: 'linear-gradient(135deg, #b9f2ff, #006064, #b9f2ff)', xpMinimo: 60000, xpMaximo: 74999, icono: '💎' },
+  // ── HIMMY (el mítico) ──
+  { id: 'himmy',      nombre: 'Himmy',    division: 1, emoji: '👑', color: '#f5c842', colorSecundario: '#ff4d6d', marcoGradient: 'linear-gradient(135deg, #f5c842, #ff4d6d, #a78bfa, #f5c842)', xpMinimo: 75000, xpMaximo: Infinity, icono: '👑' },
+];
+
+export const getRango = (xpTotal: number): Rango => {
+  // Buscar de mayor a menor
+  for (let i = RANGOS.length - 1; i >= 0; i--) {
+    if (xpTotal >= RANGOS[i].xpMinimo) return RANGOS[i];
+  }
+  return RANGOS[0];
+};
+
+export const getRangoById = (id: string): Rango | undefined => {
+  return RANGOS.find(r => r.id === id);
+};
+
+export const getProgresoRango = (xpTotal: number): {
+  rango: Rango;
+  xpEnRango: number;
+  xpRangoTotal: number;
+  porcentaje: number;
+  siguienteRango: Rango | null;
+} => {
+  const rango = getRango(xpTotal);
+  const xpEnRango = xpTotal - rango.xpMinimo;
+  const xpRangoTotal = rango.xpMaximo === Infinity ? 999999 : rango.xpMaximo - rango.xpMinimo;
+  const porcentaje = rango.xpMaximo === Infinity ? 100 : Math.min(100, Math.round((xpEnRango / xpRangoTotal) * 100));
+  const idx = RANGOS.findIndex(r => r.id === rango.id);
+  const siguienteRango = idx < RANGOS.length - 1 ? RANGOS[idx + 1] : null;
+  return { rango, xpEnRango, xpRangoTotal, porcentaje, siguienteRango };
+};
+
+// ============================================================
+// SISTEMA DE LOGROS
+// ============================================================
+
+export interface Logro {
+  id: string;
+  nombre: string;
+  descripcion: string;
+  emoji: string;
+  color: string;
+  recompensa: string;       // qué desbloquea (descripción)
+  recompensaTipo: 'marco' | 'badge' | 'titulo' | 'emoji_perfil';
+  recompensaValor: string;  // valor de la recompensa
+  condicion: (stats: LogroStats) => boolean;
+  secreto?: boolean;
+}
+
+export interface LogroStats {
+  xpTotal: number;
+  flashcardsEstudiadas: number;
+  quizzesCompletados: number;
+  rachaActual: number;
+  mejorRacha: number;
+  precision: number;        // 0-100
+  materiasCreadas: number;
+  postsCreados: number;
+  rangoId: string;
+}
+
+export const LOGROS: Logro[] = [
+  // ── PRIMEROS PASOS ──
+  {
+    id: 'primera_flashcard',
+    nombre: 'Primer Paso',
+    descripcion: 'Estudia tu primera flashcard',
+    emoji: '🌱',
+    color: '#4ade80',
+    recompensa: 'Badge "Estudiante Novel"',
+    recompensaTipo: 'badge',
+    recompensaValor: 'novel',
+    condicion: (s) => s.flashcardsEstudiadas >= 1,
+  },
+  {
+    id: 'primer_quiz',
+    nombre: 'Primera Prueba',
+    descripcion: 'Completa tu primer quiz',
+    emoji: '🎯',
+    color: '#f5c842',
+    recompensa: 'Badge "Quiz Master Jr"',
+    recompensaTipo: 'badge',
+    recompensaValor: 'quiz_jr',
+    condicion: (s) => s.quizzesCompletados >= 1,
+  },
+  // ── FLASHCARDS ──
+  {
+    id: 'flashcards_50',
+    nombre: 'Estudiante Dedicado',
+    descripcion: 'Estudia 50 flashcards',
+    emoji: '⚡',
+    color: '#fbbf24',
+    recompensa: 'Marco "Energía"',
+    recompensaTipo: 'marco',
+    recompensaValor: 'marco_energia',
+    condicion: (s) => s.flashcardsEstudiadas >= 50,
+  },
+  {
+    id: 'flashcards_200',
+    nombre: 'Imparable',
+    descripcion: 'Estudia 200 flashcards',
+    emoji: '🔥',
+    color: '#f97316',
+    recompensa: 'Marco "Llamas"',
+    recompensaTipo: 'marco',
+    recompensaValor: 'marco_llamas',
+    condicion: (s) => s.flashcardsEstudiadas >= 200,
+  },
+  {
+    id: 'flashcards_500',
+    nombre: 'Maestro del Mazo',
+    descripcion: 'Estudia 500 flashcards',
+    emoji: '🃏',
+    color: '#a78bfa',
+    recompensa: 'Marco "Maestro"',
+    recompensaTipo: 'marco',
+    recompensaValor: 'marco_maestro',
+    condicion: (s) => s.flashcardsEstudiadas >= 500,
+  },
+  {
+    id: 'flashcards_1000',
+    nombre: 'Leyenda de las Cards',
+    descripcion: 'Estudia 1000 flashcards',
+    emoji: '🏆',
+    color: '#FFD700',
+    recompensa: 'Marco "Leyenda Dorada"',
+    recompensaTipo: 'marco',
+    recompensaValor: 'marco_leyenda',
+    condicion: (s) => s.flashcardsEstudiadas >= 1000,
+  },
+  // ── PRECISIÓN ──
+  {
+    id: 'precision_80',
+    nombre: 'Mente Afilada',
+    descripcion: 'Mantén 80% de precisión global',
+    emoji: '🎯',
+    color: '#4ade80',
+    recompensa: 'Badge "Sharpshooter"',
+    recompensaTipo: 'badge',
+    recompensaValor: 'sharpshooter',
+    condicion: (s) => s.precision >= 80 && s.flashcardsEstudiadas >= 20,
+  },
+  {
+    id: 'precision_95',
+    nombre: 'Casi Perfecto',
+    descripcion: 'Mantén 95% de precisión global',
+    emoji: '💫',
+    color: '#f5c842',
+    recompensa: 'Título "Perfeccionista"',
+    recompensaTipo: 'titulo',
+    recompensaValor: 'Perfeccionista',
+    condicion: (s) => s.precision >= 95 && s.flashcardsEstudiadas >= 50,
+  },
+  // ── RACHA ──
+  {
+    id: 'racha_7',
+    nombre: 'Una Semana',
+    descripcion: 'Mantén una racha de 7 días',
+    emoji: '📅',
+    color: '#38bdf8',
+    recompensa: 'Badge "Constante"',
+    recompensaTipo: 'badge',
+    recompensaValor: 'constante',
+    condicion: (s) => s.mejorRacha >= 7,
+  },
+  {
+    id: 'racha_30',
+    nombre: 'Un Mes Entero',
+    descripcion: 'Mantén una racha de 30 días',
+    emoji: '🗓️',
+    color: '#f472b6',
+    recompensa: 'Marco "Consistencia"',
+    recompensaTipo: 'marco',
+    recompensaValor: 'marco_consistencia',
+    condicion: (s) => s.mejorRacha >= 30,
+  },
+  {
+    id: 'racha_100',
+    nombre: 'Cien Días',
+    descripcion: 'Mantén una racha de 100 días',
+    emoji: '💯',
+    color: '#ff4d6d',
+    recompensa: 'Marco "Centenario" (exclusivo)',
+    recompensaTipo: 'marco',
+    recompensaValor: 'marco_centenario',
+    condicion: (s) => s.mejorRacha >= 100,
+  },
+  // ── RANGOS ──
+  {
+    id: 'llegar_plata',
+    nombre: 'Subiendo',
+    descripcion: 'Alcanza el rango Plata',
+    emoji: '🥈',
+    color: '#C0C0C0',
+    recompensa: 'Marco "Plata" en perfil',
+    recompensaTipo: 'marco',
+    recompensaValor: 'marco_plata',
+    condicion: (s) => s.xpTotal >= 3000,
+  },
+  {
+    id: 'llegar_oro',
+    nombre: 'Brilla con Luz Propia',
+    descripcion: 'Alcanza el rango Oro',
+    emoji: '🥇',
+    color: '#FFD700',
+    recompensa: 'Marco "Dorado" animado',
+    recompensaTipo: 'marco',
+    recompensaValor: 'marco_dorado',
+    condicion: (s) => s.xpTotal >= 9000,
+  },
+  {
+    id: 'llegar_diamante',
+    nombre: 'Diamante en Bruto',
+    descripcion: 'Alcanza el rango Diamante',
+    emoji: '💎',
+    color: '#b9f2ff',
+    recompensa: 'Marco "Diamante" exclusivo',
+    recompensaTipo: 'marco',
+    recompensaValor: 'marco_diamante',
+    condicion: (s) => s.xpTotal >= 25000,
+  },
+  {
+    id: 'llegar_himmy',
+    nombre: 'Himmy',
+    descripcion: 'Alcanza el rango máximo',
+    emoji: '👑',
+    color: '#f5c842',
+    recompensa: 'Marco "Himmy" animado + Título exclusivo',
+    recompensaTipo: 'marco',
+    recompensaValor: 'marco_himmy',
+    condicion: (s) => s.xpTotal >= 75000,
+    secreto: false,
+  },
+  // ── SECRETOS ──
+  {
+    id: 'madrugador',
+    nombre: '???',
+    descripcion: 'Secreto — descúbrelo estudiando',
+    emoji: '🌙',
+    color: '#6366f1',
+    recompensa: 'Emoji de perfil "🌙"',
+    recompensaTipo: 'emoji_perfil',
+    recompensaValor: '🌙',
+    condicion: (s) => s.xpTotal >= 500 && s.rachaActual >= 3,
+    secreto: true,
+  },
+  {
+    id: 'polymath',
+    nombre: '???',
+    descripcion: 'Secreto — descúbrelo estudiando',
+    emoji: '🧠',
+    color: '#a78bfa',
+    recompensa: 'Título "Polímata"',
+    recompensaTipo: 'titulo',
+    recompensaValor: 'Polímata',
+    condicion: (s) => s.materiasCreadas >= 5 && s.flashcardsEstudiadas >= 100,
+    secreto: true,
+  },
+];
+
+export const getLogrosObtenidos = (stats: LogroStats): Logro[] => {
+  return LOGROS.filter(l => l.condicion(stats));
+};
+
+export const getLogrosNoObtenidos = (stats: LogroStats): Logro[] => {
+  return LOGROS.filter(l => !l.condicion(stats));
+};
+
+// Marcos disponibles según logros obtenidos
+export const MARCOS: Record<string, { gradient: string; nombre: string; animado?: boolean }> = {
+  default:           { gradient: 'linear-gradient(135deg, #374151, #1f2937)', nombre: 'Predeterminado' },
+  marco_energia:     { gradient: 'linear-gradient(135deg, #fbbf24, #f97316)', nombre: 'Energía' },
+  marco_llamas:      { gradient: 'linear-gradient(135deg, #f97316, #dc2626, #f97316)', nombre: 'Llamas', animado: true },
+  marco_maestro:     { gradient: 'linear-gradient(135deg, #a78bfa, #7c3aed, #a78bfa)', nombre: 'Maestro' },
+  marco_leyenda:     { gradient: 'linear-gradient(135deg, #FFD700, #FF8C00, #FFD700)', nombre: 'Leyenda Dorada', animado: true },
+  marco_consistencia:{ gradient: 'linear-gradient(135deg, #38bdf8, #0284c7, #38bdf8)', nombre: 'Consistencia' },
+  marco_centenario:  { gradient: 'linear-gradient(135deg, #ff4d6d, #f5c842, #4ade80, #ff4d6d)', nombre: 'Centenario', animado: true },
+  marco_plata:       { gradient: 'linear-gradient(135deg, #e8e8e8, #a0a0a0, #e8e8e8)', nombre: 'Plata' },
+  marco_dorado:      { gradient: 'linear-gradient(135deg, #FFD700, #FFA500, #FFD700)', nombre: 'Dorado', animado: true },
+  marco_diamante:    { gradient: 'linear-gradient(135deg, #b9f2ff, #00bcd4, #b9f2ff)', nombre: 'Diamante', animado: true },
+  marco_himmy:       { gradient: 'linear-gradient(135deg, #f5c842, #ff4d6d, #a78bfa, #4ade80, #f5c842)', nombre: 'Himmy', animado: true },
+};
