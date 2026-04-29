@@ -136,7 +136,7 @@ export default function HorarioPage() {
   };
 
   const eliminarClase = async (dia: typeof DIAS[number], id: string) => {
-    if (!confirm('tr('eliminarClaseConfirm')')) return;
+    if (!confirm(tr('eliminarClaseConfirm'))) return;
     const nuevoHorario = { ...horario };
     nuevoHorario[dia] = nuevoHorario[dia].filter(c => c.id !== id);
     await guardar(nuevoHorario);
