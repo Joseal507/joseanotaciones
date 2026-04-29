@@ -101,7 +101,7 @@ function FlashcardsViewer({ cards }: { cards: { question: string; answer: string
             <div style={{ fontSize: '12px', fontWeight: 700, color: '#6366f1', marginBottom: '12px' }}>PREGUNTA</div>
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}><MathText text={card.question} /></div>
           </div>
-          <textarea value={respuesta} onChange={e => setRespuesta(e.target.value)} placeholder={tr('escribeTuRespuestaCom')} rows={3}
+          <textarea value={respuesta} onChange={e => setRespuesta(e.target.value)} placeholder='Escribe tu respuesta...' rows={3}
             style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', resize: 'vertical', outline: 'none', boxSizing: 'border-box', marginBottom: '10px' }} />
           {!mostrarRespuesta
             ? <button onClick={() => setMostrarRespuesta(true)} style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>{tr('verRespuestaBtn')}</button>
@@ -286,7 +286,7 @@ function SeccionComentarios({ postId, userId, userNombre, userAvatar, commentsAc
       </div>
       {respondiendo === c.id && (
         <div style={{ marginLeft: '32px', marginTop: '8px' }}>
-          <textarea value={respuestaTexto} onChange={e => setRespuestaTexto(e.target.value)} placeholder={tr('escribeTuRespuestaCom')} rows={2}
+          <textarea value={respuestaTexto} onChange={e => setRespuestaTexto(e.target.value)} placeholder='Escribe tu respuesta...' rows={2}
             style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '2px solid #a78bfa', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '14px', resize: 'none', outline: 'none', boxSizing: 'border-box', marginBottom: '8px' }} />
           <div style={{ display: 'flex', gap: '8px' }}>
             <button onClick={() => enviar(respuestaTexto, c.id)} disabled={!respuestaTexto.trim()} style={{ padding: '6px 14px', borderRadius: '8px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>Responder</button>
