@@ -7,7 +7,7 @@ import { supabase } from '../../lib/supabase';
 import OnboardingModal from '../../components/OnboardingModal';
 
 export default function AuthPage() {
-  const [modo, setModo] = useState<'login' | 'registro'>('login');
+  const [modo, setModo] = useState<'login' | 'registro' | 'reset'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [nombre, setNombre] = useState('');
@@ -137,6 +137,26 @@ export default function AuthPage() {
     setCargando(false);
   };
 
+  const handleResetPassword = async () => {
+    if (!email) { setError('Escribe tu email para recuperar la contraseña'); return; }
+    setCargando(true);
+    setError('');
+    setMensaje('');
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: typeof window !== 'undefined' ? window.location.origin + '/auth' : undefined,
+    });
+    if (error) {
+      if (error.message.includes('rate limit')) {
+        setError('Demasiados intentos. Espera unos minutos.');
+      } else {
+        setError(error.message);
+      }
+    } else {
+      setMensaje('✅ Te enviamos un email para restablecer tu contraseña. Revisa tu bandeja de entrada.');
+    }
+    setCargando(false);
+  };
+
   // Mostrar onboarding
   if (showOnboarding) {
     return (
@@ -198,24 +218,36 @@ export default function AuthPage() {
           <div style={{ padding: '32px' }}>
 
             {/* Tabs */}
-            <div style={{ display: 'flex', gap: '4px', marginBottom: '28px', background: 'var(--bg-secondary)', borderRadius: '12px', padding: '4px' }}>
-              {[
-                { id: 'login', label: '🔑 Iniciar sesión' },
-                { id: 'registro', label: '✨ Registrarse' },
-              ].map(tab => (
-                <button key={tab.id}
-                  onClick={() => { setModo(tab.id as any); setError(''); setMensaje(''); }}
-                  style={{
-                    flex: 1, padding: '10px', borderRadius: '8px', border: 'none',
-                    background: modo === tab.id ? 'var(--gold)' : 'transparent',
-                    color: modo === tab.id ? '#000' : 'var(--text-muted)',
-                    fontSize: '14px', fontWeight: modo === tab.id ? 800 : 600,
-                    cursor: 'pointer', transition: 'all 0.2s',
-                  }}>
-                  {tab.label}
-                </button>
-              ))}
-            </div>
+            {modo !== 'reset' ? (
+              <div style={{ display: 'flex', gap: '4px', marginBottom: '28px', background: 'var(--bg-secondary)', borderRadius: '12px', padding: '4px' }}>
+                {[
+                  { id: 'login', label: '🔑 Iniciar sesión' },
+                  { id: 'registro', label: '✨ Registrarse' },
+                ].map(tab => (
+                  <button key={tab.id}
+                    onClick={() => { setModo(tab.id as any); setError(''); setMensaje(''); }}
+                    style={{
+                      flex: 1, padding: '10px', borderRadius: '8px', border: 'none',
+                      background: modo === tab.id ? 'var(--gold)' : 'transparent',
+                      color: modo === tab.id ? '#000' : 'var(--text-muted)',
+                      fontSize: '14px', fontWeight: modo === tab.id ? 800 : 600,
+                      cursor: 'pointer', transition: 'all 0.2s',
+                    }}>
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+                <div style={{ fontSize: '40px', marginBottom: '12px' }}>🔑</div>
+                <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 6px' }}>
+                  Recuperar contraseña
+                </h2>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                  Te enviaremos un email para restablecer tu contraseña
+                </p>
+              </div>
+            )}
 
             {mensaje && (
               <div style={{ background: '#4ade8020', border: '1px solid #4ade8044', borderRadius: '10px', padding: '12px 16px', marginBottom: '20px' }}>
@@ -230,7 +262,7 @@ export default function AuthPage() {
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {modo === 'registro' && (
+              {modo === 'registro' && modo !== 'reset' && (
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
                     Nombre
@@ -252,29 +284,31 @@ export default function AuthPage() {
                 <input
                   type="email" value={email} onChange={e => setEmail(e.target.value)}
                   placeholder="tu@email.com"
-                  onKeyDown={e => e.key === 'Enter' && (modo === 'login' ? handleLogin() : handleRegistro())}
+                  onKeyDown={e => e.key === 'Enter' && (modo === 'login' ? handleLogin() : modo === 'registro' ? handleRegistro() : handleResetPassword())}
                   style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box', transition: 'border 0.2s' }}
                   onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
                   onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
                 />
               </div>
 
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
-                  Contraseña
-                </label>
-                <input
-                  type="password" value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder={modo === 'registro' ? 'Mínimo 6 caracteres' : '••••••••'}
-                  onKeyDown={e => e.key === 'Enter' && (modo === 'login' ? handleLogin() : handleRegistro())}
-                  style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box', transition: 'border 0.2s' }}
-                  onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
-                  onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
-                />
-              </div>
+              {modo !== 'reset' && (
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                    Contraseña
+                  </label>
+                  <input
+                    type="password" value={password} onChange={e => setPassword(e.target.value)}
+                    placeholder={modo === 'registro' ? 'Mínimo 6 caracteres' : '••••••••'}
+                    onKeyDown={e => e.key === 'Enter' && (modo === 'login' ? handleLogin() : modo === 'registro' ? handleRegistro() : handleResetPassword())}
+                    style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box', transition: 'border 0.2s' }}
+                    onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
+                    onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                  />
+                </div>
+              )}
 
               <button
-                onClick={modo === 'login' ? handleLogin : handleRegistro}
+                onClick={modo === 'login' ? handleLogin : modo === 'registro' ? handleRegistro : handleResetPassword}
                 disabled={cargando}
                 style={{
                   width: '100%', padding: '14px', borderRadius: '12px', border: 'none',
@@ -284,8 +318,40 @@ export default function AuthPage() {
                   cursor: cargando ? 'not-allowed' : 'pointer',
                   transition: 'all 0.2s', marginTop: '4px',
                 }}>
-                {cargando ? '⏳ Cargando...' : modo === 'login' ? '🚀 Iniciar sesión' : '✨ Crear cuenta'}
+                {cargando ? '⏳ Cargando...' : modo === 'login' ? '🚀 Iniciar sesión' : modo === 'registro' ? '✨ Crear cuenta' : '📧 Enviar email de recuperación'}
               </button>
+
+              {modo === 'login' && (
+                <button
+                  onClick={() => { setModo('reset'); setError(''); setMensaje(''); }}
+                  style={{
+                    width: '100%', padding: '10px', borderRadius: '10px', border: 'none',
+                    background: 'transparent', color: 'var(--text-muted)',
+                    fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                    transition: 'color 0.2s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.color = 'var(--gold)'}
+                  onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                >
+                  🔑 ¿Olvidaste tu contraseña?
+                </button>
+              )}
+
+              {modo === 'reset' && (
+                <button
+                  onClick={() => { setModo('login'); setError(''); setMensaje(''); }}
+                  style={{
+                    width: '100%', padding: '10px', borderRadius: '10px', border: 'none',
+                    background: 'transparent', color: 'var(--text-muted)',
+                    fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                    transition: 'color 0.2s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.color = 'var(--gold)'}
+                  onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                >
+                  ← Volver a iniciar sesión
+                </button>
+              )}
             </div>
           </div>
         </div>
