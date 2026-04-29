@@ -51,7 +51,6 @@ export default function SettingsPage() {
   const [errorPassword, setErrorPassword] = useState('');
   const passwordNuevaRef = useRef<HTMLInputElement>(null);
   const passwordConfirmRef = useRef<HTMLInputElement>(null);
-  const [mensajeNombreApp, setMensajeNombreApp] = useState('');
   const [enviandoReset, setEnviandoReset] = useState(false);
   const [mensajeReset, setMensajeReset] = useState('');
 
@@ -128,11 +127,7 @@ export default function SettingsPage() {
     cargar();
   }, []);
 
-  useEffect(() => {
-    if (seccion === 'personalizacion' && nombreAppRef.current) {
-      nombreAppRef.current.value = settings.nombreApp || 'StudyAL';
-    }
-  }, [seccion, settings.nombreApp]);
+
 
   const updateSettings = async (changes: Partial<AppSettings>) => {
     const nuevas = { ...settings, ...changes };
@@ -144,25 +139,7 @@ export default function SettingsPage() {
     }
   };
 
-  const guardarNombreApp = async () => {
-    const valor = nombreAppRef.current?.value?.trim() || 'StudyAL';
-    const nuevas = { ...settings, nombreApp: valor };
-    setSettings(nuevas);
-    saveSettings(nuevas);
-    if (userId) await saveSettingsDB(userId, nuevas);
-    setMensajeNombreApp('✅ ' + valor);
-    setTimeout(() => setMensajeNombreApp(''), 3000);
-  };
 
-  const restablecerNombreApp = async () => {
-    if (nombreAppRef.current) nombreAppRef.current.value = 'StudyAL';
-    const nuevas = { ...settings, nombreApp: 'StudyAL' };
-    setSettings(nuevas);
-    saveSettings(nuevas);
-    if (userId) await saveSettingsDB(userId, nuevas);
-    setMensajeNombreApp('✅ Restablecido');
-    setTimeout(() => setMensajeNombreApp(''), 3000);
-  };
 
   const guardarPerfil = async () => {
     setGuardandoPerfil(true);
