@@ -176,7 +176,7 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
   // ── Siguiente card (con algoritmo de repetición espaciada) ──
   const siguiente = () => {
     if (!resultado) return;
-    const esMala = resultado.nivel === 'incorrecta' || resultado.nivel === 'muy_incorrecta';
+    const esMala = resultado.nivel === 'incorrecta' || resultado.nivel === 'muy_incorrecta' || resultado.nivel === 'medio_correcta';
 
     if (modoEstudio === 'bucle') {
       if (esMala) {
@@ -193,8 +193,7 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
           return nueva;
         });
       } else {
-        // ── ACERTÓ: si estaba en cola de repetición, ya no se reinserta ──
-        // Solo resetear el contador para estadísticas
+        // ── INSANE o correcta: domina la card, se elimina de la cola ──
         if (repeticiones.current.has(cardIdx)) {
           repeticiones.current.delete(cardIdx);
         }
@@ -653,13 +652,17 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
                     )}
                   </div>
 
-                  {modoEstudio === 'bucle' && (resultado.nivel === 'incorrecta' || resultado.nivel === 'muy_incorrecta') && (
+                  {modoEstudio === 'bucle' && (resultado.nivel === 'incorrecta' || resultado.nivel === 'muy_incorrecta' || resultado.nivel === 'medio_correcta') && (
                     <div style={{ background: '#ff4d6d15', borderRadius: '8px', padding: '8px 12px', border: '1px solid #ff4d6d44', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span>🔁</span>
                       <p style={{ fontSize: '11px', color: '#ff4d6d', margin: 0, fontWeight: 600 }}>
-                        {idioma === 'en'
-                          ? `Will reappear in ${ESPACIADO_MIN}-${ESPACIADO_MAX} cards — keeps repeating until you get it right`
-                          : `Reaparecera en ${ESPACIADO_MIN}-${ESPACIADO_MAX} cards — seguira hasta que la domines`}
+                        {resultado.nivel === 'medio_correcta'
+                          ? (idioma === 'en'
+                            ? `Almost! Will reappear in ${ESPACIADO_MIN}-${ESPACIADO_MAX} cards to make sure you fully master it`
+                            : `Casi! Reaparecera en ${ESPACIADO_MIN}-${ESPACIADO_MAX} cards para asegurarnos de que la dominas`)
+                          : (idioma === 'en'
+                            ? `Will reappear in ${ESPACIADO_MIN}-${ESPACIADO_MAX} cards — keeps repeating until you get it right`
+                            : `Reaparecera en ${ESPACIADO_MIN}-${ESPACIADO_MAX} cards — seguira hasta que la domines`)}
                       </p>
                     </div>
                   )}
