@@ -82,7 +82,7 @@ export default function TabQuiz({ contenido, temaColor, materiaNombre, materiaCo
       const res = await fetch('/api/quiz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: contenido, count: cantidad, idioma: detectContentLanguage(contenido || '', idioma === 'en' ? 'en' : 'es'), nivel }),
+        body: JSON.stringify({ content: contenido, count: cantidad, idioma: idioma === 'en' ? 'en' : 'es', nivel }),
       });
       const data = await res.json();
       if (data.success && data.quiz.length > 0) {
