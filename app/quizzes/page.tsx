@@ -356,7 +356,7 @@ export default function QuizzesPage() {
           )}
 
           <div style={{ position: 'relative', marginBottom: '24px' }}>
-            <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder=Buscar por nombre o materia...
+            <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar por nombre o materia..."
               style={{ width: '100%', padding: '13px 16px 13px 46px', borderRadius: '14px', border: '2px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }}
               onFocus={e => e.currentTarget.style.borderColor = '#a78bfa'}
               onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'} />
