@@ -498,6 +498,7 @@ const eliminarDocumento = async (id: string) => {
             onAbrirTema={t => { setTemaActual(t); setVista('tema'); }}
             onEliminarTema={eliminarTema}
             onNuevoTema={() => setModalTema(true)}
+            onActualizarMateria={actualizarMateria}
           />
         )}
 

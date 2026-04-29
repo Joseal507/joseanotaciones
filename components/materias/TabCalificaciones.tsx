@@ -358,7 +358,7 @@ export default function TabCalificaciones({ calificaciones, colorMateria, onChan
     );
   }
 
-  const escala = calificaciones.escala || '0-100';
+  const escala = calificaciones.escala || '1-100';
   const info = getEscalaInfo(escala);
   const resumen = calcularResumen(calificaciones);
   const feedback = getFeedback(resumen);
@@ -417,7 +417,7 @@ export default function TabCalificaciones({ calificaciones, colorMateria, onChan
 
   const resetearConfig = () => {
     if (!confirm('Esto borrara todas las evaluaciones y notas. Continuar?')) return;
-    onChange({ notaObjetivo: 71, evaluaciones: [], escala: '0-100', configurado: false });
+    onChange({ notaObjetivo: 71, evaluaciones: [], escala: '1-100', configurado: false });
   };
 
   const objetivoDisplay = escala === 'letras'
