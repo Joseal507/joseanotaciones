@@ -413,7 +413,7 @@ export default function HorarioPage() {
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('nombreClaseLabel')}</label>
                 <input value={formNombre} onChange={e => setFormNombre(e.target.value)}
-                  placeholder=Nombre de la clase
+                  placeholder="Nombre de la clase"
                   autoFocus
                   style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }}
                   onFocus={e => e.currentTarget.style.borderColor = formColor}
@@ -441,14 +441,14 @@ export default function HorarioPage() {
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('profesorLabel')}</label>
                 <input value={formProfesor} onChange={e => setFormProfesor(e.target.value)}
-                  placeholder=Profesor
+                  placeholder="Profesor"
                   style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }} />
               </div>
 
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('aulaLabel')}</label>
                 <input value={formAula} onChange={e => setFormAula(e.target.value)}
-                  placeholder=Aula
+                  placeholder="Aula"
                   style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }} />
               </div>
 
