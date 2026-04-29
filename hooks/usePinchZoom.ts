@@ -1,27 +1,49 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 
-interface Opts {
+interface PinchZoomOptions {
   enabled?: boolean;
+  minScale?: number;
+  maxScale?: number;
+  onScaleChange?: (scale: number, tx: number, ty: number) => void;
 }
 
+/**
+ * Handles pinch-to-zoom and two-finger pan on the scroll container.
+ * Does NOT conflict with single-finger drawing because the gesture
+ * manager in EditorCanvas already gates those events.
+ *
+ * This hook applies a CSS transform to an inner element for smooth zoom.
+ */
 export function usePinchZoom(
-  wrapperRef: React.RefObject<HTMLDivElement>,
+  wrapperRef: React.RefObject<HTMLElement>,
   onScaleChange: (scale: number, tx: number, ty: number) => void,
-  opts: Opts = {},
+  opts: PinchZoomOptions = {},
 ): React.MutableRefObject<number> {
-  const { enabled = true } = opts;
+  const {
+    enabled = true,
+    minScale = 0.5,
+    maxScale = 4,
+  } = opts;
 
-  const scale = useRef(1);
-  const translateX = useRef(0);
-  const translateY = useRef(0);
-  const lastDist = useRef<number | null>(null);
-  const lastMidX = useRef(0);
-  const lastMidY = useRef(0);
+  const scaleRef = useRef(1);
+  const txRef = useRef(0);
+  const tyRef = useRef(0);
+  const lastDistRef = useRef<number | null>(null);
+  const lastMidRef = useRef<{ x: number; y: number } | null>(null);
   const rafRef = useRef<number | null>(null);
+  const activeTouchCount = useRef(0);
+
+  const scheduleNotify = useCallback(() => {
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      onScaleChange(scaleRef.current, txRef.current, tyRef.current);
+    });
+  }, [onScaleChange]);
 
   useEffect(() => {
-    const wrapper = wrapperRef.current;
-    if (!wrapper || !enabled) return;
+    const el = wrapperRef.current;
+    if (!el || !enabled) return;
 
     const getDist = (t: TouchList) =>
       Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
@@ -31,70 +53,87 @@ export function usePinchZoom(
       y: (t[0].clientY + t[1].clientY) / 2,
     });
 
-    const applyChange = (nextScale: number, nextTx: number, nextTy: number) => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(() => {
-        onScaleChange(nextScale, nextTx, nextTy);
-      });
-    };
-
     const onTouchStart = (e: TouchEvent) => {
+      activeTouchCount.current = e.touches.length;
       if (e.touches.length !== 2) return;
-      lastDist.current = getDist(e.touches);
-      const mid = getMid(e.touches);
-      lastMidX.current = mid.x;
-      lastMidY.current = mid.y;
+      lastDistRef.current = getDist(e.touches);
+      lastMidRef.current = getMid(e.touches);
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 2 || lastDist.current === null) return;
+      activeTouchCount.current = e.touches.length;
+      if (e.touches.length !== 2 || lastDistRef.current === null || !lastMidRef.current) return;
 
       e.preventDefault();
 
       const newDist = getDist(e.touches);
-      const mid = getMid(e.touches);
-      const ratio = newDist / lastDist.current;
-      const prevScale = scale.current;
+      const newMid = getMid(e.touches);
+      const ratio = newDist / lastDistRef.current;
+      const prevScale = scaleRef.current;
+      const nextScale = Math.min(maxScale, Math.max(minScale, prevScale * ratio));
 
-      const nextScale = Math.min(4, Math.max(0.6, prevScale * ratio));
+      const rect = el.getBoundingClientRect();
+      const ox = newMid.x - rect.left + el.scrollLeft;
+      const oy = newMid.y - rect.top + el.scrollTop;
 
-      const rect = wrapper.getBoundingClientRect();
-      const ox = mid.x - rect.left;
-      const oy = mid.y - rect.top;
+      // Zoom around pinch midpoint
+      const scaleRatio = nextScale / prevScale;
+      let nextTx = txRef.current + ox * (1 - scaleRatio);
+      let nextTy = tyRef.current + oy * (1 - scaleRatio);
 
-      let nextTx = ox - (ox - translateX.current) * (nextScale / prevScale);
-      let nextTy = oy - (oy - translateY.current) * (nextScale / prevScale);
+      // Pan delta from mid movement
+      nextTx += newMid.x - lastMidRef.current.x;
+      nextTy += newMid.y - lastMidRef.current.y;
 
-      nextTx += mid.x - lastMidX.current;
-      nextTy += mid.y - lastMidY.current;
+      scaleRef.current = nextScale;
+      txRef.current = nextTx;
+      tyRef.current = nextTy;
+      lastDistRef.current = newDist;
+      lastMidRef.current = newMid;
 
-      scale.current = nextScale;
-      translateX.current = nextTx;
-      translateY.current = nextTy;
-      lastDist.current = newDist;
-      lastMidX.current = mid.x;
-      lastMidY.current = mid.y;
-
-      applyChange(nextScale, nextTx, nextTy);
+      scheduleNotify();
     };
 
-    const resetGesture = () => {
-      lastDist.current = null;
+    const onTouchEnd = (e: TouchEvent) => {
+      activeTouchCount.current = e.touches.length;
+      if (e.touches.length < 2) {
+        lastDistRef.current = null;
+        lastMidRef.current = null;
+      }
     };
 
-    wrapper.addEventListener('touchstart', onTouchStart, { passive: true });
-    wrapper.addEventListener('touchmove', onTouchMove, { passive: false });
-    wrapper.addEventListener('touchend', resetGesture, { passive: true });
-    wrapper.addEventListener('touchcancel', resetGesture, { passive: true });
+    // Wheel zoom (trackpad / mouse)
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 1.05 : 0.95;
+      const prevScale = scaleRef.current;
+      const nextScale = Math.min(maxScale, Math.max(minScale, prevScale * delta));
+      const rect = el.getBoundingClientRect();
+      const ox = e.clientX - rect.left + el.scrollLeft;
+      const oy = e.clientY - rect.top + el.scrollTop;
+      const scaleRatio = nextScale / prevScale;
+      scaleRef.current = nextScale;
+      txRef.current = txRef.current + ox * (1 - scaleRatio);
+      tyRef.current = tyRef.current + oy * (1 - scaleRatio);
+      scheduleNotify();
+    };
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd, { passive: true });
+    el.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    el.addEventListener('wheel', onWheel, { passive: false });
 
     return () => {
-      wrapper.removeEventListener('touchstart', onTouchStart);
-      wrapper.removeEventListener('touchmove', onTouchMove);
-      wrapper.removeEventListener('touchend', resetGesture);
-      wrapper.removeEventListener('touchcancel', resetGesture);
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchEnd);
+      el.removeEventListener('wheel', onWheel);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [wrapperRef, onScaleChange, enabled]);
+  }, [wrapperRef, enabled, minScale, maxScale, scheduleNotify]);
 
-  return scale;
+  return scaleRef;
 }
