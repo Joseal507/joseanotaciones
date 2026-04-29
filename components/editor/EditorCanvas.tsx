@@ -12,7 +12,6 @@ import { useCanvasRenderer } from '../../hooks/useCanvasRenderer';
 import { useGestureManager } from '../../hooks/useGestureManager';
 import SelectionMenu from './SelectionMenu';
 
-// ─── Viewport transform state ────────────────────────────────────────────────
 interface ViewTransform {
   scale: number;
   tx: number;
@@ -41,12 +40,11 @@ export default function EditorCanvas({
   onRegisterExport, onRegisterStrokesExport, onRegisterUndoRedo,
   externalScale, onPeterSauPeter,
 }: Props) {
-  // ─── Refs ─────────────────────────────────────────────────────────────────
   const containerRef = useRef<HTMLDivElement>(null);
-  const mainCanvasRef = useRef<HTMLCanvasElement>(null);   // committed strokes
-  const liveCanvasRef = useRef<HTMLCanvasElement>(null);   // current stroke (live)
-  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);// selection / shapes
-  const inputLayerRef = useRef<HTMLDivElement>(null);      // gesture target
+  const mainCanvasRef = useRef<HTMLCanvasElement>(null);
+  const liveCanvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const inputLayerRef = useRef<HTMLDivElement>(null);
 
   const strokesRef = useRef<Stroke[]>([]);
   const redoStackRef = useRef<Stroke[][]>([]);
@@ -55,42 +53,34 @@ export default function EditorCanvas({
   const initialized = useRef(false);
   const clipboardRef = useRef<Stroke[]>([]);
 
-  // Selection state
   const selectionRectRef = useRef<SelectionRect | null>(null);
   const selectedIdsRef = useRef<string[]>([]);
   const erasingIdsRef = useRef<Set<string>>(new Set());
 
-  // Shape drawing
   const shapeStartRef = useRef<Point | null>(null);
   const shapeEndRef = useRef<{ x: number; y: number } | null>(null);
   const isShapeActiveRef = useRef(false);
 
-  // Lasso
   const lassoPointsRef = useRef<{ x: number; y: number }[]>([]);
   const isLassoActiveRef = useRef(false);
 
-  // Selection drag
   const isMovingRef = useRef(false);
   const moveStartRef = useRef<Point | null>(null);
 
-  // Rectangular select drag
   const selectStartRef = useRef<{ x: number; y: number } | null>(null);
   const isSelectingRef = useRef(false);
 
-  // React state for UI
   const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [converting, setConverting] = useState(false);
   const [strokeCount, setStrokeCount] = useState(0);
 
-  // ─── Engines / Renderers ──────────────────────────────────────────────────
   const strokeEngine = useStrokeEngine();
   const mainRenderer = useCanvasRenderer(mainCanvasRef);
   const liveRenderer = useCanvasRenderer(liveCanvasRef);
   const overlayRenderer = useCanvasRenderer(overlayCanvasRef);
 
-  // ─── Tool flags ───────────────────────────────────────────────────────────
   const isDrawingTool = [
     'boligrafo', 'marcador', 'lapiz', 'borrador', 'borrador_trazo',
     'regla', 'forma_rect', 'forma_circulo', 'forma_triangulo',
@@ -101,12 +91,10 @@ export default function EditorCanvas({
   const isEraser = herramienta === 'borrador';
   const isCanvasActive = isDrawingTool || isSelecting;
 
-  // ─── Device detection ─────────────────────────────────────────────────────
   const isLargeTouch = typeof window !== 'undefined'
     && window.innerWidth >= 768
     && navigator.maxTouchPoints > 0;
 
-  // ─── History ──────────────────────────────────────────────────────────────
   const saveSnapshot = useCallback(() => {
     const snap = JSON.stringify(strokesRef.current);
     historyRef.current = historyRef.current.slice(0, historyIdxRef.current + 1);
@@ -115,7 +103,6 @@ export default function EditorCanvas({
     historyIdxRef.current = historyRef.current.length - 1;
   }, []);
 
-  // ─── Sync UI helpers ──────────────────────────────────────────────────────
   const syncSelectionUI = useCallback((rect: SelectionRect | null, ids: string[]) => {
     selectionRectRef.current = rect;
     selectedIdsRef.current = ids;
@@ -127,14 +114,12 @@ export default function EditorCanvas({
     );
   }, []);
 
-  // ─── Canvas setup ─────────────────────────────────────────────────────────
   const setupAllCanvases = useCallback((w: number, h: number) => {
     mainRenderer.setup(w, h);
     liveRenderer.setup(w, h);
     overlayRenderer.setup(w, h);
   }, [mainRenderer, liveRenderer, overlayRenderer]);
 
-  // ─── Full redraw ──────────────────────────────────────────────────────────
   const redrawMain = useCallback(() => {
     mainRenderer.renderStrokes(
       strokesRef.current,
@@ -158,7 +143,6 @@ export default function EditorCanvas({
     }
   }, [overlayRenderer, brushColor, brushSize]);
 
-  // ─── Init ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -201,25 +185,15 @@ export default function EditorCanvas({
   }, [setupAllCanvases, redrawMain, saveSnapshot, initialCanvasData, initialStrokesData, mainRenderer]);
 
   // ─── Coordinate helpers ───────────────────────────────────────────────────
-  const clientToCanvas = useCallback((cx: number, cy: number): Point => {
-    const canvas = mainCanvasRef.current;
-    if (!canvas) return { x: 0, y: 0, pressure: 1 };
-    const rect = canvas.getBoundingClientRect();
-    const scale = externalScale?.current ?? 1;
-    return {
-      x: (cx - rect.left) / scale,
-      y: (cy - rect.top) / scale,
-      pressure: 1,
-    };
-  }, [externalScale]);
-
+  // Usamos getBoundingClientRect que ya incluye cualquier CSS transform del padre.
+  // Dividimos por el ratio rendered/logical para obtener coordenadas en espacio canvas.
   const eventToPoint = useCallback((e: PointerEvent): Point => {
     const canvas = mainCanvasRef.current;
     if (!canvas) return { x: 0, y: 0, pressure: 1 };
     const rect = canvas.getBoundingClientRect();
-    const scale = externalScale?.current ?? 1;
+    const scaleX = rect.width > 0 ? canvas.offsetWidth / rect.width : 1;
+    const scaleY = rect.height > 0 ? canvas.offsetHeight / rect.height : 1;
 
-    // Normalize pressure: Apple Pencil gives 0-1, mouse = 0.5 or 1
     let pressure = e.pressure;
     if (e.pointerType === 'pen') {
       pressure = Math.max(0.15, Math.min(1, pressure));
@@ -230,17 +204,29 @@ export default function EditorCanvas({
     }
 
     return {
-      x: (e.clientX - rect.left) / scale,
-      y: (e.clientY - rect.top) / scale,
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
       pressure,
     };
-  }, [externalScale]);
+  }, []);
+
+  const clientToCanvas = useCallback((cx: number, cy: number): Point => {
+    const canvas = mainCanvasRef.current;
+    if (!canvas) return { x: 0, y: 0, pressure: 1 };
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = rect.width > 0 ? canvas.offsetWidth / rect.width : 1;
+    const scaleY = rect.height > 0 ? canvas.offsetHeight / rect.height : 1;
+    return {
+      x: (cx - rect.left) * scaleX,
+      y: (cy - rect.top) * scaleY,
+      pressure: 1,
+    };
+  }, []);
 
   // ─── Draw handlers ────────────────────────────────────────────────────────
   const handleDrawStart = useCallback((e: PointerEvent) => {
     const pos = eventToPoint(e);
 
-    // Eraser (stroke)
     if (isEraser || e.button === 5 || e.buttons === 32) {
       erasingIdsRef.current = new Set();
       const radius = brushSize * 4 + 8;
@@ -252,14 +238,12 @@ export default function EditorCanvas({
       return;
     }
 
-    // Borrador trazo (pixel erase)
     if (herramienta === 'borrador_trazo') {
       strokeEngine.begin(pos, '#000000', brushSize, 'borrador_trazo');
       liveRenderer.clear();
       return;
     }
 
-    // Shape tool
     if (isShapeTool) {
       isShapeActiveRef.current = true;
       shapeStartRef.current = pos;
@@ -267,9 +251,7 @@ export default function EditorCanvas({
       return;
     }
 
-    // Selection tools
     if (isSelecting) {
-      // Check if clicking inside existing selection to move
       const rect = selectionRectRef.current;
       if (rect && selectedIdsRef.current.length > 0) {
         if (pos.x >= rect.x && pos.x <= rect.x + rect.w
@@ -279,7 +261,6 @@ export default function EditorCanvas({
           return;
         }
       }
-      // Start new selection
       syncSelectionUI(null, []);
       redrawMain();
       redrawOverlay(null);
@@ -293,7 +274,6 @@ export default function EditorCanvas({
       return;
     }
 
-    // Normal drawing
     syncSelectionUI(null, []);
     redrawOverlay(null);
     redrawMain();
@@ -308,7 +288,6 @@ export default function EditorCanvas({
   const handleDrawMove = useCallback((e: PointerEvent) => {
     const pos = eventToPoint(e);
 
-    // Eraser stroke: find intersecting strokes
     if (isEraser || (strokeEngine.currentStroke.current?.tipo === 'borrador')) {
       if (erasingIdsRef.current !== undefined) {
         const radius = brushSize * 4 + 8;
@@ -323,7 +302,6 @@ export default function EditorCanvas({
       return;
     }
 
-    // Shape preview
     if (isShapeActiveRef.current && shapeStartRef.current) {
       shapeEndRef.current = { x: pos.x, y: pos.y };
       overlayRenderer.clear();
@@ -336,7 +314,6 @@ export default function EditorCanvas({
       return;
     }
 
-    // Move selection
     if (isMovingRef.current && moveStartRef.current) {
       const rect = selectionRectRef.current;
       if (!rect) return;
@@ -363,7 +340,6 @@ export default function EditorCanvas({
       return;
     }
 
-    // Lasso drawing
     if (isLassoActiveRef.current) {
       lassoPointsRef.current.push({ x: pos.x, y: pos.y });
       const canvas = overlayCanvasRef.current;
@@ -389,7 +365,6 @@ export default function EditorCanvas({
       return;
     }
 
-    // Rectangular selection
     if (isSelectingRef.current && selectStartRef.current) {
       const start = selectStartRef.current;
       const rect: SelectionRect = {
@@ -410,7 +385,6 @@ export default function EditorCanvas({
       return;
     }
 
-    // Live drawing
     if (!strokeEngine.isActive.current) return;
     const { shouldRender, renderPoints } = strokeEngine.addPoint(pos);
     if (!shouldRender || renderPoints.length < 2) return;
@@ -434,7 +408,6 @@ export default function EditorCanvas({
   ]);
 
   const handleDrawEnd = useCallback((e: PointerEvent) => {
-    // Eraser stroke: commit deletes
     if (isEraser && erasingIdsRef.current.size > 0) {
       strokesRef.current = strokesRef.current.filter(s => !erasingIdsRef.current.has(s.id));
       erasingIdsRef.current = new Set();
@@ -445,7 +418,6 @@ export default function EditorCanvas({
       return;
     }
 
-    // Shape tool: commit shape
     if (isShapeActiveRef.current && shapeStartRef.current && shapeEndRef.current) {
       isShapeActiveRef.current = false;
       const start = shapeStartRef.current;
@@ -477,7 +449,6 @@ export default function EditorCanvas({
       return;
     }
 
-    // Move selection: commit
     if (isMovingRef.current) {
       isMovingRef.current = false;
       moveStartRef.current = null;
@@ -486,7 +457,6 @@ export default function EditorCanvas({
       return;
     }
 
-    // Lasso end
     if (isLassoActiveRef.current) {
       isLassoActiveRef.current = false;
       const poly = lassoPointsRef.current;
@@ -507,7 +477,6 @@ export default function EditorCanvas({
           return pointInPoly(b.x + b.w / 2, b.y + b.h / 2);
         }).map(s => s.id);
         lassoPointsRef.current = [];
-        // Build bounding rect of lasso
         let lx = Infinity, ly = Infinity, lmx = -Infinity, lmy = -Infinity;
         poly.forEach(p => { lx = Math.min(lx, p.x); ly = Math.min(ly, p.y); lmx = Math.max(lmx, p.x); lmy = Math.max(lmy, p.y); });
         const lassoRect: SelectionRect = { x: lx, y: ly, w: lmx - lx, h: lmy - ly };
@@ -527,7 +496,6 @@ export default function EditorCanvas({
       return;
     }
 
-    // Rect selection end
     if (isSelectingRef.current) {
       isSelectingRef.current = false;
       selectStartRef.current = null;
@@ -548,7 +516,6 @@ export default function EditorCanvas({
       return;
     }
 
-    // Normal stroke end
     if (!strokeEngine.isActive.current) return;
     const stroke = strokeEngine.end();
     if (!stroke) return;
@@ -556,7 +523,6 @@ export default function EditorCanvas({
     liveRenderer.clear();
 
     if (stroke.tipo === 'borrador_trazo') {
-      // Apply eraser stroke to main canvas via destination-out
       const ctx = mainCanvasRef.current?.getContext('2d');
       if (ctx) {
         mainRenderer.applyDpr(ctx);
@@ -578,7 +544,6 @@ export default function EditorCanvas({
         ctx.stroke();
         ctx.restore();
       }
-      // Don't add borrador_trazo to strokes (it's destructive)
       onChange();
       return;
     }
@@ -596,11 +561,8 @@ export default function EditorCanvas({
     syncSelectionUI, saveSnapshot, onChange,
   ]);
 
-  // ─── Pan & Zoom (via scroll area, NOT canvas) ─────────────────────────────
-  // The page scroll handles pan. We just need to handle pinch zoom.
   const viewRef = useRef<ViewTransform>({ scale: 1, tx: 0, ty: 0 });
 
-  // ─── Gesture Manager ──────────────────────────────────────────────────────
   const gestureCallbacks = useRef({
     onDrawStart: handleDrawStart,
     onDrawMove: handleDrawMove,
@@ -612,7 +574,6 @@ export default function EditorCanvas({
     onZoomEnd: () => {},
   });
 
-  // Keep callbacks fresh without re-creating gesture manager
   useEffect(() => {
     gestureCallbacks.current.onDrawStart = handleDrawStart;
     gestureCallbacks.current.onDrawMove = handleDrawMove;
@@ -635,12 +596,11 @@ export default function EditorCanvas({
     stableCallbacks.current,
     {
       isDrawingEnabled: isCanvasActive,
-      isPanZoomEnabled: !isCanvasActive || isLargeTouch,
+      isPanZoomEnabled: true,
       isLargeTouchDevice: isLargeTouch,
     },
   );
 
-  // ─── Undo / Redo ──────────────────────────────────────────────────────────
   const undo = useCallback(() => {
     if (historyIdxRef.current > 0) {
       historyIdxRef.current--;
@@ -665,7 +625,6 @@ export default function EditorCanvas({
     onChange();
   }, [redrawMain, onChange]);
 
-  // ─── Selection actions ────────────────────────────────────────────────────
   const deleteSelection = useCallback(() => {
     strokesRef.current = strokesRef.current.filter(s => !selectedIdsRef.current.includes(s.id));
     syncSelectionUI(null, []);
@@ -765,7 +724,6 @@ Rules:
     onPeterSauPeter(imageData.split(',')[1], 'image/png');
   };
 
-  // ─── Register exporters ───────────────────────────────────────────────────
   useEffect(() => {
     if (onRegisterExport) {
       onRegisterExport(() => {
@@ -797,7 +755,6 @@ Rules:
     (window as any).__editorRedo = redo;
   }, [undo, redo, onRegisterExport, onRegisterStrokesExport, onRegisterUndoRedo]);
 
-  // ─── Keyboard shortcuts ───────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!isDrawingTool && !isSelecting) return;
@@ -844,10 +801,8 @@ Rules:
     redrawMain, redrawOverlay, onChange,
   ]);
 
-  // Redraw when selection changes
   useEffect(() => { redrawMain(); }, [selectedIds, redrawMain]);
 
-  // ─── Cursor ───────────────────────────────────────────────────────────────
   const getCursor = (): string => {
     if (isMovingRef.current) return 'grabbing';
     if (isSelecting && selectionRect && selectedIds.length > 0) return 'grab';
@@ -863,7 +818,6 @@ Rules:
     return 'default';
   };
 
-  // ─── Render ───────────────────────────────────────────────────────────────
   const canvasStyle: React.CSSProperties = {
     position: 'absolute', top: 0, left: 0,
     touchAction: 'none', background: 'transparent',
@@ -881,41 +835,22 @@ Rules:
         overflow: 'hidden',
       }}
     >
-      {/* Layer 1: committed strokes */}
-      <canvas
-        ref={mainCanvasRef}
-        style={{ ...canvasStyle, zIndex: 1, pointerEvents: 'none' }}
-      />
-
-      {/* Layer 2: live stroke (current drawing) */}
-      <canvas
-        ref={liveCanvasRef}
-        style={{ ...canvasStyle, zIndex: 2, pointerEvents: 'none' }}
-      />
-
-      {/* Layer 3: selection / shape overlay */}
-      <canvas
-        ref={overlayCanvasRef}
-        style={{ ...canvasStyle, zIndex: 3, pointerEvents: 'none' }}
-      />
-
-      {/* Layer 4: input capture (invisible, on top) */}
+      <canvas ref={mainCanvasRef} style={{ ...canvasStyle, zIndex: 1, pointerEvents: 'none' }} />
+      <canvas ref={liveCanvasRef} style={{ ...canvasStyle, zIndex: 2, pointerEvents: 'none' }} />
+      <canvas ref={overlayCanvasRef} style={{ ...canvasStyle, zIndex: 3, pointerEvents: 'none' }} />
       <div
         ref={inputLayerRef}
         style={{
           position: 'absolute', top: 0, left: 0,
           width: '100%', height: '100%',
-          zIndex: 4,
-          touchAction: 'none',
+          zIndex: 4, touchAction: 'none',
           cursor: getCursor(),
-          // Prevent callout / selection on iOS
           WebkitUserSelect: 'none',
           WebkitTouchCallout: 'none',
           userSelect: 'none',
         }}
       />
 
-      {/* Selection menu */}
       {menuPos && selectedIds.length > 0 && (
         <SelectionMenu
           menuPos={menuPos}
@@ -936,7 +871,6 @@ Rules:
         />
       )}
 
-      {/* Undo/Redo buttons */}
       {isCanvasActive && (
         <div style={{
           position: 'absolute', top: 12, right: 12,

@@ -130,7 +130,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
     setZoomState({ scale, tx, ty });
   }, []);
 
-  usePinchZoom(wrapperRef, handleScaleChange, { enabled: !isDrawingMode });
+  usePinchZoom(wrapperRef, handleScaleChange, { enabled: true });
 
   const syncCache = useCallback(() => {
     Object.keys(textRefs.current).forEach((id) => {
@@ -692,7 +692,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
           paddingBottom: isMobile ? '70px' : '80px',
         }}>
           <div style={{
-            transform: 'none',
+            transform: `matrix(${zoomState.scale},0,0,${zoomState.scale},${zoomState.tx},${zoomState.ty})`,
             transformOrigin: '0 0',
             willChange: 'transform',
             display: 'flex',

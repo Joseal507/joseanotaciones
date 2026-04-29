@@ -29,7 +29,6 @@ interface GestureCallbacks {
 interface GestureOptions {
   isDrawingEnabled: boolean;
   isPanZoomEnabled: boolean;
-  // Large touch device = iPad/tablet
   isLargeTouchDevice: boolean;
 }
 
@@ -62,33 +61,6 @@ export function useGestureManager(
     };
   }, []);
 
-  const shouldIgnoreForDrawing = useCallback((e: PointerEvent): boolean => {
-    const s = state.current;
-
-    // Apple Pencil / stylus: always draw
-    if (e.pointerType === 'pen') return false;
-
-    // On large touch devices (iPad), finger = pan/zoom, not draw
-    if (e.pointerType === 'touch' && options.isLargeTouchDevice) return true;
-
-    // Palm rejection: large touch area
-    if (e.pointerType === 'touch') {
-      const w = (e as any).width ?? 0;
-      const h = (e as any).height ?? 0;
-      if (w > 50 || h > 50) return true;
-    }
-
-    // If pen is actively drawing, ignore other pointers
-    if (drawingWithPen.current && e.pointerType !== 'pen') return true;
-
-    // If 2+ touch pointers active, ignore new touches for drawing
-    const touchCount = Array.from(s.activePointers.values())
-      .filter(p => p.type === 'touch').length;
-    if (touchCount >= 2 && e.pointerType === 'touch') return true;
-
-    return false;
-  }, [options.isLargeTouchDevice]);
-
   useEffect(() => {
     const el = targetRef.current;
     if (!el) return;
@@ -96,7 +68,6 @@ export function useGestureManager(
     const onPointerDown = (e: PointerEvent) => {
       const s = state.current;
 
-      // Track pointer
       s.activePointers.set(e.pointerId, {
         x: e.clientX,
         y: e.clientY,
@@ -105,10 +76,8 @@ export function useGestureManager(
 
       const touchPointers = Array.from(s.activePointers.values())
         .filter(p => p.type === 'touch');
-      const penPointers = Array.from(s.activePointers.values())
-        .filter(p => p.type === 'pen');
 
-      // === PEN / STYLUS ===
+      // === PEN siempre dibuja ===
       if (e.pointerType === 'pen') {
         if (!options.isDrawingEnabled) return;
         s.activePenId = e.pointerId;
@@ -122,19 +91,8 @@ export function useGestureManager(
 
       // === TOUCH ===
       if (e.pointerType === 'touch') {
-        // 1 finger on non-large-touch device = draw
-        if (!options.isLargeTouchDevice && touchPointers.length === 1 && options.isDrawingEnabled) {
-          if (intentLockRef.current === 'idle') {
-            intentLockRef.current = 'drawing';
-            s.intent = 'drawing';
-            callbacks.onDrawStart(e);
-            try { (el as any).setPointerCapture?.(e.pointerId); } catch {}
-            return;
-          }
-        }
-
-        // 2 fingers = pan/zoom (cancel any draw in progress)
-        if (touchPointers.length === 2 && options.isPanZoomEnabled) {
+        // 2 dedos = zoom SIEMPRE (tiene prioridad sobre dibujo)
+        if (touchPointers.length === 2) {
           if (intentLockRef.current === 'drawing') {
             callbacks.onDrawEnd(e);
           }
@@ -148,14 +106,24 @@ export function useGestureManager(
           return;
         }
 
-        // 1 finger on iPad = pan
-        if (options.isLargeTouchDevice && touchPointers.length === 1 && options.isPanZoomEnabled) {
+        // 1 dedo en iPad = pan
+        if (options.isLargeTouchDevice && touchPointers.length === 1) {
           intentLockRef.current = 'panning';
           s.intent = 'panning';
-          s.panStart = { x: e.clientX, y: e.clientY };
           lastPinchMid.current = { x: e.clientX, y: e.clientY };
           callbacks.onPanStart({ x: e.clientX, y: e.clientY });
           return;
+        }
+
+        // 1 dedo en móvil = dibujar
+        if (!options.isLargeTouchDevice && touchPointers.length === 1 && options.isDrawingEnabled) {
+          if (intentLockRef.current === 'idle') {
+            intentLockRef.current = 'drawing';
+            s.intent = 'drawing';
+            callbacks.onDrawStart(e);
+            try { (el as any).setPointerCapture?.(e.pointerId); } catch {}
+            return;
+          }
         }
       }
 
@@ -174,7 +142,6 @@ export function useGestureManager(
     const onPointerMove = (e: PointerEvent) => {
       const s = state.current;
 
-      // Update pointer position
       if (s.activePointers.has(e.pointerId)) {
         s.activePointers.set(e.pointerId, {
           x: e.clientX,
@@ -185,10 +152,8 @@ export function useGestureManager(
 
       const intent = intentLockRef.current;
 
-      // Drawing
       if (intent === 'drawing') {
         if (e.pointerId === s.activePenId || e.pointerType !== 'pen') {
-          // Use getCoalescedEvents for sub-frame precision
           const events = (e as any).getCoalescedEvents?.() ?? [e];
           for (const ce of events) {
             callbacks.onDrawMove(ce);
@@ -197,7 +162,6 @@ export function useGestureManager(
         return;
       }
 
-      // Panning (1 finger iPad)
       if (intent === 'panning') {
         if (lastPinchMid.current) {
           const dx = e.clientX - lastPinchMid.current.x;
@@ -208,7 +172,6 @@ export function useGestureManager(
         return;
       }
 
-      // Pinch zoom
       if (intent === 'zooming') {
         const info = getPinchInfo(s.activePointers);
         if (!info || lastPinchDist.current === null || !lastPinchMid.current) return;
@@ -252,11 +215,10 @@ export function useGestureManager(
         lastPinchMid.current = null;
         drawingWithPen.current = false;
       } else if (remaining === 1 && intentLockRef.current === 'zooming') {
-        // Back to panning
         if (options.isLargeTouchDevice) {
           intentLockRef.current = 'panning';
-          const remaining_ptr = Array.from(s.activePointers.values())[0];
-          lastPinchMid.current = { x: remaining_ptr.x, y: remaining_ptr.y };
+          const ptr = Array.from(s.activePointers.values())[0];
+          lastPinchMid.current = { x: ptr.x, y: ptr.y };
         } else {
           intentLockRef.current = 'idle';
           s.intent = 'idle';
@@ -274,10 +236,11 @@ export function useGestureManager(
       if (state.current.activePointers.size === 0) {
         intentLockRef.current = 'idle';
         state.current.intent = 'idle';
+        lastPinchDist.current = null;
+        lastPinchMid.current = null;
       }
     };
 
-    // Prevent context menu on long press (iPad)
     const onContextMenu = (e: Event) => e.preventDefault();
 
     el.addEventListener('pointerdown', onPointerDown, { passive: false });
@@ -300,7 +263,6 @@ export function useGestureManager(
     options.isPanZoomEnabled,
     options.isLargeTouchDevice,
     getPinchInfo,
-    shouldIgnoreForDrawing,
   ]);
 
   return state;
