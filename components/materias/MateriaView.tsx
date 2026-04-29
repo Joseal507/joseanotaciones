@@ -20,7 +20,7 @@ type TabActivo = 'temas' | 'calificaciones';
 const CAL_DEFAULT: CalificacionesMateria = {
   notaObjetivo: 71,
   evaluaciones: [],
-  escala: '0-100',
+  escala: '1-100',
   configurado: false,
 };
 
