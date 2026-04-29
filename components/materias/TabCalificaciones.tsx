@@ -214,7 +214,7 @@ function PantallaSetup({ colorMateria, onConfirm }: {
   colorMateria: string;
   onConfirm: (escala: EscalaNotas, objetivo: number) => void;
 }) {
-  const [escala, setEscala] = useState<EscalaNotas>('0-100');
+  const [escala, setEscala] = useState<EscalaNotas>('1-100');
   const [objetivo, setObjetivo] = useState('');
   const [err, setErr] = useState('');
 
