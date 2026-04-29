@@ -13,6 +13,7 @@ export default function AuthPage() {
   const [nombre, setNombre] = useState('');
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [mensaje, setMensaje] = useState('');
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [nombreUsuario, setNombreUsuario] = useState('');
@@ -258,17 +259,33 @@ export default function AuthPage() {
                   <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
                     Contraseña
                   </label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder={modo === 'registro' ? 'Mínimo 6 caracteres' : '••••••••'}
-                    autoComplete={modo === 'registro' ? 'new-password' : 'current-password'}
-                    onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-                    style={inputStyle}
-                    onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
-                    onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
-                  />
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      placeholder={modo === 'registro' ? 'Mínimo 6 caracteres' : '••••••••'}
+                      autoComplete={modo === 'registro' ? 'new-password' : 'current-password'}
+                      onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+                      style={{ ...inputStyle, paddingRight: '48px' }}
+                      onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
+                      onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      style={{
+                        position: 'absolute', right: '12px', top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--text-muted)', fontSize: '16px', padding: '4px',
+                        lineHeight: 1,
+                      }}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? '🙈' : '👁️'}
+                    </button>
+                  </div>
                 </div>
               )}
 

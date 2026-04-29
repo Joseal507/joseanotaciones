@@ -283,7 +283,7 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
               {[
                 { id: 'hombre', label: 'Hombre',               emoji: '👦' },
                 { id: 'mujer',  label: 'Mujer',                emoji: '👧' },
-                { id: 'otro',   label: 'Otro / Prefiero no decir', emoji: '🌈' },
+                { id: 'otro',   label: 'Otro / Prefiero no decir', emoji: '' },
               ].map(opt => (
                 <button key={opt.id} onClick={() => setGenero(opt.id)} style={{ padding: '14px 20px', borderRadius: '14px', border: genero === opt.id ? '2px solid var(--gold)' : '2px solid var(--border-color)', background: genero === opt.id ? 'var(--gold-dim)' : 'var(--bg-secondary)', color: genero === opt.id ? 'var(--gold)' : 'var(--text-primary)', fontSize: '15px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', transition: 'all 0.15s', textAlign: 'left' }}>
                   <span style={{ fontSize: '24px' }}>{opt.emoji}</span>

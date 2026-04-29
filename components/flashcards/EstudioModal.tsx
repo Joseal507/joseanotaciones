@@ -415,8 +415,8 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
                 {repasoFase === 'pregunta' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     <textarea value={repasoRespuesta} onChange={e => setRepasoRespuesta(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) evaluarRepaso(); }}
-                      placeholder={idioma === 'en' ? 'Write your answer... (Cmd+Enter)' : 'Escribe tu respuesta... (Cmd+Enter)'}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); evaluarRepaso(); } }}
+                      placeholder={idioma === 'en' ? 'Write your answer... (Enter to evaluate)' : 'Escribe tu respuesta... (Enter para evaluar)'}
                       autoFocus
                       style={{ width: '100%', minHeight: '100px', padding: '16px', borderRadius: '14px', border: `2px solid ${repasoRespuesta ? '#38bdf8' : '#333'}`, background: '#0d0d1a', color: '#fff', fontSize: '16px', fontFamily: 'inherit', lineHeight: 1.7, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
                     <div style={{ display: 'flex', gap: '10px' }}>
@@ -595,8 +595,8 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
               {fase === 'pregunta' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <textarea value={respuesta} onChange={e => setRespuesta(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) evaluar(); }}
-                    placeholder={idioma === 'en' ? 'Write your answer... (Cmd+Enter)' : 'Escribe tu respuesta... (Cmd+Enter)'}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); evaluar(); } }}
+                    placeholder={idioma === 'en' ? 'Write your answer... (Enter to evaluate)' : 'Escribe tu respuesta... (Enter para evaluar)'}
                     autoFocus
                     style={{ width: '100%', minHeight: '100px', padding: '16px', borderRadius: '14px', border: `2px solid ${respuesta ? temaColor : '#333'}`, background: '#0d0d1a', color: '#fff', fontSize: '16px', fontFamily: 'inherit', lineHeight: 1.7, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
                   <div style={{ display: 'flex', gap: '10px' }}>

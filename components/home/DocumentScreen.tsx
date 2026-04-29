@@ -49,7 +49,7 @@ export default function DocumentScreen({ documentContent, analysis, flashcardsLe
   if (!documentContent) {
     return (
       <div style={{ textAlign: 'center', padding: '100px 0' }}>
-        <div style={{ fontSize: '72px', marginBottom: '16px' }}>📭</div>
+        <div style={{ fontSize: '72px', marginBottom: '16px' }}>🌵</div>
         <p style={{ fontSize: '18px', color: 'var(--text-faint)', fontWeight: 600, marginBottom: '24px' }}>Sube un documento primero</p>
         <button onClick={onGoUpload} style={{ padding: '14px 32px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>
           📤 Subir documento

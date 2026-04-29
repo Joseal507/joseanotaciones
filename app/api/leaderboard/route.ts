@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const {
-      nombre, xp_total, flashcards_estudiadas,
+      nombre, xp_total, flashcards_estudiadas, quizzes_completados,
       racha_actual, mejor_racha, precision_global,
       // ✅ Datos del perfil
       genero, tipo_estudiante, universidad, carrera,
@@ -89,6 +89,20 @@ export async function POST(request: NextRequest) {
     if (carrera !== undefined) upsertData.carrera = carrera;
     if (que_quieres_estudiar !== undefined) upsertData.que_quieres_estudiar = que_quieres_estudiar;
     if (avatar_url !== undefined) upsertData.avatar_url = avatar_url;
+    if (quizzes_completados !== undefined) upsertData.quizzes_completados = quizzes_completados;
+
+    // ✅ flashcards_estudiadas NUNCA baja — solo sube
+    if (flashcards_estudiadas !== undefined) {
+      const { data: curr } = await supabaseAdmin
+        .from('leaderboard')
+        .select('flashcards_estudiadas')
+        .eq('user_id', user.id)
+        .single();
+      upsertData.flashcards_estudiadas = Math.max(
+        curr?.flashcards_estudiadas || 0,
+        flashcards_estudiadas
+      );
+    }
     if (onboarding_completo !== undefined) upsertData.onboarding_completo = onboarding_completo;
 
     // ✅ Si es el primer registro, guardar created_at

@@ -201,7 +201,7 @@ export default function TikTokEstudio({ userId }: Props) {
 
   if (posts.length === 0) return (
     <div style={{ height: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '12px' }}>
-      <div style={{ fontSize: '56px' }}>📭</div>
+      <div style={{ fontSize: '56px' }}>🌵</div>
       <p style={{ color: 'var(--text-muted)', fontWeight: 700, fontSize: '18px' }}>No hay contenido todavía</p>
       <p style={{ color: 'var(--text-faint)', fontSize: '14px' }}>Sé el primero en publicar</p>
     </div>

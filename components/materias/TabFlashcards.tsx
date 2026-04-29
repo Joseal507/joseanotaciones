@@ -1,4 +1,5 @@
 'use client';
+import React from 'react';
 import MathText from '../MathText';
 
 interface Props {
@@ -30,6 +31,19 @@ interface Props {
 }
 
 export default function TabFlashcards({ flashcards, currentCard, flipped, addCount, addingMore, flashcardsMessage, recommendedCount, recommendedReason, tema, isMobile, idioma, esImagen, analizando, tr, onFlip, onPrev, onNext, onSetCard, onSetAddCount, onAddMore, onAnalizar, onEstudio, onQuiz, onEditor, onGuardar }: Props) {
+
+  // Navegación con flechas del teclado
+  React.useEffect(() => {
+    if (flashcards.length === 0) return;
+    const handler = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); onNext(); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); onPrev(); }
+      if (e.key === ' ') { e.preventDefault(); onFlip(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [flashcards.length, onNext, onPrev, onFlip]);
 
   const Indicadores = () => {
     if (flashcards.length <= 15) {

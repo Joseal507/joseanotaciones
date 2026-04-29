@@ -319,7 +319,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
               id: 'leer',
               label: esImagen
                 ? `🖼️ ${idioma === 'en' ? 'Image' : 'Imagen'}`
-                : `📖 ${documento.archivoUrl || docBase64 ? trAny('verDocumento') : trAny('leerTexto')}`,
+                : documento.tipo === 'youtube' ? '▶️ Ver video' : `📖 ${documento.archivoUrl || docBase64 ? trAny('verDocumento') : trAny('leerTexto')}`,
             },
             { id: 'analisis',   label: `🔍 ${trAny('analisisAI')}${analisisLocal ? ' ✓' : ''}` },
             { id: 'flashcards', label: `🎴 ${trAny('flashcards')}${flashcards.length > 0 ? ` (${flashcards.length})` : ''}` },

@@ -97,7 +97,7 @@ export default function HorarioWidget() {
       <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
         <div style={{ height: '4px', background: 'var(--gold)' }} />
         <div style={{ padding: '20px', textAlign: 'center' }}>
-          <div style={{ fontSize: '32px', marginBottom: '8px' }}>📭</div>
+          <div style={{ fontSize: '32px', marginBottom: '8px' }}>🌵</div>
           <p style={{ fontSize: '14px', color: 'var(--text-faint)', margin: 0 }}>
             {idioma === 'en' ? 'No classes scheduled today' : 'Sin clases programadas hoy'}
           </p>

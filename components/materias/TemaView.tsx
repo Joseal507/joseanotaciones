@@ -48,15 +48,14 @@ export default function TemaView({
     setYoutubeLoading(true);
     setYoutubeError('');
     setYoutubeStep(1);
-    const interval = setInterval(() => setYoutubeStep(p => p < 3 ? p + 1 : p), 3000);
     try {
+      // Solo obtener metadata y transcripción — SIN análisis de IA todavía
       const res = await fetch('/api/youtube', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: youtubeUrl, idioma }),
+        body: JSON.stringify({ url: youtubeUrl, idioma, soloMetadata: true }),
       });
       const data = await res.json();
-      clearInterval(interval);
       if (!data.success) { setYoutubeError(data.error || 'Error'); setYoutubeLoading(false); setYoutubeStep(0); return; }
       const nuevoDoc: Documento = {
         id: Date.now().toString(),
@@ -68,19 +67,10 @@ export default function TemaView({
         youtubeThumbnail: data.metadata.thumbnail,
         youtubeChannel: data.metadata.channel,
         youtubeWordCount: data.wordCount,
-        analisis: {
-          keywords: data.analysis.keywords || [],
-          important_phrases: data.analysis.key_points || [],
-          summary: data.analysis.summary || '',
-          key_points: data.analysis.key_points || [],
-          topics: data.analysis.topics || [],
-          difficulty: data.analysis.difficulty || '',
-        },
-        flashcards: (data.analysis.flashcards || []).map((f: any) => ({
-          pregunta: f.pregunta,
-          respuesta: f.respuesta,
-        })),
-        quiz: data.analysis.quiz || [],
+        // Sin análisis ni flashcards — se generan al hacer click en "Analizar"
+        analisis: undefined,
+        flashcards: [],
+        quiz: [],
       };
       onAgregarYoutube?.(nuevoDoc);
       setShowYoutube(false);

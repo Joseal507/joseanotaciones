@@ -231,7 +231,7 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
                 <h3 style={{ fontSize: '20px', fontWeight: 800, color: '#fff', margin: '0 0 20px' }}>📂 Mis quizzes guardados</h3>
                 {quizzesGuardados.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '40px' }}>
-                    <div style={{ fontSize: '48px', marginBottom: '12px' }}>📭</div>
+                    <div style={{ fontSize: '48px', marginBottom: '12px' }}>🌵</div>
                     <p style={{ color: '#666' }}>Sin quizzes guardados</p>
                   </div>
                 ) : (

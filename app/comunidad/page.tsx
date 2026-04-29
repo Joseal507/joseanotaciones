@@ -492,7 +492,7 @@ export default function ComunidadPage() {
           </div>
         ) : posts.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '80px 0' }}>
-            <div style={{ fontSize: '60px', marginBottom: '16px' }}>📭</div>
+            <div style={{ fontSize: '60px', marginBottom: '16px' }}>🌵</div>
             <h2 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>
               No hay posts aquí todavía
             </h2>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { YoutubeTranscript } from 'youtube-transcript';
+import { groqRequest } from '../../../lib/groqClient';
 
 function extractVideoId(url: string): string | null {
   const patterns = [
@@ -56,64 +57,9 @@ function calcularFlashcardsOptimas(wordCount: number): number {
   return 30;
 }
 
-// Gemini con rotación completa de keys y rate limit tracker
-const geminiKeyStatus = new Map<string, number>();
-const GEMINI_KEYS = [
-  process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_2,
-  process.env.GEMINI_API_KEY_3, process.env.GEMINI_API_KEY_4,
-  process.env.GEMINI_API_KEY_5,
-].filter(Boolean) as string[];
-
-let geminiIdx = 0;
-
-const callGeminiWithRotation = async (prompt: string): Promise<string> => {
-  const now = Date.now();
-
-  for (let i = 0; i < GEMINI_KEYS.length; i++) {
-    const idx = (geminiIdx + i) % GEMINI_KEYS.length;
-    const key = GEMINI_KEYS[idx];
-
-    if (geminiKeyStatus.has(key) && now < geminiKeyStatus.get(key)!) continue;
-
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.2, maxOutputTokens: 8192 },
-          }),
-        }
-      );
-
-      if (res.status === 429) {
-        geminiKeyStatus.set(key, Date.now() + 60_000);
-        console.log(`Gemini key ${idx + 1} rate limit, rotando...`);
-        continue;
-      }
-
-      if (!res.ok) continue;
-
-      const d = await res.json();
-      const text = d?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      if (text.length > 10) {
-        geminiIdx = (idx + 1) % GEMINI_KEYS.length;
-        console.log(`✅ Gemini key ${idx + 1} OK`);
-        return text;
-      }
-    } catch (e: any) {
-      console.log(`Gemini key ${idx + 1} error:`, e?.message);
-    }
-  }
-
-  throw new Error('All Gemini keys exhausted');
-};
-
 export async function POST(req: NextRequest) {
   try {
-    const { url, idioma = 'es', flashcardCount } = await req.json();
+    const { url, idioma = 'es', flashcardCount, soloMetadata = false } = await req.json();
     if (!url) return NextResponse.json({ error: 'URL requerida' }, { status: 400 });
 
     const videoId = extractVideoId(url);
@@ -130,23 +76,51 @@ export async function POST(req: NextRequest) {
     const optimalCount = calcularFlashcardsOptimas(wordCount);
     const finalFlashcardCount = flashcardCount || optimalCount;
     const lang = idioma === 'en' ? 'en' : 'es';
-    const transcriptTruncated = transcript.substring(0, 14000);
+
+    // Si solo se pide metadata (al subir el video), devolver sin analizar
+    if (soloMetadata) {
+      return NextResponse.json({
+        success: true,
+        videoId,
+        metadata,
+        transcript: transcript.substring(0, 3000) + (transcript.length > 3000 ? '...' : ''),
+        transcriptFull: transcript,
+        wordCount,
+        optimalCount,
+        flashcardCount: finalFlashcardCount,
+        analysis: { flashcards: [], quiz: [], keywords: [], key_points: [], summary: '', topics: [], difficulty: '' },
+      });
+    }
+
+    const transcriptTruncated = transcript.substring(0, 12000);
 
     const prompt = lang === 'en'
       ? `Expert academic content analyzer. Analyze this YouTube transcript completely.
 VIDEO: "${metadata.title}" by ${metadata.channel} | WORDS: ${wordCount}
 TRANSCRIPT: ${transcriptTruncated}
-Return ONLY valid JSON:
+Return ONLY valid JSON, no extra text:
 {"summary":"5-8 sentences","key_points":["p1","p2","p3","p4","p5"],"keywords":["k1","k2","k3","k4","k5","k6","k7","k8"],"flashcards":[{"pregunta":"Q?","respuesta":"A"}],"quiz":[{"pregunta":"Q?","opciones":["A","B","C","D"],"correcta":0,"explicacion":"why"}],"apuntes":"# Title\\n\\n## Summary\\nnotes...","difficulty":"basic/intermediate/advanced","topics":["t1","t2","t3"]}
 Generate EXACTLY ${finalFlashcardCount} flashcards and EXACTLY 5 quiz questions covering ALL content.`
       : `Analizador experto de contenido académico. Analiza COMPLETAMENTE esta transcripción.
 VIDEO: "${metadata.title}" por ${metadata.channel} | PALABRAS: ${wordCount}
 TRANSCRIPCIÓN: ${transcriptTruncated}
-Devuelve SOLO JSON válido:
+Devuelve SOLO JSON válido, sin texto extra:
 {"summary":"5-8 oraciones","key_points":["p1","p2","p3","p4","p5"],"keywords":["k1","k2","k3","k4","k5","k6","k7","k8"],"flashcards":[{"pregunta":"¿P?","respuesta":"R"}],"quiz":[{"pregunta":"¿P?","opciones":["A","B","C","D"],"correcta":0,"explicacion":"por qué"}],"apuntes":"# Título\\n\\n## Resumen\\napuntes...","difficulty":"básico/intermedio/avanzado","topics":["t1","t2","t3"]}
 Genera EXACTAMENTE ${finalFlashcardCount} flashcards y EXACTAMENTE 5 preguntas de quiz cubriendo TODO el contenido.`;
 
-    const rawText = await callGeminiWithRotation(prompt);
+    // Usar groqRequest con todos los proveedores (Groq, Cerebras, HF, SambaNova, Gemini, Mistral, Cloudflare)
+    const rawText = await groqRequest(async (client, model) => {
+      const r = await client.chat.completions.create({
+        model: model('llama-3.3-70b-versatile'),
+        messages: [
+          { role: 'system', content: lang === 'en' ? 'You are an expert content analyzer. Return ONLY valid JSON.' : 'Eres un analizador experto. Devuelve SOLO JSON válido.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 6000,
+      });
+      return r.choices[0]?.message?.content || '{}';
+    });
 
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('No JSON in response');
@@ -171,6 +145,12 @@ Genera EXACTAMENTE ${finalFlashcardCount} flashcards y EXACTAMENTE 5 preguntas d
         error: 'Este video no tiene subtítulos disponibles.',
         errorCode: 'NO_TRANSCRIPT',
       }, { status: 422 });
+    }
+    if (error.message === 'AI_EXHAUSTED') {
+      return NextResponse.json({
+        error: 'Todos los proveedores de IA están ocupados. Intenta en unos segundos.',
+        errorCode: 'AI_EXHAUSTED',
+      }, { status: 503 });
     }
     return NextResponse.json({ error: error.message || 'Error procesando el video' }, { status: 500 });
   }

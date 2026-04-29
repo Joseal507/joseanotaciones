@@ -7,6 +7,7 @@ import { supabase } from '../../../lib/supabase';
 import { getRango, getProgresoRango, LOGROS, getLogrosObtenidos, LogroStats, getLevelFromXp, getXpInCurrentLevel, getXpNeededForNextLevel } from '../../../lib/xpSystem';
 import MarcoAvatar from '../../../components/MarcoAvatar';
 import RangoDisplay from '../../../components/RangoDisplay';
+import PlayerCard from '../../../components/PlayerCard';
 
 interface PerfilPublico {
   user_id: string;
@@ -22,6 +23,7 @@ interface PerfilPublico {
   tipo_estudiante?: string;
   genero?: string;
   descripcion?: string;
+  quizzes_completados?: number;
   created_at?: string;
   visible_leaderboard?: boolean;
 }
@@ -161,7 +163,7 @@ const calcularLogrosPublicos = (perfil: PerfilPublico, nivel: number, rank: numb
 const generoEmoji: Record<string, string> = {
   hombre: '👦',
   mujer: '👧',
-  otro: '🌈',
+  otro: '',
 };
 
 function Avatar({ perfil, size = 80 }: { perfil: PerfilPublico; size?: number }) {
@@ -634,7 +636,7 @@ export default function PerfilPublicoPage() {
   const cargarPostsUsuario = async (userId: string) => {
     setCargandoPosts(true);
     try {
-      const res = await fetch(`/api/comunidad/posts?userId=${userId}&tipo=all&filtro=todos`);
+      const res = await fetch(`/api/comunidad/posts?userId=${userId}&tipo=all&filtro=mios`);
       const data = await res.json();
       setPostsUsuario(data.posts || []);
     } catch {}
@@ -864,8 +866,9 @@ export default function PerfilPublicoPage() {
         ))}
       </div>
 
-      <div style={{ maxWidth: '820px', margin: '0 auto', padding: '32px 16px 48px' }}>
-        <div style={{ background: 'var(--bg-card)', borderRadius: '24px', border: `1px solid ${rankColor}33`, overflow: 'hidden', marginBottom: '24px' }}>
+      <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '32px 16px 48px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: '24px', marginBottom: '24px', alignItems: 'flex-start' }}>
+        <div style={{ background: 'var(--bg-card)', borderRadius: '24px', border: `1px solid ${rankColor}33`, overflow: 'hidden' }}>
           <div style={{ height: '110px', background: `linear-gradient(135deg, ${rankColor}28 0%, ${tituloColor}12 100%)`, position: 'relative', display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', padding: '14px 20px' }}>
             {esMiPerfil && (
               <button
@@ -970,6 +973,29 @@ export default function PerfilPublicoPage() {
                 <div style={{ width: `${Math.min(100, Math.round((xpEnNivel / xpParaSiguiente) * 100))}%`, height: '100%', background: rango.marcoGradient, borderRadius: '8px', transition: 'width 1.2s ease' }} />
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* ── PLAYER CARD (columna derecha del grid) ── */}
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <PlayerCard stats={{
+            nombre: perfil.nombre.trim(),
+            xpTotal: perfil.xp_total || 0,
+            flashcards: perfil.flashcards_estudiadas || 0,
+            precision: Math.round(perfil.precision_global || 0),
+            rachaActual: perfil.racha_actual || 0,
+            mejorRacha: perfil.mejor_racha || 0,
+            rank,
+            totalUsers,
+            avatar: perfil.avatar_url,
+            universidad: perfil.universidad,
+            carrera: perfil.carrera,
+            userId: perfil.user_id,
+            quizzes: perfil.quizzes_completados || 0,
+          }} />
+        </div>
+        {/* ── fin grid hero ── */}
+        <div style={{ display: 'none' }}>{/* dummy para cerrar el grid */}</div>
 
             {/* Acciones de Partners visibles dentro del perfil */}
             {miUserId && (
@@ -1054,7 +1080,6 @@ export default function PerfilPublicoPage() {
                 )}
               </div>
             )}
-          </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '24px' }}>
@@ -1180,7 +1205,7 @@ export default function PerfilPublicoPage() {
               </div>
             ) : postsUsuario.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-faint)' }}>
-                <div style={{ fontSize: '40px', marginBottom: '8px' }}>📭</div>
+                <div style={{ fontSize: '40px', marginBottom: '8px' }}>🌵</div>
                 <p style={{ margin: 0, fontSize: '13px' }}>
                   {esMiPerfil ? 'Aún no has publicado nada en la comunidad' : `${perfil.nombre} aún no ha publicado nada`}
                 </p>
@@ -1274,6 +1299,26 @@ export default function PerfilPublicoPage() {
           </div>
         </div>
 
+        {/* ── PLAYER CARD ── */}
+        <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'center' }}>
+          <PlayerCard stats={{
+            nombre: perfil.nombre.trim(),
+            xpTotal: perfil.xp_total || 0,
+            flashcards: perfil.flashcards_estudiadas || 0,
+            precision: Math.round(perfil.precision_global || 0),
+            rachaActual: perfil.racha_actual || 0,
+            mejorRacha: perfil.mejor_racha || 0,
+            rank,
+            totalUsers,
+            avatar: perfil.avatar_url,
+            universidad: perfil.universidad,
+            carrera: perfil.carrera,
+            userId: perfil.user_id,
+            quizzes: perfil.quizzes_completados || 0,
+          }} />
+        </div>
+
+        {/* ── COMPARTIR ── */}
         <div style={{ marginTop: '24px', background: 'var(--bg-card)', borderRadius: '16px', padding: '20px 24px', border: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0 }}>
             <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>🔗 Comparte tu perfil</p>

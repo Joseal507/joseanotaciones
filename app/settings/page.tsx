@@ -47,6 +47,8 @@ export default function SettingsPage() {
   const [passwordNueva, setPasswordNueva] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [guardandoPassword, setGuardandoPassword] = useState(false);
+  const [showPasswordNueva, setShowPasswordNueva] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
   const [mensajePassword, setMensajePassword] = useState('');
   const [errorPassword, setErrorPassword] = useState('');
   const passwordNuevaRef = useRef<HTMLInputElement>(null);
@@ -509,7 +511,7 @@ export default function SettingsPage() {
                     {[
                       { id: 'hombre', label: idioma === 'en' ? '👦 Male' : '👦 Hombre' },
                       { id: 'mujer', label: idioma === 'en' ? '👧 Female' : '👧 Mujer' },
-                      { id: 'otro', label: idioma === 'en' ? '🌈 Other' : '🌈 Otro' },
+                      { id: 'otro', label: idioma === 'en' ? 'Other' : 'Otro' },
                     ].map(g => (
                       <button key={g.id} onClick={() => setGenero(g.id)}
                         style={{ flex: 1, padding: '10px', borderRadius: '10px', border: `2px solid ${genero === g.id ? 'var(--gold)' : 'var(--border-color)'}`, background: genero === g.id ? 'rgba(245,200,66,0.15)' : 'var(--bg-secondary)', color: genero === g.id ? 'var(--gold)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>
@@ -622,17 +624,23 @@ export default function SettingsPage() {
                 <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('cambiarContrasena')}</h2>
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>{tr('nuevaContrasena')}</label>
-                  <input
-                    ref={passwordNuevaRef}
-                    type="password"
-                    placeholder="Min 6"
-                    autoComplete="new-password"
-                    onChange={e => setPasswordNueva(e.target.value)}
-                    style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box', transition: 'border 0.2s' }}
-                    onFocus={e => e.currentTarget.style.borderColor = 'var(--blue)'}
-                    onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
-                    onKeyDown={e => e.key === 'Enter' && cambiarPassword()}
-                  />
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      ref={passwordNuevaRef}
+                      type={showPasswordNueva ? 'text' : 'password'}
+                      placeholder="Min 6"
+                      autoComplete="new-password"
+                      onChange={e => setPasswordNueva(e.target.value)}
+                      style={{ width: '100%', padding: '12px 48px 12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box', transition: 'border 0.2s' }}
+                      onFocus={e => e.currentTarget.style.borderColor = 'var(--blue)'}
+                      onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                      onKeyDown={e => e.key === 'Enter' && cambiarPassword()}
+                    />
+                    <button type="button" onClick={() => setShowPasswordNueva(!showPasswordNueva)} tabIndex={-1}
+                      style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '16px', padding: '4px' }}>
+                      {showPasswordNueva ? '🙈' : '👁️'}
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>{tr('confirmarContrasena')}</label>

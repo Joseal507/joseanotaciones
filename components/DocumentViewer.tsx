@@ -8,7 +8,7 @@ export default function DocumentViewer({ content }: DocumentViewerProps) {
   if (!content) {
     return (
       <div className="max-w-4xl mx-auto text-center py-20">
-        <div className="text-6xl mb-4">📭</div>
+        <div className="text-6xl mb-4">🌵</div>
         <p className="text-gray-400 text-lg">
           Sube un documento para verlo aquí
         </p>

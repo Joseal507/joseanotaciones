@@ -258,7 +258,7 @@ export default function HorarioPage() {
               <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px', minHeight: '100px' }}>
                 {(horario[diaActivoMobile] || []).length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-faint)', fontSize: '14px' }}>
-                    <div style={{ fontSize: '32px', marginBottom: '8px' }}>📭</div>
+                    <div style={{ fontSize: '32px', marginBottom: '8px' }}>🌵</div>
                     Sin clases este día
                   </div>
                 ) : (
@@ -319,7 +319,7 @@ export default function HorarioPage() {
                   <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', minHeight: '200px' }}>
                     {clases.length === 0 ? (
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100px', color: 'var(--text-faint)', fontSize: '13px', flexDirection: 'column', gap: '8px' }}>
-                        <span style={{ fontSize: '24px' }}>📭</span>
+                        <span style={{ fontSize: '24px' }}>🌵</span>
                         Sin clases
                       </div>
                     ) : (
