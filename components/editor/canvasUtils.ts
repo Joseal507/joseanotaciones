@@ -51,6 +51,57 @@ const pointToSegmentDistance = (
 export const isPointNearStroke = (
   px: number, py: number, stroke: Stroke, threshold = 15,
 ): boolean => {
+  // ── Formas: rect, circulo, triangulo, regla ──
+  if (stroke.shapeEnd && stroke.points.length >= 1) {
+    const s = stroke.points[0];
+    const e = stroke.shapeEnd;
+    const tipo = stroke.tipo;
+
+    if (tipo === 'forma_rect') {
+      const left = Math.min(s.x, e.x);
+      const right = Math.max(s.x, e.x);
+      const top = Math.min(s.y, e.y);
+      const bottom = Math.max(s.y, e.y);
+      // Cerca de cualquier borde del rectángulo
+      if (pointToSegmentDistance(px, py, left, top, right, top) < threshold) return true;
+      if (pointToSegmentDistance(px, py, right, top, right, bottom) < threshold) return true;
+      if (pointToSegmentDistance(px, py, right, bottom, left, bottom) < threshold) return true;
+      if (pointToSegmentDistance(px, py, left, bottom, left, top) < threshold) return true;
+      // O dentro del rectángulo
+      if (px >= left - threshold && px <= right + threshold && py >= top - threshold && py <= bottom + threshold) return true;
+      return false;
+    }
+
+    if (tipo === 'forma_circulo') {
+      const cx = (s.x + e.x) / 2;
+      const cy = (s.y + e.y) / 2;
+      const rx = Math.abs(e.x - s.x) / 2;
+      const ry = Math.abs(e.y - s.y) / 2;
+      const r = Math.max(rx, ry);
+      const dist = Math.hypot(px - cx, py - cy);
+      // Cerca del borde o dentro
+      if (Math.abs(dist - r) < threshold || dist < r) return true;
+      return false;
+    }
+
+    if (tipo === 'forma_triangulo') {
+      const midX = (s.x + e.x) / 2;
+      const p1 = { x: midX, y: Math.min(s.y, e.y) };
+      const p2 = { x: Math.min(s.x, e.x), y: Math.max(s.y, e.y) };
+      const p3 = { x: Math.max(s.x, e.x), y: Math.max(s.y, e.y) };
+      if (pointToSegmentDistance(px, py, p1.x, p1.y, p2.x, p2.y) < threshold) return true;
+      if (pointToSegmentDistance(px, py, p2.x, p2.y, p3.x, p3.y) < threshold) return true;
+      if (pointToSegmentDistance(px, py, p3.x, p3.y, p1.x, p1.y) < threshold) return true;
+      return false;
+    }
+
+    if (tipo === 'regla') {
+      if (pointToSegmentDistance(px, py, s.x, s.y, e.x, e.y) < threshold) return true;
+      return false;
+    }
+  }
+
+  // ── Strokes normales: segmentos entre puntos ──
   for (let i = 0; i < stroke.points.length - 1; i++) {
     const a = stroke.points[i];
     const b = stroke.points[i + 1];
@@ -439,14 +490,85 @@ export const drawStrokeErasePreview = (
   ctx: CanvasRenderingContext2D,
   stroke: Stroke,
 ) => {
-  if (stroke.points.length < 2) return;
   ctx.save();
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 0.4;
   ctx.strokeStyle = '#ff4d6d';
+  ctx.fillStyle = 'rgba(255, 77, 109, 0.15)';
   ctx.lineWidth = stroke.size + 2;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+
+  // ── Formas: rectángulo, círculo, triángulo, regla ──
+  if (stroke.shapeEnd && stroke.points.length >= 1) {
+    const s = stroke.points[0];
+    const e = stroke.shapeEnd;
+    const tipo = stroke.tipo;
+
+    if (tipo === 'forma_rect') {
+      const x = Math.min(s.x, e.x);
+      const y = Math.min(s.y, e.y);
+      const w = Math.abs(e.x - s.x);
+      const h = Math.abs(e.y - s.y);
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x, y, w, h);
+      ctx.restore();
+      return;
+    }
+
+    if (tipo === 'forma_circulo') {
+      const cx = (s.x + e.x) / 2;
+      const cy = (s.y + e.y) / 2;
+      const rx = Math.abs(e.x - s.x) / 2;
+      const ry = Math.abs(e.y - s.y) / 2;
+      const r = Math.max(rx, ry);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    if (tipo === 'forma_triangulo') {
+      const topX = (s.x + e.x) / 2;
+      const topY = Math.min(s.y, e.y);
+      const leftX = Math.min(s.x, e.x);
+      const leftY = Math.max(s.y, e.y);
+      const rightX = Math.max(s.x, e.x);
+      const rightY = Math.max(s.y, e.y);
+      ctx.beginPath();
+      ctx.moveTo(topX, topY);
+      ctx.lineTo(leftX, leftY);
+      ctx.lineTo(rightX, rightY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    if (tipo === 'regla') {
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(e.x, e.y);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+  }
+
+  // ── Strokes normales ──
+  if (stroke.points.length < 2) {
+    if (stroke.points.length === 1) {
+      ctx.beginPath();
+      ctx.arc(stroke.points[0].x, stroke.points[0].y, stroke.size + 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    return;
+  }
+
   ctx.beginPath();
   ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
   for (let i = 1; i < stroke.points.length - 1; i++) {
