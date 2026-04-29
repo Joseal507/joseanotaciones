@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useIdioma } from '../hooks/useIdioma';
-import { getSettings } from '../lib/settings';
+import { getSettings, saveSettings } from '../lib/settings';
 
 export default function UserMenu() {
   const [usuario, setUsuario] = useState<any>(null);
@@ -12,11 +12,44 @@ export default function UserMenu() {
   const { tr } = useIdioma();
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
+    const cargar = async () => {
+      const { data } = await supabase.auth.getUser();
+      if (!data.user) return;
       setUsuario(data.user);
-    });
-    const settings = getSettings();
-    setFotoPerfil(settings.fotoPerfil || '');
+
+      // 1. Intentar desde localStorage primero (más rápido)
+      const settings = getSettings();
+      if (settings.fotoPerfil) {
+        setFotoPerfil(settings.fotoPerfil);
+      }
+
+      // 2. Cargar desde Supabase (fuente de verdad)
+      try {
+        const { data: lb } = await supabase
+          .from('leaderboard')
+          .select('avatar_url')
+          .eq('user_id', data.user.id)
+          .single();
+
+        if (lb?.avatar_url) {
+          setFotoPerfil(lb.avatar_url);
+          // Sincronizar localStorage si difiere
+          if (lb.avatar_url !== settings.fotoPerfil) {
+            saveSettings({ ...settings, fotoPerfil: lb.avatar_url });
+          }
+        }
+      } catch {}
+    };
+
+    cargar();
+
+    // Escuchar cambios en localStorage (cuando se sube foto en settings)
+    const onStorage = () => {
+      const s = getSettings();
+      if (s.fotoPerfil) setFotoPerfil(s.fotoPerfil);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
 
   const cerrarSesion = async () => {
@@ -54,12 +87,22 @@ export default function UserMenu() {
 
   return (
     <div style={{ position: 'relative' }}>
-      <button onClick={() => setOpen(!open)}
-        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', cursor: 'pointer', transition: 'all 0.2s' }}
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: '8px',
+          padding: '6px 12px', borderRadius: '10px',
+          border: '2px solid var(--border-color)',
+          background: 'transparent', cursor: 'pointer', transition: 'all 0.2s',
+        }}
         onMouseEnter={(e: any) => e.currentTarget.style.borderColor = 'var(--gold)'}
-        onMouseLeave={(e: any) => e.currentTarget.style.borderColor = 'var(--border-color)'}>
+        onMouseLeave={(e: any) => e.currentTarget.style.borderColor = 'var(--border-color)'}
+      >
         <Avatar size={28} />
-        <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{
+          fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)',
+          maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
           {nombre}
         </span>
         <span style={{ fontSize: '10px', color: 'var(--text-faint)' }}>▼</span>
@@ -68,13 +111,23 @@ export default function UserMenu() {
       {open && (
         <>
           <div style={{ position: 'fixed', inset: 0, zIndex: 998 }} onClick={() => setOpen(false)} />
-          <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '8px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '8px', minWidth: '210px', zIndex: 999, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
+          <div style={{
+            position: 'absolute', top: '100%', right: 0, marginTop: '8px',
+            background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+            borderRadius: '14px', padding: '8px', minWidth: '210px',
+            zIndex: 999, boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          }}>
+            {/* Header del menu */}
             <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', marginBottom: '6px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Avatar size={36} />
+                <Avatar size={40} />
                 <div style={{ minWidth: 0 }}>
-                  <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nombre}</p>
-                  <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{usuario.email}</p>
+                  <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {nombre}
+                  </p>
+                  <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {usuario.email}
+                  </p>
                 </div>
               </div>
             </div>
@@ -82,18 +135,31 @@ export default function UserMenu() {
             {menuItems.map((item, i) => (
               <button key={i}
                 onClick={() => { window.location.href = item.href; setOpen(false); }}
-                style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s', display: 'block' }}
+                style={{
+                  width: '100%', padding: '9px 12px', borderRadius: '8px',
+                  border: 'none', background: 'transparent',
+                  color: 'var(--text-primary)', fontSize: '13px', fontWeight: 600,
+                  cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s', display: 'block',
+                }}
                 onMouseEnter={(e: any) => e.currentTarget.style.background = 'var(--bg-secondary)'}
-                onMouseLeave={(e: any) => e.currentTarget.style.background = 'transparent'}>
+                onMouseLeave={(e: any) => e.currentTarget.style.background = 'transparent'}
+              >
                 {item.label}
               </button>
             ))}
 
             <div style={{ height: '1px', background: 'var(--border-color)', margin: '6px 0' }} />
-            <button onClick={cerrarSesion}
-              style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--red)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s' }}
+            <button
+              onClick={cerrarSesion}
+              style={{
+                width: '100%', padding: '9px 12px', borderRadius: '8px',
+                border: 'none', background: 'transparent',
+                color: 'var(--red)', fontSize: '13px', fontWeight: 700,
+                cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
+              }}
               onMouseEnter={(e: any) => e.currentTarget.style.background = 'var(--red-dim)'}
-              onMouseLeave={(e: any) => e.currentTarget.style.background = 'transparent'}>
+              onMouseLeave={(e: any) => e.currentTarget.style.background = 'transparent'}
+            >
               🚪 {tr('cerrarSesion')}
             </button>
           </div>

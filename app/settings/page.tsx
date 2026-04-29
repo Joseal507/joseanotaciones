@@ -31,9 +31,17 @@ export default function SettingsPage() {
   const { idioma, setIdioma, tr } = useIdioma();
   const isMobile = useIsMobile();
   const fotoRef = useRef<HTMLInputElement>(null);
-  const nombreAppRef = useRef<HTMLInputElement>(null);
 
   const [nombre, setNombre] = useState('');
+  const [descripcion, setDescripcion] = useState('');
+  const [genero, setGenero] = useState('');
+  const [tipoEstudiante, setTipoEstudiante] = useState('');
+  const [universidad, setUniversidad] = useState('');
+  const [uniCustom, setUniCustom] = useState('');
+  const [carrera, setCarrera] = useState('');
+  const [carreraCustom, setCarreraCustom] = useState('');
+  const [escuela, setEscuela] = useState('');
+  const [escuelaCustom, setEscuelaCustom] = useState('');
   const [guardandoPerfil, setGuardandoPerfil] = useState(false);
   const [mensajePerfil, setMensajePerfil] = useState('');
   const [passwordNueva, setPasswordNueva] = useState('');
@@ -41,6 +49,8 @@ export default function SettingsPage() {
   const [guardandoPassword, setGuardandoPassword] = useState(false);
   const [mensajePassword, setMensajePassword] = useState('');
   const [errorPassword, setErrorPassword] = useState('');
+  const passwordNuevaRef = useRef<HTMLInputElement>(null);
+  const passwordConfirmRef = useRef<HTMLInputElement>(null);
   const [mensajeNombreApp, setMensajeNombreApp] = useState('');
   const [enviandoReset, setEnviandoReset] = useState(false);
   const [mensajeReset, setMensajeReset] = useState('');
@@ -52,6 +62,26 @@ export default function SettingsPage() {
       setUsuario(data.user);
       setUserId(data.user.id);
       setNombre(data.user.user_metadata?.nombre || '');
+
+      // Cargar datos del perfil público
+      try {
+        const { data: lb } = await supabase
+          .from('leaderboard')
+          .select('descripcion, genero, tipo_estudiante, universidad, carrera')
+          .eq('user_id', data.user.id)
+          .single();
+        if (lb) {
+          setDescripcion(lb.descripcion || '');
+          setGenero(lb.genero || '');
+          setTipoEstudiante(lb.tipo_estudiante || '');
+          if (lb.tipo_estudiante === 'universitario') {
+            setUniversidad(lb.universidad || '');
+            setCarrera(lb.carrera || '');
+          } else if (lb.tipo_estudiante === 'escuela') {
+            setEscuela(lb.universidad || '');
+          }
+        }
+      } catch {}
 
       // Cargar visible_leaderboard
       try {
@@ -80,6 +110,19 @@ export default function SettingsPage() {
         setSettings(localSettings);
         applyTheme(localSettings.tema);
       }
+
+      // Cargar foto desde leaderboard (fuente de verdad)
+      try {
+        const { data: lb } = await supabase
+          .from('leaderboard')
+          .select('avatar_url')
+          .eq('user_id', data.user.id)
+          .single();
+        if (lb?.avatar_url) {
+          setSettings(prev => ({ ...prev, fotoPerfil: lb.avatar_url }));
+          saveSettings({ ...localSettings, fotoPerfil: lb.avatar_url });
+        }
+      } catch {}
       setCargando(false);
     };
     cargar();
@@ -127,7 +170,31 @@ export default function SettingsPage() {
     try {
       const { error } = await supabase.auth.updateUser({ data: { nombre } });
       if (error) throw error;
-      setMensajePerfil(tr('perfilActualizado'));
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (token) {
+        const universidadFinal = tipoEstudiante === 'universitario'
+          ? (universidad === 'Otra universidad' ? uniCustom : universidad)
+          : tipoEstudiante === 'escuela'
+          ? (escuela === 'Otra escuela' ? escuelaCustom : escuela)
+          : undefined;
+        const carreraFinal = carrera === 'Otra carrera' ? carreraCustom : carrera;
+
+        await fetch('/api/perfil-publico', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({
+            nombre,
+            descripcion,
+            genero,
+            tipo_estudiante: tipoEstudiante,
+            universidad: universidadFinal,
+            carrera: tipoEstudiante === 'universitario' ? carreraFinal : undefined,
+          }),
+        });
+      }
+      setMensajePerfil('✅ ' + (idioma === 'en' ? 'Profile updated!' : '¡Perfil actualizado!'));
     } catch (err: any) {
       setMensajePerfil('❌ Error: ' + err.message);
     } finally {
@@ -138,42 +205,86 @@ export default function SettingsPage() {
   const handleFotoPerfil = (e: React.ChangeEvent<HTMLInputElement>) => {
   const file = e.target.files?.[0];
   if (!file) return;
-  if (file.size > 2 * 1024 * 1024) { alert('Max 2MB'); return; }
+  if (file.size > 5 * 1024 * 1024) { alert('Max 5MB'); return; }
+
   const reader = new FileReader();
   reader.onload = async (ev) => {
-    const result = ev.target?.result as string;
-    await updateSettings({ fotoPerfil: result });
+    const original = ev.target?.result as string;
 
-    // ✅ También guardar en leaderboard para que salga la foto
+    // Redimensionar a máximo 400x400px para reducir tamaño
+    const comprimida = await new Promise<string>((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 400;
+        let w = img.width;
+        let h = img.height;
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+          else { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.src = original;
+    });
+
+    // Guardar local
+    await updateSettings({ fotoPerfil: comprimida });
+    setMensajePerfil('⏳ Subiendo foto...');
+
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const session = sessionData.session;
       if (session) {
-        await fetch('/api/leaderboard', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ avatar_url: result }),
-        });
+        const [r1, r2] = await Promise.all([
+          fetch('/api/leaderboard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+            body: JSON.stringify({ avatar_url: comprimida }),
+          }),
+          fetch('/api/perfil-publico', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+            body: JSON.stringify({ avatar_url: comprimida }),
+          }),
+        ]);
+        if (r1.ok && r2.ok) {
+          setMensajePerfil('✅ Foto actualizada correctamente');
+        } else {
+          const err1 = await r1.json().catch(() => ({}));
+          const err2 = await r2.json().catch(() => ({}));
+          console.error('Leaderboard:', err1, 'Perfil:', err2);
+          setMensajePerfil('⚠️ Foto guardada localmente pero no en la nube');
+        }
       }
-    } catch {}
+    } catch (err) {
+      console.error('Error subiendo foto:', err);
+      setMensajePerfil('⚠️ Foto guardada localmente');
+    }
+    setTimeout(() => setMensajePerfil(''), 3000);
   };
   reader.readAsDataURL(file);
 };
 
   const cambiarPassword = async () => {
     setErrorPassword(''); setMensajePassword('');
-    if (!passwordNueva || !passwordConfirm) { setErrorPassword(tr('noCoinciden')); return; }
-    if (passwordNueva.length < 6) { setErrorPassword('Min 6 chars'); return; }
-    if (passwordNueva !== passwordConfirm) { setErrorPassword(tr('noCoinciden')); return; }
+    const pNueva = passwordNuevaRef.current?.value || passwordNueva;
+    const pConfirm = passwordConfirmRef.current?.value || passwordConfirm;
+    if (!pNueva || !pConfirm) { setErrorPassword(tr('noCoinciden')); return; }
+    if (pNueva.length < 6) { setErrorPassword('Min 6 chars'); return; }
+    if (pNueva !== pConfirm) { setErrorPassword(tr('noCoinciden')); return; }
     setGuardandoPassword(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password: passwordNueva });
+      const { error } = await supabase.auth.updateUser({ password: pNueva });
       if (error) throw error;
       setMensajePassword(tr('contrasenaCambiada'));
       setPasswordNueva(''); setPasswordConfirm('');
+      if (passwordNuevaRef.current) passwordNuevaRef.current.value = '';
+      if (passwordConfirmRef.current) passwordConfirmRef.current.value = '';
     } catch (err: any) {
       setErrorPassword('❌ Error: ' + err.message);
     } finally {
@@ -266,7 +377,13 @@ export default function SettingsPage() {
   const InputField = ({ label, value, onChange, type = 'text', placeholder, disabled = false, focusColor = 'var(--gold)' }: any) => (
     <div>
       <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>{label}</label>
-      <input type={type} value={value} onChange={onChange} placeholder={placeholder} disabled={disabled}
+      <input
+        type={type}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        disabled={disabled}
+        autoComplete={type === 'password' ? 'new-password' : 'off'}
         style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: disabled ? 'var(--text-faint)' : 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box', transition: 'border 0.2s', cursor: disabled ? 'not-allowed' : 'text' }}
         onFocus={e => { if (!disabled) e.currentTarget.style.borderColor = focusColor; }}
         onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
@@ -337,58 +454,188 @@ export default function SettingsPage() {
 
           {/* ===== PERFIL ===== */}
           {seccion === 'perfil' && (
-            <Card color="var(--gold)">
-              <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('perfilSettings')}</h2>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '20px', background: 'var(--bg-secondary)', borderRadius: '14px', border: '1px solid var(--border-color)' }}>
-                <div onClick={() => fotoRef.current?.click()}
-                  style={{ width: '80px', height: '80px', borderRadius: '50%', cursor: 'pointer', overflow: 'hidden', border: '3px solid var(--gold)', flexShrink: 0 }}>
-                  {settings.fotoPerfil ? (
-                    <img src={settings.fotoPerfil} alt="Foto" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    <div style={{ width: '100%', height: '100%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', fontWeight: 900, color: '#000' }}>{inicial}</div>
-                  )}
-                </div>
-                <div>
-                  <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>{tr('fotoPerfil')}</p>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px' }}>JPG, PNG · Max 2MB</p>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={() => fotoRef.current?.click()}
-                      style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                      {tr('cambiarFoto')}
-                    </button>
-                    {settings.fotoPerfil && (
-                      <button onClick={async () => {
-  await updateSettings({ fotoPerfil: '' });
-  try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const session = sessionData.session;
-    if (session) {
-      await fetch('/api/leaderboard', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ avatar_url: null }),
-      });
-    }
-  } catch {}
-}}
-                        style={{ padding: '7px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                        {tr('quitar')}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <Card color="var(--gold)">
+                <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                  👤 {idioma === 'en' ? 'Public Profile' : 'Perfil público'}
+                </h2>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                  {idioma === 'en' ? 'This info appears on your public profile page' : 'Esta información aparece en tu página de perfil público'}
+                </p>
+
+                {/* Foto */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '16px', background: 'var(--bg-secondary)', borderRadius: '14px', border: '1px solid var(--border-color)' }}>
+                  <div onClick={() => fotoRef.current?.click()}
+                    style={{ width: '72px', height: '72px', borderRadius: '50%', cursor: 'pointer', overflow: 'hidden', border: '3px solid var(--gold)', flexShrink: 0 }}>
+                    {settings.fotoPerfil
+                      ? <img src={settings.fotoPerfil} alt="Foto" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : <div style={{ width: '100%', height: '100%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', fontWeight: 900, color: '#000' }}>{inicial}</div>
+                    }
+                  </div>
+                  <div>
+                    <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>Foto de perfil</p>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 8px' }}>JPG, PNG · Max 2MB</p>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button onClick={() => fotoRef.current?.click()}
+                        style={{ padding: '6px 12px', borderRadius: '8px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                        {tr('cambiarFoto')}
                       </button>
-                    )}
+                      {settings.fotoPerfil && (
+                        <button onClick={async () => {
+                          await updateSettings({ fotoPerfil: '' });
+                          try {
+                            const { data: s } = await supabase.auth.getSession();
+                            if (s.session) {
+                              await Promise.all([
+                                fetch('/api/leaderboard', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${s.session.access_token}` }, body: JSON.stringify({ avatar_url: null }) }),
+                                fetch('/api/perfil-publico', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${s.session.access_token}` }, body: JSON.stringify({ avatar_url: null }) }),
+                              ]);
+                            }
+                          } catch {}
+                        }}
+                          style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                          {tr('quitar')}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <InputField label={tr('nombre')} value={nombre} onChange={(e: any) => setNombre(e.target.value)} placeholder={tr('nombre')} />
-              <InputField label={tr('email')} value={usuario?.email || ''} disabled />
-              <Alert msg={mensajePerfil} />
-              <button onClick={guardarPerfil} disabled={guardandoPerfil}
-                style={{ padding: '13px 24px', borderRadius: '10px', border: 'none', background: guardandoPerfil ? 'var(--bg-card2)' : 'var(--gold)', color: guardandoPerfil ? 'var(--text-faint)' : '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer', alignSelf: 'flex-start' }}>
-                {guardandoPerfil ? tr('cargando') : tr('guardarCambios')}
-              </button>
-            </Card>
+
+                {/* Nombre */}
+                <InputField label={tr('nombre')} value={nombre} onChange={(e: any) => setNombre(e.target.value)} placeholder={tr('nombre')} />
+
+                {/* Email (solo lectura) */}
+                <InputField label={tr('email')} value={usuario?.email || ''} disabled />
+
+                {/* Descripción */}
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    {idioma === 'en' ? 'Description' : 'Descripción'} <span style={{ fontWeight: 400, textTransform: 'none' }}>({descripcion.length}/300)</span>
+                  </label>
+                  <textarea
+                    value={descripcion}
+                    onChange={e => setDescripcion(e.target.value.slice(0, 300))}
+                    placeholder={idioma === 'en' ? 'Tell others about yourself...' : 'Cuéntale algo a los demás...'}
+                    rows={3}
+                    style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', resize: 'vertical', minHeight: '80px', lineHeight: 1.5, fontFamily: 'inherit', transition: 'border 0.2s' }}
+                    onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
+                    onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                  />
+                </div>
+
+                {/* Género */}
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    {idioma === 'en' ? 'Gender' : 'Género'}
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {[
+                      { id: 'hombre', label: idioma === 'en' ? '👦 Male' : '👦 Hombre' },
+                      { id: 'mujer', label: idioma === 'en' ? '👧 Female' : '👧 Mujer' },
+                      { id: 'otro', label: idioma === 'en' ? '🌈 Other' : '🌈 Otro' },
+                    ].map(g => (
+                      <button key={g.id} onClick={() => setGenero(g.id)}
+                        style={{ flex: 1, padding: '10px', borderRadius: '10px', border: `2px solid ${genero === g.id ? 'var(--gold)' : 'var(--border-color)'}`, background: genero === g.id ? 'rgba(245,200,66,0.15)' : 'var(--bg-secondary)', color: genero === g.id ? 'var(--gold)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>
+                        {g.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Tipo de estudiante */}
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    {idioma === 'en' ? 'Student type' : 'Tipo de estudiante'}
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {[
+                      { id: 'escuela', label: '🏫 ' + (idioma === 'en' ? 'School' : 'Escuela') },
+                      { id: 'universitario', label: '🎓 ' + (idioma === 'en' ? 'University' : 'Universitario') },
+                      { id: 'profesional', label: '💼 ' + (idioma === 'en' ? 'Professional' : 'Profesional') },
+                      { id: 'autodidacta', label: '🧠 ' + (idioma === 'en' ? 'Self-taught' : 'Autodidacta') },
+                    ].map(t => (
+                      <button key={t.id} onClick={() => setTipoEstudiante(t.id)}
+                        style={{ padding: '8px 14px', borderRadius: '10px', border: `2px solid ${tipoEstudiante === t.id ? 'var(--blue)' : 'var(--border-color)'}`, background: tipoEstudiante === t.id ? 'rgba(56,189,248,0.15)' : 'var(--bg-secondary)', color: tipoEstudiante === t.id ? 'var(--blue)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Universidad y carrera */}
+                {tipoEstudiante === 'universitario' && (
+                  <>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>🏫 {idioma === 'en' ? 'University' : 'Universidad'}</label>
+                      <select value={universidad} onChange={e => setUniversidad(e.target.value)}
+                        style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}
+                        onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
+                        onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}>
+                        <option value="">{idioma === 'en' ? 'Not specified' : 'Sin especificar'}</option>
+                        {['ULAT','USMA','UTP','UP (Universidad de Panamá)','UDELAS','ISAE Universidad','Universidad Latina de Panamá','Columbus University','Universidad del Istmo','UMECIT','Harvard','MIT','Stanford','TEC de Monterrey','Otra universidad'].map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                      {universidad === 'Otra universidad' && (
+                        <input type="text" value={uniCustom} onChange={e => setUniCustom(e.target.value)} placeholder={idioma === 'en' ? 'Your university...' : 'Tu universidad...'}
+                          style={{ width: '100%', padding: '10px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', marginTop: '8px' }} />
+                      )}
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>📚 {idioma === 'en' ? 'Major' : 'Carrera'}</label>
+                      <select value={carrera} onChange={e => setCarrera(e.target.value)}
+                        style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}
+                        onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
+                        onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}>
+                        <option value="">{idioma === 'en' ? 'Not specified' : 'Sin especificar'}</option>
+                        {['Ingeniería en Sistemas / Informática','Ingeniería Civil','Medicina','Enfermería','Psicología','Derecho','Administración de Empresas','Contaduría / Contabilidad','Arquitectura','Diseño Gráfico','Marketing / Publicidad','Biología','Química','Física','Matemáticas','Otra carrera'].map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      {carrera === 'Otra carrera' && (
+                        <input type="text" value={carreraCustom} onChange={e => setCarreraCustom(e.target.value)} placeholder={idioma === 'en' ? 'Your major...' : 'Tu carrera...'}
+                          style={{ width: '100%', padding: '10px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', marginTop: '8px' }} />
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {/* Escuela */}
+                {tipoEstudiante === 'escuela' && (
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>🏫 {idioma === 'en' ? 'School' : 'Escuela'}</label>
+                    <select value={escuela} onChange={e => setEscuela(e.target.value)}
+                      style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}
+                      onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
+                      onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}>
+                      <option value="">{idioma === 'en' ? 'Not specified' : 'Sin especificar'}</option>
+                      <optgroup label="🏛️ Públicas">
+                        {['Instituto Nacional (El Nacio)','Instituto Fermín Naudeau','Instituto Profesional y Técnico de Panamá (IPTP)'].map(e => <option key={e} value={e}>{e}</option>)}
+                      </optgroup>
+                      <optgroup label="🏫 Particulares">
+                        {['Colegio Brader','AIP (Academia Internacional de Panamá)','Balboa Academy','Metropolitan School','Oxford School','Colegio Javier','Colegio La Salle','Isaac Rabin','Instituto Episcopal San Cristóbal','Saint Mary School','Colegio San Viator','Instituto Panamericano (IPA)','St. George School','Otra escuela'].map(e => <option key={e} value={e}>{e}</option>)}
+                      </optgroup>
+                    </select>
+                    {escuela === 'Otra escuela' && (
+                      <input type="text" value={escuelaCustom} onChange={e => setEscuelaCustom(e.target.value)} placeholder={idioma === 'en' ? 'Your school...' : 'Tu escuela...'}
+                        style={{ width: '100%', padding: '10px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', marginTop: '8px' }} />
+                    )}
+                  </div>
+                )}
+
+                <Alert msg={mensajePerfil} />
+
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <button onClick={guardarPerfil} disabled={guardandoPerfil}
+                    style={{ padding: '13px 24px', borderRadius: '10px', border: 'none', background: guardandoPerfil ? 'var(--bg-card2)' : 'var(--gold)', color: guardandoPerfil ? 'var(--text-faint)' : '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
+                    {guardandoPerfil ? tr('cargando') : '💾 ' + tr('guardarCambios')}
+                  </button>
+                  <button onClick={async () => {
+                    const { data } = await supabase.auth.getUser();
+                    if (data.user?.id) window.location.href = '/u/' + data.user.id;
+                  }}
+                    style={{ padding: '13px 24px', borderRadius: '10px', border: '2px solid var(--blue)', background: 'transparent', color: 'var(--blue)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
+                    🌐 {idioma === 'en' ? 'View public profile' : 'Ver perfil público'}
+                  </button>
+                </div>
+              </Card>
+            </div>
           )}
 
           {/* ===== SEGURIDAD ===== */}
@@ -396,9 +643,33 @@ export default function SettingsPage() {
             <>
               <Card color="var(--blue)">
                 <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('cambiarContrasena')}</h2>
-                <InputField label={tr('nuevaContrasena')} type="password" value={passwordNueva} onChange={(e: any) => setPasswordNueva(e.target.value)} placeholder="Min 6" focusColor="var(--blue)" />
                 <div>
-                  <InputField label={tr('confirmarContrasena')} type="password" value={passwordConfirm} onChange={(e: any) => setPasswordConfirm(e.target.value)} placeholder={tr('confirmarContrasena')} focusColor="var(--blue)" />
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>{tr('nuevaContrasena')}</label>
+                  <input
+                    ref={passwordNuevaRef}
+                    type="password"
+                    placeholder="Min 6"
+                    autoComplete="new-password"
+                    onChange={e => setPasswordNueva(e.target.value)}
+                    style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box', transition: 'border 0.2s' }}
+                    onFocus={e => e.currentTarget.style.borderColor = 'var(--blue)'}
+                    onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                    onKeyDown={e => e.key === 'Enter' && cambiarPassword()}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>{tr('confirmarContrasena')}</label>
+                  <input
+                    ref={passwordConfirmRef}
+                    type="password"
+                    placeholder={tr('confirmarContrasena')}
+                    autoComplete="new-password"
+                    onChange={e => setPasswordConfirm(e.target.value)}
+                    style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box', transition: 'border 0.2s' }}
+                    onFocus={e => e.currentTarget.style.borderColor = 'var(--blue)'}
+                    onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                    onKeyDown={e => e.key === 'Enter' && cambiarPassword()}
+                  />
                   {passwordConfirm && passwordNueva !== passwordConfirm && (
                     <p style={{ fontSize: '11px', color: 'var(--red)', margin: '4px 0 0' }}>{tr('noCoinciden')}</p>
                   )}
@@ -447,34 +718,6 @@ export default function SettingsPage() {
               </Card>
 
               <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
-                <div style={{ height: '4px', background: 'var(--gold)' }} />
-                <div style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('nombreApp')}</h2>
-                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>{tr('personalizaNombre')}</p>
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>{tr('nombre')}</label>
-                    <input ref={nombreAppRef} defaultValue={settings.nombreApp || 'StudyAL'} placeholder="StudyAL" type="text"
-                      style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '16px', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
-                      onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
-                      onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
-                      onKeyDown={e => { if (e.key === 'Enter') guardarNombreApp(); }}
-                    />
-                  </div>
-                  <Alert msg={mensajeNombreApp} />
-                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                    <button onClick={guardarNombreApp}
-                      style={{ padding: '11px 22px', borderRadius: '10px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-                      {tr('guardarNombre')}
-                    </button>
-                    <button onClick={restablecerNombreApp}
-                      style={{ padding: '11px 18px', borderRadius: '10px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-                      {tr('restablecer')}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                 <div style={{ height: '4px', background: 'var(--pink)' }} />
                 <div style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('temaColores')}</h2>
@@ -519,7 +762,7 @@ export default function SettingsPage() {
                   <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>🤖 JeffreyBot flotante</h3>
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>Chat de IA accesible desde cualquier página</p>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>Mostrar chat flotante</span>
+                    <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>Mostrar</span>
                     <button
                       onClick={() => updateSettings({ chatEnabled: !settings.chatEnabled })}
                       style={{ width: '48px', height: '26px', borderRadius: '13px', border: 'none', background: settings.chatEnabled !== false ? 'var(--pink)' : 'var(--border-color)', cursor: 'pointer', position: 'relative', transition: 'background 0.3s' }}>
@@ -533,18 +776,16 @@ export default function SettingsPage() {
                 <div style={{ height: '3px', background: '#ef4444' }} />
                 <div style={{ padding: '20px' }}>
                   <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>⏱️ Pomodoro Timer</h3>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>Timer flotante de estudio con técnica Pomodoro</p>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>Mini widget de estudio con técnica Pomodoro</p>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>Mostrar timer flotante</span>
+                    <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>Mostrar</span>
                     <button
                       onClick={() => updateSettings({ timerEnabled: !settings.timerEnabled })}
                       style={{ width: '48px', height: '26px', borderRadius: '13px', border: 'none', background: settings.timerEnabled !== false ? '#ef4444' : 'var(--border-color)', cursor: 'pointer', position: 'relative', transition: 'background 0.3s' }}>
                       <div style={{ position: 'absolute', top: '3px', left: settings.timerEnabled !== false ? '24px' : '3px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.3s', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }} />
                     </button>
                   </div>
-                  <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '8px 0 0' }}>
-                    💡 Arrastra los widgets para moverlos · Click ▬ para minimizar
-                  </p>
+
                 </div>
               </div>
 
