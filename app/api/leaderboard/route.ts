@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
 
     // ✅ flashcards_estudiadas NUNCA baja — solo sube
     if (flashcards_estudiadas !== undefined) {
-      const { data: curr } = await supabaseAdmin
+      const { data: curr } = await getAdmin()
         .from('leaderboard')
         .select('flashcards_estudiadas')
         .eq('user_id', user.id)
