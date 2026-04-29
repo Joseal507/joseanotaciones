@@ -100,8 +100,8 @@ export default function HorarioPage() {
       setFormProfesor(clase.profesor || '');
       setFormAula(clase.aula || '');
       setFormColor(clase.color);
-      setFormInicio(clase.hora{tr('inicioLabel')});
-      setFormFin(clase.hora{tr('finLabel')});
+      setFormInicio(clase.horaInicio);
+      setFormFin(clase.horaFin);
     } else {
       setClaseEditando(null);
       setFormNombre('');
@@ -122,14 +122,14 @@ export default function HorarioPage() {
       profesor: formProfesor,
       aula: formAula,
       color: formColor,
-      hora{tr('inicioLabel')}: formInicio,
-      hora{tr('finLabel')}: formFin,
+      horaInicio: formInicio,
+      horaFin: formFin,
     };
     const nuevoHorario = { ...horario };
     if (claseEditando) {
       nuevoHorario[diaSeleccionado] = nuevoHorario[diaSeleccionado].map(c => c.id === claseEditando.id ? nueva : c);
     } else {
-      nuevoHorario[diaSeleccionado] = [...nuevoHorario[diaSeleccionado], nueva].sort((a, b) => a.hora{tr('inicioLabel')}.localeCompare(b.hora{tr('inicioLabel')}));
+      nuevoHorario[diaSeleccionado] = [...nuevoHorario[diaSeleccionado], nueva].sort((a, b) => a.horaInicio.localeCompare(b.horaInicio));
     }
     await guardar(nuevoHorario);
     setModalAbierto(false);
@@ -143,11 +143,11 @@ export default function HorarioPage() {
   };
 
   const claseActual = DIAS.includes(diaHoy as any)
-    ? (horario[diaHoy as typeof DIAS[number]] || []).find(c => c.hora{tr('inicioLabel')} <= horaActual && c.hora{tr('finLabel')} > horaActual)
+    ? (horario[diaHoy as typeof DIAS[number]] || []).find(c => c.horaInicio <= horaActual && c.horaFin > horaActual)
     : null;
 
   const proximaClase = DIAS.includes(diaHoy as any)
-    ? (horario[diaHoy as typeof DIAS[number]] || []).find(c => c.hora{tr('inicioLabel')} > horaActual)
+    ? (horario[diaHoy as typeof DIAS[number]] || []).find(c => c.horaInicio > horaActual)
     : null;
 
   if (cargando) {
@@ -200,7 +200,7 @@ export default function HorarioPage() {
                 {claseActual.nombre}
               </p>
               <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-                {formatHora(claseActual.hora{tr('inicioLabel')})} - {formatHora(claseActual.hora{tr('finLabel')})}
+                {formatHora(claseActual.horaInicio)} - {formatHora(claseActual.horaFin)}
                 {claseActual.aula && ` · Aula ${claseActual.aula}`}
               </p>
             </div>
@@ -214,7 +214,7 @@ export default function HorarioPage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--blue)', margin: '0 0 2px', textTransform: 'uppercase' }}>{tr('proximaClaseHoy')}</p>
               <p style={{ fontSize: isMobile ? '16px' : '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{proximaClase.nombre}</p>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{tr('aLas')} {formatHora(proximaClase.horaInicio)}</p>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>a las {formatHora(proximaClase.horaInicio)}</p>
             </div>
           </div>
         )}
@@ -274,7 +274,7 @@ export default function HorarioPage() {
                   </div>
                 ) : (
                   (horario[diaActivoMobile] || []).map(clase => {
-                    const estaEnCurso = diaActivoMobile === diaHoy && clase.hora{tr('inicioLabel')} <= horaActual && clase.hora{tr('finLabel')} > horaActual;
+                    const estaEnCurso = diaActivoMobile === diaHoy && clase.horaInicio <= horaActual && clase.horaFin > horaActual;
                     return (
                       <div key={clase.id} style={{ borderRadius: '12px', border: `2px solid ${clase.color}`, background: clase.color + (estaEnCurso ? '30' : '15'), padding: '14px 16px', boxShadow: estaEnCurso ? `0 4px 16px ${clase.color}44` : 'none' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
@@ -282,14 +282,14 @@ export default function HorarioPage() {
                           {estaEnCurso && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: clase.color, flexShrink: 0, marginTop: '4px' }} />}
                         </div>
                         <p style={{ fontSize: '13px', color: clase.color, fontWeight: 700, margin: '0 0 6px' }}>
-                          {formatHora(clase.hora{tr('inicioLabel')})} - {formatHora(clase.hora{tr('finLabel')})}
+                          {formatHora(clase.horaInicio)} - {formatHora(clase.horaFin)}
                         </p>
                         {clase.profesor && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 2px' }}>👤 {clase.profesor}</p>}
                         {clase.aula && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px' }}>📍 {tr('aula')} {clase.aula}</p>}
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <button onClick={() => abrirModal(diaActivoMobile, clase)}
                             style={{ flex: 1, padding: '8px', borderRadius: '8px', border: `1px solid ${clase.color}44`, background: 'transparent', color: clase.color, fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-                            {tr('editarClaseBtn')}
+                            Editar clase
                           </button>
                           <button onClick={() => eliminarClase(diaActivoMobile, clase.id)}
                             style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid var(--red-border)', background: 'transparent', color: 'var(--red)', fontSize: '13px', cursor: 'pointer' }}>
@@ -335,7 +335,7 @@ export default function HorarioPage() {
                       </div>
                     ) : (
                       clases.map(clase => {
-                        const estaEnCurso = esHoy && clase.hora{tr('inicioLabel')} <= horaActual && clase.hora{tr('finLabel')} > horaActual;
+                        const estaEnCurso = esHoy && clase.horaInicio <= horaActual && clase.horaFin > horaActual;
                         return (
                           <div key={clase.id} style={{ borderRadius: '10px', border: `2px solid ${clase.color}`, background: clase.color + (estaEnCurso ? '35' : '15'), padding: '10px 12px', position: 'relative', boxShadow: estaEnCurso ? `0 4px 16px ${clase.color}44` : 'none' }}>
                             {estaEnCurso && (
@@ -345,7 +345,7 @@ export default function HorarioPage() {
                               {clase.nombre}
                             </p>
                             <p style={{ fontSize: '11px', color: clase.color, fontWeight: 700, margin: '0 0 3px' }}>
-                              {formatHora(clase.hora{tr('inicioLabel')})} - {formatHora(clase.hora{tr('finLabel')})}
+                              {formatHora(clase.horaInicio)} - {formatHora(clase.horaFin)}
                             </p>
                             {clase.profesor && <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 2px' }}>👤 {clase.profesor}</p>}
                             {clase.aula && <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>📍 {clase.aula}</p>}
@@ -413,24 +413,24 @@ export default function HorarioPage() {
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('nombreClaseLabel')}</label>
                 <input value={formNombre} onChange={e => setFormNombre(e.target.value)}
-                  placeholder={tr('nombreClasePlaceholder')}
+                  placeholder=Nombre de la clase
                   autoFocus
                   style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }}
-                  onFocus={e => e.currentTarget.style.border{tr('colorLabel')} = formColor}
-                  onBlur={e => e.currentTarget.style.border{tr('colorLabel')} = 'var(--border-color)'}
+                  onFocus={e => e.currentTarget.style.borderColor = formColor}
+                  onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
                 />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>
-                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('inicioLabel')}</label>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Inicio</label>
                   <select value={formInicio} onChange={e => setFormInicio(e.target.value)}
                     style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}>
                     {HORAS.map(h => <option key={h} value={h}>{formatHora(h)}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('finLabel')}</label>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Fin</label>
                   <select value={formFin} onChange={e => setFormFin(e.target.value)}
                     style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}>
                     {HORAS.map(h => <option key={h} value={h}>{formatHora(h)}</option>)}
@@ -441,19 +441,19 @@ export default function HorarioPage() {
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('profesorLabel')}</label>
                 <input value={formProfesor} onChange={e => setFormProfesor(e.target.value)}
-                  placeholder={tr('profesorPlaceholder')}
+                  placeholder=Profesor
                   style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }} />
               </div>
 
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('aulaLabel')}</label>
                 <input value={formAula} onChange={e => setFormAula(e.target.value)}
-                  placeholder={tr('aulaPlaceholder')}
+                  placeholder=Aula
                   style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }} />
               </div>
 
               <div>
-                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>{tr('colorLabel')}</label>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Color</label>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   {COLORES.map(c => (
                     <button key={c} onClick={() => setFormColor(c)}
