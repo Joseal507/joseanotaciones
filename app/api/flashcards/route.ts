@@ -1,6 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
+
+// Detectar idioma del contenido
+const detectLang = (text: string, fallback: string): 'en' | 'es' => {
+  if (!text || text.length < 30) return fallback === 'en' ? 'en' : 'es';
+  const t = text.toLowerCase().substring(0, 1000);
+  const en = ['the','is','are','was','were','have','has','this','that','with','from','they','what','which','when','how','can','will','would','about','there','their','been','an','of','in','to','for','on','at'];
+  const es = ['que','con','para','por','una','los','las','del','está','son','como','pero','más','muy','todo','este','esta','también','hacer','tiene','pueden','cuando','donde','porque','aunque','se','lo','le','su','el','la','de','en','un'];
+  const words = t.split(/\s+/);
+  let enC = 0, esC = 0;
+  words.forEach(w => { if (en.includes(w)) enC++; if (es.includes(w)) esC++; });
+  if (enC === 0 && esC === 0) return fallback === 'en' ? 'en' : 'es';
+  return enC > esC ? 'en' : 'es';
+};
+
 import { groqRequest } from '../../../lib/groqClient';
 import { getCachedContent, saveToCache } from '../../../lib/cache';
+import { detectContentLanguage } from '../../../lib/detectLanguage';
 
 const parseJSON = (text: string): any[] => {
   try {
@@ -71,7 +86,7 @@ export async function POST(request: NextRequest) {
     const { content, count, idioma, getRecommendation, existingQuestions = [] } = body;
     if (!content) return NextResponse.json({ success: false }, { status: 400 });
 
-    const lang = idioma === 'en' ? 'en' : 'es';
+    const lang = detectContentLanguage(content, idioma === 'en' ? 'en' : 'es');
     const existing = Array.isArray(existingQuestions) ? existingQuestions.filter(Boolean) : [];
     const isAddingMore = existing.length > 0;
 

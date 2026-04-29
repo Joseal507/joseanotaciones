@@ -101,9 +101,9 @@ export default function PerfilPage() {
   const logrosObtenidos = getLogrosObtenidos(logroStats);
 
   const tabs = [
-    { id: 'stats' as const, label: '📊 Stats', emoji: '📊' },
-    { id: 'rangos' as const, label: '🏆 Rangos', emoji: '🏆' },
-    { id: 'logros' as const, label: `🎖️ Logros (${logrosObtenidos.length})`, emoji: '🎖️' },
+    { id: 'stats' as const, label: tr('tabs_stats'), emoji: '📊' },
+    { id: 'rangos' as const, label: tr('tabs_rangos'), emoji: '🏆' },
+    { id: 'logros' as const, label: `${tr('tabs_logros')} (${logrosObtenidos.length})`, emoji: '🎖️' },
   ];
 
   return (
@@ -118,13 +118,13 @@ export default function PerfilPage() {
                 ← {tr('inicio')}
               </button>
               <div>
-                <h1 style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>Mis Stats</h1>
+                <h1 style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{tr('misStats')}</h1>
                 <p style={{ color: 'var(--text-muted)', fontSize: 11, margin: 0 }}>{tr('tuProgresoYStats')}</p>
               </div>
             </div>
             <button onClick={() => window.location.href = '/chat'}
               style={{ padding: '8px 16px', borderRadius: 8, border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-              🤖 JeffreyBot
+              🤖 ChapBot
             </button>
           </header>
           <div style={{ display: 'flex', height: 3 }}>
@@ -166,13 +166,13 @@ export default function PerfilPage() {
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 11, background: 'var(--bg-secondary)', borderRadius: 8, padding: '3px 10px', color: 'var(--text-muted)', fontWeight: 600 }}>
-                Nivel {nivel} · {titulo.emoji} {titulo.titulo}
+                {tr('nivel')} {nivel} · {titulo.emoji} {titulo.titulo}
               </span>
               <span style={{ fontSize: 11, background: rango.color + '22', borderRadius: 8, padding: '3px 10px', color: rango.color, fontWeight: 700 }}>
-                {xpTotal.toLocaleString()} XP totales
+                {xpTotal.toLocaleString()} {tr('xpTotales')}
               </span>
               <span style={{ fontSize: 11, background: '#a78bfa22', borderRadius: 8, padding: '3px 10px', color: '#a78bfa', fontWeight: 600 }}>
-                🎖️ {logrosObtenidos.length} logros
+                🎖️ {logrosObtenidos.length} {idioma === 'en' ? 'achievements' : 'logros'}
               </span>
             </div>
           </div>
@@ -192,7 +192,7 @@ export default function PerfilPage() {
               cursor: 'pointer', whiteSpace: 'nowrap',
             }}
           >
-            🌐 Ver Perfil Público
+            🌐 tr('verPerfilPublicoBtn').replace('🌐 ','')
           </button>
         </div>
 
@@ -242,10 +242,10 @@ export default function PerfilPage() {
               <div style={{ padding: 20 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
                   <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: rango.color, textTransform: 'uppercase', letterSpacing: 1 }}>
-                    {rango.emoji} Progreso de XP
+                    {rango.emoji} tr('progresoXP')
                   </h3>
                   <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    Nivel {nivel} · {xpEnNivel}/{xpParaSiguiente} XP
+                    {tr('nivel')} {nivel} · {xpEnNivel}/{xpParaSiguiente} XP
                   </span>
                 </div>
                 <div style={{ height: 10, background: 'var(--bg-secondary)', borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
@@ -257,8 +257,8 @@ export default function PerfilPage() {
                   }} />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
-                  <span>{progreso}% del nivel {nivel}</span>
-                  <span>→ Nivel {nivel + 1}</span>
+                  <span>{progreso}% {tr('delNivel')} {nivel}</span>
+                  <span>→ {tr('nivel')} {nivel + 1}</span>
                 </div>
               </div>
             </div>
@@ -341,7 +341,7 @@ export default function PerfilPage() {
               </button>
               <button onClick={() => window.location.href = '/chat'}
                 style={{ padding: '12px 24px', borderRadius: 12, border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-                {tr('hablarJeffreyBot')}
+                {tr('hablarChapBot')}
               </button>
               <button onClick={() => {
                 if (!confirm(tr('limpiarRachaStats'))) return;
@@ -365,7 +365,7 @@ export default function PerfilPage() {
               textAlign: 'center',
             }}>
               <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>
-                Tu rango actual
+                {tr('tuRangoActual')}
               </p>
               <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
                 <RangoDisplay xpTotal={xpTotal} size="lg" mostrarProgreso />

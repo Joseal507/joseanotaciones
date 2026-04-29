@@ -23,8 +23,8 @@ export default function ChatDocumento({ contexto, nombreDoc, temaColor, onClose 
       role: 'assistant',
       content:
         idioma === 'en'
-          ? `Hi! I'm JeffreyBot 🤖 You can ask me anything about the document **${nombreDoc}**. I will only respond based on its content.`
-          : `¡Hola! Soy JeffreyBot 🤖 Puedes preguntarme cualquier cosa sobre el documento **${nombreDoc}**. Solo responderé basándome en su contenido.`,
+          ? `Hi! I'm Chap 🤖 You can ask me anything about the document **${nombreDoc}**. I will only respond based on its content.`
+          : `¡Hola! Soy Chap 🤖 Puedes preguntarme cualquier cosa sobre el documento **${nombreDoc}**. Solo responderé basándome en su contenido.`,
     },
   ]);
   const [input, setInput] = useState('');
@@ -117,7 +117,7 @@ export default function ChatDocumento({ contexto, nombreDoc, temaColor, onClose 
               margin: 0,
             }}
           >
-            💬 JeffreyBot — {idioma === 'en' ? 'Chat with document' : 'Chat con el documento'}
+            💬 ChapBot — {idioma === 'en' ? 'Chat with document' : 'Chat con el documento'}
           </h2>
           <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
             📄 {nombreDoc}
@@ -296,8 +296,8 @@ export default function ChatDocumento({ contexto, nombreDoc, temaColor, onClose 
           }}
         >
           {idioma === 'en'
-            ? 'JeffreyBot only responds based on the document content'
-            : 'JeffreyBot solo responde basándose en el contenido del documento'}
+            ? 'ChapBot only responds based on the document content'
+            : 'ChapBot solo responde basándose en el contenido del documento'}
         </p>
       </div>
 

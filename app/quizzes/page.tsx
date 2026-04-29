@@ -75,7 +75,7 @@ function QuizCard({ quiz, onJugar, onEliminar }: { quiz: QuizGuardado; onJugar: 
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-          <button onClick={onJugar} style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: quiz.materiaColor || '#a78bfa', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>▶ Jugar</button>
+          <button onClick={onJugar} style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: quiz.materiaColor || '#a78bfa', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>▶ {tr('jugar')}</button>
           <button onClick={onEliminar} style={{ padding: '10px 13px', borderRadius: '10px', border: '1px solid var(--red-border)', background: 'transparent', color: 'var(--red)', fontSize: '14px', cursor: 'pointer' }}>🗑️</button>
         </div>
       </div>
@@ -108,7 +108,7 @@ function TemporalCard({ quiz, guardadoOk, onJugar, onGuardar, onEliminar }: {
             <span style={{ fontSize: '13px', color: '#4ade80', fontWeight: 700 }}>✅ Guardado</span>
           ) : (
             <div style={{ display: 'flex', gap: '8px', flexShrink: 0, flexWrap: 'wrap' }}>
-              <button onClick={onJugar} style={{ padding: '10px 16px', borderRadius: '10px', border: '2px solid #f5c84244', background: 'transparent', color: '#f5c842', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>▶ Jugar</button>
+              <button onClick={onJugar} style={{ padding: '10px 16px', borderRadius: '10px', border: '2px solid #f5c84244', background: 'transparent', color: '#f5c842', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>▶ {tr('jugar')}</button>
               <button onClick={onGuardar} style={{ padding: '10px 18px', borderRadius: '10px', border: 'none', background: '#f5c842', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>💾 Guardar</button>
               <button onClick={onEliminar} style={{ padding: '10px 13px', borderRadius: '10px', border: '1px solid var(--red-border)', background: 'transparent', color: 'var(--red)', fontSize: '14px', cursor: 'pointer' }}>🗑️</button>
             </div>
@@ -135,8 +135,8 @@ function DeckCard({ deck, onVer, onEstudiar, onEliminar }: {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexShrink: 0, flexWrap: 'wrap' }}>
-          <button onClick={onVer} style={{ padding: '10px 14px', borderRadius: '10px', border: `2px solid ${deck.materiaColor || 'var(--gold)'}`, background: 'transparent', color: deck.materiaColor || 'var(--gold)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>🎴 Ver</button>
-          <button onClick={onEstudiar} style={{ padding: '10px 16px', borderRadius: '10px', border: 'none', background: deck.materiaColor || 'var(--gold)', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>🧠 Estudiar</button>
+          <button onClick={onVer} style={{ padding: '10px 14px', borderRadius: '10px', border: `2px solid ${deck.materiaColor || 'var(--gold)'}`, background: 'transparent', color: deck.materiaColor || 'var(--gold)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>🎴 {tr('ver')}</button>
+          <button onClick={onEstudiar} style={{ padding: '10px 16px', borderRadius: '10px', border: 'none', background: deck.materiaColor || 'var(--gold)', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>🧠 {tr('estudiar')}</button>
           <button onClick={onEliminar} style={{ padding: '10px 13px', borderRadius: '10px', border: '1px solid var(--red-border)', background: 'transparent', color: 'var(--red)', fontSize: '14px', cursor: 'pointer' }}>🗑️</button>
         </div>
       </div>
@@ -157,7 +157,7 @@ function DeckVisor({ deck, currentCard, flipped, onSetCard, onFlip, onEstudiar, 
           <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{currentCard + 1} / {deck.flashcards.length}</p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={onEstudiar} style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: deck.materiaColor || 'var(--gold)', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>🧠 Estudiar</button>
+          <button onClick={onEstudiar} style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: deck.materiaColor || 'var(--gold)', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>🧠 {tr('estudiar')}</button>
           <button onClick={onClose} style={{ padding: '8px 14px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>✕</button>
         </div>
       </div>
@@ -291,8 +291,8 @@ export default function QuizzesPage() {
       {guardandoId && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
           <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '32px', maxWidth: '420px', width: '100%', border: '2px solid #a78bfa44' }}>
-            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>💾 Guardar en Quiz Deck</h3>
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 20px' }}>Dale un nombre permanente a este quiz para guardarlo en tu biblioteca.</p>
+            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>{tr('guardarEnDeck')}</h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 20px' }}>{tr('guardarEnDeckDesc')}</p>
             <input autoFocus value={nombreTemporal} onChange={e => setNombreTemporal(e.target.value)}
               onKeyDown={async e => {
                 if (e.key === 'Enter' && nombreTemporal.trim()) {
@@ -326,10 +326,10 @@ export default function QuizzesPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
               <button onClick={() => fase !== 'lista' ? setFase('lista') : window.location.href = '/'}
                 style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-                {fase !== 'lista' ? '← Volver' : '← Inicio'}
+                {fase !== 'lista' ? '← {tr('volver')}' : '← {tr('inicio')}'}
               </button>
               <div>
-                <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>🎓 Materiales de Estudio</h1>
+                <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>🎓 {tr('materialesEstudioTitulo')}</h1>
                 <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>
                   {quizzes.length} quizzes · {temporales.length > 0 ? `${temporales.length} por guardar · ` : ''}{decks.length} decks
                 </p>
@@ -337,7 +337,7 @@ export default function QuizzesPage() {
             </div>
             <button onClick={() => window.location.href = '/materias'}
               style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-              📚 Mis Materias
+              📚 {tr('misMaterias')}
             </button>
           </header>
           <div style={{ display: 'flex', height: '3px' }}>
@@ -351,12 +351,12 @@ export default function QuizzesPage() {
           {isMobile && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
               <button onClick={() => window.location.href = '/'} style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 14px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>←</button>
-              <h1 style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>🎓 Materiales de Estudio</h1>
+              <h1 style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>🎓 {tr('materialesEstudioTitulo')}</h1>
             </div>
           )}
 
           <div style={{ position: 'relative', marginBottom: '24px' }}>
-            <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar por nombre o materia..."
+            <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="{tr('buscarNombreMateria')}"
               style={{ width: '100%', padding: '13px 16px 13px 46px', borderRadius: '14px', border: '2px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }}
               onFocus={e => e.currentTarget.style.borderColor = '#a78bfa'}
               onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'} />
@@ -365,9 +365,9 @@ export default function QuizzesPage() {
 
           <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', marginBottom: '28px', gap: '4px' }}>
             {[
-              { id: 'quizzes',  label: '🤓 Quizzes',        count: quizzes.length,    color: '#a78bfa' },
-              { id: 'temporal', label: '⏳ Por Guardar',     count: temporales.length, color: '#f5c842' },
-              { id: 'decks',    label: '🎴 Flashcard Decks', count: decks.length,      color: 'var(--gold)' },
+              { id: 'quizzes',  label: tr('tabQuizzes'),        count: quizzes.length,    color: '#a78bfa' },
+              { id: 'temporal', label: tr('tabPorGuardar'),     count: temporales.length, color: '#f5c842' },
+              { id: 'decks',    label: tr('tabDecks'), count: decks.length,      color: 'var(--gold)' },
             ].map(t => (
               <button key={t.id} onClick={() => setTab(t.id as any)}
                 style={{ flex: 1, padding: '12px 8px', border: 'none', background: 'transparent', borderBottom: tab === t.id ? `3px solid ${t.color}` : '3px solid transparent', color: tab === t.id ? t.color : 'var(--text-muted)', fontSize: isMobile ? '12px' : '14px', fontWeight: 700, cursor: 'pointer', marginBottom: '-2px', position: 'relative' }}>
@@ -380,19 +380,19 @@ export default function QuizzesPage() {
 
           {tab === 'quizzes' && (
             quizzesFiltrados.length === 0
-              ? <EmptyState emoji="🤓" titulo={busqueda ? 'Sin resultados' : 'No tienes quizzes guardados'} desc={busqueda ? 'Prueba con otro nombre' : 'Genera quizzes desde tus materias y guardalos aqui'} boton={!busqueda ? { label: '📚 Ir a Materias', href: '/materias' } : undefined} />
+              ? <EmptyState emoji="🤓" titulo={busqueda ? tr('sinResultados') : tr('sinQuizzesGuardados')} desc={busqueda ? tr('pruebaOtroNombre') : tr('generaQuizzesDesc')} boton={!busqueda ? { label: tr('irAMateriasBTN2'), href: '/materias' } : undefined} />
               : <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   {quizzesFiltrados.map(quiz => (
                     <QuizCard key={quiz.id} quiz={quiz}
                       onJugar={() => iniciarQuiz(quiz)}
-                      onEliminar={async () => { if (!confirm('Eliminar este quiz?')) return; await eliminarQuizGuardado(quiz.id); recargar(); }} />
+                      onEliminar={async () => { if (!confirm(tr('eliminarQuizConfirm'))) return; await eliminarQuizGuardado(quiz.id); recargar(); }} />
                   ))}
                 </div>
           )}
 
           {tab === 'temporal' && (
             temporalesFiltrados.length === 0
-              ? <EmptyState emoji="⏳" titulo="No hay quizzes pendientes" desc="Cuando generes un quiz desde una materia, aparecera aqui. Tienes 24 horas para guardarlo." boton={{ label: '📚 Ir a Materias', href: '/materias' }} />
+              ? <EmptyState emoji="⏳" titulo="No hay quizzes pendientes" desc="Cuando generes un quiz desde una materia, aparecera aqui. Tienes 24 horas para guardarlo." boton={{ label: tr('irAMateriasBTN2'), href: '/materias' }} />
               : <>
                   <div style={{ background: 'rgba(245,200,66,0.08)', border: '1px solid #f5c84244', borderRadius: '14px', padding: '14px 18px', marginBottom: '20px', display: 'flex', gap: '12px' }}>
                     <span style={{ fontSize: '20px', flexShrink: 0 }}>⚠️</span>
@@ -407,7 +407,7 @@ export default function QuizzesPage() {
                         guardadoOk={guardandoOk === quiz.id}
                         onJugar={() => iniciarQuiz(quiz)}
                         onGuardar={() => { setGuardandoId(quiz.id); setNombreTemporal(quiz.nombre || ''); }}
-                        onEliminar={() => { if (!confirm('Descartar este quiz?')) return; eliminarQuizTemporal(quiz.id); recargar(); }} />
+                        onEliminar={() => { if (!confirm(tr('descartarQuizConfirm'))) return; eliminarQuizTemporal(quiz.id); recargar(); }} />
                     ))}
                   </div>
                 </>
@@ -415,13 +415,13 @@ export default function QuizzesPage() {
 
           {tab === 'decks' && (
             decksFiltrados.length === 0
-              ? <EmptyState emoji="🎴" titulo={busqueda ? 'Sin resultados' : 'No tienes decks guardados'} desc="Guarda flashcards desde tus materias para estudiarlas aqui" boton={!busqueda ? { label: '📚 Ir a Materias', href: '/materias' } : undefined} />
+              ? <EmptyState emoji="🎴" titulo={busqueda ? tr('sinResultados') : tr('sinDecksGuardados')} desc="Guarda flashcards desde tus materias para estudiarlas aqui" boton={!busqueda ? { label: tr('irAMateriasBTN2'), href: '/materias' } : undefined} />
               : <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   {decksFiltrados.map(deck => (
                     <DeckCard key={deck.id} deck={deck}
                       onVer={() => { setDeckActivo(deck); setCurrentCard(0); setFlipped(false); }}
                       onEstudiar={() => { setDeckActivo(deck); setShowEstudio(true); }}
-                      onEliminar={async () => { if (!confirm('Eliminar este deck?')) return; await eliminarDeck(deck.id); recargar(); }} />
+                      onEliminar={async () => { if (!confirm(tr('eliminarDeckConfirm'))) return; await eliminarDeck(deck.id); recargar(); }} />
                   ))}
                 </div>
           )}
@@ -444,7 +444,7 @@ export default function QuizzesPage() {
                 <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{quizActivo.nombre}</h2>
                 <NivelBadge nivel={quizActivo.nivel} />
               </div>
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>Pregunta {idx + 1} / {quizActivo.preguntas.length} · {puntos} correctas</p>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>{tr('preguntaLabel')} {idx + 1} / {quizActivo.preguntas.length} · {puntos} {tr('correctasLabel')}</p>
             </div>
             <button onClick={() => setFase('lista')} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', cursor: 'pointer' }}>✕ Salir</button>
           </div>
@@ -487,7 +487,7 @@ export default function QuizzesPage() {
                 <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}><MathText text={preguntaActual.explicacion} /></p>
               </div>
               <button onClick={siguiente} style={{ width: '100%', padding: '15px', borderRadius: '14px', border: 'none', background: quizActivo.materiaColor || '#a78bfa', color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>
-                {idx + 1 >= quizActivo.preguntas.length ? '🏁 Ver Resultados' : 'Siguiente →'}
+                {idx + 1 >= quizActivo.preguntas.length ? tr('verResultadosBtn') : tr('siguienteFlecha')}
               </button>
             </>
           )}
@@ -498,7 +498,7 @@ export default function QuizzesPage() {
         <div style={{ maxWidth: '640px', margin: '0 auto', padding: isMobile ? '16px' : '40px', textAlign: 'center' }}>
           <div style={{ fontSize: '64px', marginBottom: '16px' }}>{porcentaje >= 80 ? '🏆' : porcentaje >= 60 ? '👍' : '📚'}</div>
           <h2 style={{ fontSize: '28px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px' }}>Quiz completado!</h2>
-          <p style={{ color: 'var(--text-muted)', marginBottom: '28px' }}>{puntos} de {quizActivo.preguntas.length} correctas</p>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '28px' }}>{puntos} {tr('de')} {quizActivo.preguntas.length} {tr('correctasLabel')}</p>
 
           <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '28px', border: `2px solid ${quizActivo.materiaColor || '#a78bfa'}44`, marginBottom: '24px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginBottom: '8px' }}>
@@ -506,7 +506,7 @@ export default function QuizzesPage() {
               <NivelBadge nivel={quizActivo.nivel} />
             </div>
             <div style={{ fontSize: '36px', fontWeight: 900, color: porcentaje >= 80 ? '#4ade80' : porcentaje >= 60 ? '#f5c842' : '#ff4d6d', marginTop: '4px' }}>{porcentaje}%</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '6px' }}>{porcentaje >= 80 ? 'Excelente! 🔥' : porcentaje >= 60 ? 'Bien, sigue asi 💪' : 'Repasa mas 📖'}</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '6px' }}>{porcentaje >= 80 ? tr('excelente') : porcentaje >= 60 ? tr('bienSigue') : tr('repasaMas')}</div>
             <div style={{ background: 'var(--bg-secondary)', borderRadius: '10px', height: '10px', overflow: 'hidden', marginTop: '18px' }}>
               <div style={{ width: `${porcentaje}%`, height: '100%', background: porcentaje >= 80 ? '#4ade80' : porcentaje >= 60 ? '#f5c842' : '#ff4d6d', borderRadius: '10px', transition: 'width 1s' }} />
             </div>
@@ -529,7 +529,7 @@ export default function QuizzesPage() {
 
           <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
             <button onClick={() => iniciarQuiz(quizActivo)} style={{ padding: '13px 24px', borderRadius: '12px', border: 'none', background: quizActivo.materiaColor || '#a78bfa', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>🔄 Repetir</button>
-            <button onClick={() => setFase('lista')} style={{ padding: '13px 24px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>← Volver</button>
+            <button onClick={() => setFase('lista')} style={{ padding: '13px 24px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>← {tr('volver')}</button>
           </div>
         </div>
       )}

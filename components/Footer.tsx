@@ -112,7 +112,7 @@ export default function Footer() {
                 </p>
                 {[
                   { label: idioma === 'en' ? 'Subjects' : 'Materias', href: '/materias' },
-                  { label: 'JeffreyBot', href: '/chat' },
+                  { label: 'ChapBot', href: '/chat' },
                   { label: idioma === 'en' ? 'Schedule' : 'Horario', href: '/horario' },
                   { label: idioma === 'en' ? 'Planner' : 'Agenda', href: '/agenda' },
                 ].map(link => (

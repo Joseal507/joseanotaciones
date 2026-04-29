@@ -91,7 +91,7 @@ export default function Home() {
         <div style={{ width: '80px', height: '80px', borderRadius: '20px', border: '3px solid var(--gold)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-card)', fontSize: '36px' }}>
           <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e: any) => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = '📚'; }} />
         </div>
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>Cargando StudyAL...</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>{tr('cargando')} StudyAL...</p>
       </div>
     );
   }
@@ -190,12 +190,12 @@ export default function Home() {
 
           <button onClick={() => requireAuth(() => window.location.href = '/materias')}
             style={{ padding: isMobile ? '14px 32px' : '16px 44px', borderRadius: '14px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: isMobile ? '15px' : '17px', fontWeight: 900, cursor: 'pointer' }}>
-            🚀 {loggedIn ? tr('irAMaterias') : 'Comenzar Gratis'}
+            🚀 {loggedIn ? tr('irAMaterias') : (idioma === 'en' ? 'Get Started Free' : 'Comenzar Gratis')}
           </button>
 
           {!loggedIn && (
             <p style={{ fontSize: '13px', color: 'var(--text-faint)', marginTop: '12px' }}>
-              ¿Ya tienes cuenta? <span onClick={goAuth} style={{ color: 'var(--gold)', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}>Inicia sesión</span>
+              {idioma === 'en' ? 'Already have an account?' : '¿Ya tienes cuenta?'} <span onClick={goAuth} style={{ color: 'var(--gold)', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}>{idioma === 'en' ? 'Sign in' : 'Inicia sesión'}</span>
             </p>
           )}
 
@@ -211,16 +211,16 @@ export default function Home() {
         {!loggedIn && (
           <div style={{ marginBottom: '56px' }}>
             <h2 style={{ textAlign: 'center', fontSize: isMobile ? '20px' : '28px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 32px' }}>
-              Todo lo que necesitas para estudiar 🎯
+              {idioma === 'en' ? 'Everything you need to study 🎯' : 'Todo lo que necesitas para estudiar 🎯'}
             </h2>
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '16px' }}>
               {[
-                { emoji: '📚', title: 'Materias y Apuntes', desc: 'Organiza tus materias, temas y apuntes en un solo lugar', color: 'var(--gold)' },
-                { emoji: '🤖', title: 'JeffreyBot AI', desc: 'Un tutor de inteligencia artificial que te ayuda a estudiar', color: 'var(--pink)' },
-                { emoji: '🎴', title: 'Flashcards', desc: 'Genera flashcards automáticas de tus documentos', color: 'var(--red)' },
-                { emoji: '📅', title: 'Agenda y Horario', desc: 'Planifica tu semana con horarios y objetivos', color: 'var(--blue)' },
-                { emoji: '👥', title: 'Study Partners', desc: 'Conecta con otros estudiantes y comparte material', color: '#38bdf8' },
-                { emoji: '📊', title: 'Estadísticas', desc: 'Mide tu progreso con rachas, XP y leaderboard', color: '#a78bfa' },
+                { emoji: '📚', title: idioma === 'en' ? 'Subjects & Notes' : 'Materias y Apuntes', desc: idioma === 'en' ? 'Organize your subjects, topics and notes in one place' : 'Organiza tus materias, temas y apuntes en un solo lugar', color: 'var(--gold)' },
+                { emoji: '🤖', title: 'ChapBot AI', desc: idioma === 'en' ? 'An AI tutor that helps you study' : 'Un tutor de inteligencia artificial que te ayuda a estudiar', color: 'var(--pink)' },
+                { emoji: '🎴', title: 'Flashcards', desc: idioma === 'en' ? 'Auto-generate flashcards from your documents' : 'Genera flashcards automáticas de tus documentos', color: 'var(--red)' },
+                { emoji: '📅', title: idioma === 'en' ? 'Planner & Schedule' : 'Agenda y Horario', desc: idioma === 'en' ? 'Plan your week with schedules and goals' : 'Planifica tu semana con horarios y objetivos', color: 'var(--blue)' },
+                { emoji: '👥', title: idioma === 'en' ? 'Study Partners' : 'Study Partners', desc: idioma === 'en' ? 'Connect with other students and share content' : 'Conecta con otros estudiantes y comparte material', color: '#38bdf8' },
+                { emoji: '📊', title: idioma === 'en' ? 'Statistics' : 'Estadísticas', desc: idioma === 'en' ? 'Track your progress with streaks, XP and leaderboard' : 'Mide tu progreso con rachas, XP y leaderboard', color: '#a78bfa' },
               ].map((f, i) => (
                 <div key={i} onClick={goAuth}
                   style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden', cursor: 'pointer', transition: 'all 0.2s' }}
@@ -239,7 +239,7 @@ export default function Home() {
             <div style={{ textAlign: 'center', marginTop: '32px' }}>
               <button onClick={goAuth}
                 style={{ padding: '14px 40px', borderRadius: '14px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '16px', fontWeight: 900, cursor: 'pointer' }}>
-                ✨ Crear Cuenta Gratis
+                {idioma === 'en' ? '✨ Create Free Account' : '✨ Crear Cuenta Gratis'}
               </button>
             </div>
           </div>
@@ -268,7 +268,7 @@ export default function Home() {
             <div style={{ marginBottom: isMobile ? '28px' : '48px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
                 <div style={{ width: '4px', height: '28px', background: 'var(--gold)', borderRadius: '2px' }} />
-                <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>🗓️ {idioma === 'en' ? 'Today' : 'Hoy'}</h2>
+                <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>🗓️ {tr('hoy').replace('¡','').replace('!','')}</h2>
               </div>
               <HorarioWidget />
             </div>
@@ -321,7 +321,7 @@ export default function Home() {
                         </div>
                         <div style={{ display: 'flex', gap: '6px' }}>
                           {[
-                            { label: idioma === 'en' ? 'Notes' : 'Apuntes', val: materia.temas.reduce((a, t) => a + t.apuntes.length, 0) },
+                            { label: tr('apuntes'), val: materia.temas.reduce((a, t) => a + t.apuntes.length, 0) },
                             { label: 'Docs', val: materia.temas.reduce((a, t) => a + t.documentos.length, 0) },
                           ].map((s, i) => (
                             <div key={i} style={{ flex: 1, background: 'var(--bg-secondary)', borderRadius: '6px', padding: '6px', textAlign: 'center' }}>
@@ -352,14 +352,14 @@ export default function Home() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
             <div style={{ width: '4px', height: '28px', background: 'var(--blue)', borderRadius: '2px' }} />
-            <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{loggedIn ? tr('accesosRapidos') : 'Explora las funciones'}</h2>
+            <h2 style={{ fontSize: isMobile ? '17px' : '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{loggedIn ? tr('accesosRapidos') : (idioma === 'en' ? 'Explore features' : 'Explora las funciones')}</h2>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(160px, 1fr))', gap: isMobile ? '10px' : '14px' }}>
             {[
               { emoji: '📚', label: tr('misMaterias'), desc: idioma === 'en' ? 'Notes & topics' : 'Apuntes y temas', color: 'var(--gold)', href: '/materias' },
               { emoji: '🗓️', label: tr('horario'), desc: idioma === 'en' ? 'Weekly schedule' : 'Clases de la semana', color: 'var(--gold)', href: '/horario' },
               { emoji: '📅', label: tr('agenda'), desc: tr('calendarioYObjetivos'), color: 'var(--blue)', href: '/agenda' },
-              { emoji: '🤖', label: 'JeffreyBot', desc: idioma === 'en' ? 'AI chat' : 'Chat con AI', color: 'var(--pink)', href: '/chat' },
+              { emoji: '🤖', label: 'ChapBot', desc: idioma === 'en' ? 'AI chat' : 'Chat con AI', color: 'var(--pink)', href: '/chat' },
               { emoji: '🎓', label: tr('quizzes'), desc: idioma === 'en' ? 'Saved materials' : 'Materiales guardados', color: '#a78bfa', href: '/quizzes' },
               { emoji: '📊', label: tr('perfil'), desc: idioma === 'en' ? 'Study stats' : 'Stats de estudio', color: 'var(--red)', href: '/perfil' },
               { emoji: '⏱️', label: 'Timer', desc: idioma === 'en' ? 'Focus timer' : 'Método Pomodoro', color: '#ef4444', href: '/pomodoro' },

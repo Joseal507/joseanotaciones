@@ -6,7 +6,9 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const tipo = searchParams.get('tipo'); // all | apunte | flashcards | quiz | post
   const filtro = searchParams.get('filtro'); // todos | guardados | mios | partners
-  const userId = searchParams.get('userId');
+  const userId = searchParams.get('userId'); // compat viejo
+  const ownerId = searchParams.get('ownerId'); // dueño real de los posts
+  const viewerId = searchParams.get('viewerId') || userId; // quien está mirando
   const page = parseInt(searchParams.get('page') || '1');
   const limit = 20;
   const offset = (page - 1) * limit;
@@ -22,15 +24,18 @@ export async function GET(req: NextRequest) {
       query = query.eq('tipo', tipo);
     }
 
-    if (filtro === 'partners') {
+    if (ownerId) {
+      // Perfil público: mostrar SOLO posts del dueño del perfil
+      query = query.eq('user_id', ownerId);
+    } else if (filtro === 'partners') {
       query = query.eq('es_partner', true);
     } else if (filtro === 'mios' && userId) {
       query = query.eq('user_id', userId);
-    } else if (filtro === 'guardados' && userId) {
+    } else if (filtro === 'guardados' && viewerId) {
       const { data: guardados } = await supabase
         .from('comunidad_guardados')
         .select('post_id')
-        .eq('user_id', userId);
+        .eq('user_id', viewerId);
       const ids = guardados?.map(g => g.post_id) || [];
       if (ids.length === 0) return NextResponse.json({ posts: [], total: 0 });
       query = query.in('id', ids);
@@ -44,7 +49,7 @@ export async function GET(req: NextRequest) {
       const [likesRes, ratingsRes, guardadosRes, comentariosRes] = await Promise.all([
         supabase.from('comunidad_likes').select('user_id').eq('post_id', post.id),
         supabase.from('comunidad_ratings').select('rating').eq('post_id', post.id),
-        userId ? supabase.from('comunidad_guardados').select('id').eq('post_id', post.id).eq('user_id', userId).single() : Promise.resolve({ data: null }),
+        viewerId ? supabase.from('comunidad_guardados').select('id').eq('post_id', post.id).eq('user_id', viewerId).single() : Promise.resolve({ data: null }),
         supabase.from('comunidad_comentarios').select('id').eq('post_id', post.id),
       ]);
 
@@ -53,8 +58,8 @@ export async function GET(req: NextRequest) {
         ? ratings.reduce((a: number, r: any) => a + r.rating, 0) / ratings.length
         : 0;
 
-      const userLiked = userId ? (likesRes.data || []).some((l: any) => l.user_id === userId) : false;
-      const userRating = userId ? (await supabase.from('comunidad_ratings').select('rating').eq('post_id', post.id).eq('user_id', userId).single()).data?.rating : null;
+      const userLiked = viewerId ? (likesRes.data || []).some((l: any) => l.user_id === viewerId) : false;
+      const userRating = viewerId ? (await supabase.from('comunidad_ratings').select('rating').eq('post_id', post.id).eq('user_id', viewerId).single()).data?.rating : null;
 
       return {
         ...post,

@@ -28,6 +28,26 @@ const NIVELES: { id: NivelQuiz; emoji: string; label: string; desc: string; colo
   { id: 'dificil',    emoji: '🔴', label: 'Difícil',    desc: 'Análisis y casos especiales', color: '#ff4d6d', presets: [5, 10, 20, 35, 50] },
 ];
 
+
+// Detectar idioma del contenido del documento
+const detectarIdiomaDoc = (texto: string): 'en' | 'es' => {
+  if (!texto || texto.length < 30) return 'es';
+  const t = texto.toLowerCase().substring(0, 2000);
+  const en = ['the','is','are','was','were','have','has','this','that','with','from','they','what','which','when','how','can','will','would','should','could','about','there','their','been','an','of','in','to','for','on','at','by','or','and','but','a','it','its','we','our','us','them','your','who','not','just','now','also','than','more','some','any','do','does','did','be','been','being','each','other','than','then','these','those','both','few','more','most','other','through','during','before','after','above','below','between','out','off','over','under','again','further','once','here','there','when','where','why','how','all','both','each','every','more','most','other','some','such','no','nor','not','only','same','so','too','very','just'];
+  const es = ['que','con','para','por','una','los','las','del','está','son','como','pero','más','muy','todo','este','esta','también','hacer','tiene','pueden','cuando','donde','porque','aunque','se','lo','le','su','el','la','de','en','un','es','al','si','ya','me','mi','tu','yo','hay','fue','ser','estar','bien','hoy','aquí','así','algo','nada','puedo','quiero','necesito','ayuda','gracias','bueno','dame','dime','explica','cuál','quién','cuándo','cómo','qué','había','han','sido','tiene','tienen','entre','sobre','hasta','desde','sin','durante','antes','después','igual','mismo','cada','otro','tanto','menos','nunca','siempre','solo','puede','debe','hacer'];
+  const words = t.split(/[\s,\.!?;:\-]+/).filter((w: string) => w.length > 1);
+  let enC = 0, esC = 0;
+  words.forEach((w: string) => {
+    if (en.includes(w)) enC++;
+    if (es.includes(w)) esC++;
+  });
+  if (enC === 0 && esC === 0) {
+    const tieneAcentos = /[áéíóúüñ¿¡]/i.test(t);
+    return tieneAcentos ? 'es' : 'en';
+  }
+  return enC > esC ? 'en' : 'es';
+};
+
 export default function TabQuiz({ contenido, temaColor, materiaNombre, materiaColor, idioma, esImagen, onQuizGenerado }: Props) {
   // ── config ──────────────────────────────────────────────────────────────────
   const [fase, setFase] = useState<'config' | 'jugando' | 'fin'>('config');
@@ -62,7 +82,7 @@ export default function TabQuiz({ contenido, temaColor, materiaNombre, materiaCo
       const res = await fetch('/api/quiz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: contenido, count: cantidad, idioma: getIdioma(), nivel }),
+        body: JSON.stringify({ content: contenido, count: cantidad, idioma: detectContentLanguage(contenido || '', idioma === 'en' ? 'en' : 'es'), nivel }),
       });
       const data = await res.json();
       if (data.success && data.quiz.length > 0) {

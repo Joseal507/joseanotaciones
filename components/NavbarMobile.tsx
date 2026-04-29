@@ -43,13 +43,13 @@ export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: P
     { label: '📚 ' + tr('misMaterias'), href: '/materias' },
     { label: '🗓️ ' + tr('horario'), href: '/horario' },
     { label: '📅 ' + tr('agenda'), href: '/agenda' },
-    { label: '🤖 JeffreyBot', href: '/chat' },
-    { label: '🌍 Comunidad', href: '/comunidad' },
-    { label: '🤝 Partners', href: '/partners' },
+    { label: '🤖 ChapBot', href: '/chat' },
+    { label: '🌍 ' + tr('comunidad'), href: '/comunidad' },
+    { label: '🤝 ' + tr('partners'), href: '/partners' },
     { label: '🎓 ' + tr('quizzes'), href: '/quizzes' },
     { label: '⚙️ ' + tr('configuracion'), href: '/settings' },
-    { label: '🌐 Mi Perfil Público', href: `/u/${userId}` },
-    { label: '📊 Mis Stats', href: '/perfil' },
+    { label: tr('miPerfilPublico'), href: `/u/${userId}` },
+    { label: tr('misStats'), href: '/perfil' },
   ];
 
   return (

@@ -1,6 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
+
+// Detectar idioma del contenido
+const detectLang = (text: string, fallback: string): 'en' | 'es' => {
+  if (!text || text.length < 30) return fallback === 'en' ? 'en' : 'es';
+  const t = text.toLowerCase().substring(0, 1000);
+  const en = ['the','is','are','was','were','have','has','this','that','with','from','they','what','which','when','how','can','will','would','about','there','their','been','an','of','in','to','for','on','at'];
+  const es = ['que','con','para','por','una','los','las','del','está','son','como','pero','más','muy','todo','este','esta','también','hacer','tiene','pueden','cuando','donde','porque','aunque','se','lo','le','su','el','la','de','en','un'];
+  const words = t.split(/\s+/);
+  let enC = 0, esC = 0;
+  words.forEach(w => { if (en.includes(w)) enC++; if (es.includes(w)) esC++; });
+  if (enC === 0 && esC === 0) return fallback === 'en' ? 'en' : 'es';
+  return enC > esC ? 'en' : 'es';
+};
+
 import { groqRequest } from '../../../lib/groqClient';
 import { getCachedContent, saveToCache } from '../../../lib/cache';
+import { detectContentLanguage } from '../../../lib/detectLanguage';
 
 const MAX_WORDS = 10000;
 
@@ -70,7 +85,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const lang = idioma === 'en' ? 'en' : 'es';
+    const lang = detectContentLanguage(content, idioma === 'en' ? 'en' : 'es');
     const textToAnalyze = content.substring(0, 8000);
 
     // ── PROMPT MEJORADO: Obliga a la IA a llenar TODOS los campos ──

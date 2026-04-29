@@ -4,6 +4,7 @@ import { dispararXPToast } from '../../components/XPToast';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useIdioma } from '@/hooks/useIdioma';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import NavbarMobile from '@/components/NavbarMobile';
@@ -38,7 +39,7 @@ interface Post {
 }
 
 const TIPO_LABELS: Record<string, { label: string; emoji: string; color: string }> = {
-  apunte: { label: 'Apunte', emoji: '📝', color: '#f5c842' },
+  apunte: { label: 'Note', emoji: '📝', color: '#f5c842' },
   flashcards: { label: 'Flashcards', emoji: '🎴', color: '#a78bfa' },
   quiz: { label: 'Quiz', emoji: '🧠', color: '#34d399' },
   post: { label: 'Post', emoji: '💬', color: '#38bdf8' },
@@ -280,6 +281,7 @@ function PostCard({ post, userId, onLike, onGuardar }: { post: Post; userId: str
 
 export default function ComunidadPage() {
   const isMobile = useIsMobile();
+  const { tr, idioma } = useIdioma();
   const { darkMode, toggle: toggleDark } = useDarkMode();
   const [userId, setUserId] = useState('');
   const [userNombre, setUserNombre] = useState('');
@@ -351,10 +353,10 @@ export default function ComunidadPage() {
   ];
 
   const filtroOpciones = [
-    { key: 'todos', label: 'Todos' },
-    { key: 'partners', label: '✨ Partners' },
+    { key: 'todos', label: '{tr('todosTipos')}' },
+    { key: 'partners', label: '✨ {tr('filtroPartners')}' },
     { key: 'mios', label: 'Mis posts' },
-    { key: 'guardados', label: '🔖 Guardados' },
+    { key: 'guardados', label: '🔖 {tr('filtroGuardados')}' },
   ];
 
   // Columnas para Pinterest
@@ -497,7 +499,7 @@ export default function ComunidadPage() {
               No hay posts aquí todavía
             </h2>
             <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
-              {filtro === 'guardados' ? 'Guarda posts para verlos aquí' : '¡Sé el primero en publicar!'}
+              {filtro === 'guardados' ? '{tr('guardaPostes')}' : '{tr('seElPrimero')}'}
             </p>
           </div>
         ) : (

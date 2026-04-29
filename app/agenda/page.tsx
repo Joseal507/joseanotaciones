@@ -94,14 +94,14 @@ export default function AgendaPage() {
   const crearAsignacion = useCallback(async (asig: Asignacion) => {
     const obj = objetivoDesdeAsignacion(asig);
     await persist([...asignaciones, asig], [...objetivos, obj]);
-    showToast(idioma === 'en' ? 'Assignment created' : 'Asignación creada', asig.xp);
+    showToast(tr('agendaCreada'), asig.xp);
   }, [asignaciones, objetivos, persist, idioma]);
 
   const toggleAsignacion = useCallback(async (id: string) => {
     const asig = asignaciones.find(a => a.id === id);
     if (!asig) return;
     if (asig.vencida && !asig.completada) {
-      showToast(idioma === 'en' ? '⛔ Expired! No XP awarded' : '⛔ ¡Vencida! No se otorga XP', 0);
+      showToast(tr('agendaVencida'), 0);
       return;
     }
     const ahoraCompleta = !asig.completada;
@@ -204,9 +204,9 @@ export default function AgendaPage() {
               style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '7px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
               ← StudyAL
             </button>
-            <h1 style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>📅 Agenda</h1>
+            <h1 style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>📅 {tr('agenda')}</h1>
           </div>
-          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>⭐ {xpReal} XP total</span>
+          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>⭐ {xpReal} {tr('agendaXPTotal')}</span>
         </header>
       )}
 
@@ -218,8 +218,8 @@ export default function AgendaPage() {
 
       <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', background: 'var(--bg-card)', padding: '0 24px' }}>
         {[
-          { id: 'calendario', label: `📅 ${idioma === 'en' ? 'Calendar' : 'Calendario'}` },
-          { id: 'agenda',     label: `✅ ${idioma === 'en' ? 'Goals' : 'Objetivos'}` },
+          { id: 'calendario', label: tr('calendario') },
+          { id: 'agenda',     label: tr('objetivos') },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id as any)}
             style={{

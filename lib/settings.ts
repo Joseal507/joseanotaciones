@@ -2,7 +2,8 @@ const isBrowser = () => typeof window !== 'undefined';
 
 export interface AppSettings {
   nombreApp: string;
-  tema: 'default' | 'alai' | 'falcons' | 'raiders' | 'math';
+  tema: 'default' | 'playa' | 'executive' | 'sunset' | 'neon' | 'custom';
+  customTheme?: { name: string; gold: string; red: string; blue: string; pink: string };
   fotoPerfil: string;
   notifAsignaciones: boolean;
   notifRacha: boolean;
@@ -41,9 +42,36 @@ export const saveSettings = (settings: AppSettings) => {
   localStorage.setItem(KEY, JSON.stringify(settings));
 };
 
-export const applyTheme = (tema: AppSettings['tema']) => {
+export const applyTheme = (tema: AppSettings['tema'], customTheme?: AppSettings['customTheme']) => {
   if (!isBrowser()) return;
-  document.documentElement.setAttribute('data-theme', tema);
+  if (tema === 'custom' && customTheme) {
+    document.documentElement.setAttribute('data-theme', 'custom');
+    const root = document.documentElement;
+    root.style.setProperty('--gold', customTheme.gold);
+    root.style.setProperty('--gold-dim', hexToRgba(customTheme.gold, 0.15));
+    root.style.setProperty('--gold-border', hexToRgba(customTheme.gold, 0.35));
+    root.style.setProperty('--red', customTheme.red);
+    root.style.setProperty('--red-dim', hexToRgba(customTheme.red, 0.15));
+    root.style.setProperty('--red-border', hexToRgba(customTheme.red, 0.3));
+    root.style.setProperty('--blue', customTheme.blue);
+    root.style.setProperty('--blue-dim', hexToRgba(customTheme.blue, 0.15));
+    root.style.setProperty('--blue-border', hexToRgba(customTheme.blue, 0.3));
+    root.style.setProperty('--pink', customTheme.pink);
+    root.style.setProperty('--pink-dim', hexToRgba(customTheme.pink, 0.15));
+    root.style.setProperty('--pink-border', hexToRgba(customTheme.pink, 0.3));
+  } else {
+    document.documentElement.setAttribute('data-theme', tema);
+    // Limpiar custom properties si existían
+    const root = document.documentElement;
+    ['--gold','--gold-dim','--gold-border','--red','--red-dim','--red-border','--blue','--blue-dim','--blue-border','--pink','--pink-dim','--pink-border'].forEach(p => root.style.removeProperty(p));
+  }
+};
+
+const hexToRgba = (hex: string, alpha: number): string => {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
 };
 
 export const limpiarDatosEstudio = () => {

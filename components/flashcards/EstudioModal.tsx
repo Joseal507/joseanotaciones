@@ -330,7 +330,7 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
                   <div style={{ fontSize: '26px' }}>⚡</div>
                   <div>
                     <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#fff', margin: 0 }}>{tr('repasoRapido')}</h3>
-                    <p style={{ color: '#888', margin: 0, fontSize: '12px' }}>{idioma === 'en' ? 'Each card exactly once, no repeats' : 'Cada card exactamente una vez, sin repetir'}</p>
+                    <p style={{ color: '#888', margin: 0, fontSize: '12px' }}>{tr('repasoRapidoDesc')}</p>
                   </div>
                 </div>
                 <button onClick={iniciarRepaso}
@@ -348,13 +348,13 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
                     <div style={{ fontSize: '26px' }}>📚</div>
                     <div>
-                      <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#fff', margin: 0 }}>{idioma === 'en' ? 'Exam Mode' : 'Modo Examen'}</h3>
-                      <p style={{ color: '#888', margin: 0, fontSize: '12px' }}>{idioma === 'en' ? 'All flashcards from ALL subjects' : 'Todas las flashcards de TODAS tus materias'}</p>
+                      <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#fff', margin: 0 }}>{tr('modoExamenLabel').replace('📚 ','')}</h3>
+                      <p style={{ color: '#888', margin: 0, fontSize: '12px' }}>{tr('modoExamenDesc')}</p>
                     </div>
                   </div>
                   <button onClick={() => { onClose(); onModoExamen?.(); }}
                     style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: '#a78bfa', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-                    📚 {idioma === 'en' ? 'Start Exam Mode' : 'Iniciar Modo Examen'}
+                    📚 {tr('modoExamenBtn').replace('📚 ','')}
                   </button>
                 </div>
               </div>
@@ -400,14 +400,14 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
             {!repasoCard ? (
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: '60px', marginBottom: '16px' }}>🎉</div>
-                <button onClick={() => setModo('fin')} style={{ padding: '14px 28px', borderRadius: '12px', border: 'none', background: '#38bdf8', color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>{idioma === 'en' ? 'See results' : 'Ver resultados'}</button>
+                <button onClick={() => setModo('fin')} style={{ padding: '14px 28px', borderRadius: '12px', border: 'none', background: '#38bdf8', color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>{tr('verResultadosBtn2')}</button>
               </div>
             ) : (
               <>
                 <div style={{ background: '#0d0d1a', borderRadius: '20px', border: '2px solid #38bdf844', overflow: 'hidden', marginBottom: '16px' }}>
                   <div style={{ height: '4px', background: '#38bdf8' }} />
                   <div style={{ padding: '24px' }}>
-                    <p style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px', margin: '0 0 12px' }}>{idioma === 'en' ? 'Question' : 'Pregunta'} {repasoIdx + 1}/{repasoOrden.length}</p>
+                    <p style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px', margin: '0 0 12px' }}>{tr('pregunta')} {repasoIdx + 1}/{repasoOrden.length}</p>
                     <h3 style={{ fontSize: '20px', fontWeight: 700, color: '#fff', margin: 0, lineHeight: 1.5 }}>{repasoCard.question}</h3>
                   </div>
                 </div>
@@ -416,13 +416,13 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     <textarea value={repasoRespuesta} onChange={e => setRepasoRespuesta(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); evaluarRepaso(); } }}
-                      placeholder={idioma === 'en' ? 'Write your answer... (Enter to evaluate)' : 'Escribe tu respuesta... (Enter para evaluar)'}
+                      placeholder={tr('escribeTuRespuesta')}
                       autoFocus
                       style={{ width: '100%', minHeight: '100px', padding: '16px', borderRadius: '14px', border: `2px solid ${repasoRespuesta ? '#38bdf8' : '#333'}`, background: '#0d0d1a', color: '#fff', fontSize: '16px', fontFamily: 'inherit', lineHeight: 1.7, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
                     <div style={{ display: 'flex', gap: '10px' }}>
                       <button onClick={evaluarRepaso} disabled={!repasoRespuesta.trim() || repasoCargando}
                         style={{ flex: 1, padding: '13px', borderRadius: '12px', border: 'none', background: repasoRespuesta.trim() && !repasoCargando ? '#38bdf8' : '#333', color: repasoRespuesta.trim() && !repasoCargando ? '#000' : '#666', fontSize: '14px', fontWeight: 800, cursor: repasoRespuesta.trim() && !repasoCargando ? 'pointer' : 'not-allowed' }}>
-                        {repasoCargando ? '⏳ ...' : '🧠 ' + (idioma === 'en' ? 'Evaluate' : 'Evaluar')}
+                        {repasoCargando ? '⏳ ...' : '🧠 ' + (tr('evaluarBtn').replace('🧠 ',''))}
                       </button>
                       <button onClick={() => setRepasoMostrarRespuesta(!repasoMostrarRespuesta)}
                         style={{ padding: '13px 18px', borderRadius: '12px', border: '2px solid #333', background: 'transparent', color: '#888', fontSize: '14px', cursor: 'pointer' }}>
@@ -448,11 +448,11 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
                       </div>
                     </div>
                     <div style={{ background: '#0d0d1a', borderRadius: '10px', padding: '12px 14px', border: '1px solid #333' }}>
-                      <p style={{ fontSize: '10px', color: '#555', fontWeight: 700, margin: '0 0 4px' }}>{idioma === 'en' ? 'YOUR ANSWER' : 'TU RESPUESTA'}</p>
+                      <p style={{ fontSize: '10px', color: '#555', fontWeight: 700, margin: '0 0 4px' }}>{tr('tuRespuestaLabel')}</p>
                       <p style={{ fontSize: '13px', color: '#ccc', margin: 0 }}>{repasoRespuesta}</p>
                     </div>
                     <div style={{ background: '#4ade8015', borderRadius: '10px', padding: '12px 14px', border: '1px solid #4ade8044' }}>
-                      <p style={{ fontSize: '10px', color: '#4ade80', fontWeight: 700, margin: '0 0 4px' }}>{idioma === 'en' ? 'CORRECT ANSWER' : 'RESPUESTA CORRECTA'}</p>
+                      <p style={{ fontSize: '10px', color: '#4ade80', fontWeight: 700, margin: '0 0 4px' }}>{tr('respuestaCorrectaUp')}</p>
                       <p style={{ fontSize: '13px', color: '#fff', margin: 0 }}>{repasoCard.answer}</p>
                     </div>
                     <div style={{ background: '#0d0d1a', borderRadius: '10px', padding: '12px 14px', border: '1px solid #333' }}>
@@ -461,7 +461,7 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
                     </div>
                     <button onClick={siguienteRepaso}
                       style={{ padding: '13px', borderRadius: '12px', border: 'none', background: '#38bdf8', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-                      {repasoIdx + 1 >= repasoOrden.length ? '🎉 ' + (idioma === 'en' ? 'Results' : 'Resultados') : (idioma === 'en' ? 'Next →' : 'Siguiente →')}
+                      {repasoIdx + 1 >= repasoOrden.length ? '🎉 ' + (tr('resultadosLabel')) : (tr('siguienteFlecha'))}
                     </button>
                   </div>
                 )}
@@ -497,10 +497,10 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
         <div style={{ maxWidth: '560px', width: '100%', textAlign: 'center' }}>
           <div style={{ fontSize: '64px', marginBottom: '16px' }}>🎉</div>
           <h2 style={{ fontSize: '28px', fontWeight: 900, color: '#fff', margin: '0 0 6px' }}>{tr('sesionCompletada')}</h2>
-          <p style={{ color: '#888', marginBottom: '8px' }}>{completadosUsados} {idioma === 'en' ? 'answers evaluated' : 'respuestas evaluadas'}</p>
+          <p style={{ color: '#888', marginBottom: '8px' }}>{completadosUsados} {tr('respuestasEvaluadas')}</p>
           {esRepaso && (
             <div style={{ display: 'inline-block', background: '#38bdf820', border: '1px solid #38bdf844', borderRadius: '8px', padding: '3px 12px', marginBottom: '20px' }}>
-              <span style={{ fontSize: '12px', color: '#38bdf8', fontWeight: 700 }}>⚡ {idioma === 'en' ? 'Quick review' : 'Repaso rapido'}</span>
+              <span style={{ fontSize: '12px', color: '#38bdf8', fontWeight: 700 }}>⚡ {tr('repasoRapidoLabel')}</span>
             </div>
           )}
 
@@ -516,7 +516,7 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
 
           <div style={{ background: '#0d0d1a', borderRadius: '16px', padding: '20px', marginBottom: '20px', border: `1px solid ${esRepaso ? '#38bdf844' : temaColor + '44'}` }}>
             <div style={{ fontSize: '44px', fontWeight: 900, color: esRepaso ? '#38bdf8' : temaColor }}>{puntuacion}%</div>
-            <div style={{ color: '#888', fontSize: '13px' }}>{idioma === 'en' ? 'Final score' : 'Puntuacion final'}</div>
+            <div style={{ color: '#888', fontSize: '13px' }}>{tr('puntuacionFinal')}</div>
             <div style={{ background: '#1a1a2e', borderRadius: '8px', height: '10px', overflow: 'hidden', marginTop: '12px' }}>
               <div style={{ width: `${puntuacion}%`, height: '100%', background: puntuacion >= 80 ? '#4ade80' : puntuacion >= 60 ? temaColor : '#ff4d6d', borderRadius: '8px', transition: 'width 1s' }} />
             </div>
@@ -584,7 +584,7 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
                     <p style={{ fontSize: '11px', color: temaColor, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px', margin: 0 }}>{tr('pregunta')}</p>
                     {esRepeticion && (
                       <span style={{ fontSize: '11px', background: '#ff4d6d20', color: '#ff4d6d', padding: '2px 8px', borderRadius: '6px', fontWeight: 700 }}>
-                        🔁 {idioma === 'en' ? 'Try again' : 'Intento'} #{(repeticiones.current.get(cardIdx) || 0) + 1}
+                        🔁 {tr('intentoLabel')} #{(repeticiones.current.get(cardIdx) || 0) + 1}
                       </span>
                     )}
                   </div>
@@ -596,13 +596,13 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <textarea value={respuesta} onChange={e => setRespuesta(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); evaluar(); } }}
-                    placeholder={idioma === 'en' ? 'Write your answer... (Enter to evaluate)' : 'Escribe tu respuesta... (Enter para evaluar)'}
+                    placeholder={tr('escribeTuRespuesta')}
                     autoFocus
                     style={{ width: '100%', minHeight: '100px', padding: '16px', borderRadius: '14px', border: `2px solid ${respuesta ? temaColor : '#333'}`, background: '#0d0d1a', color: '#fff', fontSize: '16px', fontFamily: 'inherit', lineHeight: 1.7, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
                   <div style={{ display: 'flex', gap: '10px' }}>
                     <button onClick={evaluar} disabled={!respuesta.trim() || cargando}
                       style={{ flex: 1, padding: '13px', borderRadius: '12px', border: 'none', background: respuesta.trim() && !cargando ? temaColor : '#333', color: respuesta.trim() && !cargando ? '#000' : '#666', fontSize: '14px', fontWeight: 800, cursor: respuesta.trim() && !cargando ? 'pointer' : 'not-allowed' }}>
-                      {cargando ? '⏳ ...' : '🧠 ' + (idioma === 'en' ? 'Evaluate' : 'Evaluar')}
+                      {cargando ? '⏳ ...' : '🧠 ' + (tr('evaluarBtn').replace('🧠 ',''))}
                     </button>
                     <button onClick={() => setMostrarRespuesta(!mostrarRespuesta)}
                       style={{ padding: '13px 18px', borderRadius: '12px', border: '2px solid #333', background: 'transparent', color: '#888', fontSize: '14px', cursor: 'pointer' }}>
@@ -632,12 +632,12 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
                   </div>
 
                   <div style={{ background: '#0d0d1a', borderRadius: '10px', padding: '12px 14px', border: '1px solid #333' }}>
-                    <p style={{ fontSize: '10px', color: '#555', fontWeight: 700, margin: '0 0 4px' }}>{idioma === 'en' ? 'YOUR ANSWER' : 'TU RESPUESTA'}</p>
+                    <p style={{ fontSize: '10px', color: '#555', fontWeight: 700, margin: '0 0 4px' }}>{tr('tuRespuestaLabel')}</p>
                     <p style={{ fontSize: '13px', color: '#ccc', margin: 0 }}>{respuesta}</p>
                   </div>
 
                   <div style={{ background: '#4ade8015', borderRadius: '10px', padding: '12px 14px', border: '1px solid #4ade8044' }}>
-                    <p style={{ fontSize: '10px', color: '#4ade80', fontWeight: 700, margin: '0 0 4px' }}>{idioma === 'en' ? 'CORRECT ANSWER' : 'RESPUESTA CORRECTA'}</p>
+                    <p style={{ fontSize: '10px', color: '#4ade80', fontWeight: 700, margin: '0 0 4px' }}>{tr('respuestaCorrectaUp')}</p>
                     <p style={{ fontSize: '13px', color: '#fff', margin: 0 }}>{cardActual.answer}</p>
                   </div>
 

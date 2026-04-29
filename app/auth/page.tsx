@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import OnboardingModal from '../../components/OnboardingModal';
+import { useIdioma } from '../../hooks/useIdioma';
 
 export default function AuthPage() {
   const [modo, setModo] = useState<'login' | 'registro' | 'reset'>('login');
@@ -17,6 +18,7 @@ export default function AuthPage() {
   const [mensaje, setMensaje] = useState('');
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [nombreUsuario, setNombreUsuario] = useState('');
+  const { tr, idioma } = useIdioma();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -64,12 +66,12 @@ export default function AuthPage() {
   };
 
   const handleLogin = async () => {
-    if (!email || !password) { setError('Completa todos los campos'); return; }
+    if (!email || !password) { setError(tr('completaCampos')); return; }
     setCargando(true); setError('');
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      if (error.message.includes('Invalid login')) setError('Email o contraseña incorrectos');
-      else if (error.message.includes('Email not confirmed')) setError('Confirma tu email primero');
+      if (error.message.includes('Invalid login')) setError(tr('emailOPassIncorrectos'));
+      else if (error.message.includes('Email not confirmed')) setError(tr('confirmaTuEmail'));
       else setError(error.message);
     } else if (data.session) {
       await checkOnboarding(data.session.user.id, data.session.user.user_metadata?.nombre || '');
@@ -78,35 +80,35 @@ export default function AuthPage() {
   };
 
   const handleRegistro = async () => {
-    if (!email || !password || !nombre) { setError('Completa todos los campos'); return; }
-    if (password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres'); return; }
+    if (!email || !password || !nombre) { setError(tr('completaCampos')); return; }
+    if (password.length < 6) { setError(tr('contrasenaMin6')); return; }
     setCargando(true); setError(''); setMensaje('');
     const { data, error } = await supabase.auth.signUp({
       email, password, options: { data: { nombre } },
     });
     if (error) {
-      if (error.message.includes('rate limit')) setError('Demasiados intentos. Espera unos minutos.');
-      else if (error.message.includes('already registered')) { setError('Este email ya está registrado.'); setModo('login'); }
+      if (error.message.includes('rate limit')) setError(tr('demasiadosIntentos'));
+      else if (error.message.includes('already registered')) { setError(tr('emailYaRegistrado')); setModo('login'); }
       else setError(error.message);
     } else if (data.session) {
       setNombreUsuario(nombre); setShowOnboarding(true);
     } else {
-      setMensaje('✅ Revisa tu email para confirmar tu cuenta.');
+      setMensaje(tr('revisaTuEmail'));
     }
     setCargando(false);
   };
 
   const handleReset = async () => {
-    if (!email) { setError('Escribe tu email para recuperar la contraseña'); return; }
+    if (!email) { setError(tr('completaCampos')); return; }
     setCargando(true); setError(''); setMensaje('');
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: typeof window !== 'undefined' ? window.location.origin + '/auth' : undefined,
     });
     if (error) {
-      if (error.message.includes('rate limit')) setError('Demasiados intentos. Espera unos minutos.');
+      if (error.message.includes('rate limit')) setError(tr('demasiadosIntentos'));
       else setError(error.message);
     } else {
-      setMensaje('✅ Te enviamos un email para restablecer tu contraseña. Revisa tu bandeja de entrada.');
+      setMensaje(tr('emailRecuperacion'));
     }
     setCargando(false);
   };
@@ -136,7 +138,6 @@ export default function AuthPage() {
     }}>
       <div style={{ width: '100%', maxWidth: '420px' }}>
 
-        {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <div style={{
             width: '80px', height: '80px', borderRadius: '20px',
@@ -154,11 +155,10 @@ export default function AuthPage() {
             <span style={{ color: 'var(--gold)' }}>AL</span>
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>
-            Tu plataforma de estudio definitiva
+            {tr('tuPlataformaEstudio')}
           </p>
         </div>
 
-        {/* Card */}
         <div style={{
           background: 'var(--bg-card)', borderRadius: '20px',
           border: '1px solid var(--border-color)', overflow: 'hidden',
@@ -167,12 +167,11 @@ export default function AuthPage() {
           <div style={{ height: '4px', background: 'var(--gold)' }} />
           <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
-            {/* Tabs — solo login y registro */}
             {modo !== 'reset' && (
               <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-secondary)', borderRadius: '12px', padding: '4px' }}>
                 {[
-                  { id: 'login' as const, label: '🔑 Iniciar sesión' },
-                  { id: 'registro' as const, label: '✨ Registrarse' },
+                  { id: 'login' as const, label: tr('iniciaSesionTab') },
+                  { id: 'registro' as const, label: tr('registrarse') },
                 ].map(tab => (
                   <button key={tab.id}
                     onClick={() => { setModo(tab.id); setError(''); setMensaje(''); }}
@@ -189,20 +188,18 @@ export default function AuthPage() {
               </div>
             )}
 
-            {/* Header modo reset */}
             {modo === 'reset' && (
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: '40px', marginBottom: '10px' }}>🔑</div>
                 <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 6px' }}>
-                  Recuperar contraseña
+                  {tr('recuperarContrasena')}
                 </h2>
                 <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
-                  Te enviaremos un enlace para restablecer tu contraseña
+                  {tr('recuperarDesc')}
                 </p>
               </div>
             )}
 
-            {/* Alertas */}
             {mensaje && (
               <div style={{ background: '#4ade8020', border: '1px solid #4ade8044', borderRadius: '10px', padding: '12px 16px' }}>
                 <p style={{ fontSize: '14px', color: '#4ade80', margin: 0, fontWeight: 600 }}>{mensaje}</p>
@@ -214,20 +211,18 @@ export default function AuthPage() {
               </div>
             )}
 
-            {/* Campos */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
 
-              {/* Nombre — solo registro */}
               {modo === 'registro' && (
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
-                    Nombre
+                    {tr('nombre')}
                   </label>
                   <input
                     type="text"
                     value={nombre}
                     onChange={e => setNombre(e.target.value)}
-                    placeholder="Tu nombre"
+                    placeholder={tr('tuNombre')}
                     onKeyDown={e => e.key === 'Enter' && handleSubmit()}
                     style={inputStyle}
                     onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
@@ -236,16 +231,15 @@ export default function AuthPage() {
                 </div>
               )}
 
-              {/* Email — siempre */}
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
-                  Email
+                  {tr('email')}
                 </label>
                 <input
                   type="email"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  placeholder="tu@email.com"
+                  placeholder={tr('tuEmail')}
                   onKeyDown={e => e.key === 'Enter' && handleSubmit()}
                   style={inputStyle}
                   onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
@@ -253,18 +247,17 @@ export default function AuthPage() {
                 />
               </div>
 
-              {/* Contraseña — solo login y registro */}
               {modo !== 'reset' && (
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
-                    Contraseña
+                    {tr('contrasena')}
                   </label>
                   <div style={{ position: 'relative' }}>
                     <input
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={e => setPassword(e.target.value)}
-                      placeholder={modo === 'registro' ? 'Mínimo 6 caracteres' : '••••••••'}
+                      placeholder={modo === 'registro' ? tr('minimo6') : '••••••••'}
                       autoComplete={modo === 'registro' ? 'new-password' : 'current-password'}
                       onKeyDown={e => e.key === 'Enter' && handleSubmit()}
                       style={{ ...inputStyle, paddingRight: '48px' }}
@@ -289,7 +282,6 @@ export default function AuthPage() {
                 </div>
               )}
 
-              {/* Botón principal */}
               <button
                 onClick={handleSubmit}
                 disabled={cargando}
@@ -301,15 +293,14 @@ export default function AuthPage() {
                   transition: 'all 0.2s', marginTop: '4px',
                 }}>
                 {cargando
-                  ? '⏳ Cargando...'
+                  ? '⏳ ' + tr('cargando') + '...'
                   : modo === 'login'
-                  ? '🚀 Iniciar sesión'
+                  ? tr('iniciandoSesion')
                   : modo === 'registro'
-                  ? '✨ Crear cuenta'
-                  : '📧 Enviar email de recuperación'}
+                  ? tr('creandoCuenta')
+                  : tr('enviandoEmail')}
               </button>
 
-              {/* Link: ¿Olvidaste tu contraseña? — solo en login */}
               {modo === 'login' && (
                 <button
                   onClick={() => { setModo('reset'); setError(''); setMensaje(''); }}
@@ -317,17 +308,14 @@ export default function AuthPage() {
                     width: '100%', padding: '8px', border: 'none',
                     background: 'transparent', color: 'var(--text-muted)',
                     fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-                    textDecoration: 'underline', textDecorationColor: 'transparent',
-                    transition: 'color 0.2s',
                   }}
                   onMouseEnter={e => { e.currentTarget.style.color = 'var(--gold)'; }}
                   onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; }}
                 >
-                  🔑 ¿Olvidaste tu contraseña?
+                  {tr('olvidasteContrasenaLink')}
                 </button>
               )}
 
-              {/* Link: volver al login — solo en reset */}
               {modo === 'reset' && (
                 <button
                   onClick={() => { setModo('login'); setError(''); setMensaje(''); }}
@@ -340,7 +328,7 @@ export default function AuthPage() {
                   onMouseEnter={e => { e.currentTarget.style.color = 'var(--gold)'; }}
                   onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; }}
                 >
-                  ← Volver a iniciar sesión
+                  {tr('volverIniciarSesion')}
                 </button>
               )}
             </div>
@@ -348,7 +336,7 @@ export default function AuthPage() {
         </div>
 
         <p style={{ textAlign: 'center', color: 'var(--text-faint)', fontSize: '12px', marginTop: '20px' }}>
-          Tus datos están seguros y encriptados 🔒
+          {tr('datosSegurosCifrados')}
         </p>
       </div>
     </div>

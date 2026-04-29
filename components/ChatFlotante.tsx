@@ -43,7 +43,7 @@ export default function ChatFlotante() {
   useEffect(() => {
     if (abierto && !inicializado) {
       const idioma = getIdioma();
-      setMensajes([{ role: 'assistant', content: idioma === 'en' ? "Hi! I'm JeffreyBot 🤖 How can I help?" : '¡Hola! Soy JeffreyBot 🤖 ¿En qué te ayudo?' }]);
+      setMensajes([{ role: 'assistant', content: idioma === 'en' ? "Hi! I'm Chap 🤖 Your AI, always ready to help you study smarter. What's up?" : '¡Hola! Soy Chap 🤖 Tu inteligencia artificial de confianza. ¿En qué te ayudo hoy?' }]);
       setInicializado(true);
       setTimeout(() => inputRef.current?.focus(), 100);
     }
@@ -143,7 +143,7 @@ export default function ChatFlotante() {
           transition: 'all 0.2s',
           opacity: minimizado ? 0.5 : 1,
         }}
-        title="JeffreyBot"
+        title="ChapBot"
       >
         {abierto && !minimizado ? '✕' : '🤖'}
       </button>
@@ -166,7 +166,7 @@ export default function ChatFlotante() {
           <div style={{ padding: '10px 14px', background: 'var(--bg-secondary)', borderBottom: '2px solid var(--pink)', display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
             <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'var(--pink)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px' }}>🤖</div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>JeffreyBot</div>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>ChapBot</div>
               <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{cargando ? '✍️...' : '🟢 Online'}</div>
             </div>
             <button onClick={() => window.location.href = '/chat'} style={{ background: 'none', border: '1px solid var(--pink)', borderRadius: '6px', color: 'var(--pink)', fontSize: '10px', fontWeight: 700, cursor: 'pointer', padding: '2px 7px' }}>↗</button>

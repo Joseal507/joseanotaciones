@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { useIdioma } from '@/hooks/useIdioma';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import Link from 'next/link';
 import MathText from '@/components/MathText';
@@ -67,6 +68,7 @@ function StarSelector({ value, onChange }: { value: number; onChange: (v: number
 
 // ─── FlashcardsViewer ─────────────────────────────────────────────────────────
 function FlashcardsViewer({ cards }: { cards: { question: string; answer: string }[] }) {
+  const { tr, idioma } = useIdioma();
   const [idx, setIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [modo, setModo] = useState<'flip' | 'escritura'>('flip');
@@ -81,7 +83,7 @@ function FlashcardsViewer({ cards }: { cards: { question: string; answer: string
       <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
         {(['flip', 'escritura'] as const).map(m => (
           <button key={m} onClick={() => setModo(m)} style={{ padding: '7px 14px', borderRadius: '20px', border: '2px solid', borderColor: modo === m ? '#a78bfa' : 'var(--border-color)', background: modo === m ? '#a78bfa22' : 'transparent', color: modo === m ? '#a78bfa' : 'var(--text-muted)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-            {m === 'flip' ? '🔄 Voltear' : '✍️ Escritura'}
+            {m === 'flip' ? tr('voltear') : tr('escrituraMode')}
           </button>
         ))}
         <span style={{ marginLeft: 'auto', fontSize: '13px', color: 'var(--text-muted)' }}>{idx + 1} / {cards.length}</span>
@@ -89,7 +91,7 @@ function FlashcardsViewer({ cards }: { cards: { question: string; answer: string
 
       {modo === 'flip' ? (
         <div onClick={() => setFlipped(!flipped)} style={{ background: flipped ? 'linear-gradient(135deg,#7c3aed22,#db277722)' : 'linear-gradient(135deg,#1d4ed822,#7c3aed22)', border: `2px solid ${flipped ? '#a78bfa' : '#6366f1'}`, borderRadius: '20px', padding: '40px 24px', minHeight: '180px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', textAlign: 'center', transition: 'all 0.3s' }}>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: flipped ? '#a78bfa' : '#6366f1', marginBottom: '16px', letterSpacing: '0.08em' }}>{flipped ? 'RESPUESTA' : 'PREGUNTA'}</div>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: flipped ? '#a78bfa' : '#6366f1', marginBottom: '16px', letterSpacing: '0.08em' }}>{flipped ? tr('respuestaUp') : tr('preguntaUp')}</div>
           <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.4 }}><MathText text={flipped ? card.answer : card.question} /></div>
           {!flipped && <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '20px' }}>👆 Toca para ver respuesta</div>}
         </div>
@@ -99,10 +101,10 @@ function FlashcardsViewer({ cards }: { cards: { question: string; answer: string
             <div style={{ fontSize: '12px', fontWeight: 700, color: '#6366f1', marginBottom: '12px' }}>PREGUNTA</div>
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}><MathText text={card.question} /></div>
           </div>
-          <textarea value={respuesta} onChange={e => setRespuesta(e.target.value)} placeholder="Escribe tu respuesta..." rows={3}
+          <textarea value={respuesta} onChange={e => setRespuesta(e.target.value)} placeholder="{tr('escribeTuRespuestaCom')}" rows={3}
             style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', resize: 'vertical', outline: 'none', boxSizing: 'border-box', marginBottom: '10px' }} />
           {!mostrarRespuesta
-            ? <button onClick={() => setMostrarRespuesta(true)} style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>Ver respuesta</button>
+            ? <button onClick={() => setMostrarRespuesta(true)} style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>{tr('verRespuestaBtn')}</button>
             : <div style={{ background: '#a78bfa22', border: '2px solid #a78bfa', borderRadius: '12px', padding: '16px' }}>
                 <div style={{ fontSize: '12px', fontWeight: 700, color: '#a78bfa', marginBottom: '8px' }}>RESPUESTA CORRECTA</div>
                 <div style={{ fontSize: '15px', color: 'var(--text-primary)' }}><MathText text={card.answer} /></div>
@@ -121,6 +123,7 @@ function FlashcardsViewer({ cards }: { cards: { question: string; answer: string
 
 // ─── QuizViewer ───────────────────────────────────────────────────────────────
 function QuizViewer({ preguntas, onTerminar }: { preguntas: any[]; onTerminar: () => void }) {
+  const { tr, idioma } = useIdioma();
   const [idx, setIdx] = useState(0);
   const [seleccionadas, setSeleccionadas] = useState<Record<number, number>>({});
   const [terminado, setTerminado] = useState(false);
@@ -134,12 +137,12 @@ function QuizViewer({ preguntas, onTerminar }: { preguntas: any[]; onTerminar: (
   };
 
   if (terminado) {
-    const correctas = preguntas.filter((p, i) => seleccionadas[i] === p.correcta).length;
-    const pct = Math.round((correctas / preguntas.length) * 100);
+    const {tr('correctasQuiz')} = preguntas.filter((p, i) => seleccionadas[i] === p.correcta).length;
+    const pct = Math.round(({tr('correctasQuiz')} / preguntas.length) * 100);
     return (
       <div style={{ textAlign: 'center', padding: '40px 20px' }}>
         <div style={{ fontSize: '60px', marginBottom: '16px' }}>{pct >= 70 ? '🎉' : pct >= 50 ? '😅' : '😓'}</div>
-        <h2 style={{ fontSize: '28px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px' }}>{correctas} / {preguntas.length} correctas</h2>
+        <h2 style={{ fontSize: '28px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px' }}>{{tr('correctasQuiz')}} / {preguntas.length} {tr('correctasQuiz')}</h2>
         <div style={{ fontSize: '48px', fontWeight: 900, color: pct >= 70 ? '#34d399' : pct >= 50 ? '#f5c842' : '#ef4444', marginBottom: '16px' }}>{pct}%</div>
         <button onClick={() => { setIdx(0); setSeleccionadas({}); setTerminado(false); }} style={{ padding: '12px 24px', borderRadius: '12px', border: 'none', background: '#34d399', color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>🔄 Repetir</button>
       </div>
@@ -181,7 +184,7 @@ function QuizViewer({ preguntas, onTerminar }: { preguntas: any[]; onTerminar: (
       )}
       {respondida && (
         <button onClick={siguiente} style={{ width: '100%', padding: '14px', borderRadius: '14px', border: 'none', background: '#34d399', color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>
-          {idx < preguntas.length - 1 ? 'Siguiente →' : '🏁 Ver Resultados'}
+          {idx < preguntas.length - 1 ? tr('siguienteFlechaDer') : '🏁 Ver Resultados'}
         </button>
       )}
     </div>
@@ -283,7 +286,7 @@ function SeccionComentarios({ postId, userId, userNombre, userAvatar, commentsAc
       </div>
       {respondiendo === c.id && (
         <div style={{ marginLeft: '32px', marginTop: '8px' }}>
-          <textarea value={respuestaTexto} onChange={e => setRespuestaTexto(e.target.value)} placeholder="Escribe tu respuesta..." rows={2}
+          <textarea value={respuestaTexto} onChange={e => setRespuestaTexto(e.target.value)} placeholder="{tr('escribeTuRespuestaCom')}" rows={2}
             style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '2px solid #a78bfa', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '14px', resize: 'none', outline: 'none', boxSizing: 'border-box', marginBottom: '8px' }} />
           <div style={{ display: 'flex', gap: '8px' }}>
             <button onClick={() => enviar(respuestaTexto, c.id)} disabled={!respuestaTexto.trim()} style={{ padding: '6px 14px', borderRadius: '8px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>Responder</button>

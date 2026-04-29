@@ -12,12 +12,12 @@ import BackupManager from '../../components/BackupManager';
 
 type Seccion = 'perfil' | 'seguridad' | 'personalizacion' | 'notificaciones' | 'datos' | 'cuenta';
 
-const TEMAS: { id: AppSettings['tema']; label: string; desc: string; colors: string[] }[] = [
-  { id: 'default', label: '⭐ Default', desc: 'Dorado, rojo, celeste y rosado', colors: ['#f5c842', '#ff4d6d', '#38bdf8', '#f472b6'] },
-  { id: 'alai', label: '👧 Alai', desc: 'Celeste, azul marino, rosado y rosado oscuro', colors: ['#7ec8e3', '#023e8a', '#ff85a1', '#c9184a'] },
-  { id: 'falcons', label: '🏈 Falcons', desc: 'Rojo Atlanta, negro y plata', colors: ['#a71930', '#c8c9c7', '#000000', '#a71930'] },
-  { id: 'raiders', label: '🏴‍☠️ El Broder 😐', desc: 'Plata, negro y blanco — Las Vegas Raiders', colors: ['#a5acaf', '#000000', '#ffffff', '#a5acaf'] },
-  { id: 'math', label: '🔢 Peter Saupeter 😏', desc: 'Verde neón, azul eléctrico, morado y pink', colors: ['#00f5d4', '#4361ee', '#7b2d8b', '#f72585'] },
+const TEMAS: { id: AppSettings['tema']; labelEs: string; labelEn: string; descEs: string; descEn: string; colors: string[] }[] = [
+  { id: 'default', labelEs: '⭐ Clásico', labelEn: '⭐ Classic', descEs: 'Dorado, rojo, celeste y rosado', descEn: 'Gold, red, sky blue and pink', colors: ['#f5c842', '#ff4d6d', '#38bdf8', '#f472b6'] },
+  { id: 'playa', labelEs: '🏖️ Playa', labelEn: '🏖️ Beach', descEs: 'Celeste, arena, rojo y naranja', descEn: 'Sky blue, sand, red and orange', colors: ['#38bdf8', '#ef4444', '#d4a96a', '#fb923c'] },
+  { id: 'executive', labelEs: '💼 Ejecutivo', labelEn: '💼 Executive', descEs: 'Gris, verde, azul y blanco', descEn: 'Gray, green, blue and white', colors: ['#a3a3a3', '#4ade80', '#60a5fa', '#e2e8f0'] },
+  { id: 'sunset', labelEs: '🌅 Atardecer', labelEn: '🌅 Sunset', descEs: 'Naranja, rojo, dorado y fuego', descEn: 'Orange, red, gold and fire', colors: ['#fb923c', '#ef4444', '#fbbf24', '#f97316'] },
+  { id: 'neon', labelEs: '⚡ Eléctrico', labelEn: '⚡ Electric', descEs: 'Verde neón, rosa, azul y morado', descEn: 'Neon green, pink, blue and purple', colors: ['#00f5d4', '#f72585', '#4361ee', '#7b2ff6'] },
 ];
 
 export default function SettingsPage() {
@@ -55,6 +55,13 @@ export default function SettingsPage() {
   const passwordConfirmRef = useRef<HTMLInputElement>(null);
   const [enviandoReset, setEnviandoReset] = useState(false);
   const [mensajeReset, setMensajeReset] = useState('');
+  const [customName, setCustomName] = useState(settings.customTheme?.name || '');
+  const [customColors, setCustomColors] = useState({
+    gold: settings.customTheme?.gold || '#f5c842',
+    red: settings.customTheme?.red || '#ff4d6d',
+    blue: settings.customTheme?.blue || '#38bdf8',
+    pink: settings.customTheme?.pink || '#f472b6',
+  });
 
   useEffect(() => {
     const cargar = async () => {
@@ -101,15 +108,15 @@ export default function SettingsPage() {
           const merged = { ...DEFAULT_SETTINGS, ...localSettings, ...remoteSettings };
           setSettings(merged);
           saveSettings(merged);
-          applyTheme(merged.tema);
+          applyTheme(merged.tema, merged.customTheme);
         } else {
           setSettings(localSettings);
-          applyTheme(localSettings.tema);
+          applyTheme(localSettings.tema, localSettings.customTheme);
           await saveSettingsDB(data.user.id, localSettings);
         }
       } catch {
         setSettings(localSettings);
-        applyTheme(localSettings.tema);
+        applyTheme(localSettings.tema, localSettings.customTheme);
       }
 
       // Cargar foto desde leaderboard (fuente de verdad)
@@ -135,7 +142,7 @@ export default function SettingsPage() {
     const nuevas = { ...settings, ...changes };
     setSettings(nuevas);
     saveSettings(nuevas);
-    if (changes.tema) applyTheme(changes.tema);
+    if (changes.tema || changes.customTheme) applyTheme(nuevas.tema, nuevas.customTheme);
     if (userId) {
       try { await saveSettingsDB(userId, nuevas); } catch (err) { console.error(err); }
     }
@@ -436,10 +443,10 @@ export default function SettingsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <Card color="var(--gold)">
                 <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                  👤 {idioma === 'en' ? 'Public Profile' : 'Perfil público'}
+                  👤 {tr('publicProfile')}
                 </h2>
                 <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
-                  {idioma === 'en' ? 'This info appears on your public profile page' : 'Esta información aparece en tu página de perfil público'}
+                  {tr('publicProfileDesc')}
                 </p>
 
                 {/* Foto */}
@@ -452,7 +459,7 @@ export default function SettingsPage() {
                     }
                   </div>
                   <div>
-                    <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>Foto de perfil</p>
+                    <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>{tr('fotoDePerfil')}</p>
                     <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 8px' }}>JPG, PNG · Max 2MB</p>
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <button onClick={() => fotoRef.current?.click()}
@@ -489,12 +496,12 @@ export default function SettingsPage() {
                 {/* Descripción */}
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                    {idioma === 'en' ? 'Description' : 'Descripción'} <span style={{ fontWeight: 400, textTransform: 'none' }}>({descripcion.length}/300)</span>
+                    {tr('descripcion')} <span style={{ fontWeight: 400, textTransform: 'none' }}>({descripcion.length}/300)</span>
                   </label>
                   <textarea
                     value={descripcion}
                     onChange={e => setDescripcion(e.target.value.slice(0, 300))}
-                    placeholder={idioma === 'en' ? 'Tell others about yourself...' : 'Cuéntale algo a los demás...'}
+                    placeholder={tr('descripcionPlaceholder')}
                     rows={3}
                     style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', resize: 'vertical', minHeight: '80px', lineHeight: 1.5, fontFamily: 'inherit', transition: 'border 0.2s' }}
                     onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
@@ -505,13 +512,13 @@ export default function SettingsPage() {
                 {/* Género */}
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                    {idioma === 'en' ? 'Gender' : 'Género'}
+                    {tr('genero')}
                   </label>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     {[
-                      { id: 'hombre', label: idioma === 'en' ? '👦 Male' : '👦 Hombre' },
-                      { id: 'mujer', label: idioma === 'en' ? '👧 Female' : '👧 Mujer' },
-                      { id: 'otro', label: idioma === 'en' ? 'Other' : 'Otro' },
+                      { id: 'hombre', label: tr('hombre') },
+                      { id: 'mujer', label: tr('mujer') },
+                      { id: 'otro', label: tr('otro') },
                     ].map(g => (
                       <button key={g.id} onClick={() => setGenero(g.id)}
                         style={{ flex: 1, padding: '10px', borderRadius: '10px', border: `2px solid ${genero === g.id ? 'var(--gold)' : 'var(--border-color)'}`, background: genero === g.id ? 'rgba(245,200,66,0.15)' : 'var(--bg-secondary)', color: genero === g.id ? 'var(--gold)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>
@@ -524,14 +531,14 @@ export default function SettingsPage() {
                 {/* Tipo de estudiante */}
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                    {idioma === 'en' ? 'Student type' : 'Tipo de estudiante'}
+                    {tr('tipoEstudiante')}
                   </label>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     {[
-                      { id: 'escuela', label: '🏫 ' + (idioma === 'en' ? 'School' : 'Escuela') },
-                      { id: 'universitario', label: '🎓 ' + (idioma === 'en' ? 'University' : 'Universitario') },
-                      { id: 'profesional', label: '💼 ' + (idioma === 'en' ? 'Professional' : 'Profesional') },
-                      { id: 'autodidacta', label: '🧠 ' + (idioma === 'en' ? 'Self-taught' : 'Autodidacta') },
+                      { id: 'escuela', label: tr('escuela') },
+                      { id: 'universitario', label: tr('universitario') },
+                      { id: 'profesional', label: tr('profesional') },
+                      { id: 'autodidacta', label: tr('autodidacta') },
                     ].map(t => (
                       <button key={t.id} onClick={() => setTipoEstudiante(t.id)}
                         style={{ padding: '8px 14px', borderRadius: '10px', border: `2px solid ${tipoEstudiante === t.id ? 'var(--blue)' : 'var(--border-color)'}`, background: tipoEstudiante === t.id ? 'rgba(56,189,248,0.15)' : 'var(--bg-secondary)', color: tipoEstudiante === t.id ? 'var(--blue)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>
@@ -545,30 +552,30 @@ export default function SettingsPage() {
                 {tipoEstudiante === 'universitario' && (
                   <>
                     <div>
-                      <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>🏫 {idioma === 'en' ? 'University' : 'Universidad'}</label>
+                      <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>🏫 {tr('universidad').replace('🏫 ', '')}</label>
                       <select value={universidad} onChange={e => setUniversidad(e.target.value)}
                         style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}
                         onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
                         onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}>
-                        <option value="">{idioma === 'en' ? 'Not specified' : 'Sin especificar'}</option>
+                        <option value="">{tr('sinEspecificar')}</option>
                         {['ULAT','USMA','UTP','UP (Universidad de Panamá)','UDELAS','ISAE Universidad','Universidad Latina de Panamá','Columbus University','Universidad del Istmo','UMECIT','Harvard','MIT','Stanford','TEC de Monterrey','Otra universidad'].map(u => <option key={u} value={u}>{u}</option>)}
                       </select>
                       {universidad === 'Otra universidad' && (
-                        <input type="text" value={uniCustom} onChange={e => setUniCustom(e.target.value)} placeholder={idioma === 'en' ? 'Your university...' : 'Tu universidad...'}
+                        <input type="text" value={uniCustom} onChange={e => setUniCustom(e.target.value)} placeholder={tr('otraUniversidad')}
                           style={{ width: '100%', padding: '10px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', marginTop: '8px' }} />
                       )}
                     </div>
                     <div>
-                      <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>📚 {idioma === 'en' ? 'Major' : 'Carrera'}</label>
+                      <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>📚 {tr('carreraMajor').replace('📚 ', '')}</label>
                       <select value={carrera} onChange={e => setCarrera(e.target.value)}
                         style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}
                         onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
                         onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}>
-                        <option value="">{idioma === 'en' ? 'Not specified' : 'Sin especificar'}</option>
+                        <option value="">{tr('sinEspecificar')}</option>
                         {['Ingeniería en Sistemas / Informática','Ingeniería Civil','Medicina','Enfermería','Psicología','Derecho','Administración de Empresas','Contaduría / Contabilidad','Arquitectura','Diseño Gráfico','Marketing / Publicidad','Biología','Química','Física','Matemáticas','Otra carrera'].map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
                       {carrera === 'Otra carrera' && (
-                        <input type="text" value={carreraCustom} onChange={e => setCarreraCustom(e.target.value)} placeholder={idioma === 'en' ? 'Your major...' : 'Tu carrera...'}
+                        <input type="text" value={carreraCustom} onChange={e => setCarreraCustom(e.target.value)} placeholder={tr('otraCarrera')}
                           style={{ width: '100%', padding: '10px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', marginTop: '8px' }} />
                       )}
                     </div>
@@ -583,7 +590,7 @@ export default function SettingsPage() {
                       style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}
                       onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
                       onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}>
-                      <option value="">{idioma === 'en' ? 'Not specified' : 'Sin especificar'}</option>
+                      <option value="">{tr('sinEspecificar')}</option>
                       <optgroup label="🏛️ Públicas">
                         {['Instituto Nacional (El Nacio)','Instituto Fermín Naudeau','Instituto Profesional y Técnico de Panamá (IPTP)'].map(e => <option key={e} value={e}>{e}</option>)}
                       </optgroup>
@@ -592,7 +599,7 @@ export default function SettingsPage() {
                       </optgroup>
                     </select>
                     {escuela === 'Otra escuela' && (
-                      <input type="text" value={escuelaCustom} onChange={e => setEscuelaCustom(e.target.value)} placeholder={idioma === 'en' ? 'Your school...' : 'Tu escuela...'}
+                      <input type="text" value={escuelaCustom} onChange={e => setEscuelaCustom(e.target.value)} placeholder={tr('otraEscuela')}
                         style={{ width: '100%', padding: '10px 16px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box', marginTop: '8px' }} />
                     )}
                   </div>
@@ -610,7 +617,7 @@ export default function SettingsPage() {
                     if (data.user?.id) window.location.href = '/u/' + data.user.id;
                   }}
                     style={{ padding: '13px 24px', borderRadius: '10px', border: '2px solid var(--blue)', background: 'transparent', color: 'var(--blue)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-                    🌐 {idioma === 'en' ? 'View public profile' : 'Ver perfil público'}
+                    🌐 {tr('verPerfilPublico')}
                   </button>
                 </div>
               </Card>
@@ -696,7 +703,7 @@ export default function SettingsPage() {
                       style={{ flex: 1, padding: '16px', borderRadius: '12px', border: `2px solid ${idioma === lang.id ? '#4ade80' : 'var(--border-color)'}`, background: idioma === lang.id ? '#4ade8020' : 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'center', transition: 'all 0.2s' }}>
                       <div style={{ fontSize: '32px', marginBottom: '8px' }}>{lang.flag}</div>
                       <p style={{ fontSize: '14px', fontWeight: 800, color: idioma === lang.id ? '#4ade80' : 'var(--text-primary)', margin: 0 }}>{lang.label}</p>
-                      {idioma === lang.id && <p style={{ fontSize: '11px', color: '#4ade80', margin: '4px 0 0', fontWeight: 700 }}>✓ Active</p>}
+                      {idioma === lang.id && <p style={{ fontSize: '11px', color: '#4ade80', margin: '4px 0 0', fontWeight: 700 }}>✓ {tr('activo')}</p>}
                     </button>
                   ))}
                 </div>
@@ -719,13 +726,84 @@ export default function SettingsPage() {
                             ))}
                           </div>
                           <div style={{ flex: 1 }}>
-                            <p style={{ fontSize: '14px', fontWeight: 800, color: isActive ? tema.colors[0] : 'var(--text-primary)', margin: '0 0 2px' }}>{tema.label}</p>
-                            <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0 }}>{tema.desc}</p>
+                            <p style={{ fontSize: '14px', fontWeight: 800, color: isActive ? tema.colors[0] : 'var(--text-primary)', margin: '0 0 2px' }}>{idioma === 'en' ? tema.labelEn : tema.labelEs}</p>
+                            <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0 }}>{idioma === 'en' ? tema.descEn : tema.descEs}</p>
                           </div>
                           {isActive && <span style={{ fontSize: '20px', flexShrink: 0 }}>✓</span>}
                         </button>
                       );
                     })}
+                  </div>
+
+                  {/* ── Tema personalizado ── */}
+                  <div style={{ marginTop: '16px', padding: '18px', background: 'var(--bg-secondary)', borderRadius: '14px', border: settings.tema === 'custom' ? '2px solid var(--gold)' : '2px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                      <div>
+                        <p style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px' }}>🎨 {tr('temaPersonalizado').replace('🎨 ', '')}</p>
+                        <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{tr('temaPersonalizadoDesc')}</p>
+                      </div>
+                      {settings.tema === 'custom' && (
+                        <span style={{ fontSize: '10px', background: 'var(--gold)', color: '#000', padding: '2px 8px', borderRadius: '20px', fontWeight: 800 }}>{tr('activo')}</span>
+                      )}
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        {tr('nombreTema')}
+                      </label>
+                      <input
+                        type="text"
+                        value={customName}
+                        onChange={e => setCustomName(e.target.value.slice(0, 20))}
+                        placeholder={tr('miTema')}
+                        style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+                        onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
+                        onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                      />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '14px' }}>
+                      {[
+                        { key: 'gold' as const, label: tr('principal') },
+                        { key: 'red' as const, label: tr('acento') },
+                        { key: 'blue' as const, label: tr('secundario') },
+                        { key: 'pink' as const, label: tr('resalte') },
+                      ].map(c => (
+                        <div key={c.key} style={{ textAlign: 'center' }}>
+                          <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>{c.label}</label>
+                          <div style={{ position: 'relative', display: 'inline-block' }}>
+                            <input
+                              type="color"
+                              value={customColors[c.key]}
+                              onChange={e => setCustomColors(prev => ({ ...prev, [c.key]: e.target.value }))}
+                              style={{ width: '44px', height: '44px', borderRadius: '12px', border: '3px solid var(--border-color)', cursor: 'pointer', padding: 0, background: 'transparent' }}
+                            />
+                          </div>
+                          <p style={{ fontSize: '9px', color: 'var(--text-faint)', margin: '4px 0 0', fontFamily: 'monospace' }}>{customColors[c.key]}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Preview */}
+                    <div style={{ display: 'flex', gap: '4px', justifyContent: 'center', marginBottom: '14px', padding: '8px', background: 'var(--bg-card)', borderRadius: '10px' }}>
+                      {Object.values(customColors).map((c, i) => (
+                        <div key={i} style={{ flex: 1, height: '6px', borderRadius: '3px', background: c }} />
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        const theme = { name: customName || nombre_usuario, ...customColors };
+                        updateSettings({ tema: 'custom', customTheme: theme });
+                      }}
+                      style={{
+                        width: '100%', padding: '11px', borderRadius: '10px', border: 'none',
+                        background: `linear-gradient(90deg, ${customColors.gold}, ${customColors.red}, ${customColors.blue}, ${customColors.pink})`,
+                        color: '#000', fontWeight: 800, fontSize: '14px', cursor: 'pointer',
+                      }}
+                    >
+                      🎨 {tr('aplicarTema')}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -744,10 +822,10 @@ export default function SettingsPage() {
               <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                 <div style={{ height: '3px', background: 'var(--pink)' }} />
                 <div style={{ padding: '20px' }}>
-                  <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>🤖 JeffreyBot flotante</h3>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>Chat de IA accesible desde cualquier página</p>
+                  <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>🤖 ChapBot flotante</h3>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>{tr('chapbotFlotanteDesc')}</p>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>Mostrar</span>
+                    <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>{tr('mostrar')}</span>
                     <button
                       onClick={() => updateSettings({ chatEnabled: !settings.chatEnabled })}
                       style={{ width: '48px', height: '26px', borderRadius: '13px', border: 'none', background: settings.chatEnabled !== false ? 'var(--pink)' : 'var(--border-color)', cursor: 'pointer', position: 'relative', transition: 'background 0.3s' }}>
@@ -761,9 +839,9 @@ export default function SettingsPage() {
                 <div style={{ height: '3px', background: '#ef4444' }} />
                 <div style={{ padding: '20px' }}>
                   <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>⏱️ Pomodoro Timer</h3>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>Mini widget de estudio con técnica Pomodoro</p>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>{tr('pomodoroDesc')}</p>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>Mostrar</span>
+                    <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>{tr('mostrar')}</span>
                     <button
                       onClick={() => updateSettings({ timerEnabled: !settings.timerEnabled })}
                       style={{ width: '48px', height: '26px', borderRadius: '13px', border: 'none', background: settings.timerEnabled !== false ? '#ef4444' : 'var(--border-color)', cursor: 'pointer', position: 'relative', transition: 'background 0.3s' }}>
@@ -780,11 +858,11 @@ export default function SettingsPage() {
                 <div style={{ padding: '20px' }}>
                   <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>🏆 Leaderboard</h3>
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>
-                    {idioma === 'en' ? 'Show your profile in the public leaderboard' : 'Mostrar tu perfil en el leaderboard público'}
+                    {tr('leaderboardDesc')}
                   </p>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>
-                      {idioma === 'en' ? 'Visible in leaderboard' : 'Visible en el leaderboard'}
+                      {tr('visibleLeaderboard')}
                     </span>
                     <button
                       onClick={async () => {
@@ -804,7 +882,7 @@ export default function SettingsPage() {
                     </button>
                   </div>
                   <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '8px 0 0' }}>
-                    {idioma === 'en' ? 'You can change this at any time' : 'Puedes cambiar esto cuando quieras'}
+                    {tr('puedesCambiar')}
                   </p>
                 </div>
               </div>
@@ -906,8 +984,8 @@ export default function SettingsPage() {
                   {[
                     { label: 'Email', value: usuario?.email },
                     { label: 'ID', value: usuario?.id?.substring(0, 12) + '...' },
-                    { label: idioma === 'en' ? 'Created' : 'Creada', value: usuario?.created_at ? new Date(usuario.created_at).toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES') : 'N/A' },
-                    { label: idioma === 'en' ? 'Last login' : 'Último acceso', value: usuario?.last_sign_in_at ? new Date(usuario.last_sign_in_at).toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES') : 'N/A' },
+                    { label: tr('creada'), value: usuario?.created_at ? new Date(usuario.created_at).toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES') : 'N/A' },
+                    { label: tr('ultimoAcceso'), value: usuario?.last_sign_in_at ? new Date(usuario.last_sign_in_at).toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES') : 'N/A' },
                   ].map((item, i) => (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-secondary)', borderRadius: '10px' }}>
                       <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>{item.label}</span>

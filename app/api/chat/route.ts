@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { groqRequest } from '../../../lib/groqClient';
+import { detectLanguageFromMany } from '../../../lib/detectLanguage';
 
 export const maxDuration = 60;
 
@@ -7,7 +8,63 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { mensaje, contexto, historial, todosDocumentos, idioma, imageBase64, imageMime, nombreUsuario, enLlamada } = body;
-    const lang = idioma === 'en' ? 'en' : 'es';
+
+    // Detectar idioma real del mensaje
+    const detectarIdioma = (texto: string): 'en' | 'es' => {
+      if (!texto || texto.length < 2) return idioma === 'en' ? 'en' : 'es';
+      const t = texto.toLowerCase().trim();
+
+      // Palabras clave EN inglés (muy comunes, cortas)
+      const palabrasEn = [
+        'hello','hi','hey','how','are','you','what','the','is','are','was','were',
+        'have','has','this','that','with','from','they','which','when','where',
+        'can','will','would','should','could','about','there','their','been',
+        'good','great','help','me','my','i','do','does','did','need','want',
+        'tell','explain','show','give','make','get','go','know','think','see',
+        'please','thanks','thank','yes','no','ok','okay','sure','well','so',
+        'a','an','of','in','to','for','on','at','by','or','and','but','if',
+        'it','its','we','our','us','them','their','your','his','her','who',
+        'why','not','just','now','also','then','than','more','some','any',
+      ];
+
+      // Palabras clave EN español
+      const palabrasEs = [
+        'hola','como','estas','qué','que','con','para','por','una','los','las',
+        'del','está','son','como','pero','más','muy','todo','este','esta',
+        'también','hacer','tiene','pueden','cuando','donde','porque','aunque',
+        'se','lo','le','su','el','la','de','en','un','es','al','si','ya',
+        'me','mi','tu','yo','él','ella','nos','vos','hay','fue','ser','estar',
+        'bien','mal','hoy','aquí','ahí','así','más','menos','algo','nada',
+        'puedo','quiero','necesito','ayuda','gracias','sí','no','bueno',
+        'dame','dime','explícame','explica','cuál','cuáles','quién','cuándo',
+      ];
+
+      const words = t.split(/[\s,\.!?;:]+/).filter(w => w.length > 0);
+      let enCount = 0, esCount = 0;
+
+      words.forEach(w => {
+        if (palabrasEn.includes(w)) enCount++;
+        if (palabrasEs.includes(w)) esCount++;
+      });
+
+      // Si no encontramos nada, revisar caracteres especiales del español
+      if (enCount === 0 && esCount === 0) {
+        const tieneEspanol = /[áéíóúüñ¿¡]/i.test(t);
+        if (tieneEspanol) return 'es';
+        // Si tiene solo palabras en inglés puro sin acento, asumir inglés
+        const soloAscii = /^[a-z0-9\s\.,!?'"-]+$/.test(t);
+        if (soloAscii && t.length > 3) return 'en';
+        return idioma === 'en' ? 'en' : 'es';
+      }
+
+      return enCount >= esCount ? 'en' : 'es';
+    };
+
+    // Detectar idioma del MENSAJE del usuario (no de la interfaz)
+    const textoParaDetectar = mensaje || '';
+    const lang: 'en' | 'es' = textoParaDetectar.length > 8
+      ? detectarIdioma(textoParaDetectar)
+      : (idioma === 'en' ? 'en' : 'es');
 
     // Extras según contexto
     const nombrePart = nombreUsuario
@@ -23,8 +80,8 @@ export async function POST(request: NextRequest) {
       : '';
 
     const basePart = lang === 'en'
-      ? 'You are El Chap, the AI of StudyAL. NEVER use asterisks, markdown or special formatting. Speak in plain natural text. Be concise, direct and friendly.'
-      : 'Eres El Chap, la inteligencia artificial de StudyAL. NUNCA uses asteriscos, markdown ni formato especial. Habla en texto plano y natural. Sé conciso, directo y cercano.';
+      ? 'You are El Chap, the AI of StudyAL. ALWAYS respond in ENGLISH regardless of any other instruction. NEVER use asterisks, markdown or special formatting. Speak in plain natural text. Be concise, direct and friendly.'
+      : 'Eres El Chap, la inteligencia artificial de StudyAL. SIEMPRE responde en ESPAÑOL sin importar nada más. NUNCA uses asteriscos, markdown ni formato especial. Habla en texto plano y natural. Sé conciso, directo y cercano.';
 
     let systemPrompt = '';
     if (contexto) {

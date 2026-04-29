@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { getPerfil, getMaterias } from '../../lib/storage';
 import { getSettings } from '../../lib/settings';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
 import { getIdioma } from '../../lib/i18n';
 import AIExhausted from '../../components/AIExhausted';
@@ -22,6 +23,7 @@ interface ImageData {
 
 export default function ChatPage() {
   const { tr, idioma } = useIdioma();
+  const isMobile = useIsMobile();
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [input, setInput] = useState('');
   const [cargando, setCargando] = useState(false);
@@ -56,7 +58,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     const saludo = idioma === 'en'
-      ? "Hi! I'm The Chap 🤖 Your AI on StudyAL. I can help you with text, images or voice messages! How can I help?"
+      ? "Hi! I'm El Chap 🤖 Your AI on StudyAL. I can help you with text, images or voice messages! How can I help?"
       : '¡Hola! Soy El Chap 🤖 Tu IA en StudyAL. ¡Puedes enviarme texto, imágenes o mensajes de voz! ¿En qué te ayudo?';
     setMensajes([{ role: 'assistant', content: saludo }]);
     setPerfil(getPerfil());
@@ -604,51 +606,60 @@ export default function ChatPage() {
       <input ref={audioInputRef} type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.webm" onChange={handleAudioFile} style={{ display: 'none' }} />
 
       {/* Header */}
-      <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: '0 24px', height: '68px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: isMobile ? '0 12px' : '0 24px', height: isMobile ? '56px' : '68px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px' }}>
           <button onClick={() => window.location.href = '/'}
-            style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '7px 14px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-            ← {tr('inicio')}
+            style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: isMobile ? '6px 10px' : '7px 14px', borderRadius: '8px', fontWeight: 700, fontSize: isMobile ? '12px' : '13px', cursor: 'pointer' }}>
+            ←
           </button>
           <div>
-            <h1 style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              🤖 ChapBot
+            <h1 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: 900, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              🤖 {isMobile ? 'El Chap' : 'ChapBot'}
               {modoLlamada && (
-                <span style={{ fontSize: '11px', background: '#4ade80', color: '#000', padding: '2px 8px', borderRadius: '6px', fontWeight: 800 }}>
+                <span style={{ fontSize: '10px', background: '#4ade80', color: '#000', padding: '2px 6px', borderRadius: '6px', fontWeight: 800 }}>
                   📞 {idioma === 'en' ? 'CALL' : 'LLAMADA'}
                 </span>
               )}
-              {llamandoAI && (
-                <span style={{ fontSize: '11px', background: 'var(--gold)', color: '#000', padding: '2px 8px', borderRadius: '6px', fontWeight: 800 }}>
-                  🔊 {idioma === 'en' ? 'Speaking...' : 'Hablando...'}
+              {llamandoAI && !modoLlamada && (
+                <span style={{ fontSize: '10px', background: 'var(--gold)', color: '#000', padding: '2px 6px', borderRadius: '6px', fontWeight: 800 }}>
+                  🔊
                 </span>
               )}
             </h1>
-            <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>
-              {usarDocumentos ? `${todosDocumentos.length} docs` : idioma === 'en' ? 'Your AI on StudyAL' : 'Tu IA en StudyAL'}
-            </p>
+            {!isMobile && (
+              <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>
+                {usarDocumentos ? `${todosDocumentos.length} docs` : idioma === 'en' ? 'Your AI on StudyAL' : 'Tu IA en StudyAL'}
+              </p>
+            )}
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: isMobile ? '4px' : '6px', alignItems: 'center' }}>
+          {/* Botón llamada — siempre visible */}
           <button onClick={toggleModoLlamada}
-            style={{ padding: '7px 14px', borderRadius: '8px', border: `2px solid ${modoLlamada ? '#4ade80' : 'var(--border-color)'}`, background: modoLlamada ? '#4ade8020' : 'transparent', color: modoLlamada ? '#4ade80' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-            {modoLlamada ? '📞 Colgar' : '📞 Llamar'}
+            style={{ padding: isMobile ? '7px 10px' : '7px 14px', borderRadius: '8px', border: `2px solid ${modoLlamada ? '#4ade80' : 'var(--border-color)'}`, background: modoLlamada ? '#4ade8020' : 'transparent', color: modoLlamada ? '#4ade80' : 'var(--text-muted)', fontSize: isMobile ? '14px' : '12px', fontWeight: 700, cursor: 'pointer' }}>
+            {modoLlamada ? '📵' : '📞'}
           </button>
+          {/* Audio — siempre visible */}
           <button onClick={() => setAudioEnabled(!audioEnabled)}
-            style={{ padding: '7px 14px', borderRadius: '8px', border: `2px solid ${audioEnabled ? 'var(--gold)' : 'var(--border-color)'}`, background: audioEnabled ? 'var(--gold-dim)' : 'transparent', color: audioEnabled ? 'var(--gold)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-            {audioEnabled ? '🔊 ON' : '🔇 OFF'}
+            style={{ padding: isMobile ? '7px 10px' : '7px 14px', borderRadius: '8px', border: `2px solid ${audioEnabled ? 'var(--gold)' : 'var(--border-color)'}`, background: audioEnabled ? 'var(--gold-dim)' : 'transparent', color: audioEnabled ? 'var(--gold)' : 'var(--text-muted)', fontSize: isMobile ? '14px' : '12px', fontWeight: 700, cursor: 'pointer' }}>
+            {audioEnabled ? '🔊' : '🔇'}
           </button>
+          {/* Docs — siempre visible */}
           <button onClick={() => setUsarDocumentos(!usarDocumentos)}
-            style={{ padding: '7px 14px', borderRadius: '8px', border: `2px solid ${usarDocumentos ? 'var(--blue)' : 'var(--border-color)'}`, background: usarDocumentos ? 'var(--blue-dim)' : 'transparent', color: usarDocumentos ? 'var(--blue)' : 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-            📚 {usarDocumentos ? `ON (${todosDocumentos.length})` : tr('usarDocs')}
+            style={{ padding: isMobile ? '7px 10px' : '7px 14px', borderRadius: '8px', border: `2px solid ${usarDocumentos ? 'var(--blue)' : 'var(--border-color)'}`, background: usarDocumentos ? 'var(--blue-dim)' : 'transparent', color: usarDocumentos ? 'var(--blue)' : 'var(--text-muted)', fontSize: isMobile ? '13px' : '12px', fontWeight: 700, cursor: 'pointer' }}>
+            {isMobile ? (usarDocumentos ? '📚✓' : '📚') : `📚 ${usarDocumentos ? `ON (${todosDocumentos.length})` : tr('usarDocs')}`}
           </button>
-          <button onClick={() => window.location.href = '/perfil'}
-            style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-            📊
-          </button>
-          <button onClick={() => setMensajes([{ role: 'assistant', content: idioma === 'en' ? "Hi! I'm The Chap 🤖" : '¡Hola! Soy El Chap 🤖' }])}
-            style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+          {/* Stats — solo desktop */}
+          {!isMobile && (
+            <button onClick={() => window.location.href = '/perfil'}
+              style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+              📊
+            </button>
+          )}
+          {/* Limpiar */}
+          <button onClick={() => setMensajes([{ role: 'assistant', content: idioma === 'en' ? "Hi! I'm El Chap 🤖" : '¡Hola! Soy El Chap 🤖' }])}
+            style={{ padding: isMobile ? '7px 10px' : '7px 14px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: isMobile ? '14px' : '12px', fontWeight: 700, cursor: 'pointer' }}>
             🗑️
           </button>
         </div>
@@ -709,8 +720,8 @@ export default function ChatPage() {
             {(llamadaEscuchando || llamadaHablando) && [1,2,3,4].map(ring => (
               <div key={ring} style={{
                 position: 'absolute',
-                width: 100 + ring * 50,
-                height: 100 + ring * 50,
+                width: (isMobile ? 80 : 100) + ring * (isMobile ? 35 : 50),
+                height: (isMobile ? 80 : 100) + ring * (isMobile ? 35 : 50),
                 borderRadius: '50%',
                 border: `1.5px solid ${llamadaHablando ? '#f5c842' : '#4ade80'}`,
                 opacity: 0.3 / ring,
@@ -731,7 +742,7 @@ export default function ChatPage() {
             )}
             {/* Bola */}
             <div style={{
-              width: 140, height: 140, borderRadius: '50%',
+              width: isMobile ? 110 : 140, height: isMobile ? 110 : 140, borderRadius: '50%',
               background: llamadaHablando
                 ? 'radial-gradient(circle at 40% 35%, #f5c842, #f97316)'
                 : llamadaEscuchando
@@ -789,8 +800,8 @@ export default function ChatPage() {
 
           {/* Botones inferiores tipo celular */}
           <div style={{
-            position: 'absolute', bottom: '10vh',
-            display: 'flex', gap: 40, alignItems: 'center',
+            position: 'absolute', bottom: isMobile ? '12vh' : '10vh',
+            display: 'flex', gap: isMobile ? 24 : 40, alignItems: 'center',
           }}>
             {/* Mute (decorativo) */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>

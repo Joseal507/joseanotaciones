@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { getMaterias, Materia, Tema, Documento, Apunte } from '../lib/storage';
+import { useIdioma } from '../hooks/useIdioma';
 import { getQuizzesGuardados, getFlashcardDecks, getQuizzesTemporales, QuizGuardado, FlashcardDeck } from '../lib/quizStorage';
 
 interface Props {
@@ -41,6 +42,7 @@ export default function PublicarComunidad({
   onPublicado,
 }: Props) {
 
+  const { tr, idioma } = useIdioma();
   const [paso, setPaso]   = useState<Paso>(tipoProp ? (contenidoProp ? 'detalles' : 'origen') : 'tipo');
   const [tipo, setTipo]   = useState<'apunte' | 'flashcards' | 'quiz' | 'post' | 'video'>(tipoProp || 'post');
 
@@ -268,12 +270,12 @@ export default function PublicarComunidad({
   // ─── publicar ─────────────────────────────────────────────────────────────
   const publicar = async () => {
     setError('');
-    if (!titulo.trim()) { setError('El título es obligatorio'); return; }
-    if (tipo === 'video' && !videoUrl) { setError('Debes subir un video'); return; }
-    if (!userId)        { setError('Debes iniciar sesión'); return; }
+    if (!titulo.trim()) { setError(tr('tituloObligatorio')); return; }
+    if (tipo === 'video' && !videoUrl) { setError(tr('debesSubirVideo')); return; }
+    if (!userId)        { setError(tr('debesIniciarSesion')); return; }
 
     const contenidoFinal = construirContenido();
-    if (tipo !== 'post' && tipo !== 'video' && !contenidoFinal) { setError('Selecciona contenido para publicar'); return; }
+    if (tipo !== 'post' && tipo !== 'video' && !contenidoFinal) { setError(tr('seleccionaContenido')); return; }
 
     const contenidoSeguro =
       contenidoFinal ??
@@ -351,10 +353,10 @@ export default function PublicarComunidad({
         {paso === 'exito' && (
           <div style={{ padding: '64px 32px', textAlign: 'center' }}>
             <div style={{ fontSize: '72px', marginBottom: '20px' }}>🎉</div>
-            <h2 style={{ fontSize: '26px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 10px' }}>¡Publicado!</h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '15px', margin: 0 }}>Ya está en la comunidad</p>
+            <h2 style={{ fontSize: '26px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 10px' }}>{tr('publicado')}</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '15px', margin: 0 }}>{tr('yaEstaEnComunidad')}</p>
             <button onClick={() => window.location.href = '/comunidad'} style={{ marginTop: '24px', padding: '12px 28px', borderRadius: '14px', border: 'none', background: info.color, color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>
-              Ver en Comunidad →
+              {tr('verEnComunidad')}
             </button>
           </div>
         )}
@@ -363,7 +365,7 @@ export default function PublicarComunidad({
         {paso === 'publicando' && (
           <div style={{ padding: '64px 32px', textAlign: 'center' }}>
             <div style={{ fontSize: '48px', marginBottom: '20px' }}>⏳</div>
-            <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Publicando...</h2>
+            <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('publicando')}</h2>
           </div>
         )}
 
@@ -377,14 +379,14 @@ export default function PublicarComunidad({
                   {info.emoji}
                 </div>
                 <div>
-                  <h2 style={{ fontSize: '16px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>Publicar en Comunidad</h2>
+                  <h2 style={{ fontSize: '16px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{tr('publicarEnComunidad')}</h2>
                   <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
-                    {paso === 'tipo'     && 'Elige qué publicar'}
-                    {paso === 'origen'   && 'Elige el origen del contenido'}
-                    {paso === 'explorar' && (temaNav ? `${materiaNav?.emoji} ${materiaNav?.nombre} → ${temaNav.nombre}` : materiaNav ? `${materiaNav.emoji} ${materiaNav.nombre}` : 'Elige una materia')}
-                    {paso === 'decks'    && 'Tus flashcard decks'}
-                    {paso === 'quizzes'  && 'Tus quizzes guardados'}
-                    {paso === 'detalles' && 'Detalles del post'}
+                    {paso === 'tipo'     && tr('eligeQuePublicar')}
+                    {paso === 'origen'   && tr('eligeOrigen')}
+                    {paso === 'explorar' && (temaNav ? `${materiaNav?.emoji} ${materiaNav?.nombre} → ${temaNav.nombre}` : materiaNav ? `${materiaNav.emoji} ${materiaNav.nombre}` : tr('eligeUnaMateria'))}
+                    {paso === 'decks'    && tr('tusFlashcardDecks')}
+                    {paso === 'quizzes'  && tr('tusQuizzesGuardados')}
+                    {paso === 'detalles' && tr('detallesDelPost')}
                   </p>
                 </div>
               </div>
@@ -396,7 +398,7 @@ export default function PublicarComunidad({
               {/* ── PASO 1: TIPO ──────────────────────────────────────────── */}
               {paso === 'tipo' && (
                 <div>
-                  <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', margin: '0 0 14px', letterSpacing: '1px' }}>¿QUÉ VAS A PUBLICAR?</p>
+                  <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', margin: '0 0 14px', letterSpacing: '1px' }}>{tr('eligeQuePublicar')}</p>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                     {(Object.entries(TIPO_INFO) as [string, any][]).map(([key, val]) => (
                       <button key={key}
@@ -408,11 +410,11 @@ export default function PublicarComunidad({
                         <div style={{ fontSize: '26px', marginBottom: '8px' }}>{val.emoji}</div>
                         <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>{val.label}</div>
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                          {key === 'post'       && 'Texto libre'}
-                          {key === 'apunte'     && 'Hoja de apuntes'}
-                          {key === 'flashcards' && 'Tarjetas de estudio'}
-                          {key === 'quiz'       && 'Preguntas y respuestas'}
-                          {key === 'video'      && 'Video de estudio'}
+                          {key === 'post'       && tr('textoLibre')}
+                          {key === 'apunte'     && tr('hojaApuntes')}
+                          {key === 'flashcards' && tr('tarjetasEstudio')}
+                          {key === 'quiz'       && tr('preguntasRespuestas')}
+                          {key === 'video'      && tr('videoEstudio')}
                         </div>
                       </button>
                     ))}
@@ -423,7 +425,7 @@ export default function PublicarComunidad({
               {/* ── PASO 2: ORIGEN ────────────────────────────────────────── */}
               {paso === 'origen' && (
                 <div>
-                  <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', margin: '0 0 14px', letterSpacing: '1px' }}>¿DE DÓNDE VIENE EL CONTENIDO?</p>
+                  <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', margin: '0 0 14px', letterSpacing: '1px' }}>{tr('eligeOrigen')}</p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
 
                     {/* Desde materias */}
@@ -435,9 +437,9 @@ export default function PublicarComunidad({
                     >
                       <div style={{ fontSize: '32px' }}>📚</div>
                       <div>
-                        <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>Desde mis Materias</div>
+                        <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>{tr('desdeMisMaterias')}</div>
                         <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                          Navega tus materias → temas → {tipo === 'apunte' ? 'apuntes' : tipo === 'flashcards' ? 'flashcards' : tipo === 'quiz' ? 'quizzes' : 'contenido'}
+                          {tr('desdeMisMateriasDesc')}
                         </div>
                       </div>
                       <div style={{ marginLeft: 'auto', fontSize: '18px', color: 'var(--text-muted)' }}>→</div>
@@ -453,8 +455,8 @@ export default function PublicarComunidad({
                       >
                         <div style={{ fontSize: '32px' }}>🎴</div>
                         <div>
-                          <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>Mis Decks Guardados</div>
-                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>{decksGuardados.length} decks disponibles</div>
+                          <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>{tr('misDecksGuardados')}</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>{decksGuardados.length} {tr('decksDisponibles')}</div>
                         </div>
                         <div style={{ marginLeft: 'auto', fontSize: '18px', color: 'var(--text-muted)' }}>→</div>
                       </button>
@@ -470,9 +472,9 @@ export default function PublicarComunidad({
                       >
                         <div style={{ fontSize: '32px' }}>🧠</div>
                         <div>
-                          <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>Mis Quizzes Guardados</div>
+                          <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>{tr('misQuizzesGuardados')}</div>
                           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            {quizzesGuardados.length + quizzesTemporales.length} quizzes disponibles
+                            {quizzesGuardados.length + quizzesTemporales.length} {tr('quizzesDisponibles')}
                           </div>
                         </div>
                         <div style={{ marginLeft: 'auto', fontSize: '18px', color: 'var(--text-muted)' }}>→</div>
@@ -481,7 +483,7 @@ export default function PublicarComunidad({
                   </div>
 
                   <button onClick={() => setPaso('tipo')} style={{ marginTop: '16px', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', padding: '8px 0' }}>
-                    ← Atrás
+                    {tr('volver')}
                   </button>
                 </div>
               )}
@@ -509,11 +511,11 @@ export default function PublicarComunidad({
                   {/* Lista materias */}
                   {!materiaNav && (
                     materiasLoading ? (
-                      <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>⏳ Cargando materias...</div>
+                      <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>{tr('cargandoMaterias')}</div>
                     ) : materias.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '40px' }}>
                         <div style={{ fontSize: '40px', marginBottom: '8px' }}>📚</div>
-                        <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No tienes materias creadas</p>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>{tr('noTienesMaterias')}</p>
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '340px', overflowY: 'auto' }}>
@@ -544,7 +546,7 @@ export default function PublicarComunidad({
                     materiaNav.temas.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                         <div style={{ fontSize: '40px', marginBottom: '8px' }}>📂</div>
-                        <p>Esta materia no tiene temas</p>
+                        <p>{tr('estaMateriaNoTieneTemas')}</p>
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '340px', overflowY: 'auto' }}>
@@ -641,21 +643,21 @@ export default function PublicarComunidad({
                       {tipo === 'apunte'     && temaNav.apuntes.length === 0 && (
                         <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
                           <div style={{ fontSize: '36px', marginBottom: '8px' }}>📝</div>
-                          <p style={{ fontSize: '14px' }}>No hay apuntes en este tema</p>
+                          <p style={{ fontSize: '14px' }}>{tr('noHayApuntesEnEsteTema')}</p>
                         </div>
                       )}
                       {tipo === 'flashcards' && temaNav.documentos.filter(d => d.flashcards?.length).length === 0 && (
                         <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
                           <div style={{ fontSize: '36px', marginBottom: '8px' }}>🎴</div>
-                          <p style={{ fontSize: '14px' }}>No hay flashcards en este tema</p>
-                          <p style={{ fontSize: '12px', color: 'var(--text-faint)' }}>Analiza un documento para generarlas</p>
+                          <p style={{ fontSize: '14px' }}>{tr('noHayFlashcardsEnEsteTema')}</p>
+                          <p style={{ fontSize: '12px', color: 'var(--text-faint)' }}>{tr('analizaUnDocumento')}</p>
                         </div>
                       )}
                       {tipo === 'quiz'       && temaNav.documentos.filter(d => d.quiz?.length).length === 0 && (
                         <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
                           <div style={{ fontSize: '36px', marginBottom: '8px' }}>🧠</div>
-                          <p style={{ fontSize: '14px' }}>No hay quizzes en este tema</p>
-                          <p style={{ fontSize: '12px', color: 'var(--text-faint)' }}>Genera un quiz desde el documento</p>
+                          <p style={{ fontSize: '14px' }}>{tr('noHayQuizzesEnEsteTema')}</p>
+                          <p style={{ fontSize: '12px', color: 'var(--text-faint)' }}>{tr('generaUnQuiz')}</p>
                         </div>
                       )}
                     </div>
@@ -667,13 +669,13 @@ export default function PublicarComunidad({
                       onClick={() => { if (temaNav) setTemaNav(null); else if (materiaNav) setMateriaNav(null); else setPaso('origen'); }}
                       style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}
                     >
-                      ← Atrás
+                      {tr('volver')}
                     </button>
                     {hayContenido() && (
                       <button onClick={irADetalles}
                         style={{ flex: 2, padding: '12px', borderRadius: '12px', border: 'none', background: info.color, color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}
                       >
-                        Continuar con esto →
+                        {tr('continuarConEsto')}
                       </button>
                     )}
                   </div>
@@ -686,8 +688,8 @@ export default function PublicarComunidad({
                   {decksGuardados.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '40px' }}>
                       <div style={{ fontSize: '40px', marginBottom: '8px' }}>🎴</div>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '0 0 12px' }}>No tienes decks guardados</p>
-                      <button onClick={() => window.location.href = '/materias'} style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>Ir a Materias →</button>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '0 0 12px' }}>{tr('noTienesDecks')}</p>
+                      <button onClick={() => window.location.href = '/materias'} style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>{tr('irAMateriasBTN')}</button>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '340px', overflowY: 'auto' }}>
@@ -697,7 +699,7 @@ export default function PublicarComunidad({
                         >
                           <div>
                             <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{d.nombre}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>🎴 {d.flashcards.length} tarjetas · {d.materiaNombre || 'Sin materia'}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>🎴 {d.flashcards.length} tarjetas · {d.materiaNombre || tr('sinMateria')}</div>
                           </div>
                           {deckSeleccionado?.id === d.id && <span style={{ fontSize: '18px' }}>✅</span>}
                         </div>
@@ -705,8 +707,8 @@ export default function PublicarComunidad({
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
-                    <button onClick={() => setPaso('origen')} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>← Atrás</button>
-                    {deckSeleccionado && <button onClick={irADetalles} style={{ flex: 2, padding: '12px', borderRadius: '12px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>Continuar →</button>}
+                    <button onClick={() => setPaso('origen')} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>{tr('volver')}</button>
+                    {deckSeleccionado && <button onClick={irADetalles} style={{ flex: 2, padding: '12px', borderRadius: '12px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>{tr('continuarFlechita')}</button>}
                   </div>
                 </div>
               )}
@@ -717,12 +719,12 @@ export default function PublicarComunidad({
                   {(quizzesGuardados.length + quizzesTemporales.length) === 0 ? (
                     <div style={{ textAlign: 'center', padding: '40px' }}>
                       <div style={{ fontSize: '40px', marginBottom: '8px' }}>🧠</div>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '0 0 12px' }}>No tienes quizzes guardados</p>
-                      <button onClick={() => window.location.href = '/materias'} style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#34d399', color: '#000', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>Ir a Materias →</button>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '0 0 12px' }}>{tr('noTienesQuizzes')}</p>
+                      <button onClick={() => window.location.href = '/materias'} style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#34d399', color: '#000', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>{tr('irAMateriasBTN')}</button>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '340px', overflowY: 'auto' }}>
-                      {quizzesTemporales.length > 0 && <p style={{ fontSize: '11px', fontWeight: 700, color: '#f5c842', margin: '0 0 4px', letterSpacing: '1px' }}>⏳ POR GUARDAR</p>}
+                      {quizzesTemporales.length > 0 && <p style={{ fontSize: '11px', fontWeight: 700, color: '#f5c842', margin: '0 0 4px', letterSpacing: '1px' }}>{tr('porGuardar')}</p>}
                       {quizzesTemporales.map(q => (
                         <div key={q.id} onClick={() => setQuizSeleccionado(quizSeleccionado?.id === q.id ? null : q)}
                           style={{ padding: '14px 16px', borderRadius: '14px', cursor: 'pointer', border: `2px solid ${quizSeleccionado?.id === q.id ? '#34d399' : '#f5c84244'}`, background: quizSeleccionado?.id === q.id ? '#34d39915' : '#f5c84208', transition: 'all 0.2s', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
@@ -730,9 +732,9 @@ export default function PublicarComunidad({
                           <div>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{q.nombre}</span>
-                              <span style={{ fontSize: '10px', background: '#f5c84222', color: '#f5c842', padding: '2px 6px', borderRadius: '8px', fontWeight: 700 }}>temporal</span>
+                              <span style={{ fontSize: '10px', background: '#f5c84222', color: '#f5c842', padding: '2px 6px', borderRadius: '8px', fontWeight: 700 }}>{tr('temporal')}</span>
                             </div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>🧠 {q.preguntas.length} preguntas · {q.materiaNombre || 'Sin materia'}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>🧠 {q.preguntas.length} preguntas · {q.materiaNombre || tr('sinMateria')}</div>
                           </div>
                           {quizSeleccionado?.id === q.id && <span style={{ fontSize: '18px' }}>✅</span>}
                         </div>
@@ -744,7 +746,7 @@ export default function PublicarComunidad({
                         >
                           <div>
                             <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{q.nombre}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>🧠 {q.preguntas.length} preguntas · {q.materiaNombre || 'Sin materia'}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>🧠 {q.preguntas.length} preguntas · {q.materiaNombre || tr('sinMateria')}</div>
                           </div>
                           {quizSeleccionado?.id === q.id && <span style={{ fontSize: '18px' }}>✅</span>}
                         </div>
@@ -752,8 +754,8 @@ export default function PublicarComunidad({
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
-                    <button onClick={() => setPaso('origen')} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>← Atrás</button>
-                    {quizSeleccionado && <button onClick={irADetalles} style={{ flex: 2, padding: '12px', borderRadius: '12px', border: 'none', background: '#34d399', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>Continuar →</button>}
+                    <button onClick={() => setPaso('origen')} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>{tr('volver')}</button>
+                    {quizSeleccionado && <button onClick={irADetalles} style={{ flex: 2, padding: '12px', borderRadius: '12px', border: 'none', background: '#34d399', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>{tr('continuarFlechita')}</button>}
                   </div>
                 </div>
               )}
@@ -774,16 +776,16 @@ export default function PublicarComunidad({
                   )}
 
                   {/* Título */}
-                  <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px' }}>TÍTULO *</label>
-                  <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Dale un nombre..." autoFocus
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px' }}>{tr('tituloPub')}</label>
+                  <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder={tr('daleUnNombre')} autoFocus
                     style={{ width: '100%', padding: '13px', borderRadius: '12px', border: `2px solid ${titulo.trim() ? info.color + '66' : 'var(--border-color)'}`, background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', fontWeight: 600, outline: 'none', boxSizing: 'border-box', marginBottom: '12px' }}
                     onFocus={e => (e.target.style.borderColor = info.color)}
                     onBlur={e => (e.target.style.borderColor = titulo.trim() ? info.color + '66' : 'var(--border-color)')}
                   />
 
                   {/* Descripción */}
-                  <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px' }}>DESCRIPCIÓN <span style={{ fontWeight: 400, letterSpacing: 0 }}>(opcional)</span></label>
-                  <textarea value={descripcion} onChange={e => setDescripcion(e.target.value)} placeholder="¿De qué trata? ¿Para qué curso?" rows={2}
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px' }}>{tr('descripcionPub')} <span style={{ fontWeight: 400, letterSpacing: 0 }}>(opcional)</span></label>
+                  <textarea value={descripcion} onChange={e => setDescripcion(e.target.value)} placeholder={tr('deQueTrata')} rows={2}
                     style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', resize: 'vertical', outline: 'none', boxSizing: 'border-box', marginBottom: '12px' }}
                     onFocus={e => (e.target.style.borderColor = info.color)}
                     onBlur={e => (e.target.style.borderColor = 'var(--border-color)')}
@@ -829,7 +831,7 @@ export default function PublicarComunidad({
                           {subiendoVideo && (
                             <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '8px' }}>
                               <div style={{ fontSize: '28px' }}>⏳</div>
-                              <p style={{ color: '#fff', fontWeight: 700, fontSize: '13px', margin: 0 }}>Subiendo video...</p>
+                              <p style={{ color: '#fff', fontWeight: 700, fontSize: '13px', margin: 0 }}>{tr('subiendoVideo')}</p>
                             </div>
                           )}
                           {!subiendoVideo && videoUrl && (
@@ -846,9 +848,9 @@ export default function PublicarComunidad({
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#ff4d6d66'; }}
                         >
                           <div style={{ fontSize: '36px', marginBottom: '6px' }}>🎬</div>
-                          <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>Subir video de estudio</div>
+                          <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>{tr('subirVideoEstudio')}</div>
                           <div style={{ fontSize: '11px', color: 'var(--text-faint)', marginTop: '4px' }}>MP4, WebM · Máx 100MB</div>
-                          <div style={{ fontSize: '11px', color: '#ff4d6d', marginTop: '4px', fontWeight: 600 }}>Se verá en StudyAL Blinks</div>
+                          <div style={{ fontSize: '11px', color: '#ff4d6d', marginTop: '4px', fontWeight: 600 }}>{tr('videoEnBlinks')}</div>
                         </div>
                       )}
                       {videoError && <div style={{ background: '#ef444422', border: '1px solid #ef4444', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#ef4444' }}>⚠️ {videoError}</div>}
@@ -856,16 +858,16 @@ export default function PublicarComunidad({
                   )}
 
                   {/* Portada */}
-                  <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', letterSpacing: '1px' }}>PORTADA <span style={{ fontWeight: 400, letterSpacing: 0 }}>(opcional)</span></label>
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', letterSpacing: '1px' }}>{tr('portadaLabel')} <span style={{ fontWeight: 400, letterSpacing: 0 }}>(opcional)</span></label>
                   <input ref={portadaRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handlePortadaFile(f); }} />
 
                   {portadaPreview ? (
                     <div style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', marginBottom: '12px', border: '2px solid var(--border-color)' }}>
                       <img src={portadaPreview} alt="Portada" style={{ width: '100%', height: '140px', objectFit: 'cover', display: 'block' }} />
-                      {subiendoPortada && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '14px' }}>⏳ Subiendo...</div>}
+                      {subiendoPortada && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '14px' }}>{tr('subiendoImagen')}</div>}
                       {!subiendoPortada && (
                         <div style={{ position: 'absolute', top: '8px', right: '8px', display: 'flex', gap: '6px' }}>
-                          <button onClick={() => portadaRef.current?.click()} style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', background: 'rgba(0,0,0,0.75)', color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>Cambiar</button>
+                          <button onClick={() => portadaRef.current?.click()} style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', background: 'rgba(0,0,0,0.75)', color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>{tr('cambiarPortada')}</button>
                           <button onClick={() => { setPortadaPreview(''); setPortadaUrl(''); setPortadaError(''); }} style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', background: 'rgba(239,68,68,0.85)', color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>✕ Quitar</button>
                           <button onClick={() => { setPortadaPreview(''); setPortadaUrl(''); }} style={{ padding: '5px 8px', borderRadius: '6px', border: 'none', background: 'rgba(239,68,68,0.85)', color: '#fff', fontSize: '11px', cursor: 'pointer' }}>✕</button>
                         </div>
@@ -878,7 +880,7 @@ export default function PublicarComunidad({
                       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; }}
                     >
                       <div style={{ fontSize: '28px', marginBottom: '4px' }}>🖼️</div>
-                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>Subir imagen de portada</div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{tr('subirImagenPortada')}</div>
                       <div style={{ fontSize: '11px', color: 'var(--text-faint)', marginTop: '2px' }}>JPG, PNG, WEBP · Máx 5MB</div>
                     </div>
                   )}
@@ -890,8 +892,8 @@ export default function PublicarComunidad({
                       <div style={{ position: 'absolute', top: '2px', left: commentsActivos ? '20px' : '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
                     </div>
                     <div>
-                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>💬 Permitir comentarios</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{commentsActivos ? 'La comunidad puede comentar' : 'Sin comentarios'}</div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{tr('permitirComentarios')}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{commentsActivos ? tr('comunidadPuedecommentar') : tr('sinComentarios')}</div>
                     </div>
                   </div>
 
@@ -900,13 +902,13 @@ export default function PublicarComunidad({
                   <div style={{ display: 'flex', gap: '10px' }}>
                     {!contenidoProp && (
                       <button onClick={() => { setPaso(tipo === 'post' ? 'tipo' : 'origen'); setError(''); }} style={{ flex: 1, padding: '14px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-                        ← Atrás
+                        {tr('volver')}
                       </button>
                     )}
                     <button onClick={publicar} disabled={!titulo.trim() || subiendoPortada}
                       style={{ flex: 2, padding: '14px', borderRadius: '12px', border: 'none', background: titulo.trim() && !subiendoPortada ? info.color : 'var(--border-color)', color: titulo.trim() && !subiendoPortada ? '#000' : 'var(--text-muted)', fontSize: '15px', fontWeight: 900, cursor: titulo.trim() && !subiendoPortada ? 'pointer' : 'not-allowed', transition: 'all 0.2s' }}
                     >
-                      {subiendoPortada ? '⏳ Subiendo imagen...' : `🚀 Publicar ${info.label}`}
+                      {subiendoPortada ? tr('subiendoImagen') : `🚀 Publicar ${info.label}`}
                     </button>
                   </div>
                 </div>

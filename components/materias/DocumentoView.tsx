@@ -10,6 +10,7 @@ import VisorDocumento from '../VisorDocumento';
 import { guardarDeck } from '../../lib/quizStorage';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
+import { detectContentLanguage } from '../../lib/detectLanguage';
 import { getIdioma } from '../../lib/i18n';
 import BannerCargando from './BannerCargando';
 import AIExhausted from '../AIExhausted';
@@ -27,6 +28,20 @@ interface Props {
   onBackTema: () => void;
   onActualizar: (doc: Documento) => void;
 }
+
+
+// Detectar idioma del documento automáticamente
+const detectarIdiomaDoc = (texto: string): 'en' | 'es' => {
+  if (!texto || texto.length < 30) return 'es';
+  const t = texto.toLowerCase().substring(0, 2000);
+  const en = ['the','is','are','was','were','have','has','this','that','with','from','they','what','which','when','how','can','will','would','should','could','about','there','their','been','an','of','in','to','for','on','at','by','or','and','but','a','it','we','our','us','them','your','who','not','just','now','also','than','more','some','any','do','does','did'];
+  const es = ['que','con','para','por','una','los','las','del','está','son','como','pero','más','muy','todo','este','esta','también','hacer','tiene','pueden','cuando','donde','porque','aunque','se','lo','le','su','el','la','de','en','un','es','al','si','ya','me','mi','hay','fue','ser','estar'];
+  const words = t.split(/[\s,\.!?;:\-]+/).filter((w: string) => w.length > 1);
+  let enC = 0, esC = 0;
+  words.forEach((w: string) => { if (en.includes(w)) enC++; if (es.includes(w)) esC++; });
+  if (enC === 0 && esC === 0) return /[áéíóúüñ¿¡]/i.test(t) ? 'es' : 'en';
+  return enC > esC ? 'en' : 'es';
+};
 
 export default function DocumentoView({ documento, materia, tema, onBack, onBackMateria, onBackTema, onActualizar }: Props) {
   const [analizando, setAnalizando] = useState(false);
@@ -75,7 +90,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   const analizar = async () => {
     setAnalizando(true);
     setPasoActual(1);
-    const idiomaActual = getIdioma();
+    const idiomaActual = detectContentLanguage(documento.contenido || '', idioma === 'en' ? 'en' : 'es');
     try {
       const r1 = await fetch('/api/analyze', {
         method: 'POST',
@@ -158,7 +173,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           content: documento.contenido,
-          idioma: getIdioma(),
+          idioma: detectContentLanguage(documento.contenido || '', idioma === 'en' ? 'en' : 'es'),
           existingQuestions: flashcards.map((f: any) => f.question),
         }),
       });

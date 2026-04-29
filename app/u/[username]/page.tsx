@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
+import { useIdioma } from '../../../hooks/useIdioma';
 import { supabase } from '../../../lib/supabase';
 import { getRango, getProgresoRango, LOGROS, getLogrosObtenidos, LogroStats, getLevelFromXp, getXpInCurrentLevel, getXpNeededForNextLevel } from '../../../lib/xpSystem';
 import MarcoAvatar from '../../../components/MarcoAvatar';
@@ -217,6 +218,7 @@ function EditModal({
   onSave: (data: Partial<PerfilPublico>) => Promise<void>;
   onClose: () => void;
 }) {
+  const { tr, idioma } = useIdioma();
   const [nombre, setNombre] = useState(perfil.nombre?.trim() || '');
   const [descripcion, setDescripcion] = useState(perfil.descripcion || '');
   const [tipo, setTipo] = useState(perfil.tipo_estudiante || '');
@@ -348,7 +350,7 @@ function EditModal({
         <div style={{ padding: '24px 28px 20px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-              ✏️ Editar Perfil Público
+              ✏️ {tr('editarPerfilPublico')}
             </h2>
             <button
               onClick={onClose}
@@ -358,7 +360,7 @@ function EditModal({
             </button>
           </div>
           <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: '4px 0 0' }}>
-            Estos datos se muestran públicamente en tu perfil
+            {tr('editarPerfilDesc')}
           </p>
         </div>
 
@@ -388,17 +390,17 @@ function EditModal({
                   type="button"
                   onClick={() => fotoRef.current?.click()}
                   style={{ padding: '7px 16px', borderRadius: '8px', border: '2px solid var(--gold)', background: 'transparent', color: 'var(--gold)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-                  📸 Cambiar foto
+                  📸 {tr('cambiarFotoBtn')}
                 </button>
                 {fotoPreview && fotoPreview !== perfil.avatar_url && (
-                  <p style={{ fontSize: '11px', color: '#4ade80', margin: '4px 0 0', fontWeight: 600 }}>✓ Nueva foto lista</p>
+                  <p style={{ fontSize: '11px', color: '#4ade80', margin: '4px 0 0', fontWeight: 600 }}>✓ {tr('nuevaFotoLista')}</p>
                 )}
                 {fotoBase64 && (
                   <button
                     type="button"
                     onClick={() => { setFotoPreview(perfil.avatar_url || ''); setFotoBase64(''); }}
                     style={{ display: 'block', margin: '4px auto 0', background: 'none', border: 'none', color: 'var(--text-faint)', fontSize: '11px', cursor: 'pointer' }}>
-                    Cancelar cambio
+                    {tr('cancelarCambio')}
                   </button>
                 )}
               </div>
@@ -406,30 +408,30 @@ function EditModal({
             </div>
 
             <div>
-              <label style={labelStyle}>Nombre</label>
+              <label style={labelStyle}>{tr('nombre')}</label>
               <input
                 value={nombre}
                 onChange={(e) => setNombre(e.target.value)}
-                placeholder="Tu nombre"
+                placeholder={tr('tuNombre')}
                 style={inputStyle}
               />
             </div>
 
             <div>
               <label style={labelStyle}>
-                Descripción <span style={{ fontWeight: 400, textTransform: 'none', color: 'var(--text-faint)' }}>({descripcion.length}/300)</span>
+                {tr('descripcion')} <span style={{ fontWeight: 400, textTransform: 'none', color: 'var(--text-faint)' }}>({descripcion.length}/300)</span>
               </label>
               <textarea
                 value={descripcion}
                 onChange={(e) => setDescripcion(e.target.value.slice(0, 300))}
-                placeholder="Ej: Me gusta biología celular, química y estudiar por las noches ✨"
+                placeholder={tr('onbMetaPlaceholder')}
                 rows={3}
                 style={{ ...inputStyle, resize: 'vertical', minHeight: '80px', lineHeight: 1.5, fontFamily: 'inherit' }}
               />
             </div>
 
             <div>
-              <label style={labelStyle}>Género</label>
+              <label style={labelStyle}>{tr('genero')}</label>
               <div style={{ display: 'flex', gap: '8px' }}>
                 {GENEROS.map((g) => (
                   <button
@@ -455,13 +457,13 @@ function EditModal({
             </div>
 
             <div>
-              <label style={labelStyle}>Tipo de estudiante</label>
+              <label style={labelStyle}>{tr('tipoEstudiante')}</label>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {[
-                  { id: 'escuela', label: '🏫 Escuela' },
-                  { id: 'universitario', label: '🎓 Universitario' },
-                  { id: 'profesional', label: '💼 Profesional' },
-                  { id: 'autodidacta', label: '🧠 Autodidacta' },
+                  { id: 'escuela', label: `🏫 ${tr('escuela')}` },
+                  { id: 'universitario', label: `🎓 ${tr('universitario')}` },
+                  { id: 'profesional', label: `💼 ${tr('profesional')}` },
+                  { id: 'autodidacta', label: `🧠 ${tr('autodidacta')}` },
                 ].map((t) => (
                   <button
                     key={t.id}
@@ -486,9 +488,9 @@ function EditModal({
             {tipo === 'universitario' && (
               <>
                 <div>
-                  <label style={labelStyle}>🏫 Universidad</label>
+                  <label style={labelStyle}>🏫 {tr('universidad')}</label>
                   <select value={universidad} onChange={(e) => setUniversidad(e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
-                    <option value="">Sin especificar</option>
+                    <option value="">{tr('sinEspecificarOpt')}</option>
                     {UNIVERSIDADES.map((u) => (
                       <option key={u} value={u}>{u}</option>
                     ))}
@@ -497,16 +499,16 @@ function EditModal({
                     <input
                       value={uniCustom}
                       onChange={(e) => setUniCustom(e.target.value)}
-                      placeholder="Escribe tu universidad..."
+                      placeholder={tr('escribeUniversidad')}
                       style={{ ...inputStyle, marginTop: '8px' }}
                     />
                   )}
                 </div>
 
                 <div>
-                  <label style={labelStyle}>📚 Carrera</label>
+                  <label style={labelStyle}>📚 {tr('carreraMajor')}</label>
                   <select value={carrera} onChange={(e) => setCarrera(e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
-                    <option value="">Sin especificar</option>
+                    <option value="">{tr('sinEspecificarOpt')}</option>
                     {CARRERAS.map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
@@ -515,7 +517,7 @@ function EditModal({
                     <input
                       value={carreraCustom}
                       onChange={(e) => setCarreraCustom(e.target.value)}
-                      placeholder="Escribe tu carrera..."
+                      placeholder={tr('escribeCarrera')}
                       style={{ ...inputStyle, marginTop: '8px' }}
                     />
                   )}
@@ -525,15 +527,15 @@ function EditModal({
 
             {tipo === 'escuela' && (
               <div>
-                <label style={labelStyle}>🏫 Escuela</label>
+                <label style={labelStyle}>🏫 {tr('escuela')}</label>
                 <select value={escuela} onChange={(e) => setEscuela(e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
-                  <option value="">Sin especificar</option>
-                  <optgroup label="🏛️ Escuelas Públicas">
+                  <option value="">{tr('sinEspecificarOpt')}</option>
+                  <optgroup label={`🏛️ ${idioma === "en" ? "Public Schools" : "Escuelas Públicas"}`}>
                     {ESCUELAS_PUBLICAS.map((e) => (
                       <option key={e} value={e}>{e}</option>
                     ))}
                   </optgroup>
-                  <optgroup label="🏫 Escuelas Particulares">
+                  <optgroup label={`🏫 ${tr("escuela")}s Particulares`}>
                     {ESCUELAS_PRIVADAS.map((e) => (
                       <option key={e} value={e}>{e}</option>
                     ))}
@@ -543,7 +545,7 @@ function EditModal({
                   <input
                     value={escuelaCustom}
                     onChange={(e) => setEscuelaCustom(e.target.value)}
-                    placeholder="Escribe tu escuela..."
+                    placeholder={tr('escribeEscuela')}
                     style={{ ...inputStyle, marginTop: '8px' }}
                   />
                 )}
@@ -554,8 +556,8 @@ function EditModal({
               <div style={{ padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                 <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
                   {tipo === 'profesional'
-                    ? '💼 Como profesional no se mostrarán escuela ni universidad.'
-                    : '🧠 Como autodidacta no se mostrará escuela ni universidad.'}
+                    ? `💼 ${tr('onbProfesionalInfo')}`
+                    : `🧠 ${tr('onbAutodidactaInfo')}`}
                 </p>
               </div>
             )}
@@ -585,7 +587,7 @@ function EditModal({
                 cursor: guardando ? 'not-allowed' : 'pointer',
               }}
             >
-              {guardando ? '⏳ Guardando...' : '✅ Guardar cambios'}
+              {guardando ? tr('guardandoBtn') : tr('guardarCambiosBtn')}
             </button>
 
             <button
@@ -600,9 +602,7 @@ function EditModal({
                 fontSize: '14px',
                 cursor: 'pointer',
               }}
-            >
-              Cancelar
-            </button>
+            >{tr('cancelar')}</button>
           </div>
         </div>
       </div>
@@ -611,6 +611,7 @@ function EditModal({
 }
 
 export default function PerfilPublicoPage() {
+  const { tr, idioma } = useIdioma();
   const params = useParams();
   const slug = decodeURIComponent(params.username as string);
 
@@ -636,7 +637,7 @@ export default function PerfilPublicoPage() {
   const cargarPostsUsuario = async (userId: string) => {
     setCargandoPosts(true);
     try {
-      const res = await fetch(`/api/comunidad/posts?userId=${userId}&tipo=all&filtro=mios`);
+      const res = await fetch(`/api/comunidad/posts?ownerId=${userId}&viewerId=${miUserId || ''}&tipo=all`);
       const data = await res.json();
       setPostsUsuario(data.posts || []);
     } catch {}
@@ -735,7 +736,7 @@ export default function PerfilPublicoPage() {
       <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px', fontFamily: '-apple-system, sans-serif' }}>
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
         <div style={{ width: '48px', height: '48px', border: '3px solid var(--gold)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: 0 }}>Cargando perfil...</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: 0 }}>{tr('cargandoPerfil')}</p>
       </div>
     );
   }
@@ -744,13 +745,13 @@ export default function PerfilPublicoPage() {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px', fontFamily: '-apple-system, sans-serif', padding: '20px', textAlign: 'center' }}>
         <div style={{ fontSize: '64px' }}>🔒</div>
-        <h2 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Perfil no disponible</h2>
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: 0 }}>{error || 'Este perfil es privado o no existe'}</p>
+        <h2 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{tr('perfilNoDisponible')}</h2>
+        <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: 0 }}>{error || tr('perfilPrivado')}</p>
         <button
           onClick={() => (window.location.href = '/')}
           style={{ padding: '12px 28px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontWeight: 800, fontSize: '14px', cursor: 'pointer' }}
         >
-          ← Volver
+          ← {tr('volver')}
         </button>
       </div>
     );
@@ -794,13 +795,13 @@ export default function PerfilPublicoPage() {
                 onClick={() => setShowEdit(true)}
                 style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid #38bdf8', background: 'transparent', color: '#38bdf8', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}
               >
-                ✏️ Editar perfil
+                ✏️ {tr('editarPerfil')}
               </button>
               <button
                 onClick={() => (window.location.href = '/perfil')}
                 style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--blue)', background: 'transparent', color: 'var(--blue)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}
               >
-                📊 Mis Stats
+                📊 {tr('misStatsBtn')}
               </button>
             </>
           )}
@@ -809,7 +810,7 @@ export default function PerfilPublicoPage() {
             onClick={copiarLink}
             style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--border-color)', background: copiado ? '#4ade8022' : 'transparent', color: copiado ? '#4ade80' : 'var(--text-muted)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}
           >
-            {copiado ? '✅ ¡Copiado!' : '🔗 Compartir'}
+            {copiado ? `✅ ${tr('copiado')}` : `🔗 ${tr('compartir')}`}
           </button>
           {!esMiPerfil && miUserId && (
             <>
@@ -826,18 +827,18 @@ export default function PerfilPublicoPage() {
                   }}
                   disabled={enviandoSolicitud}
                   style={{ padding: '7px 14px', borderRadius: '8px', border: 'none', background: 'var(--gold)', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>
-                  {enviandoSolicitud ? '⏳' : '👥 Agregar'}
+                  {enviandoSolicitud ? '⏳' : `👥 ${tr('agregarPartner')}`}
                 </button>
               )}
               {partnerStatus === 'partner' && (
                 <button onClick={() => window.location.href = '/partners'}
                   style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid #4ade80', background: '#4ade8015', color: '#4ade80', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-                  👥 Partners
+                  👥 {tr('partners')}
                 </button>
               )}
               {partnerStatus === 'enviada' && (
                 <span style={{ padding: '7px 14px', borderRadius: '8px', border: '2px solid var(--border-color)', color: 'var(--text-faint)', fontSize: '13px', fontWeight: 700 }}>
-                  ⏳ Enviada
+                  ⏳ {tr('solicitudEnviada')}
                 </span>
               )}
               {partnerStatus === 'recibida' && (
@@ -852,7 +853,7 @@ export default function PerfilPublicoPage() {
                     setPartnerStatus('partner');
                   }
                 }} style={{ padding: '7px 14px', borderRadius: '8px', border: 'none', background: '#4ade80', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>
-                  ✅ Aceptar
+                  ✅ {tr('aceptarPartner')}
                 </button>
               )}
             </>
@@ -875,14 +876,14 @@ export default function PerfilPublicoPage() {
                 onClick={() => setShowEdit(true)}
                 style={{ position: 'absolute', top: '14px', left: '20px', padding: '6px 14px', borderRadius: '8px', border: '2px solid rgba(255,255,255,0.3)', background: 'rgba(0,0,0,0.3)', color: '#fff', fontWeight: 700, fontSize: '12px', cursor: 'pointer' }}
               >
-                ✏️ Editar perfil
+                ✏️ {tr('editarPerfil')}
               </button>
             )}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px' }}>Ranking Global</div>
-                <div style={{ fontSize: '20px', fontWeight: 900, color: rankColor }}>{rank} de {totalUsers}</div>
+                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px' }}>{tr('rankingGlobal')}</div>
+                <div style={{ fontSize: '20px', fontWeight: 900, color: rankColor }}>{rank} {tr('de')} {totalUsers}</div>
               </div>
               <span style={{ fontSize: '32px' }}>{getRankMedal(rank)}</span>
             </div>
@@ -900,7 +901,7 @@ export default function PerfilPublicoPage() {
                   {perfil.genero && <span style={{ fontSize: '20px' }}>{generoEmoji[perfil.genero] || ''}</span>}
                   {esMiPerfil && (
                     <span style={{ padding: '3px 10px', borderRadius: '20px', background: 'var(--gold)', color: '#000', fontSize: '11px', fontWeight: 800 }}>
-                      Tú
+                      {tr('tu')}
                     </span>
                   )}
                 </div>
@@ -914,7 +915,7 @@ export default function PerfilPublicoPage() {
                   </span>
                   {logrosOk > 0 && (
                     <span style={{ padding: '4px 12px', borderRadius: '20px', background: '#a78bfa22', color: '#38bdf8', fontSize: '12px', fontWeight: 700 }}>
-                      🏅 {logrosOk} logros
+                      🏅 {logrosOk} {tr('logros')}
                     </span>
                   )}
                 </div>
@@ -1004,7 +1005,7 @@ export default function PerfilPublicoPage() {
                   <button
                     onClick={() => window.location.href = '/partners'}
                     style={{ padding: '11px 18px', borderRadius: '12px', border: '2px solid #38bdf8', background: 'transparent', color: '#38bdf8', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>
-                    👥 Ir a Partners
+                    👥 {tr('irAPartners')}
                   </button>
                 ) : (
                   <>
@@ -1028,7 +1029,7 @@ export default function PerfilPublicoPage() {
                         }}
                         disabled={enviandoSolicitud}
                         style={{ padding: '11px 18px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>
-                        {enviandoSolicitud ? '⏳ Enviando...' : '👥 Agregar Partner'}
+                        {enviandoSolicitud ? '⏳ Enviando...' : `👥 ${tr('agregarPartner')} Partner`}
                       </button>
                     )}
 
@@ -1036,13 +1037,13 @@ export default function PerfilPublicoPage() {
                       <button
                         onClick={() => window.location.href = '/partners'}
                         style={{ padding: '11px 18px', borderRadius: '12px', border: '2px solid #4ade80', background: '#4ade8015', color: '#4ade80', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>
-                        👥 Son Partners · Chat →
+                        👥 {tr('sonPartners')}
                       </button>
                     )}
 
                     {partnerStatus === 'enviada' && (
                       <span style={{ padding: '11px 18px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-faint)', fontWeight: 700, fontSize: '13px' }}>
-                        ⏳ Solicitud enviada
+                        ⏳ {tr('solicitudEnviada')}
                       </span>
                     )}
 
@@ -1067,14 +1068,14 @@ export default function PerfilPublicoPage() {
                           }
                         }}
                         style={{ padding: '11px 18px', borderRadius: '12px', border: 'none', background: '#4ade80', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>
-                        👥 Aceptar Partner
+                        👥 {tr('aceptarPartnerBtn')}
                       </button>
                     )}
 
                     <button
                       onClick={() => window.location.href = '/partners'}
                       style={{ padding: '11px 18px', borderRadius: '12px', border: '2px solid #38bdf8', background: 'transparent', color: '#38bdf8', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>
-                      👥 Ir a Partners
+                      👥 {tr('irAPartners')}
                     </button>
                   </>
                 )}
@@ -1083,10 +1084,10 @@ export default function PerfilPublicoPage() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '24px' }}>
-          <Stat emoji="🎴" label="Flashcards estudiadas" value={perfil.flashcards_estudiadas || 0} color="var(--gold)" />
-          <Stat emoji="🎯" label="Precisión global" value={`${Math.round(perfil.precision_global || 0)}%`} color={(perfil.precision_global || 0) >= 80 ? '#4ade80' : (perfil.precision_global || 0) >= 60 ? '#f5c842' : '#ff4d6d'} />
-          <Stat emoji="🔥" label="Racha actual" value={`${perfil.racha_actual || 0} días`} color="var(--red)" />
-          <Stat emoji="⚡" label="Mejor racha" value={`${perfil.mejor_racha || 0} días`} color="var(--pink)" />
+          <Stat emoji="🎴" label={tr('flashcardsEstudiadas')} value={perfil.flashcards_estudiadas || 0} color="var(--gold)" />
+          <Stat emoji="🎯" label={tr('precisionGlobal')} value={`${Math.round(perfil.precision_global || 0)}%`} color={(perfil.precision_global || 0) >= 80 ? '#4ade80' : (perfil.precision_global || 0) >= 60 ? '#f5c842' : '#ff4d6d'} />
+          <Stat emoji="🔥" label={tr('rachaActual')} value={`${perfil.racha_actual || 0} ${tr('dias')}`} color="var(--red)" />
+          <Stat emoji="⚡" label={tr('mejorRachaLabel')} value={`${perfil.mejor_racha || 0} ${tr('dias')}`} color="var(--pink)" />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: '20px', alignItems: 'flex-start' }}>
@@ -1094,7 +1095,7 @@ export default function PerfilPublicoPage() {
             <div style={{ height: '4px', background: 'linear-gradient(90deg, #a78bfa, #60a5fa, #4ade80)' }} />
             <div style={{ padding: '24px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>🏅 Logros</h2>
+                <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>🏅 {tr('logros')}</h2>
                 <span style={{ padding: '3px 10px', borderRadius: '20px', background: '#a78bfa22', color: '#38bdf8', fontSize: '12px', fontWeight: 800 }}>
                   {logrosOk} / {logros.length}
                 </span>
@@ -1139,7 +1140,7 @@ export default function PerfilPublicoPage() {
                   <RangoDisplay xpTotal={perfil.xp_total || 0} size="sm" mostrarProgreso={false} />
                 </div>
                 <div style={{ fontSize: '42px', fontWeight: 900, color: rango.color, lineHeight: 1 }}>{nivel}</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '14px' }}>Nivel actual</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '14px' }}>{tr('nivelActualLabel')}</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   {[
                     { label: 'XP', val: perfil.xp_total || 0, color: rango.color },
@@ -1160,7 +1161,7 @@ export default function PerfilPublicoPage() {
               <div style={{ background: 'var(--bg-card)', borderRadius: '14px', border: '1px solid var(--border-color)', padding: '16px', display: 'flex', gap: '12px', alignItems: 'center' }}>
                 <span style={{ fontSize: '24px' }}>📅</span>
                 <div>
-                  <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '0 0 3px' }}>Miembro desde</p>
+                  <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '0 0 3px' }}>{tr('miembroDesde')}</p>
                   <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
                     {new Date(perfil.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
                   </p>
@@ -1170,14 +1171,14 @@ export default function PerfilPublicoPage() {
 
             {!esMiPerfil ? (
               <div style={{ background: 'var(--bg-secondary)', borderRadius: '14px', padding: '16px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px' }}>¿Quieres superar a {perfil.nombre.trim()}?</p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px' }}>{tr('quieresSuperar')} {perfil.nombre.trim()}?</p>
                 <button onClick={() => (window.location.href = '/materias')} style={{ width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: 'var(--gold)', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>
-                  🚀 Ir a estudiar
+                  🚀 {tr('irAEstudiarBtn')}
                 </button>
               </div>
             ) : (
               <button onClick={() => setShowEdit(true)} style={{ width: '100%', padding: '11px', borderRadius: '12px', border: '2px solid #38bdf8', background: 'transparent', color: '#38bdf8', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-                ✏️ Editar mi perfil
+                ✏️ {tr('editarMiPerfil')}
               </button>
             )}
 
@@ -1192,7 +1193,7 @@ export default function PerfilPublicoPage() {
           <div style={{ height: '3px', background: 'var(--gold)' }} />
           <div style={{ padding: '20px 24px' }}>
             <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              🌍 Posts en la Comunidad
+              🌍 {esMiPerfil ? (idioma === 'en' ? 'My posts' : 'Mis posts') : (idioma === 'en' ? `Posts by ${perfil.nombre}` : `Posts de ${perfil.nombre}`)}
               <span style={{ fontSize: '12px', background: 'var(--gold)', color: '#000', padding: '2px 8px', borderRadius: '20px', fontWeight: 700 }}>
                 {postsUsuario.length}
               </span>
@@ -1201,22 +1202,16 @@ export default function PerfilPublicoPage() {
             {cargandoPosts ? (
               <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-faint)' }}>
                 <div style={{ fontSize: '24px', marginBottom: '8px' }}>⏳</div>
-                <p style={{ margin: 0, fontSize: '13px' }}>Cargando posts...</p>
+                <p style={{ margin: 0, fontSize: '13px' }}>{tr('cargandoPosts')}</p>
               </div>
             ) : postsUsuario.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-faint)' }}>
-                <div style={{ fontSize: '40px', marginBottom: '8px' }}>🌵</div>
-                <p style={{ margin: 0, fontSize: '13px' }}>
-                  {esMiPerfil ? 'Aún no has publicado nada en la comunidad' : `${perfil.nombre} aún no ha publicado nada`}
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-faint)' }}>
+                <div style={{ fontSize: '44px', marginBottom: '10px' }}>🌵</div>
+                <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)', fontWeight: 500 }}>
+                  {esMiPerfil
+                    ? (idioma === 'en' ? 'No posts yet' : 'Aún no tienes posts')
+                    : (idioma === 'en' ? `${perfil.nombre} has not posted yet` : `${perfil.nombre} aún no ha publicado`)}
                 </p>
-                {esMiPerfil && (
-                  <button
-                    onClick={() => window.location.href = '/comunidad'}
-                    style={{ marginTop: '12px', padding: '8px 18px', borderRadius: '8px', border: 'none', background: 'var(--gold)', color: '#000', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}
-                  >
-                    🌍 Ir a Comunidad
-                  </button>
-                )}
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px' }}>
@@ -1299,36 +1294,17 @@ export default function PerfilPublicoPage() {
           </div>
         </div>
 
-        {/* ── PLAYER CARD ── */}
-        <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'center' }}>
-          <PlayerCard stats={{
-            nombre: perfil.nombre.trim(),
-            xpTotal: perfil.xp_total || 0,
-            flashcards: perfil.flashcards_estudiadas || 0,
-            precision: Math.round(perfil.precision_global || 0),
-            rachaActual: perfil.racha_actual || 0,
-            mejorRacha: perfil.mejor_racha || 0,
-            rank,
-            totalUsers,
-            avatar: perfil.avatar_url,
-            universidad: perfil.universidad,
-            carrera: perfil.carrera,
-            userId: perfil.user_id,
-            quizzes: perfil.quizzes_completados || 0,
-          }} />
-        </div>
-
         {/* ── COMPARTIR ── */}
         <div style={{ marginTop: '24px', background: 'var(--bg-card)', borderRadius: '16px', padding: '20px 24px', border: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0 }}>
-            <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>🔗 Comparte tu perfil</p>
+            <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>🔗 {tr('compartirPerfil')}</p>
             <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '420px' }}>
               {urlPublica}
             </p>
           </div>
 
           <button onClick={copiarLink} style={{ padding: '10px 24px', borderRadius: '10px', border: 'none', background: copiado ? '#4ade80' : 'var(--gold)', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-            {copiado ? '✅ ¡Copiado!' : '📋 Copiar link'}
+            {copiado ? `✅ ${tr('copiado')}` : `📋 ${tr('copiarLink')}`}
           </button>
         </div>
       </div>

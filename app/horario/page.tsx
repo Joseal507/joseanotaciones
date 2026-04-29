@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { getHorarioDB, saveHorarioDB, Horario, ClaseHorario } from '../../lib/db';
 import { useIsMobile } from '../../hooks/useIsMobile';
+import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
 
 const DIAS = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'] as const;
@@ -39,13 +40,23 @@ export default function HorarioPage() {
   const [claseEditando, setClaseEditando] = useState<ClaseHorario | null>(null);
   const [diaActivoMobile, setDiaActivoMobile] = useState<typeof DIAS[number]>('lunes');
   const isMobile = useIsMobile();
+  const { tr, idioma } = useIdioma();
+
+  const DIAS_LABELS_I18N = {
+    lunes: tr('lunes'), martes: tr('martes'), miercoles: tr('miercoles'),
+    jueves: tr('jueves'), viernes: tr('viernes'),
+  };
+  const DIAS_SHORT_I18N = {
+    lunes: tr('lun'), martes: tr('mar'), miercoles: tr('mie'),
+    jueves: tr('jue'), viernes: tr('vie'),
+  };
 
   const [formNombre, setFormNombre] = useState('');
   const [formProfesor, setFormProfesor] = useState('');
   const [formAula, setFormAula] = useState('');
-  const [formColor, setFormColor] = useState(COLORES[0]);
-  const [formInicio, setFormInicio] = useState('08:00');
-  const [formFin, setFormFin] = useState('09:00');
+  const [form{tr('colorLabel')}, setForm{tr('colorLabel')}] = useState(COLORES[0]);
+  const [form{tr('inicioLabel')}, setForm{tr('inicioLabel')}] = useState('08:00');
+  const [form{tr('finLabel')}, setForm{tr('finLabel')}] = useState('09:00');
 
   const hoy = new Date();
   const diaHoy = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'][hoy.getDay()] as typeof DIAS[number];
@@ -88,17 +99,17 @@ export default function HorarioPage() {
       setFormNombre(clase.nombre);
       setFormProfesor(clase.profesor || '');
       setFormAula(clase.aula || '');
-      setFormColor(clase.color);
-      setFormInicio(clase.horaInicio);
-      setFormFin(clase.horaFin);
+      setForm{tr('colorLabel')}(clase.color);
+      setForm{tr('inicioLabel')}(clase.hora{tr('inicioLabel')});
+      setForm{tr('finLabel')}(clase.hora{tr('finLabel')});
     } else {
       setClaseEditando(null);
       setFormNombre('');
       setFormProfesor('');
       setFormAula('');
-      setFormColor(COLORES[0]);
-      setFormInicio('08:00');
-      setFormFin('09:00');
+      setForm{tr('colorLabel')}(COLORES[0]);
+      setForm{tr('inicioLabel')}('08:00');
+      setForm{tr('finLabel')}('09:00');
     }
     setModalAbierto(true);
   };
@@ -110,39 +121,39 @@ export default function HorarioPage() {
       nombre: formNombre,
       profesor: formProfesor,
       aula: formAula,
-      color: formColor,
-      horaInicio: formInicio,
-      horaFin: formFin,
+      color: form{tr('colorLabel')},
+      hora{tr('inicioLabel')}: form{tr('inicioLabel')},
+      hora{tr('finLabel')}: form{tr('finLabel')},
     };
     const nuevoHorario = { ...horario };
     if (claseEditando) {
       nuevoHorario[diaSeleccionado] = nuevoHorario[diaSeleccionado].map(c => c.id === claseEditando.id ? nueva : c);
     } else {
-      nuevoHorario[diaSeleccionado] = [...nuevoHorario[diaSeleccionado], nueva].sort((a, b) => a.horaInicio.localeCompare(b.horaInicio));
+      nuevoHorario[diaSeleccionado] = [...nuevoHorario[diaSeleccionado], nueva].sort((a, b) => a.hora{tr('inicioLabel')}.localeCompare(b.hora{tr('inicioLabel')}));
     }
     await guardar(nuevoHorario);
     setModalAbierto(false);
   };
 
   const eliminarClase = async (dia: typeof DIAS[number], id: string) => {
-    if (!confirm('¿Eliminar esta clase?')) return;
+    if (!confirm('tr('eliminarClaseConfirm')')) return;
     const nuevoHorario = { ...horario };
     nuevoHorario[dia] = nuevoHorario[dia].filter(c => c.id !== id);
     await guardar(nuevoHorario);
   };
 
   const claseActual = DIAS.includes(diaHoy as any)
-    ? (horario[diaHoy as typeof DIAS[number]] || []).find(c => c.horaInicio <= horaActual && c.horaFin > horaActual)
+    ? (horario[diaHoy as typeof DIAS[number]] || []).find(c => c.hora{tr('inicioLabel')} <= horaActual && c.hora{tr('finLabel')} > horaActual)
     : null;
 
   const proximaClase = DIAS.includes(diaHoy as any)
-    ? (horario[diaHoy as typeof DIAS[number]] || []).find(c => c.horaInicio > horaActual)
+    ? (horario[diaHoy as typeof DIAS[number]] || []).find(c => c.hora{tr('inicioLabel')} > horaActual)
     : null;
 
   if (cargando) {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ color: 'var(--text-muted)' }}>Cargando horario...</p>
+        <p style={{ color: 'var(--text-muted)' }}>{tr('cargandoHorario')}</p>
       </div>
     );
   }
@@ -159,14 +170,14 @@ export default function HorarioPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
               <button onClick={() => window.location.href = '/'}
                 style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-                ← Inicio
+                ← {tr('inicio')}
               </button>
               <div>
-                <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>🗓️ Mi Horario</h1>
-                <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>Horario de clases semanal</p>
+                <h1 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>🗓️ {tr('miHorarioTitulo')}</h1>
+                <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: 0 }}>{tr('horarioSemanal')}</p>
               </div>
             </div>
-            {guardando && <span style={{ fontSize: '12px', color: 'var(--text-faint)' }}>💾 Guardando...</span>}
+            {guardando && <span style={{ fontSize: '12px', color: 'var(--text-faint)' }}>{tr('guardando')}</span>}
           </header>
           <div style={{ display: 'flex', height: '3px' }}>
             <div style={{ flex: 1, background: 'var(--gold)' }} />
@@ -184,12 +195,12 @@ export default function HorarioPage() {
           <div style={{ background: claseActual.color + '20', border: `2px solid ${claseActual.color}`, borderRadius: '16px', padding: '14px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '14px' }}>
             <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: claseActual.color, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: '11px', fontWeight: 700, color: claseActual.color, margin: '0 0 2px', textTransform: 'uppercase' }}>🔴 En curso ahora</p>
+              <p style={{ fontSize: '11px', fontWeight: 700, color: claseActual.color, margin: '0 0 2px', textTransform: 'uppercase' }}>{tr('enCursoAhora')}</p>
               <p style={{ fontSize: isMobile ? '16px' : '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {claseActual.nombre}
               </p>
               <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-                {formatHora(claseActual.horaInicio)} - {formatHora(claseActual.horaFin)}
+                {formatHora(claseActual.hora{tr('inicioLabel')})} - {formatHora(claseActual.hora{tr('finLabel')})}
                 {claseActual.aula && ` · Aula ${claseActual.aula}`}
               </p>
             </div>
@@ -201,9 +212,9 @@ export default function HorarioPage() {
           <div style={{ background: 'var(--blue-dim)', border: '2px solid var(--blue-border)', borderRadius: '16px', padding: '14px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '14px' }}>
             <div style={{ fontSize: '20px' }}>⏰</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--blue)', margin: '0 0 2px', textTransform: 'uppercase' }}>Próxima clase hoy</p>
+              <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--blue)', margin: '0 0 2px', textTransform: 'uppercase' }}>{tr('proximaClaseHoy')}</p>
               <p style={{ fontSize: isMobile ? '16px' : '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{proximaClase.nombre}</p>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>A las {formatHora(proximaClase.horaInicio)}</p>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{tr('aLas')} {formatHora(proximaClase.hora{tr('inicioLabel')})}</p>
             </div>
           </div>
         )}
@@ -234,7 +245,7 @@ export default function HorarioPage() {
                       alignItems: 'center',
                       gap: '2px',
                     }}>
-                    <span>{DIAS_SHORT[dia]}</span>
+                    <span>{DIAS_SHORT_I18N[dia]}</span>
                     <span style={{ fontSize: '10px', opacity: 0.7 }}>{clases.length} cl.</span>
                   </button>
                 );
@@ -246,12 +257,12 @@ export default function HorarioPage() {
               <div style={{ height: '4px', background: diaActivoMobile === diaHoy ? 'var(--gold)' : 'var(--border-color)' }} />
               <div style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)' }}>
                 <h3 style={{ fontSize: '16px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
-                  {DIAS_LABELS[diaActivoMobile]}
-                  {diaActivoMobile === diaHoy && <span style={{ marginLeft: '8px', fontSize: '11px', background: 'var(--gold)', color: '#000', padding: '2px 8px', borderRadius: '6px', fontWeight: 700 }}>HOY</span>}
+                  {DIAS_LABELS_I18N[diaActivoMobile]}
+                  {diaActivoMobile === diaHoy && <span style={{ marginLeft: '8px', fontSize: '11px', background: 'var(--gold)', color: '#000', padding: '2px 8px', borderRadius: '6px', fontWeight: 700 }}>{tr('hoyCap')}</span>}
                 </h3>
                 <button onClick={() => abrirModal(diaActivoMobile)}
                   style={{ padding: '8px 16px', borderRadius: '10px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}>
-                  + Clase
+                  {tr('nuevaClaseBtn')}
                 </button>
               </div>
 
@@ -259,11 +270,11 @@ export default function HorarioPage() {
                 {(horario[diaActivoMobile] || []).length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-faint)', fontSize: '14px' }}>
                     <div style={{ fontSize: '32px', marginBottom: '8px' }}>🌵</div>
-                    Sin clases este día
+                    {tr('sinClasesEsteDia2')}
                   </div>
                 ) : (
                   (horario[diaActivoMobile] || []).map(clase => {
-                    const estaEnCurso = diaActivoMobile === diaHoy && clase.horaInicio <= horaActual && clase.horaFin > horaActual;
+                    const estaEnCurso = diaActivoMobile === diaHoy && clase.hora{tr('inicioLabel')} <= horaActual && clase.hora{tr('finLabel')} > horaActual;
                     return (
                       <div key={clase.id} style={{ borderRadius: '12px', border: `2px solid ${clase.color}`, background: clase.color + (estaEnCurso ? '30' : '15'), padding: '14px 16px', boxShadow: estaEnCurso ? `0 4px 16px ${clase.color}44` : 'none' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
@@ -271,14 +282,14 @@ export default function HorarioPage() {
                           {estaEnCurso && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: clase.color, flexShrink: 0, marginTop: '4px' }} />}
                         </div>
                         <p style={{ fontSize: '13px', color: clase.color, fontWeight: 700, margin: '0 0 6px' }}>
-                          {formatHora(clase.horaInicio)} - {formatHora(clase.horaFin)}
+                          {formatHora(clase.hora{tr('inicioLabel')})} - {formatHora(clase.hora{tr('finLabel')})}
                         </p>
                         {clase.profesor && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 2px' }}>👤 {clase.profesor}</p>}
-                        {clase.aula && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px' }}>📍 Aula {clase.aula}</p>}
+                        {clase.aula && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px' }}>📍 {tr('aula')} {clase.aula}</p>}
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <button onClick={() => abrirModal(diaActivoMobile, clase)}
                             style={{ flex: 1, padding: '8px', borderRadius: '8px', border: `1px solid ${clase.color}44`, background: 'transparent', color: clase.color, fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-                            ✏️ Editar
+                            {tr('editarClaseBtn')}
                           </button>
                           <button onClick={() => eliminarClase(diaActivoMobile, clase.id)}
                             style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid var(--red-border)', background: 'transparent', color: 'var(--red)', fontSize: '13px', cursor: 'pointer' }}>
@@ -306,9 +317,9 @@ export default function HorarioPage() {
                   <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: esHoy ? 'var(--gold-dim)' : 'transparent' }}>
                     <div>
                       <h3 style={{ fontSize: '14px', fontWeight: 900, color: esHoy ? 'var(--gold)' : 'var(--text-primary)', margin: 0 }}>
-                        {DIAS_LABELS[dia]}
+                        {DIAS_LABELS_I18N[dia]}
                       </h3>
-                      {esHoy && <p style={{ fontSize: '10px', color: 'var(--gold)', margin: 0, fontWeight: 700 }}>HOY</p>}
+                      {esHoy && <p style={{ fontSize: '10px', color: 'var(--gold)', margin: 0, fontWeight: 700 }}>{tr('hoyCap')}</p>}
                     </div>
                     <button onClick={() => abrirModal(dia)}
                       style={{ width: '28px', height: '28px', borderRadius: '8px', border: 'none', background: esHoy ? 'var(--gold)' : 'var(--bg-secondary)', color: esHoy ? '#000' : 'var(--text-muted)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, flexShrink: 0 }}>
@@ -320,11 +331,11 @@ export default function HorarioPage() {
                     {clases.length === 0 ? (
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100px', color: 'var(--text-faint)', fontSize: '13px', flexDirection: 'column', gap: '8px' }}>
                         <span style={{ fontSize: '24px' }}>🌵</span>
-                        Sin clases
+                        {tr('sinClasesDesktop')}
                       </div>
                     ) : (
                       clases.map(clase => {
-                        const estaEnCurso = esHoy && clase.horaInicio <= horaActual && clase.horaFin > horaActual;
+                        const estaEnCurso = esHoy && clase.hora{tr('inicioLabel')} <= horaActual && clase.hora{tr('finLabel')} > horaActual;
                         return (
                           <div key={clase.id} style={{ borderRadius: '10px', border: `2px solid ${clase.color}`, background: clase.color + (estaEnCurso ? '35' : '15'), padding: '10px 12px', position: 'relative', boxShadow: estaEnCurso ? `0 4px 16px ${clase.color}44` : 'none' }}>
                             {estaEnCurso && (
@@ -334,7 +345,7 @@ export default function HorarioPage() {
                               {clase.nombre}
                             </p>
                             <p style={{ fontSize: '11px', color: clase.color, fontWeight: 700, margin: '0 0 3px' }}>
-                              {formatHora(clase.horaInicio)} - {formatHora(clase.horaFin)}
+                              {formatHora(clase.hora{tr('inicioLabel')})} - {formatHora(clase.hora{tr('finLabel')})}
                             </p>
                             {clase.profesor && <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 2px' }}>👤 {clase.profesor}</p>}
                             {clase.aula && <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>📍 {clase.aula}</p>}
@@ -364,7 +375,7 @@ export default function HorarioPage() {
           <div style={{ marginTop: '32px', background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
             <div style={{ height: '4px', background: 'var(--blue)' }} />
             <div style={{ padding: '24px' }}>
-              <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 16px' }}>📊 Resumen semanal</h2>
+              <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 16px' }}>{tr('resumenSemanalLabel')}</h2>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px' }}>
                 {DIAS.map(dia => {
                   const clases = horario[dia] || [];
@@ -372,13 +383,13 @@ export default function HorarioPage() {
                   return (
                     <div key={dia} style={{ textAlign: 'center', padding: '12px', background: esHoy ? 'var(--gold-dim)' : 'var(--bg-secondary)', borderRadius: '10px', border: `1px solid ${esHoy ? 'var(--gold-border)' : 'var(--border-color)'}` }}>
                       <p style={{ fontSize: '12px', fontWeight: 700, color: esHoy ? 'var(--gold)' : 'var(--text-muted)', margin: '0 0 6px' }}>
-                        {DIAS_LABELS[dia].slice(0, 3).toUpperCase()}
+                        {DIAS_LABELS_I18N[dia].slice(0, 3).toUpperCase()}
                       </p>
                       <p style={{ fontSize: '28px', fontWeight: 900, color: esHoy ? 'var(--gold)' : 'var(--text-primary)', margin: '0 0 4px' }}>
                         {clases.length}
                       </p>
                       <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0 }}>
-                        clase{clases.length !== 1 ? 's' : ''}
+                        {clases.length !== 1 ? tr('clasesLabel') : tr('claseLabel')}
                       </p>
                     </div>
                   );
@@ -393,34 +404,34 @@ export default function HorarioPage() {
       {modalAbierto && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
           <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '28px', width: '100%', maxWidth: '460px', border: '1px solid var(--border-color)', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ height: '4px', background: formColor, borderRadius: '2px', marginBottom: '20px' }} />
+            <div style={{ height: '4px', background: form{tr('colorLabel')}, borderRadius: '2px', marginBottom: '20px' }} />
             <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 20px' }}>
-              {claseEditando ? '✏️ Editar' : '+ Nueva clase'} — {DIAS_LABELS[diaSeleccionado]}
+              {claseEditando ? '{tr('editarClaseBtn')}' : '+ Nueva clase'} — {DIAS_LABELS_I18N[diaSeleccionado]}
             </h2>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Nombre *</label>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('nombreClaseLabel')}</label>
                 <input value={formNombre} onChange={e => setFormNombre(e.target.value)}
-                  placeholder="Ej: Matemáticas..."
+                  placeholder="{tr('nombreClasePlaceholder')}"
                   autoFocus
                   style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }}
-                  onFocus={e => e.currentTarget.style.borderColor = formColor}
-                  onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                  onFocus={e => e.currentTarget.style.border{tr('colorLabel')} = form{tr('colorLabel')}}
+                  onBlur={e => e.currentTarget.style.border{tr('colorLabel')} = 'var(--border-color)'}
                 />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>
-                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Inicio</label>
-                  <select value={formInicio} onChange={e => setFormInicio(e.target.value)}
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('inicioLabel')}</label>
+                  <select value={form{tr('inicioLabel')}} onChange={e => setForm{tr('inicioLabel')}(e.target.value)}
                     style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}>
                     {HORAS.map(h => <option key={h} value={h}>{formatHora(h)}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Fin</label>
-                  <select value={formFin} onChange={e => setFormFin(e.target.value)}
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('finLabel')}</label>
+                  <select value={form{tr('finLabel')}} onChange={e => setForm{tr('finLabel')}(e.target.value)}
                     style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}>
                     {HORAS.map(h => <option key={h} value={h}>{formatHora(h)}</option>)}
                   </select>
@@ -428,25 +439,25 @@ export default function HorarioPage() {
               </div>
 
               <div>
-                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Profesor (opcional)</label>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('profesorLabel')}</label>
                 <input value={formProfesor} onChange={e => setFormProfesor(e.target.value)}
-                  placeholder="Nombre del profesor"
+                  placeholder="{tr('profesorPlaceholder')}"
                   style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }} />
               </div>
 
               <div>
-                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Aula (opcional)</label>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>{tr('aulaLabel')}</label>
                 <input value={formAula} onChange={e => setFormAula(e.target.value)}
-                  placeholder="Ej: 101, Lab 3..."
+                  placeholder="{tr('aulaPlaceholder')}"
                   style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }} />
               </div>
 
               <div>
-                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Color</label>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>{tr('colorLabel')}</label>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   {COLORES.map(c => (
-                    <button key={c} onClick={() => setFormColor(c)}
-                      style={{ width: '36px', height: '36px', borderRadius: '50%', background: c, border: formColor === c ? '3px solid var(--text-primary)' : '3px solid transparent', cursor: 'pointer', transform: formColor === c ? 'scale(1.2)' : 'scale(1)', transition: 'all 0.15s' }} />
+                    <button key={c} onClick={() => setForm{tr('colorLabel')}(c)}
+                      style={{ width: '36px', height: '36px', borderRadius: '50%', background: c, border: form{tr('colorLabel')} === c ? '3px solid var(--text-primary)' : '3px solid transparent', cursor: 'pointer', transform: form{tr('colorLabel')} === c ? 'scale(1.2)' : 'scale(1)', transition: 'all 0.15s' }} />
                   ))}
                 </div>
               </div>
@@ -455,11 +466,11 @@ export default function HorarioPage() {
             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
               <button onClick={() => setModalAbierto(false)}
                 style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-                Cancelar
+                {tr('cancelar')}
               </button>
               <button onClick={guardarClase} disabled={!formNombre.trim()}
-                style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: formNombre.trim() ? formColor : 'var(--bg-card2)', color: formNombre.trim() ? '#000' : 'var(--text-faint)', fontSize: '14px', fontWeight: 800, cursor: formNombre.trim() ? 'pointer' : 'not-allowed' }}>
-                {claseEditando ? '✅ Guardar' : '+ Agregar'}
+                style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: formNombre.trim() ? form{tr('colorLabel')} : 'var(--bg-card2)', color: formNombre.trim() ? '#000' : 'var(--text-faint)', fontSize: '14px', fontWeight: 800, cursor: formNombre.trim() ? 'pointer' : 'not-allowed' }}>
+                {claseEditando ? '{tr('guardarClaseBtn')}' : '{tr('agregarClaseBtn')}'}
               </button>
             </div>
           </div>
