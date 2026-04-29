@@ -77,7 +77,6 @@ export default function TemaView({
       setYoutubeUrl('');
       setYoutubeStep(0);
     } catch (e: any) {
-      clearInterval(interval);
       setYoutubeError(e.message);
       setYoutubeStep(0);
     } finally {
