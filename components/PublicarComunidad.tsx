@@ -892,8 +892,8 @@ export default function PublicarComunidad({
                       <div style={{ position: 'absolute', top: '2px', left: commentsActivos ? '20px' : '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
                     </div>
                     <div>
-                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{tr('permitirComentarios')}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{commentsActivos ? tr('comunidadPuedecommentar') : tr('sinComentarios')}</div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{'Permitir comentarios'}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{commentsActivos ? 'La comunidad puede comentar' : 'Comentarios desactivados'}</div>
                     </div>
                   </div>
 
