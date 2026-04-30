@@ -130,9 +130,19 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
   const pageWidth = BASE_PAGE_WIDTH;
   const pageHeight = BASE_PAGE_HEIGHT;
 
+  const pagesContainerRef = useRef<HTMLDivElement>(null);
+
   const handleScaleChange = useCallback((scale: number, tx: number, ty: number) => {
     zoomScaleRef.current = scale;
-    setZoomState({ scale, tx, ty });
+    // Aplicar transform directo al DOM sin setState — cero re-renders, zoom fluido
+    if (pagesContainerRef.current) {
+      if (scale === 1) {
+        pagesContainerRef.current.style.transform = 'none';
+      } else {
+        pagesContainerRef.current.style.transform =
+          `matrix(${scale},0,0,${scale},${tx},${ty})`;
+      }
+    }
   }, []);
 
   usePinchZoom(wrapperRef, handleScaleChange, {
@@ -708,10 +718,8 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
           WebkitUserSelect: 'none',
           paddingBottom: isMobile ? '70px' : '80px',
         }}>
-          <div style={{
-            transform: zoomState.scale !== 1
-              ? `matrix(${zoomState.scale},0,0,${zoomState.scale},${zoomState.tx},${zoomState.ty})`
-              : 'none',
+          <div ref={pagesContainerRef} style={{
+            transform: 'none',
             transformOrigin: '0 0',
             willChange: 'transform',
             display: 'flex',
