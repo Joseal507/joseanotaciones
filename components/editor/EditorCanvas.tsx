@@ -323,8 +323,8 @@ export default function EditorCanvas({
 
     syncSelectionUI(null, []);
     redrawOverlay(null);
-    // Limpiar live canvas al inicio del trazo
-    liveRenderer.clear();
+    // Limpiar SOLO el live buffer al inicio del trazo
+    liveRenderer.clearLive();
     strokeEngine.begin(pos, brushColor, brushSize, herramienta);
   }, [
     eventToPoint, isEraser, isShapeTool, isSelecting, isLasso,
@@ -447,30 +447,20 @@ export default function EditorCanvas({
     const tipo = strokeEngine.currentStroke.current?.tipo ?? herramienta;
 
     if (tipo === 'borrador_trazo') {
-      // Borrador de píxeles: borrar en main directamente (destination-out)
-      const mainCtx = mainCanvasRef.current?.getContext('2d');
-      if (mainCtx) {
-        mainRenderer.renderEraserSegment(
-          renderPoints,
-          strokeEngine.currentStroke.current?.size ?? brushSize,
-          mainCtx,
-        );
-      }
+      // Borrador de píxeles: borrar en backBuffer via renderEraserSegment
+      mainRenderer.renderEraserSegment(
+        renderPoints,
+        strokeEngine.currentStroke.current?.size ?? brushSize,
+      );
       drawEraserCursor(pos.x, pos.y);
     } else {
-      // ── CLAVE: dibujar en liveCanvas INMEDIATAMENTE, sin RAF, sin clear ──
-      // liveCanvas acumula el trazo en tiempo real
-      // mainCanvas NO se toca hasta que termina el trazo
-      const liveCtx = liveCanvasRef.current?.getContext('2d');
-      if (liveCtx) {
-        liveRenderer.renderStrokeSegment(
-          renderPoints,
-          strokeEngine.currentStroke.current?.color ?? brushColor,
-          strokeEngine.currentStroke.current?.size ?? brushSize,
-          tipo,
-          liveCtx,
-        );
-      }
+      // Dibujar en liveBuffer — acumula sin borrar, commit via RAF
+      liveRenderer.renderStrokeSegment(
+        renderPoints,
+        strokeEngine.currentStroke.current?.color ?? brushColor,
+        strokeEngine.currentStroke.current?.size ?? brushSize,
+        tipo,
+      );
     }
   }, [
     eventToPoint, isEraser, isShapeTool, isSelecting, isLasso,
@@ -604,8 +594,8 @@ export default function EditorCanvas({
     const stroke = strokeEngine.end();
     if (!stroke) return;
 
-    // Limpiar live canvas y overlay
-    liveRenderer.clear();
+    // Limpiar live buffer y overlay
+    liveRenderer.clearLive();
     overlayRenderer.clear();
 
     if (stroke.tipo === 'borrador_trazo') {
