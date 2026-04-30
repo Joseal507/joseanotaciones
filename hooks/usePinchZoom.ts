@@ -12,16 +12,23 @@ export function usePinchZoom(
   onScaleChange: (scale: number, tx: number, ty: number) => void,
   opts: PinchZoomOptions = {},
 ): React.MutableRefObject<number> {
-  const { enabled = true, minScale = 1, maxScale = 5, allowSingleFingerPan = true } = opts;
+  const {
+    enabled = true,
+    minScale = 1,
+    maxScale = 5,
+    allowSingleFingerPan = false,
+  } = opts;
 
   const scaleRef = useRef(1);
   const txRef = useRef(0);
   const tyRef = useRef(0);
+
+  const ptr1 = useRef<{ id: number; x: number; y: number } | null>(null);
+  const ptr2 = useRef<{ id: number; x: number; y: number } | null>(null);
   const lastDistRef = useRef<number | null>(null);
   const lastMidRef = useRef<{ x: number; y: number } | null>(null);
-  const lastPanRef = useRef<{ x: number; y: number } | null>(null);
   const rafRef = useRef<number | null>(null);
-  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const isZoomingRef = useRef(false);
 
   const notify = useCallback(() => {
     onScaleChange(scaleRef.current, txRef.current, tyRef.current);
@@ -39,37 +46,57 @@ export function usePinchZoom(
     const el = wrapperRef.current;
     if (!el || !enabled) return;
 
+    const getDist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+      Math.hypot(b.x - a.x, b.y - a.y);
+
+    const getMid = (a: { x: number; y: number }, b: { x: number; y: number }) => ({
+      x: (a.x + b.x) / 2,
+      y: (a.y + b.y) / 2,
+    });
+
     const onPointerDown = (e: PointerEvent) => {
-      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      // Solo procesar touch — el pen lo maneja el gesture manager del canvas
+      if (e.pointerType === 'pen') return;
 
-      const pts = Array.from(activePointersRef.current.values());
-
-      if (pts.length === 2) {
-        const [a, b] = pts;
-        lastDistRef.current = Math.hypot(b.x - a.x, b.y - a.y);
-        lastMidRef.current = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-        lastPanRef.current = null;
-      } else if (pts.length === 1 && allowSingleFingerPan && scaleRef.current > 1) {
-        lastPanRef.current = { x: e.clientX, y: e.clientY };
-        lastDistRef.current = null;
+      if (!ptr1.current) {
+        ptr1.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      } else if (!ptr2.current && e.pointerId !== ptr1.current.id) {
+        ptr2.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        // Iniciar pinch
+        isZoomingRef.current = true;
+        lastDistRef.current = getDist(ptr1.current, ptr2.current);
+        lastMidRef.current = getMid(ptr1.current, ptr2.current);
+        e.preventDefault();
       }
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      if (!activePointersRef.current.has(e.pointerId)) return;
-      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (e.pointerType === 'pen') return;
 
-      const pts = Array.from(activePointersRef.current.values());
+      // Actualizar posición del pointer
+      if (ptr1.current && e.pointerId === ptr1.current.id) {
+        ptr1.current = { ...ptr1.current, x: e.clientX, y: e.clientY };
+      } else if (ptr2.current && e.pointerId === ptr2.current.id) {
+        ptr2.current = { ...ptr2.current, x: e.clientX, y: e.clientY };
+      } else {
+        return;
+      }
 
-      if (pts.length === 2 && lastDistRef.current !== null && lastMidRef.current) {
+      // Pinch zoom con 2 dedos
+      if (ptr1.current && ptr2.current && isZoomingRef.current) {
         e.preventDefault();
 
-        const [a, b] = pts;
-        const newDist = Math.hypot(b.x - a.x, b.y - a.y);
-        const newMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const newDist = getDist(ptr1.current, ptr2.current);
+        const newMid = getMid(ptr1.current, ptr2.current);
+
+        if (lastDistRef.current === null || !lastMidRef.current) {
+          lastDistRef.current = newDist;
+          lastMidRef.current = newMid;
+          return;
+        }
 
         const rect = el.getBoundingClientRect();
-        // Punto focal en coordenadas del wrapper
+        // Punto focal relativo al wrapper
         const focalX = newMid.x - rect.left;
         const focalY = newMid.y - rect.top;
 
@@ -77,8 +104,8 @@ export function usePinchZoom(
         const rawScale = prevScale * (newDist / lastDistRef.current);
         const nextScale = Math.min(maxScale, Math.max(minScale, rawScale));
 
-        // Zoom alrededor del punto focal
-        // El punto en "world space" bajo el focal debe mantenerse igual
+        // Zoom matemáticamente estable:
+        // el punto world bajo el focal se mantiene fijo
         const worldX = (focalX - txRef.current) / prevScale;
         const worldY = (focalY - tyRef.current) / prevScale;
 
@@ -87,44 +114,58 @@ export function usePinchZoom(
         tyRef.current = focalY - worldY * nextScale;
 
         // Pan del midpoint
-        const panDx = newMid.x - lastMidRef.current.x;
-        const panDy = newMid.y - lastMidRef.current.y;
-        txRef.current += panDx;
-        tyRef.current += panDy;
+        txRef.current += newMid.x - lastMidRef.current.x;
+        tyRef.current += newMid.y - lastMidRef.current.y;
 
         lastDistRef.current = newDist;
         lastMidRef.current = newMid;
 
-        notify(); // inmediato, sin RAF para zoom
+        // Notify inmediato — sin RAF para zoom fluido
+        notify();
         return;
       }
 
-      if (pts.length === 1 && allowSingleFingerPan && scaleRef.current > 1 && lastPanRef.current) {
+      // Pan con 1 dedo cuando hay zoom
+      if (
+        allowSingleFingerPan &&
+        ptr1.current &&
+        !ptr2.current &&
+        scaleRef.current > 1 &&
+        lastMidRef.current &&
+        !isZoomingRef.current
+      ) {
         e.preventDefault();
-        const dx = e.clientX - lastPanRef.current.x;
-        const dy = e.clientY - lastPanRef.current.y;
+        const dx = e.clientX - lastMidRef.current.x;
+        const dy = e.clientY - lastMidRef.current.y;
         txRef.current += dx;
         tyRef.current += dy;
-        lastPanRef.current = { x: e.clientX, y: e.clientY };
+        lastMidRef.current = { x: e.clientX, y: e.clientY };
         notify();
       }
     };
 
     const onPointerUp = (e: PointerEvent) => {
-      activePointersRef.current.delete(e.pointerId);
-      const pts = Array.from(activePointersRef.current.values());
+      if (e.pointerType === 'pen') return;
 
-      if (pts.length < 2) {
-        lastDistRef.current = null;
-        lastMidRef.current = null;
+      if (ptr1.current?.id === e.pointerId) {
+        ptr1.current = ptr2.current;
+        ptr2.current = null;
+      } else if (ptr2.current?.id === e.pointerId) {
+        ptr2.current = null;
       }
 
-      if (pts.length === 1 && allowSingleFingerPan && scaleRef.current > 1) {
-        lastPanRef.current = { x: pts[0].x, y: pts[0].y };
-      } else if (pts.length === 0) {
-        lastPanRef.current = null;
-        // Snap a scale=1 si está muy cerca
-        if (Math.abs(scaleRef.current - 1) < 0.05) {
+      if (!ptr2.current) {
+        isZoomingRef.current = false;
+        lastDistRef.current = null;
+
+        if (ptr1.current && allowSingleFingerPan && scaleRef.current > 1) {
+          lastMidRef.current = { x: ptr1.current.x, y: ptr1.current.y };
+        } else {
+          lastMidRef.current = null;
+        }
+
+        // Snap a scale=1 si casi en identidad
+        if (scaleRef.current < 1.05) {
           scaleRef.current = 1;
           txRef.current = 0;
           tyRef.current = 0;
@@ -142,8 +183,8 @@ export function usePinchZoom(
       const focalY = e.clientY - rect.top;
 
       const prevScale = scaleRef.current;
-      const delta = e.deltaY > 0 ? 0.93 : 1.07;
-      const nextScale = Math.min(maxScale, Math.max(minScale, prevScale * delta));
+      const factor = e.deltaY > 0 ? 0.92 : 1.08;
+      const nextScale = Math.min(maxScale, Math.max(minScale, prevScale * factor));
 
       const worldX = (focalX - txRef.current) / prevScale;
       const worldY = (focalY - tyRef.current) / prevScale;
@@ -152,7 +193,7 @@ export function usePinchZoom(
       txRef.current = focalX - worldX * nextScale;
       tyRef.current = focalY - worldY * nextScale;
 
-      if (Math.abs(scaleRef.current - 1) < 0.02) {
+      if (scaleRef.current < 1.02) {
         scaleRef.current = 1;
         txRef.current = 0;
         tyRef.current = 0;
@@ -161,21 +202,17 @@ export function usePinchZoom(
       notify();
     };
 
-    // Pan con scroll cuando hay zoom
-    const onScroll = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) return;
-      if (scaleRef.current <= 1) return;
-      e.preventDefault();
-      txRef.current -= e.deltaX;
-      tyRef.current -= e.deltaY;
-      notify();
+    // Prevenir scroll del browser durante pinch
+    const preventScroll = (e: TouchEvent) => {
+      if (e.touches.length >= 2) e.preventDefault();
     };
 
-    el.addEventListener('pointerdown', onPointerDown);
+    el.addEventListener('pointerdown', onPointerDown, { passive: false });
     el.addEventListener('pointermove', onPointerMove, { passive: false });
     el.addEventListener('pointerup', onPointerUp);
     el.addEventListener('pointercancel', onPointerUp);
     el.addEventListener('wheel', onWheel, { passive: false });
+    el.addEventListener('touchmove', preventScroll, { passive: false });
 
     return () => {
       el.removeEventListener('pointerdown', onPointerDown);
@@ -183,6 +220,7 @@ export function usePinchZoom(
       el.removeEventListener('pointerup', onPointerUp);
       el.removeEventListener('pointercancel', onPointerUp);
       el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('touchmove', preventScroll);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, [wrapperRef, enabled, minScale, maxScale, allowSingleFingerPan, notify, scheduleNotify]);

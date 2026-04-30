@@ -80,6 +80,10 @@ export default function EditorCanvas({
   const liveRenderer = useCanvasRenderer(liveCanvasRef);
   const overlayRenderer = useCanvasRenderer(overlayCanvasRef);
 
+  // Track si el usuario está dibujando activamente
+  const isDrawingActiveRef = useRef(false);
+  const drawingIdleTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const isDrawingTool = [
     'boligrafo', 'marcador', 'lapiz', 'borrador', 'borrador_trazo',
     'regla', 'forma_rect', 'forma_circulo', 'forma_triangulo',
@@ -207,24 +211,26 @@ export default function EditorCanvas({
     return () => ro.disconnect();
   }, [setupAllCanvases, redrawMain, saveSnapshot, initialCanvasData, initialStrokesData, mainRenderer]);
 
-  // Coordenadas correctas: getBoundingClientRect incluye CSS transform del padre
-  // offsetWidth/Height es el tamaño lógico sin transform
+  // eventToPoint: convierte coordenadas del evento a coordenadas del canvas
+  // getBoundingClientRect incluye el CSS transform del padre (zoom)
+  // Dividir por la relación rendered/logical da coordenadas correctas
   const eventToPoint = useCallback((e: PointerEvent): Point => {
     const canvas = mainCanvasRef.current;
     if (!canvas) return { x: 0, y: 0, pressure: 1 };
     const rect = canvas.getBoundingClientRect();
-    // rect.width es el tamaño renderizado (con zoom CSS)
-    // canvas.offsetWidth es el tamaño lógico (sin zoom CSS)
+
+    // rect.width = tamaño renderizado con CSS transform
+    // canvas.offsetWidth = tamaño lógico sin transform
     const scaleX = rect.width > 0 ? canvas.offsetWidth / rect.width : 1;
     const scaleY = rect.height > 0 ? canvas.offsetHeight / rect.height : 1;
 
-    let pressure = e.pressure;
+    let pressure = e.pressure ?? 0.5;
     if (e.pointerType === 'pen') {
-      pressure = Math.max(0.15, Math.min(1, pressure));
+      pressure = Math.max(0.1, Math.min(1, pressure));
     } else if (e.pointerType === 'mouse') {
       pressure = 0.6;
     } else {
-      pressure = Math.max(0.3, pressure);
+      pressure = Math.max(0.3, Math.min(1, pressure));
     }
 
     return {
@@ -337,6 +343,9 @@ export default function EditorCanvas({
 
     syncSelectionUI(null, []);
     redrawOverlay(null);
+    // Marcar como dibujando activamente — bloquear autosave
+    isDrawingActiveRef.current = true;
+    if (drawingIdleTimerRef.current) clearTimeout(drawingIdleTimerRef.current);
     // Limpiar SOLO el live buffer al inicio del trazo
     liveRenderer.clearLive();
     strokeEngine.begin(pos, brushColor, brushSize, herramienta);
@@ -461,7 +470,7 @@ export default function EditorCanvas({
     const tipo = strokeEngine.currentStroke.current?.tipo ?? herramienta;
 
     if (tipo === 'borrador_trazo') {
-      // Borrador de píxeles: borrar en backBuffer via renderEraserSegment
+      // INMEDIATO — borrar en backBuffer directamente sin RAF
       mainRenderer.renderEraserSegment(
         renderPoints,
         strokeEngine.currentStroke.current?.size ?? brushSize,
@@ -637,7 +646,12 @@ export default function EditorCanvas({
       new Set(selectedIdsRef.current),
       new Set(),
     );
-    onChange();
+    // Marcar idle después de 2s — permitir autosave
+    if (drawingIdleTimerRef.current) clearTimeout(drawingIdleTimerRef.current);
+    drawingIdleTimerRef.current = setTimeout(() => {
+      isDrawingActiveRef.current = false;
+      onChange(); // trigger autosave ahora que está idle
+    }, 2000);
   }, [
     isEraser, isShapeTool, isSelecting, isLasso,
     brushColor, brushSize, herramienta, strokeEngine,

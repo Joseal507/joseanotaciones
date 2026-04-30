@@ -243,8 +243,8 @@ export function useCanvasRenderer(
       ctx.stroke();
     }
     ctx.restore();
-    scheduleCommit();
-  }, [scheduleCommit]);
+    commitNow(); // inmediato para borrador sin delay
+  }, [commitNow]);
 
   const scheduleRender = useCallback((fn: () => void) => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -264,6 +264,7 @@ export function useCanvasRenderer(
     renderEraserSegment, scheduleRender,
     dpr: dprRef,
     _commit: commit,
+    _commitNow: commitNow,
   };
 }
 

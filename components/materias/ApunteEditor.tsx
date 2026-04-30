@@ -135,10 +135,11 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
     setZoomState({ scale, tx, ty });
   }, []);
 
-  // El zoom/pan se maneja dentro del EditorCanvas — el wrapper solo hace scroll nativo
-  // usePinchZoom desactivado para que no interfiera con el canvas
   usePinchZoom(wrapperRef, handleScaleChange, {
-    enabled: false,
+    enabled: true,
+    minScale: 1,
+    maxScale: 5,
+    allowSingleFingerPan: false,
   });
 
   const syncCache = useCallback(() => {
@@ -708,8 +709,11 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
           paddingBottom: isMobile ? '70px' : '80px',
         }}>
           <div style={{
-            transform: 'none',
+            transform: zoomState.scale !== 1
+              ? `matrix(${zoomState.scale},0,0,${zoomState.scale},${zoomState.tx},${zoomState.ty})`
+              : 'none',
             transformOrigin: '0 0',
+            willChange: 'transform',
             display: 'flex',
             flexDirection: scrollDirection === 'horizontal' ? 'row' : 'column',
             alignItems: scrollDirection === 'horizontal' ? 'flex-start' : 'center',
