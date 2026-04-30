@@ -522,8 +522,11 @@ export default function ChatPage() {
             </div>
           </div>
           <div style={{display:'flex',gap:isMobile?'4px':'6px',alignItems:'center'}}>
-            <button onClick={toggleModoLlamada} style={{padding:isMobile?'7px 10px':'7px 14px',borderRadius:'8px',border:`2px solid ${modoLlamada?'#4ade80':'var(--border-color)'}`,background:modoLlamada?'#4ade8020':'transparent',color:modoLlamada?'#4ade80':'var(--text-muted)',fontSize:isMobile?'14px':'12px',fontWeight:700,cursor:'pointer'}}>
-              {modoLlamada?'📵':'📞'}
+            <button
+              onClick={() => alert(idioma === 'en' ? '📞 Call mode is under maintenance. Coming soon!' : '📞 El modo llamada está en mantenimiento. ¡Próximamente!')}
+              title={idioma === 'en' ? 'Under maintenance' : 'En mantenimiento'}
+              style={{padding:isMobile?'7px 10px':'7px 14px',borderRadius:'8px',border:'2px solid var(--border-color)',background:'rgba(255,255,255,0.03)',color:'var(--text-muted)',fontSize:isMobile?'14px':'12px',fontWeight:700,cursor:'not-allowed',opacity:0.5,position:'relative'}}>
+              📞 {!isMobile && <span style={{fontSize:'9px',background:'#f59e0b',color:'#000',padding:'1px 4px',borderRadius:'4px',marginLeft:'4px',fontWeight:800}}>WIP</span>}
             </button>
             <button onClick={() => setAudioEnabled(!audioEnabled)} style={{padding:isMobile?'7px 10px':'7px 14px',borderRadius:'8px',border:`2px solid ${audioEnabled?'var(--gold)':'var(--border-color)'}`,background:audioEnabled?'var(--gold-dim)':'transparent',color:audioEnabled?'var(--gold)':'var(--text-muted)',fontSize:isMobile?'14px':'12px',fontWeight:700,cursor:'pointer'}}>
               {audioEnabled?'🔊':'🔇'}
