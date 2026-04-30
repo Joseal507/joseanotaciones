@@ -304,7 +304,6 @@ export default function EditorCanvas({
     syncSelectionUI(null, []);
     redrawOverlay(null);
     strokeEngine.begin(pos, brushColor, brushSize, herramienta);
-    liveRenderer.clear();
   }, [
     eventToPoint, isEraser, isShapeTool, isSelecting, isLasso,
     brushColor, brushSize, herramienta, strokeEngine, redrawMain,
@@ -423,14 +422,10 @@ export default function EditorCanvas({
     const { shouldRender, renderPoints } = strokeEngine.addPoint(pos);
     if (!shouldRender || renderPoints.length < 2) return;
 
-    const liveCanvas = liveCanvasRef.current;
-    const ctx = liveCanvas?.getContext('2d');
-    if (!ctx) return;
-
     const tipo = strokeEngine.currentStroke.current?.tipo ?? herramienta;
 
     if (tipo === 'borrador_trazo') {
-      // Borrar directamente sobre el main canvas
+      // Borrar directamente sobre el main canvas en tiempo real
       const mainCtx = mainCanvasRef.current?.getContext('2d');
       if (mainCtx) {
         mainRenderer.renderEraserSegment(
@@ -441,14 +436,18 @@ export default function EditorCanvas({
       }
       drawEraserCursor(pos.x, pos.y);
     } else {
-      // Dibujo normal — NO limpiar el live canvas, solo añadir segmento
-      liveRenderer.renderStrokeSegment(
-        renderPoints,
-        strokeEngine.currentStroke.current?.color ?? brushColor,
-        strokeEngine.currentStroke.current?.size ?? brushSize,
-        tipo,
-        ctx,
-      );
+      // Dibujo normal: dibujar en el main canvas directamente
+      // Esto evita el problema de acumulación/parpadeo del live canvas
+      const mainCtx = mainCanvasRef.current?.getContext('2d');
+      if (mainCtx) {
+        mainRenderer.renderStrokeSegment(
+          renderPoints,
+          strokeEngine.currentStroke.current?.color ?? brushColor,
+          strokeEngine.currentStroke.current?.size ?? brushSize,
+          tipo,
+          mainCtx,
+        );
+      }
     }
   }, [
     eventToPoint, isEraser, isShapeTool, isSelecting, isLasso,
@@ -582,7 +581,7 @@ export default function EditorCanvas({
     const stroke = strokeEngine.end();
     if (!stroke) return;
 
-    // Limpiar live canvas y pasar el stroke al main
+    // Limpiar overlays
     liveRenderer.clear();
     overlayRenderer.clear();
 
