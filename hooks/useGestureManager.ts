@@ -349,7 +349,7 @@ export function useGestureManager(
     const onContextMenu = (e: Event) => e.preventDefault();
 
     el.addEventListener('pointerdown', onPointerDown, { passive: false });
-    el.addEventListener('pointermove', onPointerMove, { passive: true });
+    el.addEventListener('pointermove', onPointerMove, { passive: false });
     el.addEventListener('pointerup', onPointerUp, { passive: true });
     el.addEventListener('pointercancel', onPointerCancel, { passive: true });
     el.addEventListener('contextmenu', onContextMenu);

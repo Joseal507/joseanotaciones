@@ -286,11 +286,6 @@ export default function EditorCanvas({
   // ─── Draw handlers ────────────────────────────────────────────────────────
   const handleDrawStart = useCallback((e: PointerEvent) => {
     e.stopPropagation();
-    // Obtener posición inmediatamente sin esperar a React
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const pos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-
     const pos = eventToPoint(e);
 
     if (isEraser || e.button === 5 || e.buttons === 32) {

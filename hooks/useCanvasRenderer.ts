@@ -198,14 +198,21 @@ export function useCanvasRenderer(
   }, []);
 
   // Borrador de píxeles — INMEDIATO sin delay
-      const renderEraserSegment = useCallback((points: Point[], size: number) => {
-    const backCtx = backBufferRef.current?.getContext('2d');
-    const liveCtx = liveBufferRef.current?.getContext('2d');
-    const frontCtx = canvasRef.current?.getContext('2d', { desynchronized: true });
-    if (!backCtx || !frontCtx || !liveCtx) return;
+        const renderEraserSegment = useCallback((points: Point[], size: number) => {
+    const back = backBufferRef.current;
+    const live = liveBufferRef.current;
+    const front = canvasRef.current;
+    if (!back || !live || !front) return;
+
+    const contexts = [
+      back.getContext('2d'),
+      live.getContext('2d'),
+      front.getContext('2d', { desynchronized: true })
+    ];
 
     const dpr = dprRef.current;
-    const draw = (c: CanvasRenderingContext2D) => {
+    const draw = (c: CanvasRenderingContext2D | null) => {
+      if (!c) return;
       c.save();
       c.setTransform(dpr, 0, 0, dpr, 0, 0);
       c.globalCompositeOperation = 'destination-out';
@@ -217,16 +224,16 @@ export function useCanvasRenderer(
         c.fill();
       } else {
         c.lineWidth = size * 4;
-        const pPrev = points[points.length - 2];
-        const pCurr = points[points.length - 1];
-        c.moveTo(pPrev.x, pPrev.y);
-        c.lineTo(pCurr.x, pCurr.y);
+        const p1 = points[points.length - 2];
+        const p2 = points[points.length - 1];
+        c.moveTo(p1.x, p1.y);
+        c.lineTo(p2.x, p2.y);
         c.stroke();
       }
       c.restore();
     };
 
-    [backCtx, liveCtx, frontCtx].forEach(draw);
+    contexts.forEach(draw);
   }, []);
 
   const scheduleRender = useCallback((fn: () => void) => {
