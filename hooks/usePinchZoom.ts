@@ -27,9 +27,7 @@ export function usePinchZoom(
   const lastMidRef = useRef<{ x: number; y: number } | null>(null);
   const lastPanPointRef = useRef<{ x: number; y: number } | null>(null);
 
-  const clampScale = useCallback((v: number) => {
-    return Math.min(maxScale, Math.max(minScale, v));
-  }, [minScale, maxScale]);
+  const clamp = useCallback((v: number) => Math.min(maxScale, Math.max(minScale, v)), [minScale, maxScale]);
 
   const notify = useCallback(() => {
     onScaleChange(scaleRef.current, txRef.current, tyRef.current);
@@ -38,98 +36,6 @@ export function usePinchZoom(
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el || !enabled) return;
-
-    const getContentEl = () => el.firstElementChild as HTMLElement | null;
-
-    const getMetrics = () => {
-      const content = getContentEl();
-      return {
-        viewportW: el.clientWidth,
-        viewportH: el.clientHeight,
-        scrollLeft: el.scrollLeft,
-        scrollTop: el.scrollTop,
-        contentW: content?.scrollWidth ?? content?.offsetWidth ?? el.clientWidth,
-        contentH: content?.scrollHeight ?? content?.offsetHeight ?? el.clientHeight,
-        baseLeft: content?.offsetLeft ?? 0,
-        baseTop: content?.offsetTop ?? 0,
-      };
-    };
-
-    const clampTransform = (nextScale: number, nextTx: number, nextTy: number) => {
-      if (nextScale <= 1.001) {
-        return { scale: 1, tx: 0, ty: 0 };
-      }
-
-      const {
-        viewportW, viewportH,
-        scrollLeft, scrollTop,
-        contentW, contentH,
-        baseLeft, baseTop,
-      } = getMetrics();
-
-      const scaledW = contentW * nextScale;
-      const scaledH = contentH * nextScale;
-      const margin = 48;
-
-      let minTx = scrollLeft + viewportW - baseLeft - scaledW - margin;
-      let maxTx = scrollLeft - baseLeft + margin;
-      let minTy = scrollTop + viewportH - baseTop - scaledH - margin;
-      let maxTy = scrollTop - baseTop + margin;
-
-      if (scaledW + margin * 2 <= viewportW) {
-        minTx = 0;
-        maxTx = 0;
-      }
-
-      if (scaledH + margin * 2 <= viewportH) {
-        minTy = 0;
-        maxTy = 0;
-      }
-
-      return {
-        scale: nextScale,
-        tx: Math.min(maxTx, Math.max(minTx, nextTx)),
-        ty: Math.min(maxTy, Math.max(minTy, nextTy)),
-      };
-    };
-
-    const toLocal = (clientX: number, clientY: number) => {
-      const rect = el.getBoundingClientRect();
-      return {
-        x: clientX - rect.left + el.scrollLeft,
-        y: clientY - rect.top + el.scrollTop,
-      };
-    };
-
-    const zoomAroundClientPoint = (clientX: number, clientY: number, rawNextScale: number) => {
-      const { baseLeft, baseTop } = getMetrics();
-      const local = toLocal(clientX, clientY);
-
-      const prevScale = scaleRef.current;
-      const nextScale = clampScale(rawNextScale);
-
-      const worldX = (local.x - baseLeft - txRef.current) / prevScale;
-      const worldY = (local.y - baseTop - tyRef.current) / prevScale;
-
-      const nextTx = local.x - baseLeft - worldX * nextScale;
-      const nextTy = local.y - baseTop - worldY * nextScale;
-
-      const clamped = clampTransform(nextScale, nextTx, nextTy);
-      scaleRef.current = clamped.scale;
-      txRef.current = clamped.tx;
-      tyRef.current = clamped.ty;
-    };
-
-    const panBy = (dx: number, dy: number) => {
-      const clamped = clampTransform(
-        scaleRef.current,
-        txRef.current + dx,
-        tyRef.current + dy,
-      );
-      scaleRef.current = clamped.scale;
-      txRef.current = clamped.tx;
-      tyRef.current = clamped.ty;
-    };
 
     const getDist = (t: TouchList) =>
       Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
@@ -146,24 +52,35 @@ export function usePinchZoom(
         lastPanPointRef.current = null;
         return;
       }
-
       if (allowSingleFingerPan && e.touches.length === 1 && scaleRef.current > 1) {
-        lastPanPointRef.current = {
-          x: e.touches[0].clientX,
-          y: e.touches[0].clientY,
-        };
+        lastPanPointRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       }
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      // Pinch zoom con 2 dedos
       if (e.touches.length === 2 && lastDistRef.current !== null && lastMidRef.current) {
         e.preventDefault();
-
         const newDist = getDist(e.touches);
         const newMid = getMid(e.touches);
-        const ratio = newDist / lastDistRef.current;
+        const rect = el.getBoundingClientRect();
 
-        zoomAroundClientPoint(newMid.x, newMid.y, scaleRef.current * ratio);
+        const prevScale = scaleRef.current;
+        const nextScale = clamp(prevScale * (newDist / lastDistRef.current));
+        const ratio = nextScale / prevScale;
+
+        const ox = newMid.x - rect.left;
+        const oy = newMid.y - rect.top;
+
+        txRef.current = txRef.current * ratio + ox * (1 - ratio) + (newMid.x - lastMidRef.current.x);
+        tyRef.current = tyRef.current * ratio + oy * (1 - ratio) + (newMid.y - lastMidRef.current.y);
+        scaleRef.current = nextScale;
+
+        if (Math.abs(scaleRef.current - 1) < 0.02) {
+          scaleRef.current = 1;
+          txRef.current = 0;
+          tyRef.current = 0;
+        }
 
         lastDistRef.current = newDist;
         lastMidRef.current = newMid;
@@ -171,21 +88,17 @@ export function usePinchZoom(
         return;
       }
 
+      // Pan con 1 dedo cuando hay zoom
       if (allowSingleFingerPan && e.touches.length === 1 && scaleRef.current > 1) {
-        const touch = e.touches[0];
-
+        const t = e.touches[0];
         if (!lastPanPointRef.current) {
-          lastPanPointRef.current = { x: touch.clientX, y: touch.clientY };
+          lastPanPointRef.current = { x: t.clientX, y: t.clientY };
           return;
         }
-
         e.preventDefault();
-        panBy(
-          touch.clientX - lastPanPointRef.current.x,
-          touch.clientY - lastPanPointRef.current.y,
-        );
-
-        lastPanPointRef.current = { x: touch.clientX, y: touch.clientY };
+        txRef.current += t.clientX - lastPanPointRef.current.x;
+        tyRef.current += t.clientY - lastPanPointRef.current.y;
+        lastPanPointRef.current = { x: t.clientX, y: t.clientY };
         notify();
       }
     };
@@ -195,64 +108,26 @@ export function usePinchZoom(
         lastDistRef.current = null;
         lastMidRef.current = null;
       }
-
       if (allowSingleFingerPan && e.touches.length === 1 && scaleRef.current > 1) {
-        lastPanPointRef.current = {
-          x: e.touches[0].clientX,
-          y: e.touches[0].clientY,
-        };
+        lastPanPointRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       } else {
         lastPanPointRef.current = null;
       }
     };
 
-    const onWheel = (e: WheelEvent) => {
-      const isZoom = e.ctrlKey || e.metaKey;
-
-      if (isZoom) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        const factor = Math.exp(-e.deltaY * 0.0035);
-        zoomAroundClientPoint(e.clientX, e.clientY, scaleRef.current * factor);
-        notify();
-        return;
-      }
-
-      if (scaleRef.current > 1) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        const panSpeed = 1.0;
-        panBy(-e.deltaX * panSpeed, -e.deltaY * panSpeed);
-        notify();
-      }
-    };
-
-    const onResize = () => {
-      const clamped = clampTransform(scaleRef.current, txRef.current, tyRef.current);
-      scaleRef.current = clamped.scale;
-      txRef.current = clamped.tx;
-      tyRef.current = clamped.ty;
-      notify();
-    };
-
+    // NO interceptar wheel — dejar que el navegador haga su zoom nativo
     el.addEventListener('touchstart', onTouchStart, { passive: true });
     el.addEventListener('touchmove', onTouchMove, { passive: false });
     el.addEventListener('touchend', onTouchEnd, { passive: true });
     el.addEventListener('touchcancel', onTouchEnd, { passive: true });
-    el.addEventListener('wheel', onWheel, { passive: false });
-    window.addEventListener('resize', onResize);
 
     return () => {
       el.removeEventListener('touchstart', onTouchStart);
       el.removeEventListener('touchmove', onTouchMove);
       el.removeEventListener('touchend', onTouchEnd);
       el.removeEventListener('touchcancel', onTouchEnd);
-      el.removeEventListener('wheel', onWheel);
-      window.removeEventListener('resize', onResize);
     };
-  }, [wrapperRef, enabled, clampScale, allowSingleFingerPan, notify]);
+  }, [wrapperRef, enabled, clamp, allowSingleFingerPan, notify]);
 
   return scaleRef;
 }
