@@ -12,122 +12,180 @@ export function usePinchZoom(
   onScaleChange: (scale: number, tx: number, ty: number) => void,
   opts: PinchZoomOptions = {},
 ): React.MutableRefObject<number> {
-  const {
-    enabled = true,
-    minScale = 1,
-    maxScale = 4,
-    allowSingleFingerPan = true,
-  } = opts;
+  const { enabled = true, minScale = 1, maxScale = 5, allowSingleFingerPan = true } = opts;
 
   const scaleRef = useRef(1);
   const txRef = useRef(0);
   const tyRef = useRef(0);
-
   const lastDistRef = useRef<number | null>(null);
   const lastMidRef = useRef<{ x: number; y: number } | null>(null);
-  const lastPanPointRef = useRef<{ x: number; y: number } | null>(null);
-
-  const clamp = useCallback((v: number) => Math.min(maxScale, Math.max(minScale, v)), [minScale, maxScale]);
+  const lastPanRef = useRef<{ x: number; y: number } | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
 
   const notify = useCallback(() => {
     onScaleChange(scaleRef.current, txRef.current, tyRef.current);
   }, [onScaleChange]);
 
+  const scheduleNotify = useCallback(() => {
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      notify();
+    });
+  }, [notify]);
+
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el || !enabled) return;
 
-    const getDist = (t: TouchList) =>
-      Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const onPointerDown = (e: PointerEvent) => {
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    const getMid = (t: TouchList) => ({
-      x: (t[0].clientX + t[1].clientX) / 2,
-      y: (t[0].clientY + t[1].clientY) / 2,
-    });
+      const pts = Array.from(activePointersRef.current.values());
 
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        lastDistRef.current = getDist(e.touches);
-        lastMidRef.current = getMid(e.touches);
-        lastPanPointRef.current = null;
-        return;
-      }
-      if (allowSingleFingerPan && e.touches.length === 1 && scaleRef.current > 1) {
-        lastPanPointRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      if (pts.length === 2) {
+        const [a, b] = pts;
+        lastDistRef.current = Math.hypot(b.x - a.x, b.y - a.y);
+        lastMidRef.current = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        lastPanRef.current = null;
+      } else if (pts.length === 1 && allowSingleFingerPan && scaleRef.current > 1) {
+        lastPanRef.current = { x: e.clientX, y: e.clientY };
+        lastDistRef.current = null;
       }
     };
 
-    const onTouchMove = (e: TouchEvent) => {
-      // Pinch zoom con 2 dedos
-      if (e.touches.length === 2 && lastDistRef.current !== null && lastMidRef.current) {
+    const onPointerMove = (e: PointerEvent) => {
+      if (!activePointersRef.current.has(e.pointerId)) return;
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      const pts = Array.from(activePointersRef.current.values());
+
+      if (pts.length === 2 && lastDistRef.current !== null && lastMidRef.current) {
         e.preventDefault();
-        const newDist = getDist(e.touches);
-        const newMid = getMid(e.touches);
+
+        const [a, b] = pts;
+        const newDist = Math.hypot(b.x - a.x, b.y - a.y);
+        const newMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+
         const rect = el.getBoundingClientRect();
+        // Punto focal en coordenadas del wrapper
+        const focalX = newMid.x - rect.left;
+        const focalY = newMid.y - rect.top;
 
         const prevScale = scaleRef.current;
-        const nextScale = clamp(prevScale * (newDist / lastDistRef.current));
-        const ratio = nextScale / prevScale;
+        const rawScale = prevScale * (newDist / lastDistRef.current);
+        const nextScale = Math.min(maxScale, Math.max(minScale, rawScale));
 
-        const ox = newMid.x - rect.left;
-        const oy = newMid.y - rect.top;
+        // Zoom alrededor del punto focal
+        // El punto en "world space" bajo el focal debe mantenerse igual
+        const worldX = (focalX - txRef.current) / prevScale;
+        const worldY = (focalY - tyRef.current) / prevScale;
 
-        txRef.current = txRef.current * ratio + ox * (1 - ratio) + (newMid.x - lastMidRef.current.x);
-        tyRef.current = tyRef.current * ratio + oy * (1 - ratio) + (newMid.y - lastMidRef.current.y);
         scaleRef.current = nextScale;
+        txRef.current = focalX - worldX * nextScale;
+        tyRef.current = focalY - worldY * nextScale;
 
-        if (Math.abs(scaleRef.current - 1) < 0.02) {
-          scaleRef.current = 1;
-          txRef.current = 0;
-          tyRef.current = 0;
-        }
+        // Pan del midpoint
+        const panDx = newMid.x - lastMidRef.current.x;
+        const panDy = newMid.y - lastMidRef.current.y;
+        txRef.current += panDx;
+        tyRef.current += panDy;
 
         lastDistRef.current = newDist;
         lastMidRef.current = newMid;
-        notify();
+
+        notify(); // inmediato, sin RAF para zoom
         return;
       }
 
-      // Pan con 1 dedo cuando hay zoom
-      if (allowSingleFingerPan && e.touches.length === 1 && scaleRef.current > 1) {
-        const t = e.touches[0];
-        if (!lastPanPointRef.current) {
-          lastPanPointRef.current = { x: t.clientX, y: t.clientY };
-          return;
-        }
+      if (pts.length === 1 && allowSingleFingerPan && scaleRef.current > 1 && lastPanRef.current) {
         e.preventDefault();
-        txRef.current += t.clientX - lastPanPointRef.current.x;
-        tyRef.current += t.clientY - lastPanPointRef.current.y;
-        lastPanPointRef.current = { x: t.clientX, y: t.clientY };
+        const dx = e.clientX - lastPanRef.current.x;
+        const dy = e.clientY - lastPanRef.current.y;
+        txRef.current += dx;
+        tyRef.current += dy;
+        lastPanRef.current = { x: e.clientX, y: e.clientY };
         notify();
       }
     };
 
-    const onTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) {
+    const onPointerUp = (e: PointerEvent) => {
+      activePointersRef.current.delete(e.pointerId);
+      const pts = Array.from(activePointersRef.current.values());
+
+      if (pts.length < 2) {
         lastDistRef.current = null;
         lastMidRef.current = null;
       }
-      if (allowSingleFingerPan && e.touches.length === 1 && scaleRef.current > 1) {
-        lastPanPointRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      } else {
-        lastPanPointRef.current = null;
+
+      if (pts.length === 1 && allowSingleFingerPan && scaleRef.current > 1) {
+        lastPanRef.current = { x: pts[0].x, y: pts[0].y };
+      } else if (pts.length === 0) {
+        lastPanRef.current = null;
+        // Snap a scale=1 si está muy cerca
+        if (Math.abs(scaleRef.current - 1) < 0.05) {
+          scaleRef.current = 1;
+          txRef.current = 0;
+          tyRef.current = 0;
+          notify();
+        }
       }
     };
 
-    // NO interceptar wheel — dejar que el navegador haga su zoom nativo
-    el.addEventListener('touchstart', onTouchStart, { passive: true });
-    el.addEventListener('touchmove', onTouchMove, { passive: false });
-    el.addEventListener('touchend', onTouchEnd, { passive: true });
-    el.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+
+      const rect = el.getBoundingClientRect();
+      const focalX = e.clientX - rect.left;
+      const focalY = e.clientY - rect.top;
+
+      const prevScale = scaleRef.current;
+      const delta = e.deltaY > 0 ? 0.93 : 1.07;
+      const nextScale = Math.min(maxScale, Math.max(minScale, prevScale * delta));
+
+      const worldX = (focalX - txRef.current) / prevScale;
+      const worldY = (focalY - tyRef.current) / prevScale;
+
+      scaleRef.current = nextScale;
+      txRef.current = focalX - worldX * nextScale;
+      tyRef.current = focalY - worldY * nextScale;
+
+      if (Math.abs(scaleRef.current - 1) < 0.02) {
+        scaleRef.current = 1;
+        txRef.current = 0;
+        tyRef.current = 0;
+      }
+
+      notify();
+    };
+
+    // Pan con scroll cuando hay zoom
+    const onScroll = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) return;
+      if (scaleRef.current <= 1) return;
+      e.preventDefault();
+      txRef.current -= e.deltaX;
+      tyRef.current -= e.deltaY;
+      notify();
+    };
+
+    el.addEventListener('pointerdown', onPointerDown);
+    el.addEventListener('pointermove', onPointerMove, { passive: false });
+    el.addEventListener('pointerup', onPointerUp);
+    el.addEventListener('pointercancel', onPointerUp);
+    el.addEventListener('wheel', onWheel, { passive: false });
 
     return () => {
-      el.removeEventListener('touchstart', onTouchStart);
-      el.removeEventListener('touchmove', onTouchMove);
-      el.removeEventListener('touchend', onTouchEnd);
-      el.removeEventListener('touchcancel', onTouchEnd);
+      el.removeEventListener('pointerdown', onPointerDown);
+      el.removeEventListener('pointermove', onPointerMove);
+      el.removeEventListener('pointerup', onPointerUp);
+      el.removeEventListener('pointercancel', onPointerUp);
+      el.removeEventListener('wheel', onWheel);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [wrapperRef, enabled, clamp, allowSingleFingerPan, notify]);
+  }, [wrapperRef, enabled, minScale, maxScale, allowSingleFingerPan, notify, scheduleNotify]);
 
   return scaleRef;
 }

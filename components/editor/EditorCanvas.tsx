@@ -680,7 +680,9 @@ export default function EditorCanvas({
     stableCallbacks.current,
     {
       isDrawingEnabled: isCanvasActive,
-      isPanZoomEnabled: true,
+      // Pan/zoom solo cuando no hay herramienta de dibujo activa
+      // En iPad: siempre permitir 2 dedos para zoom aunque se esté dibujando
+      isPanZoomEnabled: !isCanvasActive || isLargeTouch,
       isLargeTouchDevice: isLargeTouch,
     },
   );

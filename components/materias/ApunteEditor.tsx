@@ -79,7 +79,7 @@ export default function ApunteEditor({
   const [peterImage, setPeterImage] = useState<{ base64: string; mime: string } | null>(null);
 
   const paginasRef = useRef<Pagina[]>(paginas);
-  const zoomScaleRef = useRef(1);
+  const zoomScaleRef = useRef(1); // Siempre 1 — el canvas maneja su propio zoom
   const textRefs = useRef<{ [id: string]: HTMLDivElement | null }>({});
   const htmlCache = useRef<{ [id: string]: string }>({});
   const canvasExporters = useRef<{ [paginaId: string]: () => string | null }>({});
@@ -135,11 +135,10 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
     setZoomState({ scale, tx, ty });
   }, []);
 
+  // El zoom/pan se maneja dentro del EditorCanvas — el wrapper solo hace scroll nativo
+  // usePinchZoom desactivado para que no interfiera con el canvas
   usePinchZoom(wrapperRef, handleScaleChange, {
-    enabled: true,
-    minScale: 1,
-    maxScale: 4,
-    allowSingleFingerPan: !isDrawingMode || isTabletTouch,
+    enabled: false,
   });
 
   const syncCache = useCallback(() => {
@@ -709,9 +708,8 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
           paddingBottom: isMobile ? '70px' : '80px',
         }}>
           <div style={{
-            transform: `matrix(${zoomState.scale},0,0,${zoomState.scale},${zoomState.tx},${zoomState.ty})`,
+            transform: 'none',
             transformOrigin: '0 0',
-            willChange: 'transform',
             display: 'flex',
             flexDirection: scrollDirection === 'horizontal' ? 'row' : 'column',
             alignItems: scrollDirection === 'horizontal' ? 'flex-start' : 'center',
