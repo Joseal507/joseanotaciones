@@ -111,6 +111,7 @@ export function useStrokeEngine() {
     if (dx * dx + dy * dy < 0.09) return { shouldRender: false, renderPoints: [] }; // < 0.3px
 
     pts.push(point);
+    const len = pts.length;
 
     // Return últimos 4 puntos para Catmull-Rom sin crear arrays nuevos
     const len = pts.length;
