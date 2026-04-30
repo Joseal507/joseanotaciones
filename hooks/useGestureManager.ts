@@ -4,7 +4,7 @@ export type GestureIntent = 'idle' | 'drawing' | 'panning' | 'zooming';
 
 export interface GestureState {
   intent: GestureIntent;
-  activePointers: Map<number, { x: number; y: number; type: string }>;
+  activePointers: Map<number, { x: number; y: number; type: string; width: number; height: number }>;
   pinchStartDist: number | null;
   pinchStartMid: { x: number; y: number } | null;
   panStart: { x: number; y: number } | null;
@@ -32,6 +32,52 @@ interface GestureOptions {
   isLargeTouchDevice: boolean;
 }
 
+// Palm rejection: detect if a touch is likely a palm/hand resting on screen
+function isPalmTouch(e: PointerEvent): boolean {
+  if (e.pointerType !== 'touch') return false;
+
+  const w = (e as any).width ?? 0;
+  const h = (e as any).height ?? 0;
+
+  // Palm: large contact area (> ~25px on either axis)
+  if (w > 25 || h > 25) return true;
+
+  // Palm: very wide aspect ratio contact
+  if (w > 0 && h > 0) {
+    const ratio = Math.max(w, h) / Math.min(w, h);
+    if (ratio > 4 && (w > 15 || h > 15)) return true;
+  }
+
+  // Palm: near edge of screen (common rest position for hand)
+  const screenW = window.innerWidth;
+  const screenH = window.innerHeight;
+  const edgeMargin = 30;
+  if (
+    e.clientX < edgeMargin ||
+    e.clientX > screenW - edgeMargin ||
+    e.clientY > screenH - edgeMargin
+  ) {
+    // Only reject if also has some size
+    if (w > 10 || h > 10) return true;
+  }
+
+  return false;
+}
+
+// Detect if this is likely an accidental touch while pen is nearby
+function isPenProximityTouch(
+  e: PointerEvent,
+  penActive: boolean,
+  lastPenTime: number,
+): boolean {
+  if (e.pointerType !== 'touch') return false;
+
+  // If pen was used recently (within 300ms), reject new touches
+  if (penActive || (Date.now() - lastPenTime < 300)) return true;
+
+  return false;
+}
+
 export function useGestureManager(
   targetRef: React.RefObject<HTMLElement>,
   callbacks: GestureCallbacks,
@@ -50,9 +96,14 @@ export function useGestureManager(
   const lastPinchMid = useRef<{ x: number; y: number } | null>(null);
   const intentLockRef = useRef<GestureIntent>('idle');
   const drawingWithPen = useRef(false);
+  const lastPenTimestamp = useRef(0);
+  const rejectedPointers = useRef<Set<number>>(new Set());
 
-  const getPinchInfo = useCallback((pointers: Map<number, { x: number; y: number; type: string }>) => {
-    const pts = Array.from(pointers.values());
+  const getPinchInfo = useCallback((pointers: Map<number, { x: number; y: number; type: string; width: number; height: number }>) => {
+    // Only use non-rejected touch pointers for pinch
+    const pts = Array.from(pointers.entries())
+      .filter(([id]) => !rejectedPointers.current.has(id))
+      .map(([, v]) => v);
     if (pts.length < 2) return null;
     const [a, b] = pts;
     return {
@@ -68,20 +119,36 @@ export function useGestureManager(
     const onPointerDown = (e: PointerEvent) => {
       const s = state.current;
 
+      // === PALM REJECTION ===
+      if (isPalmTouch(e)) {
+        rejectedPointers.current.add(e.pointerId);
+        return;
+      }
+
+      // === PEN PROXIMITY REJECTION ===
+      if (isPenProximityTouch(e, drawingWithPen.current, lastPenTimestamp.current)) {
+        rejectedPointers.current.add(e.pointerId);
+        return;
+      }
+
+      // Track pointer
       s.activePointers.set(e.pointerId, {
         x: e.clientX,
         y: e.clientY,
         type: e.pointerType,
+        width: (e as any).width ?? 0,
+        height: (e as any).height ?? 0,
       });
 
-      const touchPointers = Array.from(s.activePointers.values())
-        .filter(p => p.type === 'touch');
+      const touchPointers = Array.from(s.activePointers.entries())
+        .filter(([id, p]) => p.type === 'touch' && !rejectedPointers.current.has(id));
 
-      // === PEN siempre dibuja ===
+      // === PEN / STYLUS: always draw ===
       if (e.pointerType === 'pen') {
         if (!options.isDrawingEnabled) return;
         s.activePenId = e.pointerId;
         drawingWithPen.current = true;
+        lastPenTimestamp.current = Date.now();
         intentLockRef.current = 'drawing';
         s.intent = 'drawing';
         callbacks.onDrawStart(e);
@@ -91,9 +158,9 @@ export function useGestureManager(
 
       // === TOUCH ===
       if (e.pointerType === 'touch') {
-        // 2 dedos = zoom SIEMPRE (tiene prioridad sobre dibujo)
-        if (touchPointers.length === 2) {
-          if (intentLockRef.current === 'drawing') {
+        // 2+ valid touch pointers = zoom (always)
+        if (touchPointers.length >= 2) {
+          if (intentLockRef.current === 'drawing' && !drawingWithPen.current) {
             callbacks.onDrawEnd(e);
           }
           intentLockRef.current = 'zooming';
@@ -106,7 +173,14 @@ export function useGestureManager(
           return;
         }
 
-        // 1 dedo en iPad = pan
+        // If pen is currently drawing, reject all finger touches
+        if (drawingWithPen.current) {
+          rejectedPointers.current.add(e.pointerId);
+          s.activePointers.delete(e.pointerId);
+          return;
+        }
+
+        // 1 finger on tablet = pan
         if (options.isLargeTouchDevice && touchPointers.length === 1) {
           intentLockRef.current = 'panning';
           s.intent = 'panning';
@@ -115,7 +189,7 @@ export function useGestureManager(
           return;
         }
 
-        // 1 dedo en móvil = dibujar
+        // 1 finger on phone/touch-laptop = draw
         if (!options.isLargeTouchDevice && touchPointers.length === 1 && options.isDrawingEnabled) {
           if (intentLockRef.current === 'idle') {
             intentLockRef.current = 'drawing';
@@ -142,16 +216,28 @@ export function useGestureManager(
     const onPointerMove = (e: PointerEvent) => {
       const s = state.current;
 
+      // Skip rejected pointers
+      if (rejectedPointers.current.has(e.pointerId)) return;
+
+      // Update pointer position
       if (s.activePointers.has(e.pointerId)) {
         s.activePointers.set(e.pointerId, {
           x: e.clientX,
           y: e.clientY,
           type: e.pointerType,
+          width: (e as any).width ?? 0,
+          height: (e as any).height ?? 0,
         });
+      }
+
+      // Track pen timestamp for proximity rejection
+      if (e.pointerType === 'pen') {
+        lastPenTimestamp.current = Date.now();
       }
 
       const intent = intentLockRef.current;
 
+      // Drawing
       if (intent === 'drawing') {
         if (e.pointerId === s.activePenId || e.pointerType !== 'pen') {
           const events = (e as any).getCoalescedEvents?.() ?? [e];
@@ -162,6 +248,7 @@ export function useGestureManager(
         return;
       }
 
+      // Panning (1 finger on tablet)
       if (intent === 'panning') {
         if (lastPinchMid.current) {
           const dx = e.clientX - lastPinchMid.current.x;
@@ -172,6 +259,7 @@ export function useGestureManager(
         return;
       }
 
+      // Pinch zoom
       if (intent === 'zooming') {
         const info = getPinchInfo(s.activePointers);
         if (!info || lastPinchDist.current === null || !lastPinchMid.current) return;
@@ -191,12 +279,21 @@ export function useGestureManager(
 
     const onPointerUp = (e: PointerEvent) => {
       const s = state.current;
+
+      // Clean up rejected pointer
+      if (rejectedPointers.current.has(e.pointerId)) {
+        rejectedPointers.current.delete(e.pointerId);
+        s.activePointers.delete(e.pointerId);
+        return;
+      }
+
       const intent = intentLockRef.current;
 
       if (intent === 'drawing') {
         callbacks.onDrawEnd(e);
         if (e.pointerType === 'pen') {
           drawingWithPen.current = false;
+          lastPenTimestamp.current = Date.now();
           s.activePenId = null;
         }
       } else if (intent === 'panning') {
@@ -227,10 +324,12 @@ export function useGestureManager(
     };
 
     const onPointerCancel = (e: PointerEvent) => {
+      rejectedPointers.current.delete(e.pointerId);
       state.current.activePointers.delete(e.pointerId);
       if (intentLockRef.current === 'drawing') {
         callbacks.onDrawEnd(e);
         drawingWithPen.current = false;
+        lastPenTimestamp.current = Date.now();
         state.current.activePenId = null;
       }
       if (state.current.activePointers.size === 0) {
