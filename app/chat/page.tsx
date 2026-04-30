@@ -93,20 +93,6 @@ export default function ChatPage() {
     modoLlamadaRef.current = modoLlamada;
   }, [modoLlamada]);
 
-  // ─── Parar audio actual ───────────────────────────────────────────────────
-  const stopCurrentAudio = () => {
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      currentAudioRef.current.src = '';
-      currentAudioRef.current = null;
-    }
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-    setLlamandoAI(false);
-    setLlamadaHablando(false);
-  };
-
   // ─── Limpiar texto para TTS ───────────────────────────────────────────────
   const limpiarTextoTTS = (texto: string, maxLen = 800) => {
     return texto
@@ -126,91 +112,31 @@ export default function ChatPage() {
       .substring(0, maxLen);
   };
 
-  // ─── TTS principal: Groq API → fallback speechSynthesis ──────────────────
-  const reproducirAudio = async (texto: string, onEnd?: () => void): Promise<void> => {
-    stopCurrentAudio();
-    setLlamandoAI(true);
-    setLlamadaHablando(true);
-
-    const textoLimpio = limpiarTextoTTS(texto);
-
-    try {
-      // 1) Intentar Groq TTS API
-      const res = await fetch('/api/audio/speech', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: textoLimpio }),
-      });
-
-      if (res.ok && res.headers.get('content-type')?.includes('audio')) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio();
-
-        // iOS necesita esto para reproducir sin silencio
-        audio.setAttribute('playsinline', 'true');
-        audio.preload = 'auto';
-        audio.src = url;
-        currentAudioRef.current = audio;
-
-        await new Promise<void>((resolve) => {
-          audio.onended = () => {
-            URL.revokeObjectURL(url);
-            currentAudioRef.current = null;
-            setLlamandoAI(false);
-            setLlamadaHablando(false);
-            resolve();
-            onEnd?.();
-          };
-          audio.onerror = () => {
-            URL.revokeObjectURL(url);
-            currentAudioRef.current = null;
-            resolve();
-            // Fallback a speechSynthesis
-            usarSpeechSynthesis(textoLimpio, onEnd);
-          };
-          // Intentar play — en iOS necesita gesto previo
-          audio.play().catch(() => {
-            // Fallback a speechSynthesis
-            resolve();
-            usarSpeechSynthesis(textoLimpio, onEnd);
-          });
-        });
-        return;
-      }
-
-      // Si la API devuelve useBrowserTTS
-      const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
-      if (data?.useBrowserTTS) {
-        await usarSpeechSynthesis(textoLimpio, onEnd);
-        return;
-      }
-    } catch {
-      // Fallback
+  // ─── Parar audio actual ───────────────────────────────────────────────────
+  const stopCurrentAudio = () => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      try { currentAudioRef.current.src = ''; } catch {}
+      currentAudioRef.current = null;
     }
-
-    await usarSpeechSynthesis(textoLimpio, onEnd);
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setLlamandoAI(false);
+    setLlamadaHablando(false);
   };
 
   // ─── Fallback: Web Speech API ─────────────────────────────────────────────
   const usarSpeechSynthesis = (textoLimpio: string, onEnd?: () => void): Promise<void> => {
     return new Promise((resolve) => {
-      if (!('speechSynthesis' in window)) {
-        setLlamandoAI(false);
-        setLlamadaHablando(false);
-        resolve();
-        onEnd?.();
-        return;
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        setLlamandoAI(false); setLlamadaHablando(false);
+        resolve(); onEnd?.(); return;
       }
-
       window.speechSynthesis.cancel();
-
       const utterance = new SpeechSynthesisUtterance(textoLimpio);
       utterance.lang = idioma === 'en' ? 'en-US' : 'es-MX';
-      utterance.rate = 0.92;
-      utterance.pitch = 1.1;
-      utterance.volume = 1.0;
-
+      utterance.rate = 0.92; utterance.pitch = 1.1; utterance.volume = 1.0;
       const voices = window.speechSynthesis.getVoices();
       let voz: SpeechSynthesisVoice | undefined;
       if (idioma === 'en') {
@@ -223,34 +149,83 @@ export default function ChatPage() {
            || voices.find(v => v.lang.startsWith('es'));
       }
       if (voz) utterance.voice = voz;
-
-      // Keepalive para iOS (pausa/resume cada 10s)
       const keepAlive = setInterval(() => {
         if (window.speechSynthesis.speaking) {
-          window.speechSynthesis.pause();
-          window.speechSynthesis.resume();
-        } else {
-          clearInterval(keepAlive);
-        }
+          window.speechSynthesis.pause(); window.speechSynthesis.resume();
+        } else { clearInterval(keepAlive); }
       }, 9000);
-
-      utterance.onend = () => {
-        clearInterval(keepAlive);
-        setLlamandoAI(false);
-        setLlamadaHablando(false);
-        resolve();
-        onEnd?.();
-      };
-      utterance.onerror = () => {
-        clearInterval(keepAlive);
-        setLlamandoAI(false);
-        setLlamadaHablando(false);
-        resolve();
-        onEnd?.();
-      };
-
+      utterance.onend = () => { clearInterval(keepAlive); setLlamandoAI(false); setLlamadaHablando(false); resolve(); onEnd?.(); };
+      utterance.onerror = () => { clearInterval(keepAlive); setLlamandoAI(false); setLlamadaHablando(false); resolve(); onEnd?.(); };
       window.speechSynthesis.speak(utterance);
     });
+  };
+
+  // ─── TTS principal: iOS-safe ──────────────────────────────────────────────
+  // En iOS el Audio element DEBE crearse antes del primer await.
+  // Creamos el elemento, lo "desbloqueamos" con silence, luego cargamos el audio real.
+  const reproducirAudio = async (texto: string, onEnd?: () => void): Promise<void> => {
+    stopCurrentAudio();
+    setLlamandoAI(true);
+    setLlamadaHablando(true);
+
+    const textoLimpio = limpiarTextoTTS(texto);
+    const isIOS = typeof navigator !== 'undefined' &&
+      /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+    // Crear el Audio element ANTES de cualquier await (gesto del usuario activo)
+    const audio = new Audio();
+    audio.setAttribute('playsinline', 'true');
+    audio.setAttribute('webkit-playsinline', 'true');
+    audio.preload = 'auto';
+
+    // En iOS: desbloquear el audio con un silence de 0.1s antes de cargar el real
+    if (isIOS) {
+      // silence data URI (50ms WAV silencioso)
+      audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+      try { await audio.play(); audio.pause(); } catch {}
+    }
+
+    currentAudioRef.current = audio;
+
+    try {
+      const res = await fetch('/api/audio/speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: textoLimpio }),
+      });
+
+      if (res.ok && res.headers.get('content-type')?.includes('audio')) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+
+        audio.src = url;
+
+        await new Promise<void>((resolve) => {
+          audio.onended = () => {
+            URL.revokeObjectURL(url);
+            currentAudioRef.current = null;
+            setLlamandoAI(false); setLlamadaHablando(false);
+            resolve(); onEnd?.();
+          };
+          audio.onerror = () => {
+            URL.revokeObjectURL(url);
+            currentAudioRef.current = null;
+            resolve();
+            usarSpeechSynthesis(textoLimpio, onEnd);
+          };
+          audio.play().catch(() => {
+            currentAudioRef.current = null;
+            resolve();
+            usarSpeechSynthesis(textoLimpio, onEnd);
+          });
+        });
+        return;
+      }
+    } catch {}
+
+    // Fallback
+    currentAudioRef.current = null;
+    await usarSpeechSynthesis(textoLimpio, onEnd);
   };
 
   // ─── Reproducir respuesta (chat normal) ──────────────────────────────────
