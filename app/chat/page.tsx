@@ -51,6 +51,8 @@ export default function ChatPage() {
   const mensajesRef = useRef<Mensaje[]>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const audioUnlockedRef = useRef(false);
+  const pendingAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -172,19 +174,24 @@ export default function ChatPage() {
     const isIOS = typeof navigator !== 'undefined' &&
       /iPad|iPhone|iPod/.test(navigator.userAgent);
 
-    // Crear el Audio element ANTES de cualquier await (gesto del usuario activo)
-    const audio = new Audio();
-    audio.setAttribute('playsinline', 'true');
-    audio.setAttribute('webkit-playsinline', 'true');
-    audio.preload = 'auto';
-
-    // En iOS: desbloquear el audio con un silence de 0.1s antes de cargar el real
-    if (isIOS) {
-      // silence data URI (50ms WAV silencioso)
-      audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
-      try { await audio.play(); audio.pause(); } catch {}
+    // Reutilizar el Audio desbloqueado si existe (iOS), o crear uno nuevo
+    let audio: HTMLAudioElement;
+    if (pendingAudioRef.current) {
+      audio = pendingAudioRef.current;
+      pendingAudioRef.current = null;
+    } else {
+      audio = new Audio();
+      audio.setAttribute('playsinline', 'true');
+      audio.setAttribute('webkit-playsinline', 'true');
+      audio.preload = 'auto';
+      if (isIOS) {
+        audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+        audio.volume = 0;
+        try { await audio.play(); audio.pause(); } catch {}
+        audio.volume = 1;
+      }
     }
-
+    audio.volume = 1;
     currentAudioRef.current = audio;
 
     try {
