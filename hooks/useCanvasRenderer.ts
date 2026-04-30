@@ -164,13 +164,12 @@ export function useCanvasRenderer(
     if (!liveCtx) return;
 
     // También obtener el front canvas para dibujo inmediato sin delay
-    const frontCtx = front?.getContext('2d') ?? null;
-    if (frontCtx) {
+    const frontCtx = front?.getContext('2d', { alpha: true, desynchronized: true }) ?? null;
+    if (frontCtx && frontCtx.lineCap !== 'round') {
       frontCtx.setTransform(dprRef.current, 0, 0, dprRef.current, 0, 0);
-      frontCtx.imageSmoothingEnabled = true;
-      frontCtx.imageSmoothingQuality = 'high';
       frontCtx.lineCap = 'round';
       frontCtx.lineJoin = 'round';
+      frontCtx.imageSmoothingEnabled = true;
     }
 
     const len = points.length;

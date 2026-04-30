@@ -465,7 +465,7 @@ export default function EditorCanvas({
 
     if (!strokeEngine.isActive.current) return;
     const { shouldRender, renderPoints } = strokeEngine.addPoint(pos);
-    if (!shouldRender || renderPoints.length < 2) return;
+    if (!shouldRender) return;
 
     const tipo = strokeEngine.currentStroke.current?.tipo ?? herramienta;
 

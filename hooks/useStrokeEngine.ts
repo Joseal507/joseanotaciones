@@ -114,16 +114,12 @@ export function useStrokeEngine() {
 
     // Return últimos 4 puntos para Catmull-Rom sin crear arrays nuevos
     const len = pts.length;
-    if (len >= 4) {
-      return {
-        shouldRender: true,
-        renderPoints: [pts[len - 4], pts[len - 3], pts[len - 2], pts[len - 1]],
-      };
-    }
-    if (len >= 2) {
-      return { shouldRender: true, renderPoints: [pts[len - 2], pts[len - 1]] };
-    }
-    return { shouldRender: true, renderPoints: [point] };
+        // Siempre devolver los últimos puntos disponibles para evitar saltos
+    const renderPoints = len >= 4 
+      ? [pts[len - 4], pts[len - 3], pts[len - 2], pts[len - 1]]
+      : pts.slice(-len);
+    
+    return { shouldRender: true, renderPoints };
   }, []);
 
   const end = useCallback((): Stroke | null => {

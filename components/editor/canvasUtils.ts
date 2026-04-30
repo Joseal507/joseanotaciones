@@ -145,7 +145,7 @@ export function applyStrokeStyle(
     case 'borrador':
       ctx.strokeStyle = 'rgba(0,0,0,1)';
       ctx.globalAlpha = 1;
-      ctx.lineWidth = size * p;
+      ctx.lineWidth = Math.max(0.5, size * p);
       ctx.globalCompositeOperation = 'destination-out';
       break;
 
