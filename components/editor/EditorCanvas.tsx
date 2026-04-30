@@ -309,7 +309,7 @@ export default function EditorCanvas({
     const pos = eventToPoint(e);
 
     // Borrador por trazo (stroke eraser)
-    if (isEraser || (herramienta === 'borrador')) {
+    if (isEraser) {
       const radius = brushSize * 4 + 8;
       let changed = false;
       strokesRef.current.forEach(s => {
