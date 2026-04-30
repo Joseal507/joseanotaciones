@@ -47,7 +47,6 @@ export default function EditorCanvas({
   const inputLayerRef = useRef<HTMLDivElement>(null);
 
   const strokesRef = useRef<Stroke[]>([]);
-  const redoStackRef = useRef<Stroke[][]>([]);
   const historyRef = useRef<string[]>([]);
   const historyIdxRef = useRef(-1);
   const initialized = useRef(false);
@@ -184,13 +183,14 @@ export default function EditorCanvas({
     return () => ro.disconnect();
   }, [setupAllCanvases, redrawMain, saveSnapshot, initialCanvasData, initialStrokesData, mainRenderer]);
 
-  // ─── Coordinate helpers ───────────────────────────────────────────────────
-  // Usamos getBoundingClientRect que ya incluye cualquier CSS transform del padre.
-  // Dividimos por el ratio rendered/logical para obtener coordenadas en espacio canvas.
+  // Coordenadas correctas: getBoundingClientRect incluye CSS transform del padre
+  // offsetWidth/Height es el tamaño lógico sin transform
   const eventToPoint = useCallback((e: PointerEvent): Point => {
     const canvas = mainCanvasRef.current;
     if (!canvas) return { x: 0, y: 0, pressure: 1 };
     const rect = canvas.getBoundingClientRect();
+    // rect.width es el tamaño renderizado (con zoom CSS)
+    // canvas.offsetWidth es el tamaño lógico (sin zoom CSS)
     const scaleX = rect.width > 0 ? canvas.offsetWidth / rect.width : 1;
     const scaleY = rect.height > 0 ? canvas.offsetHeight / rect.height : 1;
 
@@ -223,6 +223,25 @@ export default function EditorCanvas({
     };
   }, []);
 
+  // ─── Eraser cursor overlay ────────────────────────────────────────────────
+  const eraserPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  const drawEraserCursor = useCallback((x: number, y: number) => {
+    const canvas = overlayCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!ctx) return;
+    overlayRenderer.clear();
+    overlayRenderer.applyDpr(ctx);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, brushSize * 2 + 4, 0, Math.PI * 2);
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 2]);
+    ctx.stroke();
+    ctx.restore();
+  }, [overlayRenderer, brushSize]);
+
   // ─── Draw handlers ────────────────────────────────────────────────────────
   const handleDrawStart = useCallback((e: PointerEvent) => {
     const pos = eventToPoint(e);
@@ -230,11 +249,13 @@ export default function EditorCanvas({
     if (isEraser || e.button === 5 || e.buttons === 32) {
       erasingIdsRef.current = new Set();
       const radius = brushSize * 4 + 8;
-      const found = strokesRef.current.find(s => isPointNearStroke(pos.x, pos.y, s, radius));
-      if (found) {
-        erasingIdsRef.current.add(found.id);
-        redrawMain();
-      }
+      strokesRef.current.forEach(s => {
+        if (isPointNearStroke(pos.x, pos.y, s, radius)) {
+          erasingIdsRef.current.add(s.id);
+        }
+      });
+      redrawMain();
+      drawEraserCursor(pos.x, pos.y);
       return;
     }
 
@@ -276,29 +297,29 @@ export default function EditorCanvas({
 
     syncSelectionUI(null, []);
     redrawOverlay(null);
-    redrawMain();
     strokeEngine.begin(pos, brushColor, brushSize, herramienta);
     liveRenderer.clear();
   }, [
     eventToPoint, isEraser, isShapeTool, isSelecting, isLasso,
     brushColor, brushSize, herramienta, strokeEngine, redrawMain,
-    redrawOverlay, syncSelectionUI, liveRenderer,
+    redrawOverlay, syncSelectionUI, liveRenderer, drawEraserCursor,
   ]);
 
   const handleDrawMove = useCallback((e: PointerEvent) => {
     const pos = eventToPoint(e);
 
-    if (isEraser || (strokeEngine.currentStroke.current?.tipo === 'borrador')) {
-      if (erasingIdsRef.current !== undefined) {
-        const radius = brushSize * 4 + 8;
-        const found = strokesRef.current.find(s =>
-          !erasingIdsRef.current.has(s.id) && isPointNearStroke(pos.x, pos.y, s, radius)
-        );
-        if (found) {
-          erasingIdsRef.current.add(found.id);
-          mainRenderer.scheduleRender(redrawMain);
+    // Borrador por trazo (stroke eraser)
+    if (isEraser || (herramienta === 'borrador')) {
+      const radius = brushSize * 4 + 8;
+      let changed = false;
+      strokesRef.current.forEach(s => {
+        if (!erasingIdsRef.current.has(s.id) && isPointNearStroke(pos.x, pos.y, s, radius)) {
+          erasingIdsRef.current.add(s.id);
+          changed = true;
         }
-      }
+      });
+      if (changed) mainRenderer.scheduleRender(redrawMain);
+      drawEraserCursor(pos.x, pos.y);
       return;
     }
 
@@ -393,6 +414,7 @@ export default function EditorCanvas({
     const ctx = liveCanvas?.getContext('2d');
     if (!ctx) return;
 
+    // NO limpiar el live canvas aquí — solo añadir el segmento nuevo
     liveRenderer.renderStrokeSegment(
       renderPoints,
       strokeEngine.currentStroke.current?.color ?? brushColor,
@@ -404,10 +426,15 @@ export default function EditorCanvas({
     eventToPoint, isEraser, isShapeTool, isSelecting, isLasso,
     brushColor, brushSize, herramienta, strokeEngine,
     mainRenderer, liveRenderer, overlayRenderer,
-    redrawMain, redrawOverlay, syncSelectionUI,
+    redrawMain, redrawOverlay, syncSelectionUI, drawEraserCursor,
   ]);
 
   const handleDrawEnd = useCallback((e: PointerEvent) => {
+    // Limpiar cursor borrador
+    if (isEraser) {
+      overlayRenderer.clear();
+    }
+
     if (isEraser && erasingIdsRef.current.size > 0) {
       strokesRef.current = strokesRef.current.filter(s => !erasingIdsRef.current.has(s.id));
       erasingIdsRef.current = new Set();
@@ -520,6 +547,7 @@ export default function EditorCanvas({
     const stroke = strokeEngine.end();
     if (!stroke) return;
 
+    // Limpiar live canvas y pasar el stroke al main
     liveRenderer.clear();
 
     if (stroke.tipo === 'borrador_trazo') {
@@ -557,7 +585,7 @@ export default function EditorCanvas({
   }, [
     isEraser, isShapeTool, isSelecting, isLasso,
     brushColor, brushSize, herramienta, strokeEngine,
-    mainRenderer, liveRenderer, redrawMain, redrawOverlay,
+    mainRenderer, liveRenderer, overlayRenderer, redrawMain, redrawOverlay,
     syncSelectionUI, saveSnapshot, onChange,
   ]);
 
@@ -822,6 +850,9 @@ Rules:
     position: 'absolute', top: 0, left: 0,
     touchAction: 'none', background: 'transparent',
     imageRendering: 'auto',
+    // Prevenir selección de texto al dibujar
+    userSelect: 'none',
+    WebkitUserSelect: 'none',
   };
 
   return (
@@ -833,22 +864,35 @@ Rules:
         pointerEvents: isCanvasActive ? 'all' : 'none',
         zIndex: isCanvasActive ? 20 : 1,
         overflow: 'hidden',
-      }}
+        // Bloquear selección de texto en todo el contenedor
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        MozUserSelect: 'none',
+        msUserSelect: 'none',
+      } as React.CSSProperties}
     >
       <canvas ref={mainCanvasRef} style={{ ...canvasStyle, zIndex: 1, pointerEvents: 'none' }} />
       <canvas ref={liveCanvasRef} style={{ ...canvasStyle, zIndex: 2, pointerEvents: 'none' }} />
       <canvas ref={overlayCanvasRef} style={{ ...canvasStyle, zIndex: 3, pointerEvents: 'none' }} />
+
+      {/* Input layer: captura todos los eventos, bloquea selección */}
       <div
         ref={inputLayerRef}
+        onDragStart={e => e.preventDefault()}
         style={{
           position: 'absolute', top: 0, left: 0,
           width: '100%', height: '100%',
-          zIndex: 4, touchAction: 'none',
+          zIndex: 4,
+          touchAction: 'none',
           cursor: getCursor(),
+          userSelect: 'none',
           WebkitUserSelect: 'none',
           WebkitTouchCallout: 'none',
-          userSelect: 'none',
-        }}
+          MozUserSelect: 'none',
+          msUserSelect: 'none',
+          // Evitar highlight azul en iOS/Android
+          WebkitTapHighlightColor: 'transparent',
+        } as React.CSSProperties}
       />
 
       {menuPos && selectedIds.length > 0 && (
@@ -875,6 +919,8 @@ Rules:
         <div style={{
           position: 'absolute', top: 12, right: 12,
           display: 'flex', gap: 6, zIndex: 30,
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
         }}>
           {[
             { fn: undo, icon: 'M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 010 11H11', title: 'Undo' },
@@ -888,7 +934,9 @@ Rules:
               backdropFilter: 'blur(8px)',
               boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
               display: 'flex', alignItems: 'center',
-            }}>
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
+            } as React.CSSProperties}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 <path d={icon} />
               </svg>
@@ -902,6 +950,7 @@ Rules:
               backdropFilter: 'blur(8px)',
               boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
               display: 'flex', alignItems: 'center',
+              userSelect: 'none',
             }}>{strokeCount}</div>
           )}
         </div>

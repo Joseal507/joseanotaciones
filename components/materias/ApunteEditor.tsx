@@ -801,7 +801,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
         @keyframes spin { to { transform: rotate(360deg); } }
         .editor-area-principal { -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; }
         .editor-area-principal [contenteditable="true"] { -webkit-user-select: text !important; user-select: text !important; }
-        * { -webkit-tap-highlight-color: transparent; }
+        * { -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; } canvas, [data-textblock] * { -webkit-user-select: text; user-select: text; }
       `}</style>
     </>
   );

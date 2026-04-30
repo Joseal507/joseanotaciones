@@ -16,14 +16,10 @@ export function useCanvasRenderer(
   canvasRef: React.RefObject<HTMLCanvasElement>,
   options: RendererOptions = {},
 ) {
-  const dprRef = useRef(Math.min((options.dpr ?? window.devicePixelRatio ?? 1) * 1.5, 3));
+  const dprRef = useRef(Math.min((options.dpr ?? (typeof window !== 'undefined' ? window.devicePixelRatio : 1) ?? 1) * 1.5, 3));
   const rafRef = useRef<number | null>(null);
   const isDirty = useRef(false);
-  const transformRef = useRef<RenderTransform>({ scale: 1, tx: 0, ty: 0 });
 
-  /**
-   * Setup canvas with correct DPR
-   */
   const setup = useCallback((width: number, height: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -48,6 +44,21 @@ export function useCanvasRenderer(
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!ctx || !canvas) return;
+    // Limpiar sin resetear el transform permanentemente
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    // Restaurar DPR transform
+    applyDpr(ctx);
+  }, [canvasRef, applyDpr]);
+
+  // Clear solo el live canvas sin tocar el transform
+  const clearLive = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -55,9 +66,6 @@ export function useCanvasRenderer(
     applyDpr(ctx);
   }, [canvasRef, applyDpr]);
 
-  /**
-   * Render all strokes with culling (skip off-screen strokes)
-   */
   const renderStrokes = useCallback((
     strokes: Stroke[],
     selectedIds: Set<string>,
@@ -69,10 +77,8 @@ export function useCanvasRenderer(
     if (!ctx || !canvas) return;
 
     clear();
-    applyDpr(ctx);
 
     for (const stroke of strokes) {
-      // Culling: skip strokes outside viewport
       if (viewport && stroke.bounds) {
         const b = stroke.bounds;
         const pad = stroke.size * 4;
@@ -85,7 +91,6 @@ export function useCanvasRenderer(
       }
 
       if (erasingIds.has(stroke.id)) {
-        // Preview erase
         ctx.save();
         ctx.globalAlpha = 0.3;
         ctx.strokeStyle = '#ff4d6d';
@@ -97,12 +102,8 @@ export function useCanvasRenderer(
         drawStrokeOnCtx(ctx, stroke, selectedIds.has(stroke.id));
       }
     }
-  }, [canvasRef, clear, applyDpr]);
+  }, [canvasRef, clear]);
 
-  /**
-   * Draw a single stroke segment incrementally (during drawing)
-   * Uses Catmull-Rom → Bezier for smooth curves
-   */
   const renderStrokeSegment = useCallback((
     points: Point[],
     color: string,
@@ -140,7 +141,6 @@ export function useCanvasRenderer(
       return;
     }
 
-    // Catmull-Rom for 3+ points
     const p0 = points[Math.max(0, len - 4)];
     const p1 = points[Math.max(0, len - 3)];
     const p2 = points[len - 2];
@@ -165,12 +165,9 @@ export function useCanvasRenderer(
     c.restore();
   }, [canvasRef, applyDpr]);
 
-  /**
-   * Schedule a render with RAF (batching)
-   */
   const scheduleRender = useCallback((fn: () => void) => {
     isDirty.current = true;
-    if (rafRef.current) return; // Already scheduled
+    if (rafRef.current) return;
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null;
       if (isDirty.current) {
@@ -189,6 +186,7 @@ export function useCanvasRenderer(
   return {
     setup,
     clear,
+    clearLive,
     applyDpr,
     renderStrokes,
     renderStrokeSegment,
