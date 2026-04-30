@@ -267,7 +267,6 @@ export default function EditorCanvas({
 
     if (herramienta === 'borrador_trazo') {
       strokeEngine.begin(pos, '#000000', brushSize, 'borrador_trazo');
-      // Dibujar cursor del borrador en overlay
       drawEraserCursor(pos.x, pos.y);
       return;
     }
@@ -588,26 +587,11 @@ export default function EditorCanvas({
     overlayRenderer.clear();
 
     if (stroke.tipo === 'borrador_trazo') {
-      // Encontrar todos los strokes que el trazo del borrador toca
-      const eraserPts = stroke.points;
-      const eraserRadius = stroke.size * 2 + 4;
-      const toDelete = new Set<string>();
-
-      for (const s of strokesRef.current) {
-        if (s.tipo === 'borrador_trazo') continue;
-        for (const ep of eraserPts) {
-          if (isPointNearStroke(ep.x, ep.y, s, eraserRadius)) {
-            toDelete.add(s.id);
-            break;
-          }
-        }
-      }
-
-      if (toDelete.size > 0) {
-        strokesRef.current = strokesRef.current.filter(s => !toDelete.has(s.id));
-        setStrokeCount(strokesRef.current.length);
-        saveSnapshot();
-      }
+      // Guardar el trazo borrador — se aplica con destination-out en renderStrokes
+      stroke.bounds = calcBounds(stroke.points);
+      strokesRef.current.push(stroke);
+      setStrokeCount(strokesRef.current.length);
+      saveSnapshot();
       redrawMain();
       onChange();
       return;

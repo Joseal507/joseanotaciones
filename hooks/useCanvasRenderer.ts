@@ -72,20 +72,51 @@ export function useCanvasRenderer(
     const ctx = canvas?.getContext('2d');
     if (!ctx || !canvas) return;
     clear();
+
     for (const stroke of strokes) {
+      // borrador_trazo: aplicar como destination-out (borra píxeles)
+      if (stroke.tipo === 'borrador_trazo') {
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.strokeStyle = 'rgba(0,0,0,1)';
+        ctx.lineWidth = stroke.size * 3;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.globalAlpha = 1;
+        const pts = stroke.points;
+        if (pts.length > 0) {
+          ctx.beginPath();
+          ctx.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) {
+            const prev = pts[i - 1];
+            const curr = pts[i];
+            const mx = (prev.x + curr.x) / 2;
+            const my = (prev.y + curr.y) / 2;
+            ctx.quadraticCurveTo(prev.x, prev.y, mx, my);
+          }
+          ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+          ctx.stroke();
+        }
+        ctx.restore();
+        // Restaurar composite
+        ctx.globalCompositeOperation = 'source-over';
+        continue;
+      }
+
       if (erasingIds.has(stroke.id)) {
         // Dibujar el trazo original con opacidad baja
         ctx.save();
-        ctx.globalAlpha = 0.3;
+        ctx.globalAlpha = 0.25;
         drawStrokeOnCtx(ctx, stroke, false);
         ctx.restore();
         // Highlight rosa oscuro encima
         ctx.save();
-        ctx.globalAlpha = 0.55;
+        ctx.globalAlpha = 0.5;
         ctx.strokeStyle = '#be185d';
         ctx.lineWidth = Math.max(stroke.size + 6, 10);
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
+        ctx.globalCompositeOperation = 'source-over';
         const pts = stroke.points;
         if (pts.length > 0) {
           ctx.beginPath();
@@ -93,6 +124,12 @@ export function useCanvasRenderer(
           for (let i = 1; i < pts.length; i++) {
             ctx.lineTo(pts[i].x, pts[i].y);
           }
+          ctx.stroke();
+        }
+        if (stroke.shapeEnd && pts.length > 0) {
+          ctx.beginPath();
+          ctx.moveTo(pts[0].x, pts[0].y);
+          ctx.lineTo(stroke.shapeEnd.x, stroke.shapeEnd.y);
           ctx.stroke();
         }
         ctx.restore();
