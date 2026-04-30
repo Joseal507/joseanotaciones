@@ -150,105 +150,84 @@ export function useCanvasRenderer(
 
   // Segmento en tiempo real — dibuja en liveBuffer + front canvas INMEDIATAMENTE
   // El liveBuffer se usa para reconstrucción, el front para latencia cero
-  const renderStrokeSegment = useCallback((
+    const renderStrokeSegment = useCallback((
     points: Point[],
     color: string,
     size: number,
     tipo: string,
-    _ignored?: CanvasRenderingContext2D | null,
   ) => {
-    const live = liveBufferRef.current;
-    const front = canvasRef.current;
-    if (!live) return;
-    const liveCtx = prepCtx(live);
-    if (!liveCtx) return;
+    const liveCtx = liveBufferRef.current?.getContext('2d');
+    const frontCtx = canvasRef.current?.getContext('2d', { desynchronized: true });
+    if (!liveCtx || !frontCtx) return;
 
-    // También obtener el front canvas para dibujo inmediato sin delay
-    const frontCtx = front?.getContext('2d', { alpha: true, desynchronized: true }) ?? null;
-    if (frontCtx && frontCtx.lineCap !== 'round') {
-      frontCtx.setTransform(dprRef.current, 0, 0, dprRef.current, 0, 0);
-      frontCtx.lineCap = 'round';
-      frontCtx.lineJoin = 'round';
-      frontCtx.imageSmoothingEnabled = true;
-    }
+    const dpr = dprRef.current;
+    [liveCtx, frontCtx].forEach(c => {
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      c.lineCap = 'round';
+      c.lineJoin = 'round';
+    });
 
-    const len = points.length;
-    if (len < 1) return;
-
-    const drawOn = (c: CanvasRenderingContext2D) => {
+    const draw = (c: CanvasRenderingContext2D) => {
       c.save();
+      const len = points.length;
       if (len === 1) {
-        const p = points[0];
-        applyStrokeStyle(c, tipo, color, size, p.pressure ?? 1);
+        applyStrokeStyle(c, tipo, color, size, points[0].pressure || 1);
         c.beginPath();
-        c.arc(p.x, p.y, Math.max(c.lineWidth / 2, 0.5), 0, Math.PI * 2);
+        c.arc(points[0].x, points[0].y, Math.max(c.lineWidth / 2, 0.5), 0, Math.PI * 2);
         c.fill();
       } else {
-        const p0 = points[Math.max(0, len - 4)];
-        const p1 = points[Math.max(0, len - 3)];
         const p2 = points[len - 2];
         const p3 = points[len - 1];
-        const pressure = (p2.pressure + p3.pressure) / 2;
-        applyStrokeStyle(c, tipo, color, size, pressure);
-
-        if (len >= 4) {
-          const { cp1, cp2 } = catmullToBezier(p0, p1, p2, p3);
-          c.beginPath();
-          c.moveTo((p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
-          c.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, (p2.x + p3.x) / 2, (p2.y + p3.y) / 2);
-          c.stroke();
-        } else if (len === 3) {
-          c.beginPath();
-          c.moveTo((p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
-          c.quadraticCurveTo(p2.x, p2.y, (p2.x + p3.x) / 2, (p2.y + p3.y) / 2);
-          c.stroke();
-        } else {
-          c.beginPath();
+        applyStrokeStyle(c, tipo, color, size, (p2.pressure + p3.pressure) / 2);
+        c.beginPath();
+        if (len < 3) {
           c.moveTo(p2.x, p2.y);
           c.lineTo(p3.x, p3.y);
-          c.stroke();
+        } else {
+          const p1 = points[Math.max(0, len - 3)];
+          c.moveTo((p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
+          c.quadraticCurveTo(p2.x, p2.y, (p2.x + p3.x) / 2, (p2.y + p3.y) / 2);
         }
+        c.stroke();
       }
       c.restore();
     };
 
-    // Dibujar en liveBuffer (para reconstrucción)
-    drawOn(liveCtx);
-    // Dibujar INMEDIATAMENTE en front canvas (latencia cero, el usuario lo ve al instante)
-    if (frontCtx) drawOn(frontCtx);
-  }, [canvasRef]);
+    draw(liveCtx);
+    draw(frontCtx);
+  }, []);
 
   // Borrador de píxeles — INMEDIATO sin delay
-    const renderEraserSegment = useCallback((points: Point[], size: number) => {
-    const back = backBufferRef.current;
-    const front = canvasRef.current;
-    if (!back) return;
-    const ctx = prepCtx(back);
-    const fCtx = front?.getContext('2d', { desynchronized: true });
-    if (!ctx) return;
+      const renderEraserSegment = useCallback((points: Point[], size: number) => {
+    const backCtx = backBufferRef.current?.getContext('2d');
+    const liveCtx = liveBufferRef.current?.getContext('2d');
+    const frontCtx = canvasRef.current?.getContext('2d', { desynchronized: true });
+    if (!backCtx || !frontCtx || !liveCtx) return;
 
-    const drawEraser = (c: CanvasRenderingContext2D) => {
+    const dpr = dprRef.current;
+    const draw = (c: CanvasRenderingContext2D) => {
       c.save();
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
       c.globalCompositeOperation = 'destination-out';
+      c.lineCap = 'round';
+      c.lineJoin = 'round';
       c.beginPath();
       if (points.length === 1) {
         c.arc(points[0].x, points[0].y, size * 2, 0, Math.PI * 2);
         c.fill();
       } else {
         c.lineWidth = size * 4;
-        c.lineCap = 'round';
-        c.lineJoin = 'round';
-        c.moveTo(points[0].x, points[0].y);
-        for (const p of points) c.lineTo(p.x, p.y);
+        const pPrev = points[points.length - 2];
+        const pCurr = points[points.length - 1];
+        c.moveTo(pPrev.x, pPrev.y);
+        c.lineTo(pCurr.x, pCurr.y);
         c.stroke();
       }
       c.restore();
     };
 
-    drawEraser(ctx);
-    if (fCtx) drawEraser(fCtx);
-    commitNow();
-  }, [commitNow]);
+    [backCtx, liveCtx, frontCtx].forEach(draw);
+  }, []);
 
   const scheduleRender = useCallback((fn: () => void) => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);

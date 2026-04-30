@@ -285,6 +285,12 @@ export default function EditorCanvas({
 
   // ─── Draw handlers ────────────────────────────────────────────────────────
   const handleDrawStart = useCallback((e: PointerEvent) => {
+    e.stopPropagation();
+    // Obtener posición inmediatamente sin esperar a React
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const pos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+
     const pos = eventToPoint(e);
 
     if (isEraser || e.button === 5 || e.buttons === 32) {
@@ -301,13 +307,15 @@ export default function EditorCanvas({
         new Set(selectedIdsRef.current),
         erasingIdsRef.current,
       );
-      drawEraserCursor(pos.x, pos.y);
+      // cursor sync
+      requestAnimationFrame(() => drawEraserCursor(pos.x, pos.y));
       return;
     }
 
     if (herramienta === 'borrador_trazo') {
       strokeEngine.begin(pos, '#000000', brushSize, 'borrador_trazo');
-      drawEraserCursor(pos.x, pos.y);
+      // cursor sync
+      requestAnimationFrame(() => drawEraserCursor(pos.x, pos.y));
       return;
     }
 
@@ -376,7 +384,8 @@ export default function EditorCanvas({
           erasingIdsRef.current,
         );
       }
-      drawEraserCursor(pos.x, pos.y);
+      // cursor sync
+      requestAnimationFrame(() => drawEraserCursor(pos.x, pos.y));
       return;
     }
 
@@ -475,7 +484,8 @@ export default function EditorCanvas({
         renderPoints,
         strokeEngine.currentStroke.current?.size ?? brushSize,
       );
-      drawEraserCursor(pos.x, pos.y);
+      // cursor sync
+      requestAnimationFrame(() => drawEraserCursor(pos.x, pos.y));
     } else {
       // Dibujar en liveBuffer — acumula sin borrar, commit via RAF
       liveRenderer.renderStrokeSegment(
