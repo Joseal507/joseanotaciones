@@ -7,174 +7,121 @@ export function useCanvasRenderer(
   options: { dpr?: number } = {},
 ) {
   const dprRef = useRef(1);
-  // backBuffer: donde se dibuja todo — nunca visible directamente
   const backBufferRef = useRef<HTMLCanvasElement | null>(null);
-  // liveBuffer: solo el trazo actual en progreso
   const liveBufferRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
-  const needsCommitRef = useRef(false);
-  const isRenderingRef = useRef(false);
+  const commitPendingRef = useRef(false);
 
-  const getDpr = () => {
+  // DPR real del dispositivo — nunca cap, nunca multiplicar
+  const getDpr = (): number => {
     if (typeof window === 'undefined') return 1;
-    // DPR exacto del dispositivo — sin multiplicar para evitar blur
-    return Math.min(window.devicePixelRatio || 1, 3);
+    return window.devicePixelRatio || 1;
   };
 
-  // ─── Crear/resize offscreen buffers ─────────────────────────────────────
-  const ensureBuffers = useCallback((w: number, h: number) => {
-    if (!backBufferRef.current) {
-      backBufferRef.current = document.createElement('canvas');
-    }
-    if (!liveBufferRef.current) {
-      liveBufferRef.current = document.createElement('canvas');
-    }
-    if (backBufferRef.current.width !== w || backBufferRef.current.height !== h) {
-      // Preservar contenido del backBuffer al redimensionar
-      const tmp = document.createElement('canvas');
-      tmp.width = backBufferRef.current.width;
-      tmp.height = backBufferRef.current.height;
-      const tmpCtx = tmp.getContext('2d');
-      tmpCtx?.drawImage(backBufferRef.current, 0, 0);
+  // Preparar un ctx de offscreen con DPR correcto
+  const prepCtx = (canvas: HTMLCanvasElement): CanvasRenderingContext2D | null => {
+    const ctx = canvas.getContext('2d', { alpha: true });
+    if (!ctx) return null;
+    ctx.setTransform(dprRef.current, 0, 0, dprRef.current, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    return ctx;
+  };
 
-      backBufferRef.current.width = w;
-      backBufferRef.current.height = h;
-      const bbCtx = backBufferRef.current.getContext('2d');
-      if (bbCtx) {
-        bbCtx.drawImage(tmp, 0, 0);
-      }
-    }
-    liveBufferRef.current.width = w;
-    liveBufferRef.current.height = h;
-  }, []);
+  const clearCanvas = (canvas: HTMLCanvasElement) => {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+  };
 
-  // ─── Commit: copiar back+live → front en UNA SOLA operación atómica ─────
-  // El usuario NUNCA ve un estado intermedio
+  // Commit atómico: front = back + live en UNA operación
   const commit = useCallback(() => {
     const front = canvasRef.current;
     const back = backBufferRef.current;
     const live = liveBufferRef.current;
     if (!front || !back) return;
-
     const ctx = front.getContext('2d');
     if (!ctx) return;
-
-    // Una sola operación visible: clear + composición
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, front.width, front.height);
-    ctx.drawImage(back, 0, 0); // trazos finales
-    if (live) ctx.drawImage(live, 0, 0); // trazo en progreso
+    ctx.drawImage(back, 0, 0);
+    if (live) ctx.drawImage(live, 0, 0);
     ctx.restore();
   }, [canvasRef]);
 
-  // ─── Commit via RAF — sincronizado con el display ────────────────────────
   const scheduleCommit = useCallback(() => {
-    needsCommitRef.current = true;
-    if (rafRef.current) return; // ya hay uno pendiente
+    commitPendingRef.current = true;
+    if (rafRef.current) return;
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null;
-      if (needsCommitRef.current) {
-        needsCommitRef.current = false;
+      if (commitPendingRef.current) {
+        commitPendingRef.current = false;
         commit();
       }
     });
   }, [commit]);
 
-  // ─── Setup ───────────────────────────────────────────────────────────────
-  const setup = useCallback((width: number, height: number) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  // Setup — tamaño físico correcto con DPR real
+  const setup = useCallback((cssWidth: number, cssHeight: number) => {
+    const front = canvasRef.current;
+    if (!front) return;
 
     const dpr = getDpr();
     dprRef.current = dpr;
 
-    const w = Math.round(width * dpr);
-    const h = Math.round(height * dpr);
+    const pw = Math.round(cssWidth * dpr);
+    const ph = Math.round(cssHeight * dpr);
 
-    canvas.width = w;
-    canvas.height = h;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-
-    // Configurar front canvas — solo recibe drawImage, nunca se dibuja directo
-    const ctx = canvas.getContext('2d', { alpha: true });
-    if (ctx) {
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
+    // Front canvas — recibe solo drawImage
+    front.width = pw;
+    front.height = ph;
+    front.style.width = `${cssWidth}px`;
+    front.style.height = `${cssHeight}px`;
+    // front canvas NO necesita transform — recibe drawImage raw
+    const fCtx = front.getContext('2d');
+    if (fCtx) {
+      fCtx.imageSmoothingEnabled = true;
+      fCtx.imageSmoothingQuality = 'high';
     }
 
-    ensureBuffers(w, h);
+    // Back buffer
+    if (!backBufferRef.current) backBufferRef.current = document.createElement('canvas');
+    backBufferRef.current.width = pw;
+    backBufferRef.current.height = ph;
+
+    // Live buffer
+    if (!liveBufferRef.current) liveBufferRef.current = document.createElement('canvas');
+    liveBufferRef.current.width = pw;
+    liveBufferRef.current.height = ph;
+
     commit();
-  }, [canvasRef, ensureBuffers, commit]);
+  }, [canvasRef, commit]);
 
   const applyDpr = useCallback((ctx: CanvasRenderingContext2D) => {
-    const dpr = dprRef.current;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.setTransform(dprRef.current, 0, 0, dprRef.current, 0, 0);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
   }, []);
 
-  // ─── Obtener contexto del backBuffer ─────────────────────────────────────
-  const getBackCtx = useCallback((): CanvasRenderingContext2D | null => {
-    const back = backBufferRef.current;
-    if (!back) return null;
-    const ctx = back.getContext('2d');
-    if (!ctx) return null;
-    applyDpr(ctx);
-    return ctx;
-  }, [applyDpr]);
-
-  // ─── Obtener contexto del liveBuffer ─────────────────────────────────────
-  const getLiveCtx = useCallback((): CanvasRenderingContext2D | null => {
-    const live = liveBufferRef.current;
-    if (!live) return null;
-    const ctx = live.getContext('2d');
-    if (!ctx) return null;
-    applyDpr(ctx);
-    return ctx;
-  }, [applyDpr]);
-
-  // ─── Clear: limpiar backBuffer + liveBuffer ───────────────────────────────
+  // Clear completo — back + live
   const clear = useCallback(() => {
-    const back = backBufferRef.current;
-    const live = liveBufferRef.current;
-    if (back) {
-      const ctx = back.getContext('2d');
-      if (ctx) {
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.clearRect(0, 0, back.width, back.height);
-        ctx.restore();
-      }
-    }
-    if (live) {
-      const ctx = live.getContext('2d');
-      if (ctx) {
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.clearRect(0, 0, live.width, live.height);
-        ctx.restore();
-      }
-    }
+    if (backBufferRef.current) clearCanvas(backBufferRef.current);
+    if (liveBufferRef.current) clearCanvas(liveBufferRef.current);
     scheduleCommit();
   }, [scheduleCommit]);
 
-  // ─── clearLive: solo limpiar el live buffer ───────────────────────────────
+  // Clear solo live buffer
   const clearLive = useCallback(() => {
-    const live = liveBufferRef.current;
-    if (!live) return;
-    const ctx = live.getContext('2d');
-    if (ctx) {
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, live.width, live.height);
-      ctx.restore();
-    }
+    if (liveBufferRef.current) clearCanvas(liveBufferRef.current);
   }, []);
 
   // ─── renderStrokes: reconstruir backBuffer desde vectores ────────────────
-  // Solo se llama al TERMINAR un stroke, nunca durante el dibujo
   const renderStrokes = useCallback((
     strokes: Stroke[],
     selectedIds: Set<string>,
@@ -182,21 +129,13 @@ export function useCanvasRenderer(
   ) => {
     const back = backBufferRef.current;
     if (!back) return;
-
-    const ctx = back.getContext('2d');
+    clearCanvas(back);
+    const ctx = prepCtx(back);
     if (!ctx) return;
 
-    // Limpiar backBuffer
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, back.width, back.height);
-    ctx.restore();
-    applyDpr(ctx);
-
-    // Dibujar todos los strokes en el backBuffer
     for (const stroke of strokes) {
       if (stroke.tipo === 'borrador_trazo') {
-        _applyEraserStroke(ctx, stroke);
+        _drawEraserStroke(ctx, stroke);
         continue;
       }
       if (erasingIds.has(stroke.id)) {
@@ -206,21 +145,20 @@ export function useCanvasRenderer(
       }
     }
 
-    // Commit atómico al front canvas
     scheduleCommit();
-  }, [applyDpr, scheduleCommit]);
+  }, [scheduleCommit]);
 
-  // ─── renderStrokeSegment: dibujar segmento en liveBuffer — INMEDIATO ─────
-  // Se llama en cada pointermove — dibuja solo en liveBuffer
-  // Luego commit via RAF para sincronizar con display
+  // ─── renderStrokeSegment: acumular en liveBuffer — INMEDIATO ─────────────
   const renderStrokeSegment = useCallback((
     points: Point[],
     color: string,
     size: number,
     tipo: string,
-    _ctx?: CanvasRenderingContext2D | null, // ignorado — usamos liveBuffer
+    _ignored?: CanvasRenderingContext2D | null,
   ) => {
-    const ctx = getLiveCtx();
+    const live = liveBufferRef.current;
+    if (!live) return;
+    const ctx = prepCtx(live);
     if (!ctx) return;
 
     const len = points.length;
@@ -239,8 +177,8 @@ export function useCanvasRenderer(
       return;
     }
 
-    // Solo dibujar el segmento más reciente — nunca redibujar todo el path
-    const p0 = points[Math.max(0, len - 4)];
+    const i0 = Math.max(0, len - 4);
+    const p0 = points[i0];
     const p1 = points[Math.max(0, len - 3)];
     const p2 = points[len - 2];
     const p3 = points[len - 1];
@@ -267,19 +205,19 @@ export function useCanvasRenderer(
     }
 
     ctx.restore();
-
-    // Commit via RAF — sincronizado con display, sin parpadeo
     scheduleCommit();
-  }, [getLiveCtx, scheduleCommit]);
+  }, [scheduleCommit]);
 
-  // ─── renderEraserSegment: borrar en backBuffer en tiempo real ────────────
+  // ─── renderEraserSegment: borrar en backBuffer ───────────────────────────
   const renderEraserSegment = useCallback((
     points: Point[],
     size: number,
-    _ctx?: CanvasRenderingContext2D | null,
+    _ignored?: CanvasRenderingContext2D | null,
   ) => {
-    const ctx = getBackCtx();
-    if (!ctx || points.length < 1) return;
+    const back = backBufferRef.current;
+    if (!back || points.length < 1) return;
+    const ctx = prepCtx(back);
+    if (!ctx) return;
 
     ctx.save();
     ctx.globalCompositeOperation = 'destination-out';
@@ -305,9 +243,8 @@ export function useCanvasRenderer(
       ctx.stroke();
     }
     ctx.restore();
-
     scheduleCommit();
-  }, [getBackCtx, scheduleCommit]);
+  }, [scheduleCommit]);
 
   const scheduleRender = useCallback((fn: () => void) => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -326,17 +263,14 @@ export function useCanvasRenderer(
     renderStrokes, renderStrokeSegment,
     renderEraserSegment, scheduleRender,
     dpr: dprRef,
-    // Exponer para uso interno en EditorCanvas
     _commit: commit,
-    _getBackCtx: getBackCtx,
-    _getLiveCtx: getLiveCtx,
   };
 }
 
 // ─── Helpers internos ────────────────────────────────────────────────────────
-function _applyEraserStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+function _drawEraserStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   const pts = stroke.points;
-  if (pts.length === 0) return;
+  if (!pts.length) return;
   ctx.save();
   ctx.globalCompositeOperation = 'destination-out';
   ctx.strokeStyle = 'rgba(0,0,0,1)';
@@ -353,11 +287,9 @@ function _applyEraserStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) {
-      const prev = pts[i - 1];
-      const curr = pts[i];
-      const mx = (prev.x + curr.x) / 2;
-      const my = (prev.y + curr.y) / 2;
-      ctx.quadraticCurveTo(prev.x, prev.y, mx, my);
+      const mx = (pts[i - 1].x + pts[i].x) / 2;
+      const my = (pts[i - 1].y + pts[i].y) / 2;
+      ctx.quadraticCurveTo(pts[i - 1].x, pts[i - 1].y, mx, my);
     }
     ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
     ctx.stroke();
