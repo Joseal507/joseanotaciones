@@ -93,7 +93,7 @@ export function useStrokeEngine() {
     return currentStroke.current;
   }, []);
 
-  const addPoint = useCallback((point: Point): {
+    const addPoint = useCallback((point: Point): {
     shouldRender: boolean;
     renderPoints: Point[];
   } => {
@@ -103,19 +103,10 @@ export function useStrokeEngine() {
     }
 
     const pts = stroke.points;
-    const last = pts[pts.length - 1];
-
-    // Min distance — ultra bajo para no perder detalle
-    const dx = point.x - last.x;
-    const dy = point.y - last.y;
-    if (dx * dx + dy * dy < 0.09) return { shouldRender: false, renderPoints: [] }; // < 0.3px
-
     pts.push(point);
     const len = pts.length;
 
-    // Return últimos 4 puntos para Catmull-Rom sin crear arrays nuevos
-    const len = pts.length;
-        // Siempre devolver los últimos puntos disponibles para evitar saltos
+    // Retornar puntos para dibujo inmediato (Catmull-Rom si hay 4+, si no, lo que haya)
     const renderPoints = len >= 4 
       ? [pts[len - 4], pts[len - 3], pts[len - 2], pts[len - 1]]
       : pts.slice(-len);
