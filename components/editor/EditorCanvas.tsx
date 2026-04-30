@@ -323,6 +323,8 @@ export default function EditorCanvas({
 
     syncSelectionUI(null, []);
     redrawOverlay(null);
+    // Limpiar live canvas al inicio del trazo
+    liveRenderer.clear();
     strokeEngine.begin(pos, brushColor, brushSize, herramienta);
   }, [
     eventToPoint, isEraser, isShapeTool, isSelecting, isLasso,
@@ -443,27 +445,32 @@ export default function EditorCanvas({
     if (!shouldRender || renderPoints.length < 2) return;
 
     const tipo = strokeEngine.currentStroke.current?.tipo ?? herramienta;
-    const mainCtx = mainCanvasRef.current?.getContext('2d');
-    if (!mainCtx) return;
 
     if (tipo === 'borrador_trazo') {
-      // Borrar directamente sobre el main canvas en tiempo real
-      mainRenderer.renderEraserSegment(
-        renderPoints,
-        strokeEngine.currentStroke.current?.size ?? brushSize,
-        mainCtx,
-      );
+      // Borrador de píxeles: borrar en main directamente (destination-out)
+      const mainCtx = mainCanvasRef.current?.getContext('2d');
+      if (mainCtx) {
+        mainRenderer.renderEraserSegment(
+          renderPoints,
+          strokeEngine.currentStroke.current?.size ?? brushSize,
+          mainCtx,
+        );
+      }
       drawEraserCursor(pos.x, pos.y);
     } else {
-      // Dibujar directamente en el main canvas — sin live canvas intermedio
-      // El main canvas actúa como buffer acumulativo durante el trazo
-      mainRenderer.renderStrokeSegment(
-        renderPoints,
-        strokeEngine.currentStroke.current?.color ?? brushColor,
-        strokeEngine.currentStroke.current?.size ?? brushSize,
-        tipo,
-        mainCtx,
-      );
+      // ── CLAVE: dibujar en liveCanvas INMEDIATAMENTE, sin RAF, sin clear ──
+      // liveCanvas acumula el trazo en tiempo real
+      // mainCanvas NO se toca hasta que termina el trazo
+      const liveCtx = liveCanvasRef.current?.getContext('2d');
+      if (liveCtx) {
+        liveRenderer.renderStrokeSegment(
+          renderPoints,
+          strokeEngine.currentStroke.current?.color ?? brushColor,
+          strokeEngine.currentStroke.current?.size ?? brushSize,
+          tipo,
+          liveCtx,
+        );
+      }
     }
   }, [
     eventToPoint, isEraser, isShapeTool, isSelecting, isLasso,
@@ -597,17 +604,16 @@ export default function EditorCanvas({
     const stroke = strokeEngine.end();
     if (!stroke) return;
 
-    // Limpiar overlays
+    // Limpiar live canvas y overlay
     liveRenderer.clear();
     overlayRenderer.clear();
 
     if (stroke.tipo === 'borrador_trazo') {
-      // Guardar el trazo borrador en el array para que persista en redraws
       stroke.bounds = calcBounds(stroke.points);
       strokesRef.current.push(stroke);
       setStrokeCount(strokesRef.current.length);
       saveSnapshot();
-      // Full redraw desde vectores — el renderStrokes aplicará destination-out correctamente
+      // Full redraw limpio desde vectores
       mainRenderer.renderStrokes(
         strokesRef.current,
         new Set(selectedIdsRef.current),
@@ -621,7 +627,7 @@ export default function EditorCanvas({
     strokesRef.current.push(stroke);
     setStrokeCount(strokesRef.current.length);
     saveSnapshot();
-    // Full redraw desde vectores para garantizar consistencia visual
+    // Full redraw desde vectores — garantiza que el trazo queda completo
     mainRenderer.renderStrokes(
       strokesRef.current,
       new Set(selectedIdsRef.current),

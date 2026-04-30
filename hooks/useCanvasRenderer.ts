@@ -2,18 +2,12 @@ import { useRef, useCallback, useEffect } from 'react';
 import { Stroke, Point, applyStrokeStyle, drawStrokeOnCtx } from '../components/editor/canvasUtils';
 import { catmullToBezier } from './useStrokeEngine';
 
-interface RendererOptions {
-  dpr?: number;
-}
-
 export function useCanvasRenderer(
   canvasRef: React.RefObject<HTMLCanvasElement>,
-  options: RendererOptions = {},
+  options: { dpr?: number } = {},
 ) {
   const dprRef = useRef(1);
   const rafRef = useRef<number | null>(null);
-  // Offscreen buffer — fuente de verdad visual
-  const offscreenRef = useRef<HTMLCanvasElement | null>(null);
 
   const getDpr = () => {
     if (typeof window === 'undefined') return 1;
@@ -23,25 +17,12 @@ export function useCanvasRenderer(
   const setup = useCallback((width: number, height: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const dpr = getDpr();
     dprRef.current = dpr;
-
-    const w = Math.round(width * dpr);
-    const h = Math.round(height * dpr);
-
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
-
-    // Crear/redimensionar offscreen buffer
-    if (!offscreenRef.current) {
-      offscreenRef.current = document.createElement('canvas');
-    }
-    offscreenRef.current.width = w;
-    offscreenRef.current.height = h;
-
     const ctx = canvas.getContext('2d', { alpha: true });
     if (ctx) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -57,7 +38,6 @@ export function useCanvasRenderer(
     ctx.imageSmoothingQuality = 'high';
   }, []);
 
-  // Limpiar canvas completamente
   const clear = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -68,131 +48,43 @@ export function useCanvasRenderer(
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.restore();
     applyDpr(ctx);
-
-    // También limpiar offscreen
-    const off = offscreenRef.current;
-    if (off) {
-      const offCtx = off.getContext('2d');
-      if (offCtx) {
-        offCtx.save();
-        offCtx.setTransform(1, 0, 0, 1, 0, 0);
-        offCtx.clearRect(0, 0, off.width, off.height);
-        offCtx.restore();
-      }
-    }
   }, [canvasRef, applyDpr]);
 
-  const clearLive = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.restore();
-    applyDpr(ctx);
-  }, [canvasRef, applyDpr]);
+  const clearLive = clear;
 
-  // ─── Render completo desde datos vectoriales ────────────────────────────
-  // Siempre reconstruye desde cero — nunca pierde trazos
+  // ─── Full redraw desde vectores ─────────────────────────────────────────
   const renderStrokes = useCallback((
     strokes: Stroke[],
     selectedIds: Set<string>,
     erasingIds: Set<string>,
   ) => {
     const canvas = canvasRef.current;
-    const off = offscreenRef.current;
-    if (!canvas || !off) return;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    const dpr = dprRef.current;
-    const offCtx = off.getContext('2d');
-    if (!offCtx) return;
-
-    // 1) Dibujar todo en el offscreen buffer
-    offCtx.save();
-    offCtx.setTransform(1, 0, 0, 1, 0, 0);
-    offCtx.clearRect(0, 0, off.width, off.height);
-    offCtx.restore();
-    offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    offCtx.imageSmoothingEnabled = true;
-    offCtx.imageSmoothingQuality = 'high';
+    // Limpiar
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    applyDpr(ctx);
 
     for (const stroke of strokes) {
       if (stroke.tipo === 'borrador_trazo') {
-        // Borrador de píxeles — destination-out
-        offCtx.save();
-        offCtx.globalCompositeOperation = 'destination-out';
-        offCtx.strokeStyle = 'rgba(0,0,0,1)';
-        offCtx.lineWidth = stroke.size * 3;
-        offCtx.lineCap = 'round';
-        offCtx.lineJoin = 'round';
-        offCtx.globalAlpha = 1;
-        const pts = stroke.points;
-        if (pts.length === 1) {
-          offCtx.beginPath();
-          offCtx.arc(pts[0].x, pts[0].y, stroke.size * 1.5, 0, Math.PI * 2);
-          offCtx.fill();
-        } else if (pts.length > 1) {
-          offCtx.beginPath();
-          offCtx.moveTo(pts[0].x, pts[0].y);
-          for (let i = 1; i < pts.length; i++) {
-            const prev = pts[i - 1];
-            const curr = pts[i];
-            const mx = (prev.x + curr.x) / 2;
-            const my = (prev.y + curr.y) / 2;
-            offCtx.quadraticCurveTo(prev.x, prev.y, mx, my);
-          }
-          offCtx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-          offCtx.stroke();
-        }
-        offCtx.restore();
+        _applyEraserStroke(ctx, stroke);
         continue;
       }
-
       if (erasingIds.has(stroke.id)) {
-        // Highlight rosa oscuro para borrador stroke
-        offCtx.save();
-        offCtx.globalAlpha = 0.25;
-        drawStrokeOnCtx(offCtx, stroke, false);
-        offCtx.restore();
-
-        offCtx.save();
-        offCtx.globalAlpha = 0.6;
-        offCtx.strokeStyle = '#be185d';
-        offCtx.lineWidth = Math.max(stroke.size + 8, 12);
-        offCtx.lineCap = 'round';
-        offCtx.lineJoin = 'round';
-        offCtx.globalCompositeOperation = 'source-over';
-        const pts = stroke.points;
-        if (pts.length > 1) {
-          offCtx.beginPath();
-          offCtx.moveTo(pts[0].x, pts[0].y);
-          for (let i = 1; i < pts.length; i++) {
-            offCtx.lineTo(pts[i].x, pts[i].y);
-          }
-          offCtx.stroke();
-        }
-        offCtx.restore();
+        _drawErasingHighlight(ctx, stroke);
       } else {
-        drawStrokeOnCtx(offCtx, stroke, selectedIds.has(stroke.id));
+        drawStrokeOnCtx(ctx, stroke, selectedIds.has(stroke.id));
       }
-    }
-
-    // 2) Copiar offscreen → canvas visible en un solo blit (sin parpadeo)
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(off, 0, 0);
-      ctx.restore();
-      applyDpr(ctx);
     }
   }, [canvasRef, applyDpr]);
 
-  // ─── Segmento incremental durante el dibujo ─────────────────────────────
-  // Dibuja sobre el offscreen Y el canvas visible simultáneamente
+  // ─── Segmento en tiempo real — INMEDIATO, sin RAF ───────────────────────
+  // Se llama en cada pointermove, dibuja al canvas directamente
   const renderStrokeSegment = useCallback((
     points: Point[],
     color: string,
@@ -204,10 +96,11 @@ export function useCanvasRenderer(
     const c = ctx ?? canvas?.getContext('2d');
     if (!c) return;
 
+    const len = points.length;
+    if (len < 1) return;
+
     c.save();
     applyDpr(c);
-
-    const len = points.length;
 
     if (len === 1) {
       const p = points[0];
@@ -219,17 +112,8 @@ export function useCanvasRenderer(
       return;
     }
 
-    if (len === 2) {
-      const [p0, p1] = points;
-      applyStrokeStyle(c, tipo, color, size, (p0.pressure + p1.pressure) / 2);
-      c.beginPath();
-      c.moveTo(p0.x, p0.y);
-      c.lineTo(p1.x, p1.y);
-      c.stroke();
-      c.restore();
-      return;
-    }
-
+    // Dibujar solo el segmento más reciente (los últimos 2-4 puntos)
+    // NUNCA redibujar todo el path — solo el trozo nuevo
     const p0 = points[Math.max(0, len - 4)];
     const p1 = points[Math.max(0, len - 3)];
     const p2 = points[len - 2];
@@ -241,13 +125,18 @@ export function useCanvasRenderer(
     if (len >= 4) {
       const { cp1, cp2 } = catmullToBezier(p0, p1, p2, p3);
       c.beginPath();
-      c.moveTo((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
+      c.moveTo((p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
       c.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, (p2.x + p3.x) / 2, (p2.y + p3.y) / 2);
+      c.stroke();
+    } else if (len === 3) {
+      c.beginPath();
+      c.moveTo((p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
+      c.quadraticCurveTo(p2.x, p2.y, (p2.x + p3.x) / 2, (p2.y + p3.y) / 2);
       c.stroke();
     } else {
       c.beginPath();
-      c.moveTo((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
-      c.quadraticCurveTo(p1.x, p1.y, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
+      c.moveTo(p2.x, p2.y);
+      c.lineTo(p3.x, p3.y);
       c.stroke();
     }
 
@@ -299,21 +188,67 @@ export function useCanvasRenderer(
     });
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
+  useEffect(() => () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
   }, []);
 
   return {
-    setup,
-    clear,
-    clearLive,
-    applyDpr,
-    renderStrokes,
-    renderStrokeSegment,
-    renderEraserSegment,
-    scheduleRender,
+    setup, clear, clearLive, applyDpr,
+    renderStrokes, renderStrokeSegment,
+    renderEraserSegment, scheduleRender,
     dpr: dprRef,
   };
+}
+
+// ─── Helpers internos ────────────────────────────────────────────────────────
+function _applyEraserStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+  const pts = stroke.points;
+  if (pts.length === 0) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.strokeStyle = 'rgba(0,0,0,1)';
+  ctx.fillStyle = 'rgba(0,0,0,1)';
+  ctx.lineWidth = stroke.size * 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.globalAlpha = 1;
+  if (pts.length === 1) {
+    ctx.beginPath();
+    ctx.arc(pts[0].x, pts[0].y, stroke.size * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) {
+      const prev = pts[i - 1];
+      const curr = pts[i];
+      const mx = (prev.x + curr.x) / 2;
+      const my = (prev.y + curr.y) / 2;
+      ctx.quadraticCurveTo(prev.x, prev.y, mx, my);
+    }
+    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function _drawErasingHighlight(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+  const pts = stroke.points;
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  drawStrokeOnCtx(ctx, stroke, false);
+  ctx.restore();
+  if (pts.length < 2) return;
+  ctx.save();
+  ctx.globalAlpha = 0.6;
+  ctx.strokeStyle = '#be185d';
+  ctx.lineWidth = Math.max(stroke.size + 8, 12);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.stroke();
+  ctx.restore();
 }
