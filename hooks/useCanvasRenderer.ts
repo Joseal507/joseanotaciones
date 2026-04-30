@@ -74,15 +74,27 @@ export function useCanvasRenderer(
     clear();
     for (const stroke of strokes) {
       if (erasingIds.has(stroke.id)) {
+        // Dibujar el trazo original con opacidad baja
         ctx.save();
-        ctx.globalAlpha = 0.35;
-        ctx.strokeStyle = '#ef4444';
-        ctx.lineWidth = Math.max(stroke.size + 4, 8);
+        ctx.globalAlpha = 0.3;
+        drawStrokeOnCtx(ctx, stroke, false);
+        ctx.restore();
+        // Highlight rosa oscuro encima
+        ctx.save();
+        ctx.globalAlpha = 0.55;
+        ctx.strokeStyle = '#be185d';
+        ctx.lineWidth = Math.max(stroke.size + 6, 10);
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        ctx.setLineDash([6, 3]);
-        drawStrokeOnCtx(ctx, stroke, false);
-        ctx.setLineDash([]);
+        const pts = stroke.points;
+        if (pts.length > 0) {
+          ctx.beginPath();
+          ctx.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i].x, pts[i].y);
+          }
+          ctx.stroke();
+        }
         ctx.restore();
       } else {
         drawStrokeOnCtx(ctx, stroke, selectedIds.has(stroke.id));

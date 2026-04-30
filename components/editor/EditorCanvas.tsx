@@ -588,8 +588,11 @@ export default function EditorCanvas({
     overlayRenderer.clear();
 
     if (stroke.tipo === 'borrador_trazo') {
-      // Ya se borró en vivo sobre el main canvas durante el move
-      // Solo necesitamos guardar el estado
+      // Guardar el stroke borrador para que persista en redraw
+      stroke.bounds = calcBounds(stroke.points);
+      strokesRef.current.push(stroke);
+      saveSnapshot();
+      redrawMain();
       onChange();
       return;
     }
