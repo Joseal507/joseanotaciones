@@ -219,7 +219,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
     }
   }, [onGuardar, paperStyle, paperColor, paperSize]);
 
-  const { guardar, guardarAhora, triggerAutoSave } = useGuardar({
+  const { guardar, guardarAhora, triggerAutoSave, triggerCanvasAutoSave } = useGuardar({
     getPaginas: getPaginasParaGuardar,
     syncCache,
     onGuardar: guardarConConfig,
@@ -741,7 +741,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
                 textRefs={textRefs}
                 htmlCache={htmlCache}
                 onBloques={handleBloques}
-                onCanvasChange={triggerAutoSave}
+                onCanvasChange={triggerCanvasAutoSave}
                 onEliminarBloque={handleEliminarBloque}
                 onFinishNew={() => setNewBlockId(null)}
                 onEliminarPagina={handleEliminarPagina}

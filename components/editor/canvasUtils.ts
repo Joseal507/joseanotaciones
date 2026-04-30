@@ -314,22 +314,46 @@ export function drawShapePreview(
 
 export function drawSelectionRect(ctx: CanvasRenderingContext2D, rect: SelectionRect) {
   ctx.save();
-  ctx.strokeStyle = '#6366f1';
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([6, 4]);
-  ctx.globalAlpha = 0.85;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
-  ctx.beginPath();
-  ctx.rect(rect.x, rect.y, rect.w, rect.h);
-  ctx.stroke();
+  // Fill
+  ctx.fillStyle = 'rgba(99,102,241,0.10)';
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
 
-  ctx.fillStyle = '#6366f1';
-  ctx.globalAlpha = 0.08;
-  ctx.fill();
+  // Main border
+  ctx.strokeStyle = '#4f46e5';
+  ctx.lineWidth = 1.75;
+  ctx.setLineDash([8, 4]);
+  ctx.globalAlpha = 0.95;
+  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
 
   ctx.setLineDash([]);
+
+  // Handles
+  const handleSize = 8;
+  const handles = [
+    [rect.x, rect.y],
+    [rect.x + rect.w / 2, rect.y],
+    [rect.x + rect.w, rect.y],
+    [rect.x, rect.y + rect.h / 2],
+    [rect.x + rect.w, rect.y + rect.h / 2],
+    [rect.x, rect.y + rect.h],
+    [rect.x + rect.w / 2, rect.y + rect.h],
+    [rect.x + rect.w, rect.y + rect.h],
+  ];
+
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = '#4f46e5';
+  ctx.lineWidth = 1.5;
+
+  for (const [hx, hy] of handles) {
+    ctx.beginPath();
+    ctx.rect(hx - handleSize / 2, hy - handleSize / 2, handleSize, handleSize);
+    ctx.fill();
+    ctx.stroke();
+  }
+
   ctx.restore();
 }
 
