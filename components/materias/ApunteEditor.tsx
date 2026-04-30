@@ -136,6 +136,8 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
 
   usePinchZoom(wrapperRef, handleScaleChange, {
     enabled: true,
+    minScale: 1,
+    maxScale: 4,
     allowSingleFingerPan: !isDrawingMode || isTabletTouch,
   });
 

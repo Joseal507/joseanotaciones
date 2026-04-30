@@ -1,59 +1,62 @@
 import { useRef, useCallback, useEffect } from 'react';
-import { Stroke, Point, applyStrokeStyle, drawStrokeOnCtx, drawShape } from '../components/editor/canvasUtils';
+import { Stroke, Point, applyStrokeStyle, drawStrokeOnCtx } from '../components/editor/canvasUtils';
 import { catmullToBezier } from './useStrokeEngine';
 
 interface RendererOptions {
   dpr?: number;
 }
 
-export interface RenderTransform {
-  scale: number;
-  tx: number;
-  ty: number;
-}
-
 export function useCanvasRenderer(
   canvasRef: React.RefObject<HTMLCanvasElement>,
   options: RendererOptions = {},
 ) {
-  const dprRef = useRef(Math.min((options.dpr ?? (typeof window !== 'undefined' ? window.devicePixelRatio : 1) ?? 1) * 1.5, 3));
-  const rafRef = useRef<number | null>(null);
-  const isDirty = useRef(false);
+  // DPR más alto para máxima calidad — sin límite artificial
+  const dprRef = useRef(
+    options.dpr ?? (typeof window !== 'undefined' ? window.devicePixelRatio : 1) * 2
+  );
 
   const setup = useCallback((width: number, height: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    // Recalcular DPR en cada setup (puede cambiar si mueves ventana entre monitores)
+    dprRef.current = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) * 2;
     const dpr = dprRef.current;
+
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
+
     const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });
     if (ctx) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
     }
   }, [canvasRef]);
 
   const applyDpr = useCallback((ctx: CanvasRenderingContext2D) => {
     ctx.setTransform(dprRef.current, 0, 0, dprRef.current, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
   }, []);
 
   const clear = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!ctx || !canvas) return;
-    // Limpiar sin resetear el transform permanentemente
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.restore();
-    // Restaurar DPR transform
     applyDpr(ctx);
   }, [canvasRef, applyDpr]);
 
-  // Clear solo el live canvas sin tocar el transform
   const clearLive = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -96,6 +99,7 @@ export function useCanvasRenderer(
         ctx.strokeStyle = '#ff4d6d';
         ctx.lineWidth = stroke.size + 2;
         ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         drawStrokeOnCtx(ctx, stroke, false);
         ctx.restore();
       } else {
@@ -166,21 +170,7 @@ export function useCanvasRenderer(
   }, [canvasRef, applyDpr]);
 
   const scheduleRender = useCallback((fn: () => void) => {
-    isDirty.current = true;
-    if (rafRef.current) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null;
-      if (isDirty.current) {
-        isDirty.current = false;
-        fn();
-      }
-    });
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
+    requestAnimationFrame(fn);
   }, []);
 
   return {
