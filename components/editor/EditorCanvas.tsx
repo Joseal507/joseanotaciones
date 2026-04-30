@@ -91,8 +91,9 @@ export default function EditorCanvas({
   const isCanvasActive = isDrawingTool || isSelecting;
 
   const isLargeTouch = typeof window !== 'undefined'
-    && window.innerWidth >= 768
-    && navigator.maxTouchPoints > 0;
+    && navigator.maxTouchPoints > 0
+    && typeof window.matchMedia === 'function'
+    && !window.matchMedia('(any-pointer: fine)').matches;
 
   const saveSnapshot = useCallback(() => {
     const snap = JSON.stringify(strokesRef.current);

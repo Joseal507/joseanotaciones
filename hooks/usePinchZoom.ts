@@ -4,6 +4,7 @@ interface PinchZoomOptions {
   enabled?: boolean;
   minScale?: number;
   maxScale?: number;
+  allowSingleFingerPan?: boolean;
 }
 
 export function usePinchZoom(
@@ -11,7 +12,12 @@ export function usePinchZoom(
   onScaleChange: (scale: number, tx: number, ty: number) => void,
   opts: PinchZoomOptions = {},
 ): React.MutableRefObject<number> {
-  const { enabled = true, minScale = 0.5, maxScale = 4 } = opts;
+  const {
+    enabled = true,
+    minScale = 0.5,
+    maxScale = 4,
+    allowSingleFingerPan = true,
+  } = opts;
 
   const scaleRef = useRef(1);
   const txRef = useRef(0);
@@ -51,7 +57,7 @@ export function usePinchZoom(
         return;
       }
 
-      if (e.touches.length === 1 && scaleRef.current > 1) {
+      if (allowSingleFingerPan && e.touches.length === 1 && scaleRef.current > 1) {
         lastPanPointRef.current = {
           x: e.touches[0].clientX,
           y: e.touches[0].clientY,
@@ -89,8 +95,8 @@ export function usePinchZoom(
         return;
       }
 
-      // Pan libre con 1 dedo cuando ya hay zoom
-      if (e.touches.length === 1 && scaleRef.current > 1) {
+      // Pan con 1 dedo solo si está permitido
+      if (allowSingleFingerPan && e.touches.length === 1 && scaleRef.current > 1) {
         const touch = e.touches[0];
 
         if (!lastPanPointRef.current) {
@@ -117,7 +123,7 @@ export function usePinchZoom(
         lastMidRef.current = null;
       }
 
-      if (e.touches.length === 1 && scaleRef.current > 1) {
+      if (allowSingleFingerPan && e.touches.length === 1 && scaleRef.current > 1) {
         lastPanPointRef.current = {
           x: e.touches[0].clientX,
           y: e.touches[0].clientY,
@@ -163,7 +169,7 @@ export function usePinchZoom(
       el.removeEventListener('wheel', onWheel);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [wrapperRef, enabled, minScale, maxScale, scheduleNotify]);
+  }, [wrapperRef, enabled, minScale, maxScale, allowSingleFingerPan, scheduleNotify]);
 
   return scaleRef;
 }

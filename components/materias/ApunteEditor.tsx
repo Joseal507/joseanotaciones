@@ -89,6 +89,10 @@ export default function ApunteEditor({
   const pageHistoryRef = useRef<string[]>([]);
   const pageHistoryIndexRef = useRef(-1);
   const isMobile = useIsMobile();
+  const isTabletTouch = typeof window !== 'undefined'
+    && navigator.maxTouchPoints > 0
+    && typeof window.matchMedia === 'function'
+    && !window.matchMedia('(any-pointer: fine)').matches;
 
   // ✅ Actualizado con nuevas herramientas
 const isDrawing = [
@@ -130,7 +134,10 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
     setZoomState({ scale, tx, ty });
   }, []);
 
-  usePinchZoom(wrapperRef, handleScaleChange, { enabled: true });
+  usePinchZoom(wrapperRef, handleScaleChange, {
+    enabled: true,
+    allowSingleFingerPan: !isDrawingMode || isTabletTouch,
+  });
 
   const syncCache = useCallback(() => {
     Object.keys(textRefs.current).forEach((id) => {
