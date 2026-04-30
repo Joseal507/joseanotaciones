@@ -128,37 +128,93 @@ export default function ChatPage() {
     setLlamadaHablando(false);
   };
 
-  // ─── Fallback: Web Speech API ─────────────────────────────────────────────
+  // ─── Web Speech API — iOS safe ───────────────────────────────────────────
   const usarSpeechSynthesis = (textoLimpio: string, onEnd?: () => void): Promise<void> => {
     return new Promise((resolve) => {
       if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
         setLlamandoAI(false); setLlamadaHablando(false);
         resolve(); onEnd?.(); return;
       }
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(textoLimpio);
-      utterance.lang = idioma === 'en' ? 'en-US' : 'es-MX';
-      utterance.rate = 0.92; utterance.pitch = 1.1; utterance.volume = 1.0;
-      const voices = window.speechSynthesis.getVoices();
-      let voz: SpeechSynthesisVoice | undefined;
-      if (idioma === 'en') {
-        voz = voices.find(v => v.name === 'Daniel')
-           || voices.find(v => v.name === 'Alex')
-           || voices.find(v => v.lang.startsWith('en') && v.localService);
+
+      const synth = window.speechSynthesis;
+      synth.cancel();
+
+      const speak = () => {
+        const utterance = new SpeechSynthesisUtterance(textoLimpio);
+        utterance.lang = idioma === 'en' ? 'en-US' : 'es-ES';
+        utterance.rate = 0.9;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+
+        // iOS: no forzar voz específica — dejar que use la default del sistema
+        const voices = synth.getVoices();
+        if (voices.length > 0) {
+          let voz: SpeechSynthesisVoice | undefined;
+          if (idioma === 'en') {
+            voz = voices.find(v => v.lang.startsWith('en') && v.localService)
+               || voices.find(v => v.lang.startsWith('en'));
+          } else {
+            voz = voices.find(v => v.lang.startsWith('es') && v.localService)
+               || voices.find(v => v.lang.startsWith('es'));
+          }
+          if (voz) utterance.voice = voz;
+        }
+
+        // iOS keepalive — Safari pausa speechSynthesis en background
+        const keepAlive = setInterval(() => {
+          if (synth.speaking) {
+            synth.pause();
+            synth.resume();
+          } else {
+            clearInterval(keepAlive);
+          }
+        }, 5000);
+
+        utterance.onstart = () => {
+          setLlamandoAI(true);
+          setLlamadaHablando(true);
+        };
+        utterance.onend = () => {
+          clearInterval(keepAlive);
+          setLlamandoAI(false);
+          setLlamadaHablando(false);
+          resolve();
+          onEnd?.();
+        };
+        utterance.onerror = (e) => {
+          console.warn('speechSynthesis error:', e);
+          clearInterval(keepAlive);
+          setLlamandoAI(false);
+          setLlamadaHablando(false);
+          resolve();
+          onEnd?.();
+        };
+
+        synth.speak(utterance);
+
+        // iOS fix: si no empieza en 500ms, forzar resume
+        setTimeout(() => {
+          if (synth.paused) synth.resume();
+        }, 500);
+      };
+
+      // Esperar voces si aún no están cargadas (iOS las carga async)
+      const voices = synth.getVoices();
+      if (voices.length > 0) {
+        speak();
       } else {
-        voz = voices.find(v => v.lang === 'es-MX' && v.localService)
-           || voices.find(v => v.lang.startsWith('es') && v.localService)
-           || voices.find(v => v.lang.startsWith('es'));
+        synth.onvoiceschanged = () => {
+          synth.onvoiceschanged = null;
+          speak();
+        };
+        // Timeout por si onvoiceschanged no dispara
+        setTimeout(() => {
+          if (synth.getVoices().length === 0) {
+            // Hablar sin voz específica — iOS usará default
+            speak();
+          }
+        }, 1000);
       }
-      if (voz) utterance.voice = voz;
-      const keepAlive = setInterval(() => {
-        if (window.speechSynthesis.speaking) {
-          window.speechSynthesis.pause(); window.speechSynthesis.resume();
-        } else { clearInterval(keepAlive); }
-      }, 9000);
-      utterance.onend = () => { clearInterval(keepAlive); setLlamandoAI(false); setLlamadaHablando(false); resolve(); onEnd?.(); };
-      utterance.onerror = () => { clearInterval(keepAlive); setLlamandoAI(false); setLlamadaHablando(false); resolve(); onEnd?.(); };
-      window.speechSynthesis.speak(utterance);
     });
   };
 
