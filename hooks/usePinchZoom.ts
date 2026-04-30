@@ -16,8 +16,11 @@ export function usePinchZoom(
   const scaleRef = useRef(1);
   const txRef = useRef(0);
   const tyRef = useRef(0);
+
   const lastDistRef = useRef<number | null>(null);
   const lastMidRef = useRef<{ x: number; y: number } | null>(null);
+  const lastPanPointRef = useRef<{ x: number; y: number } | null>(null);
+
   const rafRef = useRef<number | null>(null);
 
   const scheduleNotify = useCallback(() => {
@@ -41,32 +44,71 @@ export function usePinchZoom(
     });
 
     const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length !== 2) return;
-      lastDistRef.current = getDist(e.touches);
-      lastMidRef.current = getMid(e.touches);
+      if (e.touches.length === 2) {
+        lastDistRef.current = getDist(e.touches);
+        lastMidRef.current = getMid(e.touches);
+        lastPanPointRef.current = null;
+        return;
+      }
+
+      if (e.touches.length === 1 && scaleRef.current > 1) {
+        lastPanPointRef.current = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY,
+        };
+      }
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 2 || lastDistRef.current === null || !lastMidRef.current) return;
-      e.preventDefault();
+      // Pinch zoom + pan con 2 dedos
+      if (e.touches.length === 2 && lastDistRef.current !== null && lastMidRef.current) {
+        e.preventDefault();
 
-      const newDist = getDist(e.touches);
-      const newMid = getMid(e.touches);
-      const prevScale = scaleRef.current;
-      const nextScale = Math.min(maxScale, Math.max(minScale, prevScale * (newDist / lastDistRef.current)));
+        const newDist = getDist(e.touches);
+        const newMid = getMid(e.touches);
 
-      const rect = el.getBoundingClientRect();
-      const ox = newMid.x - rect.left;
-      const oy = newMid.y - rect.top;
-      const ratio = nextScale / prevScale;
+        const prevScale = scaleRef.current;
+        const nextScale = Math.min(
+          maxScale,
+          Math.max(minScale, prevScale * (newDist / lastDistRef.current))
+        );
 
-      txRef.current = txRef.current + ox * (1 - ratio) + (newMid.x - lastMidRef.current.x);
-      tyRef.current = tyRef.current + oy * (1 - ratio) + (newMid.y - lastMidRef.current.y);
-      scaleRef.current = nextScale;
-      lastDistRef.current = newDist;
-      lastMidRef.current = newMid;
+        const rect = el.getBoundingClientRect();
+        const ox = newMid.x - rect.left;
+        const oy = newMid.y - rect.top;
+        const ratio = nextScale / prevScale;
 
-      scheduleNotify();
+        txRef.current = txRef.current + ox * (1 - ratio) + (newMid.x - lastMidRef.current.x);
+        tyRef.current = tyRef.current + oy * (1 - ratio) + (newMid.y - lastMidRef.current.y);
+
+        scaleRef.current = nextScale;
+        lastDistRef.current = newDist;
+        lastMidRef.current = newMid;
+
+        scheduleNotify();
+        return;
+      }
+
+      // Pan libre con 1 dedo cuando ya hay zoom
+      if (e.touches.length === 1 && scaleRef.current > 1) {
+        const touch = e.touches[0];
+
+        if (!lastPanPointRef.current) {
+          lastPanPointRef.current = { x: touch.clientX, y: touch.clientY };
+          return;
+        }
+
+        e.preventDefault();
+
+        const dx = touch.clientX - lastPanPointRef.current.x;
+        const dy = touch.clientY - lastPanPointRef.current.y;
+
+        txRef.current += dx;
+        tyRef.current += dy;
+
+        lastPanPointRef.current = { x: touch.clientX, y: touch.clientY };
+        scheduleNotify();
+      }
     };
 
     const onTouchEnd = (e: TouchEvent) => {
@@ -74,20 +116,36 @@ export function usePinchZoom(
         lastDistRef.current = null;
         lastMidRef.current = null;
       }
+
+      if (e.touches.length === 1 && scaleRef.current > 1) {
+        lastPanPointRef.current = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY,
+        };
+      } else {
+        lastPanPointRef.current = null;
+      }
     };
 
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
+
       const prevScale = scaleRef.current;
-      const nextScale = Math.min(maxScale, Math.max(minScale, prevScale * (e.deltaY < 0 ? 1.05 : 0.95)));
+      const nextScale = Math.min(
+        maxScale,
+        Math.max(minScale, prevScale * (e.deltaY < 0 ? 1.05 : 0.95))
+      );
+
       const rect = el.getBoundingClientRect();
       const ox = e.clientX - rect.left;
       const oy = e.clientY - rect.top;
       const ratio = nextScale / prevScale;
+
       txRef.current = txRef.current + ox * (1 - ratio);
       tyRef.current = tyRef.current + oy * (1 - ratio);
       scaleRef.current = nextScale;
+
       scheduleNotify();
     };
 

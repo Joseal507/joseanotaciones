@@ -687,7 +687,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
         <div ref={wrapperRef} style={{
           flex: 1, overflow: 'auto',
           display: 'flex', justifyContent: scrollDirection === 'horizontal' ? 'flex-start' : 'center',
-          touchAction: 'pan-x pan-y',
+          touchAction: zoomState.scale > 1 ? 'none' : 'pan-x pan-y',
           userSelect: 'none', WebkitUserSelect: 'none',
           paddingBottom: isMobile ? '70px' : '80px',
         }}>
