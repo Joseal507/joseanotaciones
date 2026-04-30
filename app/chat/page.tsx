@@ -579,7 +579,15 @@ export default function ChatPage() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       llamadaStreamRef.current = stream;
       const chunks: Blob[] = [];
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+      // iOS Safari solo soporta audio/mp4, Android/Chrome soporta audio/webm
+      let mimeType = 'audio/mp4';
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        mimeType = 'audio/webm;codecs=opus';
+      } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+        mimeType = 'audio/webm';
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        mimeType = 'audio/mp4';
+      }
       const mr = new MediaRecorder(stream, { mimeType });
       llamadaMediaRecorderRef.current = mr;
 
@@ -588,14 +596,15 @@ export default function ChatPage() {
         stream.getTracks().forEach(t => t.stop());
         setLlamadaEscuchando(false);
         if (!modoLlamadaRef.current) return;
-        if (chunks.length === 0 || new Blob(chunks).size < 1000) {
+        if (chunks.length === 0 || new Blob(chunks).size < 500) {
           if (modoLlamadaRef.current) iniciarEscuchaLlamada();
           return;
         }
         const blob = new Blob(chunks, { type: mimeType });
         setLlamadaProcesando(true);
+        const ext = mimeType.includes('mp4') ? 'm4a' : 'webm';
         const formData = new FormData();
-        formData.append('audio', blob, 'llamada.webm');
+        formData.append('audio', blob, `llamada.${ext}`);
         formData.append('idioma', getIdioma());
         try {
           const res = await fetch('/api/audio/transcribe', { method: 'POST', body: formData });
