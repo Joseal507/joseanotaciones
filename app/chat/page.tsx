@@ -53,6 +53,7 @@ export default function ChatPage() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const audioUnlockedRef = useRef(false);
   const pendingAudioRef = useRef<HTMLAudioElement | null>(null);
+  const domAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -696,7 +697,13 @@ export default function ChatPage() {
       {aiExhausted && <AIExhausted onClose={() => setAiExhausted(false)} />}
       <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', fontFamily: '-apple-system, sans-serif' }}>
 
-        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} style={{ display: 'none' }} />
+        {/* Audio element en DOM — requerido por iOS Safari para reproducir audio */}
+      <audio
+        ref={domAudioRef}
+        playsInline
+        style={{ display: 'none' }}
+      />
+      <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} style={{ display: 'none' }} />
         <input ref={audioInputRef} type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.webm" onChange={handleAudioFile} style={{ display: 'none' }} />
 
         {/* Header */}
