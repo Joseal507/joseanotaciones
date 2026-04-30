@@ -149,7 +149,6 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
     enabled: true,
     minScale: 1,
     maxScale: 5,
-    allowSingleFingerPan: false,
   });
 
   const syncCache = useCallback(() => {
