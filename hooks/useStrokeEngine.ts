@@ -118,7 +118,7 @@ export function useStrokeEngine() {
 
     // Min distance threshold to reduce jitter
     const dist = Math.hypot(point.x - last.x, point.y - last.y);
-    const minDist = point.pressure < 0.3 ? 0.5 : 1.0;
+    const minDist = 0.5;
     if (dist < minDist) return { shouldRender: false, renderPoints: [] };
 
     pts.push(point);
@@ -141,9 +141,10 @@ export function useStrokeEngine() {
     isActive.current = false;
 
     // Simplify stroke on completion for storage efficiency
+    // Solo simplificar trazos muy largos y con epsilon más alto para no perder calidad
     const stroke = currentStroke.current;
-    if (stroke.points.length > 4) {
-      const simplified = simplifyPoints(stroke.points, 0.3);
+    if (stroke.points.length > 50) {
+      const simplified = simplifyPoints(stroke.points, 0.8);
       stroke.points = simplified;
     }
 

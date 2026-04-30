@@ -266,22 +266,9 @@ export default function EditorCanvas({
     }
 
     if (herramienta === 'borrador_trazo') {
-      // Copiar main canvas al live canvas — borraremos sobre la copia
-      const mainCanvas = mainCanvasRef.current;
-      const liveCanvas = liveCanvasRef.current;
-      const mainCtx = mainCanvas?.getContext('2d');
-      const liveCtx = liveCanvas?.getContext('2d');
-      if (mainCanvas && liveCanvas && mainCtx && liveCtx) {
-        liveRenderer.clear();
-        liveCtx.save();
-        liveCtx.setTransform(1, 0, 0, 1, 0, 0);
-        liveCtx.drawImage(mainCanvas, 0, 0);
-        liveCtx.restore();
-        liveRenderer.applyDpr(liveCtx);
-        // Ocultar main temporalmente durante el borrado en vivo
-        if (mainCanvasRef.current) mainCanvasRef.current.style.opacity = '0';
-      }
       strokeEngine.begin(pos, '#000000', brushSize, 'borrador_trazo');
+      // Dibujar cursor del borrador en overlay
+      drawEraserCursor(pos.x, pos.y);
       return;
     }
 
@@ -444,12 +431,16 @@ export default function EditorCanvas({
     const tipo = strokeEngine.currentStroke.current?.tipo ?? herramienta;
 
     if (tipo === 'borrador_trazo') {
-      // Borrar sobre la copia del main canvas en el live canvas
-      liveRenderer.renderEraserSegment(
-        renderPoints,
-        strokeEngine.currentStroke.current?.size ?? brushSize,
-        ctx,
-      );
+      // Borrar directamente sobre el main canvas
+      const mainCtx = mainCanvasRef.current?.getContext('2d');
+      if (mainCtx) {
+        mainRenderer.renderEraserSegment(
+          renderPoints,
+          strokeEngine.currentStroke.current?.size ?? brushSize,
+          mainCtx,
+        );
+      }
+      drawEraserCursor(pos.x, pos.y);
     } else {
       // Dibujo normal — NO limpiar el live canvas, solo añadir segmento
       liveRenderer.renderStrokeSegment(
@@ -594,37 +585,11 @@ export default function EditorCanvas({
 
     // Limpiar live canvas y pasar el stroke al main
     liveRenderer.clear();
-    // Restaurar visibilidad del main canvas
-    if (mainCanvasRef.current) mainCanvasRef.current.style.opacity = '1';
+    overlayRenderer.clear();
 
     if (stroke.tipo === 'borrador_trazo') {
-      const ctx = mainCanvasRef.current?.getContext('2d');
-      if (ctx) {
-        mainRenderer.applyDpr(ctx);
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.strokeStyle = 'rgba(0,0,0,1)';
-        ctx.lineWidth = stroke.size * 3;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.beginPath();
-        const pts = stroke.points;
-        if (pts.length === 0) { ctx.restore(); onChange(); return; }
-        if (pts.length === 1) {
-          ctx.arc(pts[0].x, pts[0].y, stroke.size * 1.5, 0, Math.PI * 2);
-          ctx.fill();
-        } else {
-          ctx.moveTo(pts[0].x, pts[0].y);
-          for (let i = 1; i < pts.length - 1; i++) {
-            const mx = (pts[i].x + pts[i + 1].x) / 2;
-            const my = (pts[i].y + pts[i + 1].y) / 2;
-            ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
-          }
-          ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-          ctx.stroke();
-        }
-        ctx.restore();
-      }
+      // Ya se borró en vivo sobre el main canvas durante el move
+      // Solo necesitamos guardar el estado
       onChange();
       return;
     }
