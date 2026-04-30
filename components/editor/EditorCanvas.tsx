@@ -469,7 +469,7 @@ export default function EditorCanvas({
 
     const tipo = strokeEngine.currentStroke.current?.tipo ?? herramienta;
 
-    if (tipo === 'borrador_trazo') {
+    if (tipo === "borrador_trazo" || tipo === "borrador") {
       // INMEDIATO — borrar en backBuffer directamente sin RAF
       mainRenderer.renderEraserSegment(
         renderPoints,

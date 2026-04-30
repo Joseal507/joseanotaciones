@@ -219,41 +219,35 @@ export function useCanvasRenderer(
   }, [canvasRef]);
 
   // Borrador de píxeles — INMEDIATO sin delay
-  const renderEraserSegment = useCallback((
-    points: Point[],
-    size: number,
-    _ignored?: CanvasRenderingContext2D | null,
-  ) => {
+    const renderEraserSegment = useCallback((points: Point[], size: number) => {
     const back = backBufferRef.current;
-    if (!back || points.length < 1) return;
+    const front = canvasRef.current;
+    if (!back) return;
     const ctx = prepCtx(back);
+    const fCtx = front?.getContext('2d', { desynchronized: true });
     if (!ctx) return;
 
-    ctx.save();
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.strokeStyle = 'rgba(0,0,0,1)';
-    ctx.fillStyle = 'rgba(0,0,0,1)';
-    ctx.lineWidth = size * 3;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.globalAlpha = 1;
+    const drawEraser = (c: CanvasRenderingContext2D) => {
+      c.save();
+      c.globalCompositeOperation = 'destination-out';
+      c.beginPath();
+      if (points.length === 1) {
+        c.arc(points[0].x, points[0].y, size * 2, 0, Math.PI * 2);
+        c.fill();
+      } else {
+        c.lineWidth = size * 4;
+        c.lineCap = 'round';
+        c.lineJoin = 'round';
+        c.moveTo(points[0].x, points[0].y);
+        for (const p of points) c.lineTo(p.x, p.y);
+        c.stroke();
+      }
+      c.restore();
+    };
 
-    if (points.length === 1) {
-      ctx.beginPath();
-      ctx.arc(points[0].x, points[0].y, size * 1.5, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      const len = points.length;
-      const p0 = points[Math.max(0, len - 3)];
-      const p1 = points[Math.max(0, len - 2)];
-      const p2 = points[len - 1];
-      ctx.beginPath();
-      ctx.moveTo((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
-      ctx.quadraticCurveTo(p1.x, p1.y, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
-      ctx.stroke();
-    }
-    ctx.restore();
-    commitNow(); // inmediato para borrador sin delay
+    drawEraser(ctx);
+    if (fCtx) drawEraser(fCtx);
+    commitNow();
   }, [commitNow]);
 
   const scheduleRender = useCallback((fn: () => void) => {
