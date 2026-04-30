@@ -162,37 +162,15 @@ export default function ChatPage() {
     });
   };
 
-  // ─── TTS principal: iOS-safe ──────────────────────────────────────────────
-  // En iOS el Audio element DEBE crearse antes del primer await.
-  // Creamos el elemento, lo "desbloqueamos" con silence, luego cargamos el audio real.
+  // ─── TTS principal: iOS-safe con AudioContext ────────────────────────────
+  // Usamos AudioContext.decodeAudioData para reproducir — funciona en iOS
+  // porque el AudioContext ya fue desbloqueado sincrónicamente en el click.
   const reproducirAudio = async (texto: string, onEnd?: () => void): Promise<void> => {
     stopCurrentAudio();
     setLlamandoAI(true);
     setLlamadaHablando(true);
 
     const textoLimpio = limpiarTextoTTS(texto);
-    const isIOS = typeof navigator !== 'undefined' &&
-      /iPad|iPhone|iPod/.test(navigator.userAgent);
-
-    // Reutilizar el Audio desbloqueado si existe (iOS), o crear uno nuevo
-    let audio: HTMLAudioElement;
-    if (pendingAudioRef.current) {
-      audio = pendingAudioRef.current;
-      pendingAudioRef.current = null;
-    } else {
-      audio = new Audio();
-      audio.setAttribute('playsinline', 'true');
-      audio.setAttribute('webkit-playsinline', 'true');
-      audio.preload = 'auto';
-      if (isIOS) {
-        audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
-        audio.volume = 0;
-        try { await audio.play(); audio.pause(); } catch {}
-        audio.volume = 1;
-      }
-    }
-    audio.volume = 1;
-    currentAudioRef.current = audio;
 
     try {
       const res = await fetch('/api/audio/speech', {
@@ -202,35 +180,66 @@ export default function ChatPage() {
       });
 
       if (res.ok && res.headers.get('content-type')?.includes('audio')) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
+        const arrayBuffer = await res.arrayBuffer();
 
-        audio.src = url;
+        // Usar el AudioContext ya desbloqueado por el click
+        const ctx = getAudioCtx();
 
-        await new Promise<void>((resolve) => {
-          audio.onended = () => {
-            URL.revokeObjectURL(url);
+        try {
+          const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(ctx.destination);
+
+          // Guardar referencia para poder parar
+          (currentAudioRef as any).current = { pause: () => { try { source.stop(); } catch {} }, src: '' };
+
+          source.onended = () => {
             currentAudioRef.current = null;
-            setLlamandoAI(false); setLlamadaHablando(false);
-            resolve(); onEnd?.();
+            setLlamandoAI(false);
+            setLlamadaHablando(false);
+            onEnd?.();
           };
-          audio.onerror = () => {
-            URL.revokeObjectURL(url);
-            currentAudioRef.current = null;
-            resolve();
-            usarSpeechSynthesis(textoLimpio, onEnd);
-          };
-          audio.play().catch(() => {
-            currentAudioRef.current = null;
-            resolve();
-            usarSpeechSynthesis(textoLimpio, onEnd);
+
+          source.start(0);
+          return;
+        } catch (decodeErr) {
+          console.warn('decodeAudioData falló, usando Audio element:', decodeErr);
+          // Fallback a Audio element
+          const blob = new Blob([arrayBuffer], { type: 'audio/wav' });
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          audio.setAttribute('playsinline', 'true');
+          audio.setAttribute('webkit-playsinline', 'true');
+          currentAudioRef.current = audio;
+
+          await new Promise<void>((resolve) => {
+            audio.onended = () => {
+              URL.revokeObjectURL(url);
+              currentAudioRef.current = null;
+              setLlamandoAI(false); setLlamadaHablando(false);
+              resolve(); onEnd?.();
+            };
+            audio.onerror = () => {
+              URL.revokeObjectURL(url);
+              currentAudioRef.current = null;
+              resolve();
+              usarSpeechSynthesis(textoLimpio, onEnd);
+            };
+            audio.play().catch(() => {
+              currentAudioRef.current = null;
+              resolve();
+              usarSpeechSynthesis(textoLimpio, onEnd);
+            });
           });
-        });
-        return;
+          return;
+        }
       }
-    } catch {}
+    } catch (err) {
+      console.warn('Speech API error:', err);
+    }
 
-    // Fallback
+    // Fallback final
     currentAudioRef.current = null;
     await usarSpeechSynthesis(textoLimpio, onEnd);
   };
