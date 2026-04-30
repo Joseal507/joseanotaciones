@@ -197,28 +197,29 @@ export function drawStrokeOnCtx(ctx: CanvasRenderingContext2D, stroke: Stroke, i
     return;
   }
 
-  // Variable-width stroke with proper pressure
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[Math.max(0, i - 1)];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[Math.min(points.length - 1, i + 2)];
+  // Dibujar trazo completo como path continuo — sin gaps entre segmentos
+  // Usar presión promedio para todo el stroke para evitar discontinuidades
+  const avgPressure = points.reduce((sum, p) => sum + p.pressure, 0) / points.length;
+  applyStrokeStyle(ctx, tipo, color, size, avgPressure);
 
-    const pressure = (p1.pressure + p2.pressure) / 2;
-    applyStrokeStyle(ctx, tipo, color, size, pressure);
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
 
-    ctx.beginPath();
-
-    if (i === 0) {
-      ctx.moveTo(p1.x, p1.y);
-    } else {
-      ctx.moveTo((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
+  if (points.length === 2) {
+    ctx.lineTo(points[1].x, points[1].y);
+  } else {
+    // Quadratic bezier interpolation para suavidad
+    for (let i = 1; i < points.length - 1; i++) {
+      const mx = (points[i].x + points[i + 1].x) / 2;
+      const my = (points[i].y + points[i + 1].y) / 2;
+      ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
     }
-
-    // Smooth curve using quadratic bezier
-    ctx.quadraticCurveTo(p1.x, p1.y, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
-    ctx.stroke();
+    // Último punto
+    const last = points[points.length - 1];
+    const prev = points[points.length - 2];
+    ctx.quadraticCurveTo(prev.x, prev.y, last.x, last.y);
   }
+  ctx.stroke();
 
   // Selection highlight
   if (isSelected) {

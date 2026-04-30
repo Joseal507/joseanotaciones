@@ -97,34 +97,22 @@ export function useStrokeEngine() {
     shouldRender: boolean;
     renderPoints: Point[];
   } => {
-    if (!isActive.current || !currentStroke.current) {
+    const stroke = currentStroke.current;
+    if (!isActive.current || !stroke) {
       return { shouldRender: false, renderPoints: [] };
     }
 
-    const now = performance.now();
-    const dt = now - lastTimestamp.current;
-    lastTimestamp.current = now;
-
-    const pts = currentStroke.current.points;
+    const pts = stroke.points;
     const last = pts[pts.length - 1];
 
-    // Velocity for prediction
-    if (dt > 0) {
-      lastVelocity.current = {
-        vx: (point.x - last.x) / dt,
-        vy: (point.y - last.y) / dt,
-      };
-    }
-
-    // Min distance threshold to reduce jitter
-    const dist = Math.hypot(point.x - last.x, point.y - last.y);
-    const minDist = 0.5;
-    if (dist < minDist) return { shouldRender: false, renderPoints: [] };
+    // Min distance — ultra bajo para no perder detalle
+    const dx = point.x - last.x;
+    const dy = point.y - last.y;
+    if (dx * dx + dy * dy < 0.09) return { shouldRender: false, renderPoints: [] }; // < 0.3px
 
     pts.push(point);
-    pointBuffer.current.push(point);
 
-    // Return last 4 points for Catmull-Rom rendering
+    // Return últimos 4 puntos para Catmull-Rom sin crear arrays nuevos
     const len = pts.length;
     if (len >= 4) {
       return {
@@ -132,21 +120,19 @@ export function useStrokeEngine() {
         renderPoints: [pts[len - 4], pts[len - 3], pts[len - 2], pts[len - 1]],
       };
     }
-
-    return { shouldRender: true, renderPoints: pts.slice(-4) };
+    if (len >= 2) {
+      return { shouldRender: true, renderPoints: [pts[len - 2], pts[len - 1]] };
+    }
+    return { shouldRender: true, renderPoints: [point] };
   }, []);
 
   const end = useCallback((): Stroke | null => {
     if (!currentStroke.current || !isActive.current) return null;
     isActive.current = false;
 
-    // Simplify stroke on completion for storage efficiency
-    // Solo simplificar trazos muy largos y con epsilon más alto para no perder calidad
+    // No simplificar — mantener todos los puntos para calidad visual perfecta
+    // La simplificación causaba cortes visibles en los trazos
     const stroke = currentStroke.current;
-    if (stroke.points.length > 50) {
-      const simplified = simplifyPoints(stroke.points, 0.8);
-      stroke.points = simplified;
-    }
 
     currentStroke.current = null;
     pointBuffer.current = [];

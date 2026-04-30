@@ -240,9 +240,15 @@ export function useGestureManager(
       // Drawing
       if (intent === 'drawing') {
         if (e.pointerId === s.activePenId || e.pointerType !== 'pen') {
-          const events = (e as any).getCoalescedEvents?.() ?? [e];
-          for (const ce of events) {
-            callbacks.onDrawMove(ce);
+          // Procesar todos los eventos coalescidos para máxima precisión
+          // pero usar el evento principal si no hay coalescidos (reduce overhead)
+          const coalesced = (e as any).getCoalescedEvents?.();
+          if (coalesced && coalesced.length > 1) {
+            for (let i = 0; i < coalesced.length; i++) {
+              callbacks.onDrawMove(coalesced[i]);
+            }
+          } else {
+            callbacks.onDrawMove(e);
           }
         }
         return;
@@ -343,7 +349,7 @@ export function useGestureManager(
     const onContextMenu = (e: Event) => e.preventDefault();
 
     el.addEventListener('pointerdown', onPointerDown, { passive: false });
-    el.addEventListener('pointermove', onPointerMove, { passive: false });
+    el.addEventListener('pointermove', onPointerMove, { passive: true });
     el.addEventListener('pointerup', onPointerUp, { passive: true });
     el.addEventListener('pointercancel', onPointerCancel, { passive: true });
     el.addEventListener('contextmenu', onContextMenu);
