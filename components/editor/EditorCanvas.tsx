@@ -255,14 +255,33 @@ export default function EditorCanvas({
           erasingIdsRef.current.add(s.id);
         }
       });
-      redrawMain();
+      // Redibujar inmediatamente para mostrar highlight rojo
+      mainRenderer.renderStrokes(
+        strokesRef.current,
+        new Set(selectedIdsRef.current),
+        erasingIdsRef.current,
+      );
       drawEraserCursor(pos.x, pos.y);
       return;
     }
 
     if (herramienta === 'borrador_trazo') {
+      // Copiar main canvas al live canvas — borraremos sobre la copia
+      const mainCanvas = mainCanvasRef.current;
+      const liveCanvas = liveCanvasRef.current;
+      const mainCtx = mainCanvas?.getContext('2d');
+      const liveCtx = liveCanvas?.getContext('2d');
+      if (mainCanvas && liveCanvas && mainCtx && liveCtx) {
+        liveRenderer.clear();
+        liveCtx.save();
+        liveCtx.setTransform(1, 0, 0, 1, 0, 0);
+        liveCtx.drawImage(mainCanvas, 0, 0);
+        liveCtx.restore();
+        liveRenderer.applyDpr(liveCtx);
+        // Ocultar main temporalmente durante el borrado en vivo
+        if (mainCanvasRef.current) mainCanvasRef.current.style.opacity = '0';
+      }
       strokeEngine.begin(pos, '#000000', brushSize, 'borrador_trazo');
-      liveRenderer.clear();
       return;
     }
 
@@ -319,7 +338,14 @@ export default function EditorCanvas({
           changed = true;
         }
       });
-      if (changed) mainRenderer.scheduleRender(redrawMain);
+      // Redibujar INMEDIATAMENTE sin RAF para mostrar highlight fluido
+      if (changed) {
+        mainRenderer.renderStrokes(
+          strokesRef.current,
+          new Set(selectedIdsRef.current),
+          erasingIdsRef.current,
+        );
+      }
       drawEraserCursor(pos.x, pos.y);
       return;
     }
@@ -415,14 +441,25 @@ export default function EditorCanvas({
     const ctx = liveCanvas?.getContext('2d');
     if (!ctx) return;
 
-    // NO limpiar el live canvas aquí — solo añadir el segmento nuevo
-    liveRenderer.renderStrokeSegment(
-      renderPoints,
-      strokeEngine.currentStroke.current?.color ?? brushColor,
-      strokeEngine.currentStroke.current?.size ?? brushSize,
-      strokeEngine.currentStroke.current?.tipo ?? herramienta,
-      ctx,
-    );
+    const tipo = strokeEngine.currentStroke.current?.tipo ?? herramienta;
+
+    if (tipo === 'borrador_trazo') {
+      // Borrar sobre la copia del main canvas en el live canvas
+      liveRenderer.renderEraserSegment(
+        renderPoints,
+        strokeEngine.currentStroke.current?.size ?? brushSize,
+        ctx,
+      );
+    } else {
+      // Dibujo normal — NO limpiar el live canvas, solo añadir segmento
+      liveRenderer.renderStrokeSegment(
+        renderPoints,
+        strokeEngine.currentStroke.current?.color ?? brushColor,
+        strokeEngine.currentStroke.current?.size ?? brushSize,
+        tipo,
+        ctx,
+      );
+    }
   }, [
     eventToPoint, isEraser, isShapeTool, isSelecting, isLasso,
     brushColor, brushSize, herramienta, strokeEngine,
@@ -436,13 +473,20 @@ export default function EditorCanvas({
       overlayRenderer.clear();
     }
 
-    if (isEraser && erasingIdsRef.current.size > 0) {
-      strokesRef.current = strokesRef.current.filter(s => !erasingIdsRef.current.has(s.id));
+    if (isEraser) {
+      if (erasingIdsRef.current.size > 0) {
+        strokesRef.current = strokesRef.current.filter(s => !erasingIdsRef.current.has(s.id));
+        setStrokeCount(strokesRef.current.length);
+        saveSnapshot();
+        onChange();
+      }
       erasingIdsRef.current = new Set();
-      setStrokeCount(strokesRef.current.length);
-      saveSnapshot();
-      redrawMain();
-      onChange();
+      // Forzar redraw limpio sin highlights
+      mainRenderer.renderStrokes(
+        strokesRef.current,
+        new Set(selectedIdsRef.current),
+        new Set(),
+      );
       return;
     }
 
@@ -550,6 +594,8 @@ export default function EditorCanvas({
 
     // Limpiar live canvas y pasar el stroke al main
     liveRenderer.clear();
+    // Restaurar visibilidad del main canvas
+    if (mainCanvasRef.current) mainCanvasRef.current.style.opacity = '1';
 
     if (stroke.tipo === 'borrador_trazo') {
       const ctx = mainCanvasRef.current?.getContext('2d');
@@ -558,19 +604,25 @@ export default function EditorCanvas({
         ctx.save();
         ctx.globalCompositeOperation = 'destination-out';
         ctx.strokeStyle = 'rgba(0,0,0,1)';
-        ctx.lineWidth = brushSize * 3;
+        ctx.lineWidth = stroke.size * 3;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.beginPath();
         const pts = stroke.points;
-        if (pts.length > 0) ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length - 1; i++) {
-          const mx = (pts[i].x + pts[i + 1].x) / 2;
-          const my = (pts[i].y + pts[i + 1].y) / 2;
-          ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+        if (pts.length === 0) { ctx.restore(); onChange(); return; }
+        if (pts.length === 1) {
+          ctx.arc(pts[0].x, pts[0].y, stroke.size * 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length - 1; i++) {
+            const mx = (pts[i].x + pts[i + 1].x) / 2;
+            const my = (pts[i].y + pts[i + 1].y) / 2;
+            ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+          }
+          ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+          ctx.stroke();
         }
-        if (pts.length > 1) ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-        ctx.stroke();
         ctx.restore();
       }
       onChange();

@@ -10,24 +10,20 @@ export function useCanvasRenderer(
   canvasRef: React.RefObject<HTMLCanvasElement>,
   options: RendererOptions = {},
 ) {
-  // DPR más alto para máxima calidad — sin límite artificial
   const dprRef = useRef(
     options.dpr ?? (typeof window !== 'undefined' ? window.devicePixelRatio : 1) * 2
   );
+  const rafRef = useRef<number | null>(null);
 
   const setup = useCallback((width: number, height: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
-    // Recalcular DPR en cada setup (puede cambiar si mueves ventana entre monitores)
     dprRef.current = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) * 2;
     const dpr = dprRef.current;
-
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
-
     const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });
     if (ctx) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -42,8 +38,6 @@ export function useCanvasRenderer(
     ctx.setTransform(dprRef.current, 0, 0, dprRef.current, 0, 0);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
   }, []);
 
   const clear = useCallback(() => {
@@ -73,34 +67,22 @@ export function useCanvasRenderer(
     strokes: Stroke[],
     selectedIds: Set<string>,
     erasingIds: Set<string>,
-    viewport?: { x: number; y: number; w: number; h: number },
   ) => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!ctx || !canvas) return;
-
     clear();
-
     for (const stroke of strokes) {
-      if (viewport && stroke.bounds) {
-        const b = stroke.bounds;
-        const pad = stroke.size * 4;
-        if (
-          b.x + b.w + pad < viewport.x ||
-          b.x - pad > viewport.x + viewport.w ||
-          b.y + b.h + pad < viewport.y ||
-          b.y - pad > viewport.y + viewport.h
-        ) continue;
-      }
-
       if (erasingIds.has(stroke.id)) {
         ctx.save();
-        ctx.globalAlpha = 0.3;
-        ctx.strokeStyle = '#ff4d6d';
-        ctx.lineWidth = stroke.size + 2;
+        ctx.globalAlpha = 0.35;
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = Math.max(stroke.size + 4, 8);
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
+        ctx.setLineDash([6, 3]);
         drawStrokeOnCtx(ctx, stroke, false);
+        ctx.setLineDash([]);
         ctx.restore();
       } else {
         drawStrokeOnCtx(ctx, stroke, selectedIds.has(stroke.id));
@@ -108,6 +90,8 @@ export function useCanvasRenderer(
     }
   }, [canvasRef, clear]);
 
+  // Dibuja UN segmento incremental en el live canvas
+  // NO limpia — solo añade el segmento nuevo
   const renderStrokeSegment = useCallback((
     points: Point[],
     color: string,
@@ -128,7 +112,7 @@ export function useCanvasRenderer(
       const p = points[0];
       applyStrokeStyle(c, tipo, color, size, p.pressure ?? 1);
       c.beginPath();
-      c.arc(p.x, p.y, c.lineWidth / 2, 0, Math.PI * 2);
+      c.arc(p.x, p.y, Math.max(c.lineWidth / 2, 0.5), 0, Math.PI * 2);
       c.fill();
       c.restore();
       return;
@@ -169,8 +153,48 @@ export function useCanvasRenderer(
     c.restore();
   }, [canvasRef, applyDpr]);
 
+  // Renderizar borrador_trazo en vivo (destination-out en live canvas)
+  const renderEraserSegment = useCallback((
+    points: Point[],
+    size: number,
+    ctx?: CanvasRenderingContext2D | null,
+  ) => {
+    const canvas = canvasRef.current;
+    const c = ctx ?? canvas?.getContext('2d');
+    if (!c || points.length < 2) return;
+
+    c.save();
+    applyDpr(c);
+    c.globalCompositeOperation = 'destination-out';
+    c.strokeStyle = 'rgba(0,0,0,1)';
+    c.lineWidth = size * 3;
+    c.lineCap = 'round';
+    c.lineJoin = 'round';
+
+    const len = points.length;
+    const p0 = points[Math.max(0, len - 3)];
+    const p1 = points[Math.max(0, len - 2)];
+    const p2 = points[len - 1];
+
+    c.beginPath();
+    c.moveTo((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
+    c.quadraticCurveTo(p1.x, p1.y, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
+    c.stroke();
+    c.restore();
+  }, [canvasRef, applyDpr]);
+
   const scheduleRender = useCallback((fn: () => void) => {
-    requestAnimationFrame(fn);
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      fn();
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
   }, []);
 
   return {
@@ -180,6 +204,7 @@ export function useCanvasRenderer(
     applyDpr,
     renderStrokes,
     renderStrokeSegment,
+    renderEraserSegment,
     scheduleRender,
     dpr: dprRef,
   };
