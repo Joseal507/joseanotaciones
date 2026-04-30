@@ -128,6 +128,15 @@ export default function EditorCanvas({
     );
   }, [mainRenderer]);
 
+  // Full redraw sin highlights de erasing — para uso interno
+  const redrawClean = useCallback(() => {
+    mainRenderer.renderStrokes(
+      strokesRef.current,
+      new Set(selectedIdsRef.current),
+      new Set(),
+    );
+  }, [mainRenderer]);
+
   const redrawOverlay = useCallback((
     rect?: SelectionRect | null,
     shapePreview?: { tipo: string; start: Point; end: { x: number; y: number } } | null,
@@ -234,11 +243,22 @@ export default function EditorCanvas({
     overlayRenderer.clear();
     overlayRenderer.applyDpr(ctx);
     ctx.save();
+    // Círculo sólido semitransparente
+    const r = brushSize * 2 + 4;
     ctx.beginPath();
-    ctx.arc(x, y, brushSize * 2 + 4, 0, Math.PI * 2);
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(239,68,68,0.12)';
+    ctx.fill();
     ctx.strokeStyle = '#ef4444';
     ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 2]);
+    ctx.setLineDash([]);
+    ctx.stroke();
+    // Cruz en el centro
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y);
+    ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 4);
     ctx.stroke();
     ctx.restore();
   }, [overlayRenderer, brushSize]);
@@ -423,31 +443,27 @@ export default function EditorCanvas({
     if (!shouldRender || renderPoints.length < 2) return;
 
     const tipo = strokeEngine.currentStroke.current?.tipo ?? herramienta;
+    const mainCtx = mainCanvasRef.current?.getContext('2d');
+    if (!mainCtx) return;
 
     if (tipo === 'borrador_trazo') {
       // Borrar directamente sobre el main canvas en tiempo real
-      const mainCtx = mainCanvasRef.current?.getContext('2d');
-      if (mainCtx) {
-        mainRenderer.renderEraserSegment(
-          renderPoints,
-          strokeEngine.currentStroke.current?.size ?? brushSize,
-          mainCtx,
-        );
-      }
+      mainRenderer.renderEraserSegment(
+        renderPoints,
+        strokeEngine.currentStroke.current?.size ?? brushSize,
+        mainCtx,
+      );
       drawEraserCursor(pos.x, pos.y);
     } else {
-      // Dibujo normal: dibujar en el main canvas directamente
-      // Esto evita el problema de acumulación/parpadeo del live canvas
-      const mainCtx = mainCanvasRef.current?.getContext('2d');
-      if (mainCtx) {
-        mainRenderer.renderStrokeSegment(
-          renderPoints,
-          strokeEngine.currentStroke.current?.color ?? brushColor,
-          strokeEngine.currentStroke.current?.size ?? brushSize,
-          tipo,
-          mainCtx,
-        );
-      }
+      // Dibujar directamente en el main canvas — sin live canvas intermedio
+      // El main canvas actúa como buffer acumulativo durante el trazo
+      mainRenderer.renderStrokeSegment(
+        renderPoints,
+        strokeEngine.currentStroke.current?.color ?? brushColor,
+        strokeEngine.currentStroke.current?.size ?? brushSize,
+        tipo,
+        mainCtx,
+      );
     }
   }, [
     eventToPoint, isEraser, isShapeTool, isSelecting, isLasso,
@@ -586,12 +602,17 @@ export default function EditorCanvas({
     overlayRenderer.clear();
 
     if (stroke.tipo === 'borrador_trazo') {
-      // Guardar el trazo borrador — se aplica con destination-out en renderStrokes
+      // Guardar el trazo borrador en el array para que persista en redraws
       stroke.bounds = calcBounds(stroke.points);
       strokesRef.current.push(stroke);
       setStrokeCount(strokesRef.current.length);
       saveSnapshot();
-      redrawMain();
+      // Full redraw desde vectores — el renderStrokes aplicará destination-out correctamente
+      mainRenderer.renderStrokes(
+        strokesRef.current,
+        new Set(selectedIdsRef.current),
+        new Set(),
+      );
       onChange();
       return;
     }
@@ -600,7 +621,12 @@ export default function EditorCanvas({
     strokesRef.current.push(stroke);
     setStrokeCount(strokesRef.current.length);
     saveSnapshot();
-    redrawMain();
+    // Full redraw desde vectores para garantizar consistencia visual
+    mainRenderer.renderStrokes(
+      strokesRef.current,
+      new Set(selectedIdsRef.current),
+      new Set(),
+    );
     onChange();
   }, [
     isEraser, isShapeTool, isSelecting, isLasso,

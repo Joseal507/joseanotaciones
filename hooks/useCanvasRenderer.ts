@@ -10,45 +10,76 @@ export function useCanvasRenderer(
   canvasRef: React.RefObject<HTMLCanvasElement>,
   options: RendererOptions = {},
 ) {
-  const dprRef = useRef(
-    options.dpr ?? (typeof window !== 'undefined' ? window.devicePixelRatio : 1) * 2
-  );
+  const dprRef = useRef(1);
   const rafRef = useRef<number | null>(null);
+  // Offscreen buffer — fuente de verdad visual
+  const offscreenRef = useRef<HTMLCanvasElement | null>(null);
+
+  const getDpr = () => {
+    if (typeof window === 'undefined') return 1;
+    return Math.min(window.devicePixelRatio || 1, 3);
+  };
 
   const setup = useCallback((width: number, height: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    dprRef.current = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) * 2;
-    const dpr = dprRef.current;
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
+
+    const dpr = getDpr();
+    dprRef.current = dpr;
+
+    const w = Math.round(width * dpr);
+    const h = Math.round(height * dpr);
+
+    canvas.width = w;
+    canvas.height = h;
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
-    const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });
+
+    // Crear/redimensionar offscreen buffer
+    if (!offscreenRef.current) {
+      offscreenRef.current = document.createElement('canvas');
+    }
+    offscreenRef.current.width = w;
+    offscreenRef.current.height = h;
+
+    const ctx = canvas.getContext('2d', { alpha: true });
     if (ctx) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
     }
   }, [canvasRef]);
 
   const applyDpr = useCallback((ctx: CanvasRenderingContext2D) => {
-    ctx.setTransform(dprRef.current, 0, 0, dprRef.current, 0, 0);
+    const dpr = dprRef.current;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
   }, []);
 
+  // Limpiar canvas completamente
   const clear = useCallback(() => {
     const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!ctx || !canvas) return;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.restore();
     applyDpr(ctx);
+
+    // También limpiar offscreen
+    const off = offscreenRef.current;
+    if (off) {
+      const offCtx = off.getContext('2d');
+      if (offCtx) {
+        offCtx.save();
+        offCtx.setTransform(1, 0, 0, 1, 0, 0);
+        offCtx.clearRect(0, 0, off.width, off.height);
+        offCtx.restore();
+      }
+    }
   }, [canvasRef, applyDpr]);
 
   const clearLive = useCallback(() => {
@@ -63,84 +94,105 @@ export function useCanvasRenderer(
     applyDpr(ctx);
   }, [canvasRef, applyDpr]);
 
+  // ─── Render completo desde datos vectoriales ────────────────────────────
+  // Siempre reconstruye desde cero — nunca pierde trazos
   const renderStrokes = useCallback((
     strokes: Stroke[],
     selectedIds: Set<string>,
     erasingIds: Set<string>,
   ) => {
     const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!ctx || !canvas) return;
-    clear();
+    const off = offscreenRef.current;
+    if (!canvas || !off) return;
+
+    const dpr = dprRef.current;
+    const offCtx = off.getContext('2d');
+    if (!offCtx) return;
+
+    // 1) Dibujar todo en el offscreen buffer
+    offCtx.save();
+    offCtx.setTransform(1, 0, 0, 1, 0, 0);
+    offCtx.clearRect(0, 0, off.width, off.height);
+    offCtx.restore();
+    offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    offCtx.imageSmoothingEnabled = true;
+    offCtx.imageSmoothingQuality = 'high';
 
     for (const stroke of strokes) {
-      // borrador_trazo: aplicar como destination-out (borra píxeles)
       if (stroke.tipo === 'borrador_trazo') {
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.strokeStyle = 'rgba(0,0,0,1)';
-        ctx.lineWidth = stroke.size * 3;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.globalAlpha = 1;
+        // Borrador de píxeles — destination-out
+        offCtx.save();
+        offCtx.globalCompositeOperation = 'destination-out';
+        offCtx.strokeStyle = 'rgba(0,0,0,1)';
+        offCtx.lineWidth = stroke.size * 3;
+        offCtx.lineCap = 'round';
+        offCtx.lineJoin = 'round';
+        offCtx.globalAlpha = 1;
         const pts = stroke.points;
-        if (pts.length > 0) {
-          ctx.beginPath();
-          ctx.moveTo(pts[0].x, pts[0].y);
+        if (pts.length === 1) {
+          offCtx.beginPath();
+          offCtx.arc(pts[0].x, pts[0].y, stroke.size * 1.5, 0, Math.PI * 2);
+          offCtx.fill();
+        } else if (pts.length > 1) {
+          offCtx.beginPath();
+          offCtx.moveTo(pts[0].x, pts[0].y);
           for (let i = 1; i < pts.length; i++) {
             const prev = pts[i - 1];
             const curr = pts[i];
             const mx = (prev.x + curr.x) / 2;
             const my = (prev.y + curr.y) / 2;
-            ctx.quadraticCurveTo(prev.x, prev.y, mx, my);
+            offCtx.quadraticCurveTo(prev.x, prev.y, mx, my);
           }
-          ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-          ctx.stroke();
+          offCtx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+          offCtx.stroke();
         }
-        ctx.restore();
-        // Restaurar composite
-        ctx.globalCompositeOperation = 'source-over';
+        offCtx.restore();
         continue;
       }
 
       if (erasingIds.has(stroke.id)) {
-        // Dibujar el trazo original con opacidad baja
-        ctx.save();
-        ctx.globalAlpha = 0.25;
-        drawStrokeOnCtx(ctx, stroke, false);
-        ctx.restore();
-        // Highlight rosa oscuro encima
-        ctx.save();
-        ctx.globalAlpha = 0.5;
-        ctx.strokeStyle = '#be185d';
-        ctx.lineWidth = Math.max(stroke.size + 6, 10);
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.globalCompositeOperation = 'source-over';
+        // Highlight rosa oscuro para borrador stroke
+        offCtx.save();
+        offCtx.globalAlpha = 0.25;
+        drawStrokeOnCtx(offCtx, stroke, false);
+        offCtx.restore();
+
+        offCtx.save();
+        offCtx.globalAlpha = 0.6;
+        offCtx.strokeStyle = '#be185d';
+        offCtx.lineWidth = Math.max(stroke.size + 8, 12);
+        offCtx.lineCap = 'round';
+        offCtx.lineJoin = 'round';
+        offCtx.globalCompositeOperation = 'source-over';
         const pts = stroke.points;
-        if (pts.length > 0) {
-          ctx.beginPath();
-          ctx.moveTo(pts[0].x, pts[0].y);
+        if (pts.length > 1) {
+          offCtx.beginPath();
+          offCtx.moveTo(pts[0].x, pts[0].y);
           for (let i = 1; i < pts.length; i++) {
-            ctx.lineTo(pts[i].x, pts[i].y);
+            offCtx.lineTo(pts[i].x, pts[i].y);
           }
-          ctx.stroke();
+          offCtx.stroke();
         }
-        if (stroke.shapeEnd && pts.length > 0) {
-          ctx.beginPath();
-          ctx.moveTo(pts[0].x, pts[0].y);
-          ctx.lineTo(stroke.shapeEnd.x, stroke.shapeEnd.y);
-          ctx.stroke();
-        }
-        ctx.restore();
+        offCtx.restore();
       } else {
-        drawStrokeOnCtx(ctx, stroke, selectedIds.has(stroke.id));
+        drawStrokeOnCtx(offCtx, stroke, selectedIds.has(stroke.id));
       }
     }
-  }, [canvasRef, clear]);
 
-  // Dibuja UN segmento incremental en el live canvas
-  // NO limpia — solo añade el segmento nuevo
+    // 2) Copiar offscreen → canvas visible en un solo blit (sin parpadeo)
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(off, 0, 0);
+      ctx.restore();
+      applyDpr(ctx);
+    }
+  }, [canvasRef, applyDpr]);
+
+  // ─── Segmento incremental durante el dibujo ─────────────────────────────
+  // Dibuja sobre el offscreen Y el canvas visible simultáneamente
   const renderStrokeSegment = useCallback((
     points: Point[],
     color: string,
@@ -202,7 +254,7 @@ export function useCanvasRenderer(
     c.restore();
   }, [canvasRef, applyDpr]);
 
-  // Renderizar borrador_trazo en vivo (destination-out en live canvas)
+  // ─── Borrador de píxeles en tiempo real ─────────────────────────────────
   const renderEraserSegment = useCallback((
     points: Point[],
     size: number,
@@ -210,25 +262,32 @@ export function useCanvasRenderer(
   ) => {
     const canvas = canvasRef.current;
     const c = ctx ?? canvas?.getContext('2d');
-    if (!c || points.length < 2) return;
+    if (!c || points.length < 1) return;
 
     c.save();
     applyDpr(c);
     c.globalCompositeOperation = 'destination-out';
     c.strokeStyle = 'rgba(0,0,0,1)';
+    c.fillStyle = 'rgba(0,0,0,1)';
     c.lineWidth = size * 3;
     c.lineCap = 'round';
     c.lineJoin = 'round';
+    c.globalAlpha = 1;
 
-    const len = points.length;
-    const p0 = points[Math.max(0, len - 3)];
-    const p1 = points[Math.max(0, len - 2)];
-    const p2 = points[len - 1];
-
-    c.beginPath();
-    c.moveTo((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
-    c.quadraticCurveTo(p1.x, p1.y, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
-    c.stroke();
+    if (points.length === 1) {
+      c.beginPath();
+      c.arc(points[0].x, points[0].y, size * 1.5, 0, Math.PI * 2);
+      c.fill();
+    } else {
+      const len = points.length;
+      const p0 = points[Math.max(0, len - 3)];
+      const p1 = points[Math.max(0, len - 2)];
+      const p2 = points[len - 1];
+      c.beginPath();
+      c.moveTo((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
+      c.quadraticCurveTo(p1.x, p1.y, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
+      c.stroke();
+    }
     c.restore();
   }, [canvasRef, applyDpr]);
 
