@@ -165,7 +165,7 @@ export default function ChatPage() {
   // ─── TTS principal: iOS-safe con AudioContext ────────────────────────────
   // Usamos AudioContext.decodeAudioData para reproducir — funciona en iOS
   // porque el AudioContext ya fue desbloqueado sincrónicamente en el click.
-  const reproducirAudio = async (texto: string, onEnd?: () => void): Promise<void> => {
+  const reproducirAudio = async (texto: string, onEnd?: () => void, ctxParam?: AudioContext): Promise<void> => {
     stopCurrentAudio();
     setLlamandoAI(true);
     setLlamadaHablando(true);
@@ -183,7 +183,7 @@ export default function ChatPage() {
         const arrayBuffer = await res.arrayBuffer();
 
         // Usar el AudioContext ya desbloqueado por el click
-        const ctx = audioCtxRef.current ?? new AudioContext(); audioCtxRef.current = ctx; if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        const ctx = ctxParam ?? audioCtxRef.current ?? new AudioContext(); audioCtxRef.current = ctx; if (ctx.state === 'suspended') { try { await ctx.resume(); } catch {} }
 
         try {
           const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
@@ -564,7 +564,7 @@ export default function ChatPage() {
               setLlamadaProcesando(false);
               await reproducirAudio(chatData.respuesta, () => {
                 if (modoLlamadaRef.current) iniciarEscuchaLlamada();
-              });
+              }, audioCtxRef.current ?? undefined);
             }
           } else {
             setLlamadaProcesando(false);
