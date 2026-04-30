@@ -37,6 +37,18 @@ export function usePinchZoom(
     });
   }, [onScaleChange]);
 
+  const clampScale = useCallback((v: number) => {
+    return Math.min(maxScale, Math.max(minScale, v));
+  }, [minScale, maxScale]);
+
+  const normalizeIfNearIdentity = useCallback(() => {
+    if (Math.abs(scaleRef.current - 1) < 0.01) {
+      scaleRef.current = 1;
+      txRef.current = 0;
+      tyRef.current = 0;
+    }
+  }, []);
+
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el || !enabled) return;
@@ -48,6 +60,26 @@ export function usePinchZoom(
       x: (t[0].clientX + t[1].clientX) / 2,
       y: (t[0].clientY + t[1].clientY) / 2,
     });
+
+    const toLocal = (clientX: number, clientY: number) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        x: clientX - rect.left,
+        y: clientY - rect.top,
+      };
+    };
+
+    const zoomAroundPoint = (localX: number, localY: number, nextScale: number) => {
+      const prevScale = scaleRef.current;
+      const worldX = (localX - txRef.current) / prevScale;
+      const worldY = (localY - tyRef.current) / prevScale;
+
+      scaleRef.current = clampScale(nextScale);
+      txRef.current = localX - worldX * scaleRef.current;
+      tyRef.current = localY - worldY * scaleRef.current;
+
+      normalizeIfNearIdentity();
+    };
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
@@ -66,7 +98,6 @@ export function usePinchZoom(
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      // Pinch zoom + pan con 2 dedos
       if (e.touches.length === 2 && lastDistRef.current !== null && lastMidRef.current) {
         e.preventDefault();
 
@@ -74,28 +105,26 @@ export function usePinchZoom(
         const newMid = getMid(e.touches);
 
         const prevScale = scaleRef.current;
-        const nextScale = Math.min(
-          maxScale,
-          Math.max(minScale, prevScale * (newDist / lastDistRef.current))
-        );
+        const nextScale = clampScale(prevScale * (newDist / lastDistRef.current));
 
-        const rect = el.getBoundingClientRect();
-        const ox = newMid.x - rect.left;
-        const oy = newMid.y - rect.top;
-        const ratio = nextScale / prevScale;
+        const prevLocal = toLocal(lastMidRef.current.x, lastMidRef.current.y);
+        const newLocal = toLocal(newMid.x, newMid.y);
 
-        txRef.current = txRef.current + ox * (1 - ratio) + (newMid.x - lastMidRef.current.x);
-        tyRef.current = tyRef.current + oy * (1 - ratio) + (newMid.y - lastMidRef.current.y);
+        const worldX = (prevLocal.x - txRef.current) / prevScale;
+        const worldY = (prevLocal.y - tyRef.current) / prevScale;
 
         scaleRef.current = nextScale;
+        txRef.current = newLocal.x - worldX * nextScale;
+        tyRef.current = newLocal.y - worldY * nextScale;
+
         lastDistRef.current = newDist;
         lastMidRef.current = newMid;
 
+        normalizeIfNearIdentity();
         scheduleNotify();
         return;
       }
 
-      // Pan con 1 dedo solo si está permitido
       if (allowSingleFingerPan && e.touches.length === 1 && scaleRef.current > 1) {
         const touch = e.touches[0];
 
@@ -134,25 +163,26 @@ export function usePinchZoom(
     };
 
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return;
-      e.preventDefault();
+      const isZoomGesture = e.ctrlKey || e.metaKey;
 
-      const prevScale = scaleRef.current;
-      const nextScale = Math.min(
-        maxScale,
-        Math.max(minScale, prevScale * (e.deltaY < 0 ? 1.05 : 0.95))
-      );
+      if (isZoomGesture) {
+        e.preventDefault();
 
-      const rect = el.getBoundingClientRect();
-      const ox = e.clientX - rect.left;
-      const oy = e.clientY - rect.top;
-      const ratio = nextScale / prevScale;
+        const zoomFactor = Math.exp(-e.deltaY * 0.002);
+        const local = toLocal(e.clientX, e.clientY);
+        const nextScale = clampScale(scaleRef.current * zoomFactor);
 
-      txRef.current = txRef.current + ox * (1 - ratio);
-      tyRef.current = tyRef.current + oy * (1 - ratio);
-      scaleRef.current = nextScale;
+        zoomAroundPoint(local.x, local.y, nextScale);
+        scheduleNotify();
+        return;
+      }
 
-      scheduleNotify();
+      if (scaleRef.current > 1 && (Math.abs(e.deltaX) > 0 || Math.abs(e.deltaY) > 0)) {
+        e.preventDefault();
+        txRef.current -= e.deltaX;
+        tyRef.current -= e.deltaY;
+        scheduleNotify();
+      }
     };
 
     el.addEventListener('touchstart', onTouchStart, { passive: true });
@@ -169,7 +199,7 @@ export function usePinchZoom(
       el.removeEventListener('wheel', onWheel);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [wrapperRef, enabled, minScale, maxScale, allowSingleFingerPan, scheduleNotify]);
+  }, [wrapperRef, enabled, clampScale, normalizeIfNearIdentity, allowSingleFingerPan, scheduleNotify]);
 
   return scaleRef;
 }
