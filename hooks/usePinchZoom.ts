@@ -46,8 +46,10 @@ export function usePinchZoom(
       return {
         viewportW: el.clientWidth,
         viewportH: el.clientHeight,
-        contentW: content?.offsetWidth ?? el.clientWidth,
-        contentH: content?.offsetHeight ?? el.clientHeight,
+        scrollLeft: el.scrollLeft,
+        scrollTop: el.scrollTop,
+        contentW: content?.scrollWidth ?? content?.offsetWidth ?? el.clientWidth,
+        contentH: content?.scrollHeight ?? content?.offsetHeight ?? el.clientHeight,
         baseLeft: content?.offsetLeft ?? 0,
         baseTop: content?.offsetTop ?? 0,
       };
@@ -58,20 +60,27 @@ export function usePinchZoom(
         return { scale: 1, tx: 0, ty: 0 };
       }
 
-      const { viewportW, viewportH, contentW, contentH, baseLeft, baseTop } = getMetrics();
+      const {
+        viewportW, viewportH,
+        scrollLeft, scrollTop,
+        contentW, contentH,
+        baseLeft, baseTop,
+      } = getMetrics();
+
       const scaledW = contentW * nextScale;
       const scaledH = contentH * nextScale;
-      const margin = 40;
+      const margin = 48;
 
-      let minTx = viewportW - baseLeft - scaledW - margin;
-      let maxTx = -baseLeft + margin;
-      let minTy = viewportH - baseTop - scaledH - margin;
-      let maxTy = -baseTop + margin;
+      let minTx = scrollLeft + viewportW - baseLeft - scaledW - margin;
+      let maxTx = scrollLeft - baseLeft + margin;
+      let minTy = scrollTop + viewportH - baseTop - scaledH - margin;
+      let maxTy = scrollTop - baseTop + margin;
 
       if (scaledW + margin * 2 <= viewportW) {
         minTx = 0;
         maxTx = 0;
       }
+
       if (scaledH + margin * 2 <= viewportH) {
         minTy = 0;
         maxTy = 0;
@@ -87,8 +96,8 @@ export function usePinchZoom(
     const toLocal = (clientX: number, clientY: number) => {
       const rect = el.getBoundingClientRect();
       return {
-        x: clientX - rect.left,
-        y: clientY - rect.top,
+        x: clientX - rect.left + el.scrollLeft,
+        y: clientY - rect.top + el.scrollTop,
       };
     };
 
@@ -204,7 +213,7 @@ export function usePinchZoom(
         e.preventDefault();
         e.stopPropagation();
 
-        const factor = e.deltaY > 0 ? 0.93 : 1.08;
+        const factor = Math.exp(-e.deltaY * 0.0035);
         zoomAroundClientPoint(e.clientX, e.clientY, scaleRef.current * factor);
         notify();
         return;
@@ -214,7 +223,7 @@ export function usePinchZoom(
         e.preventDefault();
         e.stopPropagation();
 
-        const panSpeed = 1.15;
+        const panSpeed = 1.0;
         panBy(-e.deltaX * panSpeed, -e.deltaY * panSpeed);
         notify();
       }

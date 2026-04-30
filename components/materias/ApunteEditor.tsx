@@ -695,11 +695,12 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
         {/* ═══ PAGE AREA ═══ */}
         <div ref={wrapperRef} style={{
           flex: 1,
-          overflow: zoomState.scale > 1 ? 'hidden' : 'auto',
+          overflow: 'auto',
           display: 'flex',
           justifyContent: scrollDirection === 'horizontal' ? 'flex-start' : 'center',
           touchAction: zoomState.scale > 1 ? 'none' : 'pan-x pan-y',
-          overscrollBehavior: 'none',
+          overscrollBehavior: 'contain',
+          scrollbarGutter: 'stable both-edges',
           userSelect: 'none',
           WebkitUserSelect: 'none',
           paddingBottom: isMobile ? '70px' : '80px',
