@@ -183,7 +183,7 @@ export default function ChatPage() {
         const arrayBuffer = await res.arrayBuffer();
 
         // Usar el AudioContext ya desbloqueado por el click
-        const ctx = getAudioCtx();
+        const ctx = audioCtxRef.current ?? new AudioContext(); audioCtxRef.current = ctx; if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 
         try {
           const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
