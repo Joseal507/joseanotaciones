@@ -128,6 +128,20 @@ export default function EditorCanvas({
     );
   }, [mainRenderer]);
 
+  // IMPORTANTE:
+  // El overlay (selección/lasso/cursor borrador) NO debe pasar por el renderer buffered,
+  // porque el commit async puede limpiarlo y hacerlo "invisible".
+  const clearOverlayDirect = () => {
+    const canvas = overlayCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    overlayRenderer.applyDpr(ctx);
+  };
+
   // Full redraw sin highlights de erasing — para uso interno
   const redrawClean = useCallback(() => {
     mainRenderer.renderStrokes(
@@ -141,7 +155,7 @@ export default function EditorCanvas({
     rect?: SelectionRect | null,
     shapePreview?: { tipo: string; start: Point; end: { x: number; y: number } } | null,
   ) => {
-    overlayRenderer.clear();
+    clearOverlayDirect();
     const canvas = overlayCanvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!ctx) return;
@@ -240,7 +254,7 @@ export default function EditorCanvas({
     const canvas = overlayCanvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!ctx) return;
-    overlayRenderer.clear();
+    clearOverlayDirect();
     overlayRenderer.applyDpr(ctx);
     ctx.save();
     // Círculo sólido semitransparente
@@ -359,7 +373,7 @@ export default function EditorCanvas({
 
     if (isShapeActiveRef.current && shapeStartRef.current) {
       shapeEndRef.current = { x: pos.x, y: pos.y };
-      overlayRenderer.clear();
+      clearOverlayDirect();
       const canvas = overlayCanvasRef.current;
       const ctx = canvas?.getContext('2d');
       if (ctx) {
@@ -400,7 +414,7 @@ export default function EditorCanvas({
       const canvas = overlayCanvasRef.current;
       const ctx = canvas?.getContext('2d');
       if (ctx) {
-        overlayRenderer.clear();
+        clearOverlayDirect();
         overlayRenderer.applyDpr(ctx);
         ctx.save();
         ctx.strokeStyle = '#818cf8';
@@ -430,7 +444,7 @@ export default function EditorCanvas({
       };
       selectionRectRef.current = rect;
       setSelectionRect(rect);
-      overlayRenderer.clear();
+      clearOverlayDirect();
       const canvas = overlayCanvasRef.current;
       const ctx = canvas?.getContext('2d');
       if (ctx) {
@@ -472,7 +486,7 @@ export default function EditorCanvas({
   const handleDrawEnd = useCallback((e: PointerEvent) => {
     // Limpiar cursor borrador
     if (isEraser) {
-      overlayRenderer.clear();
+      clearOverlayDirect();
     }
 
     if (isEraser) {
@@ -596,7 +610,7 @@ export default function EditorCanvas({
 
     // Limpiar live buffer y overlay
     liveRenderer.clearLive();
-    overlayRenderer.clear();
+    clearOverlayDirect();
 
     if (stroke.tipo === 'borrador_trazo') {
       stroke.bounds = calcBounds(stroke.points);
