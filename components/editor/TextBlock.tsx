@@ -243,9 +243,9 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
 
       <div style={{
         borderRadius: 8,
-        border: editing ? `2px solid ${temaColor}` : selected ? `2px solid ${temaColor}55` : '2px solid transparent',
-        background: editing ? 'rgba(255,255,255,0.99)' : 'transparent',
-        boxShadow: editing ? `0 4px 24px rgba(0,0,0,0.15), 0 0 0 4px ${temaColor}15` : 'none',
+        border: editing ? `2px dashed ${temaColor}` : selected ? `2px solid ${temaColor}55` : '2px solid transparent',
+        background: 'transparent',
+        boxShadow: 'none',
         transition: 'border .12s, background .12s, box-shadow .12s',
       }}>
         <div
@@ -272,6 +272,7 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
             fontFamily: 'Georgia, serif',
             fontSize: 16,
             color: '#1f2937',
+            background: 'transparent',
             outline: 'none',
             lineHeight: 1.2,
             whiteSpace: 'pre-wrap',

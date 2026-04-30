@@ -64,17 +64,18 @@ export default function FloatingTextInput({ x, y, temaColor, onSave, onCancel }:
           maxWidth: '500px',
           minHeight: '32px',
           padding: '6px 12px',
-          background: 'rgba(255,255,255,0.98)',
-          border: `2px solid ${temaColor}`,
+          background: 'transparent',
+          border: `2px dashed ${temaColor}`,
           borderRadius: '8px',
           fontSize: '16px',
           fontFamily: 'Georgia, serif',
           color: '#1f2937',
           outline: 'none',
-          boxShadow: `0 4px 20px rgba(0,0,0,0.15), 0 0 0 3px ${temaColor}20`,
+          boxShadow: 'none',
           lineHeight: '32px',
           cursor: 'text',
           whiteSpace: 'pre-wrap',
+          caretColor: temaColor,
         }}
       />
       <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '3px', textAlign: 'center' }}>
