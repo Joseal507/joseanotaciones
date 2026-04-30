@@ -6,6 +6,7 @@ import EditorCanvas from '../editor/EditorCanvas';
 import PaperBackground from '../editor/PaperBackground';
 import TextBlock from '../editor/TextBlock';
 import ImageBlock from '../editor/ImageBlock';
+import { ErrorBoundary, SilentErrorBoundary } from '../ErrorBoundary';
 
 interface Props {
   pagina: Pagina;
@@ -285,6 +286,7 @@ export default function PaginaEditor({
         )}
 
         {/* Canvas */}
+        <ErrorBoundary name="Canvas" temaColor={temaColor}>
         <EditorCanvas
           herramienta={herramienta}
           brushColor={brushColor}
@@ -300,6 +302,7 @@ export default function PaginaEditor({
           externalScale={externalScale}
           onPeterSauPeter={onPeterSauPeter}
         />
+        </ErrorBoundary>
 
         {/* Bloques */}
         <div

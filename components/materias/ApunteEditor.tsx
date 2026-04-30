@@ -15,6 +15,7 @@ import PeterSauPeter from '../editor/PeterSauPeter';
 import { usePinchZoom } from '../../hooks/usePinchZoom';
 import PublicarComunidad from '../PublicarComunidad';
 import { useGuardar } from '../../hooks/useGuardar';
+import { ErrorBoundary, SilentErrorBoundary } from '../ErrorBoundary';
 
 interface Props {
   apunte: Apunte;
@@ -532,6 +533,8 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
   return (
     <>
       {/* MODALS */}
+      <SilentErrorBoundary>
+      <SilentErrorBoundary>
       {showPeterSauPeter && peterImage && (
         <PeterSauPeter
           imageBase64={peterImage.base64}
@@ -544,6 +547,8 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
       {showDrawingCanvas && <DrawingCanvas color={tema.color} onSave={(d) => addImagen(d, '🎨 Dibujo')} onClose={() => setShowDrawingCanvas(false)} />}
       {showImage && <ImageInserter color={tema.color} onInsert={(src) => addImagen(src)} onClose={() => setShowImage(false)} />}
       {showPdfFondo && <PdfBackgroundInserter temaColor={tema.color} onInsert={handleInsertPdfFondo} onClose={() => setShowPdfFondo(false)} />}
+      </SilentErrorBoundary>
+      </SilentErrorBoundary>
 
       {/* FULLSCREEN EDITOR */}
       <div style={{
