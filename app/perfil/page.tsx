@@ -287,7 +287,7 @@ export default function PerfilPage() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                       {materiasOrdenadas.map((m, i) => {
                         const prec = m.totalFlashcards > 0 ? Math.round((m.acertadas / m.totalFlashcards) * 100) : 0;
-                        const objsMateria = objetivos.filter(o => o.materiaId === m.id);
+                        const objsMateria = objetivos.filter(o => o.materiaColor === m.color);
                         const objsCompletados = objsMateria.filter(o => o.completado).length;
 
                         return (
