@@ -1,170 +1,164 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useIdioma } from '../hooks/useIdioma';
-import { getSettings, saveSettings } from '../lib/settings';
 
 export default function UserMenu() {
   const [usuario, setUsuario] = useState<any>(null);
-  const [open, setOpen] = useState(false);
-  const [fotoPerfil, setFotoPerfil] = useState('');
+  const [abierto, setAbierto] = useState(false);
+  const [perfil, setPerfil] = useState<any>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const { tr } = useIdioma();
 
   useEffect(() => {
     const cargar = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (!data.user) return;
-      setUsuario(data.user);
-
-      // 1. Intentar desde localStorage primero (más rápido)
-      const settings = getSettings();
-      if (settings.fotoPerfil) {
-        setFotoPerfil(settings.fotoPerfil);
-      }
-
-      // 2. Cargar desde Supabase (fuente de verdad)
       try {
-        const { data: lb } = await supabase
-          .from('leaderboard')
-          .select('avatar_url')
-          .eq('user_id', data.user.id)
-          .single();
+        const { data } = await supabase.auth.getUser();
+        if (!data.user) return;
+        setUsuario(data.user);
 
-        if (lb?.avatar_url) {
-          setFotoPerfil(lb.avatar_url);
-          // Sincronizar localStorage si difiere
-          if (lb.avatar_url !== settings.fotoPerfil) {
-            saveSettings({ ...settings, fotoPerfil: lb.avatar_url });
+        try {
+          const stored = localStorage.getItem('josea_perfil');
+          if (stored) {
+            const p = JSON.parse(stored);
+            if (p && p.nombre) { setPerfil(p); return; }
           }
+        } catch {}
+
+        try {
+          const res = await fetch('/api/user-profile');
+          const json = await res.json();
+          if (json.success && json.perfil) {
+            setPerfil(json.perfil);
+            localStorage.setItem('josea_perfil', JSON.stringify(json.perfil));
+          }
+        } catch {}
+      } catch (err: any) {
+        // Supabase lock conflict — retry silently after delay
+        if (err?.message?.includes('lock') || err?.message?.includes('stole')) {
+          setTimeout(async () => {
+            try {
+              const { data } = await supabase.auth.getSession();
+              if (data.session?.user) setUsuario(data.session.user);
+            } catch {}
+          }, 800);
         }
-      } catch {}
+      }
     };
-
     cargar();
+  }, []);
 
-    // Escuchar cambios en localStorage (cuando se sube foto en settings)
-    const onStorage = () => {
-      const s = getSettings();
-      if (s.fotoPerfil) setFotoPerfil(s.fotoPerfil);
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setAbierto(false);
+      }
     };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
   const cerrarSesion = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch {}
+    localStorage.clear();
+    sessionStorage.clear();
     window.location.href = '/auth';
   };
 
+  const nombre = perfil?.nombre || usuario?.user_metadata?.nombre || usuario?.email?.split('@')[0] || '?';
+  const inicial = nombre.charAt(0).toUpperCase();
+  const avatarUrl = perfil?.avatar_url || usuario?.user_metadata?.avatar_url;
+
   if (!usuario) return null;
 
-  const nombre = usuario.user_metadata?.nombre || usuario.email?.split('@')[0] || 'Usuario';
-  const inicial = nombre.charAt(0).toUpperCase();
-
-  const Avatar = ({ size = 28 }: { size?: number }) => (
-    <div style={{
-      width: size + 'px', height: size + 'px', borderRadius: '50%',
-      overflow: 'hidden', flexShrink: 0,
-      background: fotoPerfil ? 'transparent' : 'var(--gold)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: Math.round(size * 0.46) + 'px', fontWeight: 900, color: '#000',
-    }}>
-      {fotoPerfil
-        ? <img src={fotoPerfil} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-        : inicial}
-    </div>
-  );
-
-  const menuItems = [
-    { label: '⚙️ ' + tr('configuracion'), href: '/settings' },
-    { label: '🌐 Mi Perfil Público',        href: `/u/${usuario.id}` },
-    { label: '📊 Mis Stats',                href: '/perfil' },
-    { label: '📚 ' + tr('misMaterias'),     href: '/materias' },
-    { label: '📅 ' + tr('agenda'),          href: '/agenda' },
-    { label: '🎓 ' + tr('quizzes'),         href: '/quizzes' },
-  ];
-
   return (
-    <div style={{ position: 'relative' }}>
+    <div ref={menuRef} style={{ position: 'relative' }}>
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => setAbierto(!abierto)}
         style={{
-          display: 'flex', alignItems: 'center', gap: '8px',
-          padding: '6px 12px', borderRadius: '10px',
-          border: '2px solid var(--border-color)',
-          background: 'transparent', cursor: 'pointer', transition: 'all 0.2s',
+          width: '34px', height: '34px', borderRadius: '10px',
+          border: '2px solid var(--gold-border)',
+          background: avatarUrl ? 'transparent' : 'var(--gold-dim)',
+          cursor: 'pointer', overflow: 'hidden',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: '13px', fontWeight: 900, color: 'var(--gold)',
+          transition: 'all .15s',
+          padding: 0,
         }}
         onMouseEnter={(e: any) => e.currentTarget.style.borderColor = 'var(--gold)'}
-        onMouseLeave={(e: any) => e.currentTarget.style.borderColor = 'var(--border-color)'}
+        onMouseLeave={(e: any) => e.currentTarget.style.borderColor = 'var(--gold-border)'}
       >
-        <Avatar size={28} />
-        <span style={{
-          fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)',
-          maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
-          {nombre}
-        </span>
-        <span style={{ fontSize: '10px', color: 'var(--text-faint)' }}>▼</span>
+        {avatarUrl
+          ? <img src={avatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e: any) => { e.target.style.display = 'none'; }} />
+          : inicial
+        }
       </button>
 
-      {open && (
-        <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 998 }} onClick={() => setOpen(false)} />
-          <div style={{
-            position: 'absolute', top: '100%', right: 0, marginTop: '8px',
-            background: 'var(--bg-card)', border: '1px solid var(--border-color)',
-            borderRadius: '14px', padding: '8px', minWidth: '210px',
-            zIndex: 999, boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-          }}>
-            {/* Header del menu */}
-            <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', marginBottom: '6px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Avatar size={40} />
-                <div style={{ minWidth: 0 }}>
-                  <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {nombre}
-                  </p>
-                  <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {usuario.email}
-                  </p>
-                </div>
-              </div>
-            </div>
+      {abierto && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 8px)', right: 0,
+          background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+          borderRadius: '14px', padding: '6px',
+          minWidth: '200px', zIndex: 9999,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.35)',
+          animation: 'fadeInDown .15s ease',
+        }}>
+          {/* User info */}
+          <div style={{ padding: '10px 12px 8px', borderBottom: '1px solid var(--border-color)', marginBottom: '4px' }}>
+            <p style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nombre}</p>
+            <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{usuario.email}</p>
+          </div>
 
-            {menuItems.map((item, i) => (
-              <button key={i}
-                onClick={() => { window.location.href = item.href; setOpen(false); }}
-                style={{
-                  width: '100%', padding: '9px 12px', borderRadius: '8px',
-                  border: 'none', background: 'transparent',
-                  color: 'var(--text-primary)', fontSize: '13px', fontWeight: 600,
-                  cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s', display: 'block',
-                }}
-                onMouseEnter={(e: any) => e.currentTarget.style.background = 'var(--bg-secondary)'}
-                onMouseLeave={(e: any) => e.currentTarget.style.background = 'transparent'}
-              >
-                {item.label}
-              </button>
-            ))}
-
-            <div style={{ height: '1px', background: 'var(--border-color)', margin: '6px 0' }} />
-            <button
-              onClick={cerrarSesion}
+          {/* Links */}
+          {[
+            { label: '📊 ' + tr('perfil'), href: '/perfil' },
+            { label: '⚙️ ' + tr('configuracion'), href: '/settings' },
+            { label: '📚 ' + tr('misMaterias'), href: '/materias' },
+          ].map((item, i) => (
+            <button key={i}
+              onClick={() => { window.location.href = item.href; setAbierto(false); }}
               style={{
                 width: '100%', padding: '9px 12px', borderRadius: '8px',
                 border: 'none', background: 'transparent',
-                color: 'var(--red)', fontSize: '13px', fontWeight: 700,
-                cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
+                color: 'var(--text-primary)', fontSize: '13px', fontWeight: 600,
+                cursor: 'pointer', textAlign: 'left', display: 'block',
+                transition: 'background .15s',
               }}
-              onMouseEnter={(e: any) => e.currentTarget.style.background = 'var(--red-dim)'}
+              onMouseEnter={(e: any) => e.currentTarget.style.background = 'var(--bg-secondary)'}
               onMouseLeave={(e: any) => e.currentTarget.style.background = 'transparent'}
             >
-              🚪 {tr('cerrarSesion')}
+              {item.label}
             </button>
-          </div>
-        </>
+          ))}
+
+          <div style={{ height: '1px', background: 'var(--border-color)', margin: '4px 0' }} />
+
+          <button
+            onClick={cerrarSesion}
+            style={{
+              width: '100%', padding: '9px 12px', borderRadius: '8px',
+              border: 'none', background: 'transparent',
+              color: 'var(--red)', fontSize: '13px', fontWeight: 700,
+              cursor: 'pointer', textAlign: 'left', display: 'block',
+              transition: 'background .15s',
+            }}
+            onMouseEnter={(e: any) => e.currentTarget.style.background = 'var(--red-dim)'}
+            onMouseLeave={(e: any) => e.currentTarget.style.background = 'transparent'}
+          >
+            🚪 {tr('cerrarSesion') || 'Cerrar sesión'}
+          </button>
+        </div>
       )}
+
+      <style>{`
+        @keyframes fadeInDown {
+          from { opacity: 0; transform: translateY(-6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
     </div>
   );
 }
