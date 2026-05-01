@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { verificarRacha, getHoyStr, RachaData } from '../lib/racha';
+import { verificarRacha, cargarRachaDesdeDB, getHoyStr, RachaData } from '../lib/racha';
 import { useIdioma } from '../hooks/useIdioma';
 
 interface Props {
@@ -14,7 +14,13 @@ export default function RachaWidget({ compact = false }: Props) {
   const { tr, idioma } = useIdioma();
 
   useEffect(() => {
+    // 1. Mostrar local inmediatamente (sin esperar red)
     setRacha(verificarRacha());
+
+    // 2. Cargar desde DB en background y actualizar si hay diferencia
+    cargarRachaDesdeDB().then((rachaDB) => {
+      setRacha(rachaDB);
+    }).catch(() => {});
   }, []);
 
   if (!racha) return null;
@@ -122,12 +128,12 @@ export default function RachaWidget({ compact = false }: Props) {
 
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
           {[
-            { dias: 3, emoji: '⭐', label: idioma === 'en' ? '3 days' : '3 días' },
-            { dias: 7, emoji: '🌟', label: idioma === 'en' ? '1 week' : '1 semana' },
-            { dias: 14, emoji: '💫', label: idioma === 'en' ? '2 weeks' : '2 semanas' },
-            { dias: 30, emoji: '🏆', label: idioma === 'en' ? '1 month' : '1 mes' },
-            { dias: 60, emoji: '👑', label: idioma === 'en' ? '2 months' : '2 meses' },
-            { dias: 100, emoji: '💎', label: idioma === 'en' ? '100 days' : '100 días' },
+            { dias: 3,   emoji: '⭐', label: idioma === 'en' ? '3 days'    : '3 días'    },
+            { dias: 7,   emoji: '🌟', label: idioma === 'en' ? '1 week'    : '1 semana'  },
+            { dias: 14,  emoji: '💫', label: idioma === 'en' ? '2 weeks'   : '2 semanas' },
+            { dias: 30,  emoji: '🏆', label: idioma === 'en' ? '1 month'   : '1 mes'     },
+            { dias: 60,  emoji: '👑', label: idioma === 'en' ? '2 months'  : '2 meses'   },
+            { dias: 100, emoji: '💎', label: idioma === 'en' ? '100 days'  : '100 días'  },
           ].map(m => (
             <div key={m.dias} style={{
               padding: '4px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 700,

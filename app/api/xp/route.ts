@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { calcularNivel } from '@/lib/nivelUtils';
 
-const getAdmin = () => createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+const getAdmin = () =>
+  createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
 
 async function getUser(req: NextRequest) {
   const token = req.headers.get('authorization')?.replace('Bearer ', '');
@@ -14,32 +16,15 @@ async function getUser(req: NextRequest) {
   }
   try {
     const { data, error } = await getAdmin().auth.getUser(token);
-    if (error) {
-      console.log('❌ XP auth error:', error.message);
+    if (error || !data.user) {
+      console.log('❌ XP auth error:', error?.message);
       return null;
     }
-    if (!data.user) {
-      console.log('❌ XP: No user found');
-      return null;
-    }
-    console.log('✅ XP user:', data.user.id);
     return data.user;
   } catch (e: any) {
     console.log('❌ XP catch:', e.message);
     return null;
   }
-}
-
-function calcularNivel(xpTotal: number): number {
-  let nivel = 1;
-  let acumulado = 0;
-  while (nivel < 100) {
-    const necesario = Math.floor(100 * Math.pow(nivel, 1.5));
-    if (xpTotal < acumulado + necesario) break;
-    acumulado += necesario;
-    nivel++;
-  }
-  return Math.min(nivel, 100);
 }
 
 export async function GET(req: NextRequest) {
@@ -51,12 +36,11 @@ export async function GET(req: NextRequest) {
     const db = getAdmin();
     const { data, error } = await db
       .from('leaderboard')
-      .select('xp_total, xp_breakdown, nivel, racha_actual, mejor_racha, flashcards_estudiadas, precision_global')
+      .select('xp_total, xp_breakdown, nivel')
       .eq('user_id', user.id)
       .single();
 
     if (error && error.code !== 'PGRST116') {
-      console.log('❌ XP DB error:', error.message);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
@@ -72,7 +56,7 @@ export async function GET(req: NextRequest) {
       xp_breakdown: data?.xp_breakdown ?? {},
     });
   } catch (e: any) {
-    console.error('❌ XP GET crash:', e.message, e.stack);
+    console.error('❌ XP GET crash:', e.message);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
@@ -94,7 +78,12 @@ export async function POST(req: NextRequest) {
     console.log(`📥 XP POST: fuente=${fuente} cantidad=${cantidad}`);
 
     const fuentesValidas = ['timer', 'flashcards', 'quiz', 'post', 'objetivo', 'login', 'racha', 'comunidad'];
-    if (!fuente || !fuentesValidas.includes(fuente) || typeof cantidad !== 'number' || cantidad <= 0) {
+    if (
+      !fuente ||
+      !fuentesValidas.includes(fuente) ||
+      typeof cantidad !== 'number' ||
+      cantidad === 0
+    ) {
       console.log('❌ XP datos inválidos:', { fuente, cantidad });
       return NextResponse.json({ error: 'Datos inválidos' }, { status: 400 });
     }
@@ -107,13 +96,12 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (errGet && errGet.code !== 'PGRST116') {
-      console.log('❌ XP GET current error:', errGet.message);
       return NextResponse.json({ error: errGet.message }, { status: 500 });
     }
 
     const xpActual = current?.xp_total ?? 0;
     const breakdownActual = current?.xp_breakdown ?? {};
-    const xpNuevo = xpActual + cantidad;
+    const xpNuevo = Math.max(0, xpActual + cantidad);
     const nivelNuevo = calcularNivel(xpNuevo);
     const nivelAnterior = current?.nivel ?? calcularNivel(xpActual);
 
@@ -125,20 +113,23 @@ export async function POST(req: NextRequest) {
 
     const { error: errUpdate } = await db
       .from('leaderboard')
-      .upsert({
-        user_id: user.id,
-        xp_total: xpNuevo,
-        xp_breakdown: breakdownNuevo,
-        nivel: nivelNuevo,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id' });
+      .upsert(
+        {
+          user_id: user.id,
+          xp_total: xpNuevo,
+          xp_breakdown: breakdownNuevo,
+          nivel: nivelNuevo,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' },
+      );
 
     if (errUpdate) {
       console.error('❌ XP upsert error:', errUpdate.message);
       return NextResponse.json({ error: errUpdate.message }, { status: 500 });
     }
 
-    console.log(`✅ XP: +${cantidad} (${fuente}) → ${xpNuevo} total | Nivel ${nivelAnterior}→${nivelNuevo}`);
+    console.log(`✅ XP: +${cantidad} (${fuente}) → ${xpNuevo} | Nivel ${nivelAnterior}→${nivelNuevo}`);
 
     return NextResponse.json({
       ok: true,
@@ -151,7 +142,7 @@ export async function POST(req: NextRequest) {
       fuente,
     });
   } catch (e: any) {
-    console.error('❌ XP POST crash:', e.message, e.stack);
+    console.error('❌ XP POST crash:', e.message);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }

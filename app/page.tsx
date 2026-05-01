@@ -20,6 +20,9 @@ import { BetaBadge, BetaBanner } from '../components/BetaBanner';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useIdioma } from '../hooks/useIdioma';
+import DailyReward, { shouldShowDailyReward } from '../components/DailyReward';
+import { darXP } from '../lib/xpClient';
+import { cargarRachaDesdeDB } from '../lib/racha';
 
 export default function Home() {
   const { darkMode, toggle: toggleDark } = useDarkMode();
@@ -27,6 +30,7 @@ export default function Home() {
   const [verificando, setVerificando] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
   const [showBuscador, setShowBuscador] = useState(false);
+  const [showDaily, setShowDaily] = useState(false);
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
 
@@ -47,6 +51,20 @@ export default function Home() {
             body: JSON.stringify({ nombre, email: user.email, es_login: true }),
           }).catch(() => {});
         }
+
+        // ✅ Mostrar daily reward — cargar DB primero
+        import('../lib/racha').then(({ cargarRachaDesdeDB }) => {
+          return cargarRachaDesdeDB();
+        }).then(() => {
+          if (shouldShowDailyReward()) {
+            setShowDaily(true);
+          }
+        }).catch(() => {
+          if (shouldShowDailyReward()) {
+            setShowDaily(true);
+          }
+        });
+
       } else {
         setLoggedIn(false);
         setVerificando(false);
@@ -78,6 +96,13 @@ export default function Home() {
     return () => window.removeEventListener('keydown', handler);
   }, [loggedIn]);
 
+  const handleXPGained = async (xp: number) => {
+    if (xp !== 0) {
+      await darXP('racha', xp, { source: 'daily_reward', type: xp > 0 ? 'spin_win' : 'spin_loss' });
+    }
+  };
+
+
   const goAuth = () => { window.location.href = '/auth'; };
   const requireAuth = (fn: () => void) => loggedIn ? fn() : goAuth();
 
@@ -99,6 +124,14 @@ export default function Home() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', fontFamily: '-apple-system, sans-serif' }}>
 
+      {/* ✅ DAILY REWARD */}
+      {showDaily && (
+        <DailyReward
+          onClose={() => setShowDaily(false)}
+          onXPGained={handleXPGained}
+        />
+      )}
+
       {loggedIn && <OnboardingCheck />}
       {loggedIn && <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '12px 40px 0' }}><BetaBanner /></div>}
       {loggedIn && showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
@@ -108,7 +141,6 @@ export default function Home() {
         loggedIn ? (
           <NavbarMobile darkMode={darkMode} onToggleDark={toggleDark} />
         ) : (
-          /* Mobile navbar for visitors */
           <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: '0 16px', position: 'sticky', top: 0, zIndex: 100, display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '60px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <img src="/logo.png" alt="Logo" style={{ width: '36px', height: '36px', borderRadius: '10px', objectFit: 'cover' }} onError={(e: any) => { e.target.style.display = 'none'; }} />
@@ -207,7 +239,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* ── Features section for visitors ── */}
         {!loggedIn && (
           <div style={{ marginBottom: '56px' }}>
             <h2 style={{ textAlign: 'center', fontSize: isMobile ? '20px' : '28px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 32px' }}>
@@ -219,7 +250,7 @@ export default function Home() {
                 { emoji: '🤖', title: 'ChapBot AI', desc: idioma === 'en' ? 'An AI tutor that helps you study' : 'Un tutor de inteligencia artificial que te ayuda a estudiar', color: 'var(--pink)' },
                 { emoji: '🎴', title: 'Flashcards', desc: idioma === 'en' ? 'Auto-generate flashcards from your documents' : 'Genera flashcards automáticas de tus documentos', color: 'var(--red)' },
                 { emoji: '📅', title: idioma === 'en' ? 'Planner & Schedule' : 'Agenda y Horario', desc: idioma === 'en' ? 'Plan your week with schedules and goals' : 'Planifica tu semana con horarios y objetivos', color: 'var(--blue)' },
-                { emoji: '👥', title: idioma === 'en' ? 'Study Partners' : 'Study Partners', desc: idioma === 'en' ? 'Connect with other students and share content' : 'Conecta con otros estudiantes y comparte material', color: '#38bdf8' },
+                { emoji: '👥', title: 'Study Partners', desc: idioma === 'en' ? 'Connect with other students and share content' : 'Conecta con otros estudiantes y comparte material', color: '#38bdf8' },
                 { emoji: '📊', title: idioma === 'en' ? 'Statistics' : 'Estadísticas', desc: idioma === 'en' ? 'Track your progress with streaks, XP and leaderboard' : 'Mide tu progreso con rachas, XP y leaderboard', color: '#a78bfa' },
               ].map((f, i) => (
                 <div key={i} onClick={goAuth}
@@ -235,7 +266,6 @@ export default function Home() {
                 </div>
               ))}
             </div>
-
             <div style={{ textAlign: 'center', marginTop: '32px' }}>
               <button onClick={goAuth}
                 style={{ padding: '14px 40px', borderRadius: '14px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '16px', fontWeight: 900, cursor: 'pointer' }}>
@@ -245,10 +275,8 @@ export default function Home() {
           </div>
         )}
 
-        {/* ── Logged-in dashboard ── */}
         {loggedIn && (
           <>
-            {/* STATS */}
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: '1px', background: 'var(--border-color)', borderRadius: '16px', overflow: 'hidden', marginBottom: isMobile ? '28px' : '48px' }}>
               {[
                 { label: tr('materias'), value: materias.length, color: 'var(--gold)', emoji: '📚' },
@@ -264,7 +292,6 @@ export default function Home() {
               ))}
             </div>
 
-            {/* HORARIO HOY */}
             <div style={{ marginBottom: isMobile ? '28px' : '48px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
                 <div style={{ width: '4px', height: '28px', background: 'var(--gold)', borderRadius: '2px' }} />
@@ -273,7 +300,6 @@ export default function Home() {
               <HorarioWidget />
             </div>
 
-            {/* RACHA */}
             <div style={{ marginBottom: isMobile ? '28px' : '48px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
                 <div style={{ width: '4px', height: '28px', background: 'var(--red)', borderRadius: '2px' }} />
@@ -294,7 +320,6 @@ export default function Home() {
 
             <div style={{ marginBottom: isMobile ? '28px' : '48px' }}><NotasRapidas /></div>
 
-            {/* MATERIAS */}
             {materias.length > 0 && (
               <div style={{ marginBottom: isMobile ? '28px' : '48px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -348,7 +373,6 @@ export default function Home() {
           </>
         )}
 
-        {/* ACCESOS RÁPIDOS — visible for both but requires auth */}
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
             <div style={{ width: '4px', height: '28px', background: 'var(--blue)', borderRadius: '2px' }} />

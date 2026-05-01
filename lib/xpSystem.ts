@@ -647,3 +647,6 @@ export const MARCOS: Record<string, { gradient: string; nombre: string; animado?
   marco_diamante:    { gradient: 'linear-gradient(135deg, #b9f2ff, #00bcd4, #b9f2ff)', nombre: 'Diamante', animado: true },
   marco_himmy:       { gradient: 'linear-gradient(135deg, #f5c842, #ff4d6d, #a78bfa, #4ade80, #f5c842)', nombre: 'Himmy', animado: true },
 };
+
+// ─── RE-EXPORT desde nivelUtils (fuente única de verdad) ───
+export { calcularNivel } from './nivelUtils';

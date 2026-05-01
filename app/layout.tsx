@@ -6,6 +6,7 @@ import './globals.css';
 import ThemeInit from '../components/ThemeInit';
 import PomodoroProvider from '../components/PomodoroProvider';
 import XPToast from '../components/XPToast';
+import RachaInit from '../components/RachaInit';
 
 const caveat = Caveat({
   subsets: ['latin'],
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <ThemeInit />
+        <RachaInit />
         <PomodoroProvider>
           {children}
         </PomodoroProvider>

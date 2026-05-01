@@ -1,8 +1,3 @@
-/**
- * xpClient.ts
- * Función para dar XP desde cualquier componente cliente
- * sin necesidad de usar el hook useXP
- */
 import { supabase } from './supabase';
 
 export type FuenteXP = 'timer' | 'flashcards' | 'quiz' | 'post' | 'objetivo' | 'login' | 'racha' | 'comunidad';
@@ -13,7 +8,7 @@ export async function darXP(
   meta?: Record<string, any>
 ): Promise<{ ok: boolean; xpGanado: number; xpTotal: number; nivel: number; subioNivel: boolean }> {
   try {
-    if (cantidad <= 0) return { ok: false, xpGanado: 0, xpTotal: 0, nivel: 1, subioNivel: false };
+    if (cantidad === 0) return { ok: false, xpGanado: 0, xpTotal: 0, nivel: 1, subioNivel: false };
 
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;

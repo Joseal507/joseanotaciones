@@ -5,28 +5,43 @@ let _admin: any = null;
 let _auth: any = null;
 
 const getAdmin = () => {
-  if (!_admin) _admin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
+  if (!_admin) {
+    _admin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    );
+  }
   return _admin;
 };
 
 const getAuth = () => {
-  if (!_auth) _auth = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  );
+  if (!_auth) {
+    _auth = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    );
+  }
   return _auth;
 };
 
 async function getUser(request: NextRequest) {
   const token = request.headers.get('authorization')?.replace('Bearer ', '');
   if (!token) return null;
+
   try {
     const { data: { user } } = await getAuth().auth.getUser(token);
     return user;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
+}
+
+async function upsertLeaderboard(upsertData: any) {
+  const { error } = await getAdmin()
+    .from('leaderboard')
+    .upsert(upsertData, { onConflict: 'user_id' });
+
+  return error;
 }
 
 export async function GET() {
@@ -44,7 +59,7 @@ export async function GET() {
     }
 
     return NextResponse.json({ success: true, data: data || [] });
-  } catch (err: any) {
+  } catch {
     return NextResponse.json({ success: true, data: [] });
   }
 }
@@ -52,18 +67,29 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const user = await getUser(request);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     const body = await request.json();
+
     const {
-      nombre, xp_total, flashcards_estudiadas, quizzes_completados,
-      racha_actual, mejor_racha, precision_global,
-      // ✅ Datos del perfil
-      genero, tipo_estudiante, universidad, carrera,
-      que_quieres_estudiar, avatar_url, onboarding_completo,
+      nombre,
+      xp_total,
+      flashcards_estudiadas,
+      quizzes_completados,
+      racha_actual,
+      mejor_racha,
+      precision_global,
+      genero,
+      tipo_estudiante,
+      universidad,
+      carrera,
+      que_quieres_estudiar,
+      avatar_url,
+      onboarding_completo,
     } = body;
 
-    // ✅ Obtener el registro actual para no pisar datos existentes
     const { data: existing } = await getAdmin()
       .from('leaderboard')
       .select('*')
@@ -82,37 +108,41 @@ export async function POST(request: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
-    // ✅ Solo actualizar datos de perfil si vienen en el body
     if (genero !== undefined) upsertData.genero = genero;
     if (tipo_estudiante !== undefined) upsertData.tipo_estudiante = tipo_estudiante;
     if (universidad !== undefined) upsertData.universidad = universidad;
     if (carrera !== undefined) upsertData.carrera = carrera;
     if (que_quieres_estudiar !== undefined) upsertData.que_quieres_estudiar = que_quieres_estudiar;
     if (avatar_url !== undefined) upsertData.avatar_url = avatar_url;
-    if (quizzes_completados !== undefined) upsertData.quizzes_completados = quizzes_completados;
+    if (onboarding_completo !== undefined) upsertData.onboarding_completo = onboarding_completo;
 
-    // ✅ flashcards_estudiadas NUNCA baja — solo sube
     if (flashcards_estudiadas !== undefined) {
       const { data: curr } = await getAdmin()
         .from('leaderboard')
         .select('flashcards_estudiadas')
         .eq('user_id', user.id)
         .single();
+
       upsertData.flashcards_estudiadas = Math.max(
         curr?.flashcards_estudiadas || 0,
         flashcards_estudiadas
       );
     }
-    if (onboarding_completo !== undefined) upsertData.onboarding_completo = onboarding_completo;
 
-    // ✅ Si es el primer registro, guardar created_at
+    if (quizzes_completados !== undefined) {
+      upsertData.quizzes_completados = quizzes_completados;
+    }
+
     if (!existing) {
       upsertData.created_at = new Date().toISOString();
     }
 
-    const { error } = await getAdmin()
-      .from('leaderboard')
-      .upsert(upsertData, { onConflict: 'user_id' });
+    let error: any = await upsertLeaderboard(upsertData);
+
+    if (error?.message?.includes('quizzes_completados')) {
+      delete upsertData.quizzes_completados;
+      error = await upsertLeaderboard(upsertData);
+    }
 
     if (error) {
       console.error('Leaderboard POST error:', error.message);

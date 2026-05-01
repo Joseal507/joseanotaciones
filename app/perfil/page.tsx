@@ -12,6 +12,8 @@ import MarcoAvatar from '../../components/MarcoAvatar';
 import LogrosPanel from '../../components/LogrosPanel';
 import TablaRangos from '../../components/TablaRangos';
 import { getRango, getLogrosObtenidos, LogroStats } from '../../lib/xpSystem';
+import { getObjetivos } from '../../lib/agenda';
+import { getRacha } from '../../lib/racha';
 
 export default function PerfilPage() {
   const [perfil, setPerfil] = useState<PerfilEstudio | null>(null);
@@ -84,14 +86,16 @@ export default function PerfilPage() {
 
   const quizzesTotales = Object.values(perfil.materiasStats || {}).reduce((a: number, m: any) => a + (m.quizzes || 0), 0);
 
+  const rachaData = getRacha();
+  const objetivos = getObjetivos();
   const rango = getRango(xpTotal);
 
   const logroStats: LogroStats = {
     xpTotal,
     flashcardsEstudiadas: total,
     quizzesCompletados: quizzesTotales,
-    rachaActual: 0,
-    mejorRacha: 0,
+    rachaActual: rachaData.rachaActual,
+    mejorRacha: rachaData.mejorRacha,
     precision: porcentajeGlobal,
     materiasCreadas: materiasOrdenadas.length,
     postsCreados: 0,
@@ -173,6 +177,9 @@ export default function PerfilPage() {
               </span>
               <span style={{ fontSize: 11, background: '#a78bfa22', borderRadius: 8, padding: '3px 10px', color: '#a78bfa', fontWeight: 600 }}>
                 🎖️ {logrosObtenidos.length} {idioma === 'en' ? 'achievements' : 'logros'}
+              </span>
+              <span style={{ fontSize: 11, background: 'rgba(239,68,68,0.1)', borderRadius: 8, padding: '3px 10px', color: '#ef4444', fontWeight: 700 }}>
+                🔥 {rachaData.rachaActual} {idioma === 'en' ? 'day streak' : 'días de racha'}
               </span>
             </div>
           </div>
@@ -269,30 +276,49 @@ export default function PerfilPage() {
               <div style={{ background: 'var(--bg-card)', borderRadius: 16, border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                 <div style={{ height: 4, background: 'var(--gold)' }} />
                 <div style={{ padding: 20 }}>
-                  <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 16px' }}>
-                    {tr('precisionPorMateria')}
+                  <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    📚 {idioma === 'en' ? 'Stats by Subject' : 'Estadísticas por materia'}
                   </h2>
                   {materiasOrdenadas.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
-                      📚 {tr('estudiaFlashcards')}
+                      📚 {idioma === 'en' ? 'Study flashcards, complete quizzes and goals to see stats' : 'Estudia flashcards, completa quizzes y objetivos para ver tus estadísticas'}
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                       {materiasOrdenadas.map((m, i) => {
                         const prec = m.totalFlashcards > 0 ? Math.round((m.acertadas / m.totalFlashcards) * 100) : 0;
+                        const objsMateria = objetivos.filter(o => o.materiaId === m.id);
+                        const objsCompletados = objsMateria.filter(o => o.completado).length;
+
                         return (
-                          <div key={i}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                          <div key={i} style={{ background: 'var(--bg-secondary)', padding: 12, borderRadius: 12, border: '1px solid var(--border-color)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                                <div style={{ width: 9, height: 9, borderRadius: '50%', background: m.color }} />
-                                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{m.nombre}</span>
+                                <div style={{ width: 10, height: 10, borderRadius: '50%', background: m.color }} />
+                                <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>{m.nombre}</span>
                               </div>
-                              <span style={{ fontSize: 13, fontWeight: 800, color: prec >= 70 ? '#4ade80' : prec >= 50 ? 'var(--gold)' : 'var(--red)' }}>
-                                {prec}%
+                              <span style={{ fontSize: 12, fontWeight: 800, color: prec >= 70 ? '#4ade80' : prec >= 50 ? 'var(--gold)' : 'var(--red)', background: 'var(--bg-primary)', padding: '2px 8px', borderRadius: 6 }}>
+                                {prec}% {tr('precision')}
                               </span>
                             </div>
-                            <div style={{ background: 'var(--bg-secondary)', borderRadius: 6, height: 7, overflow: 'hidden' }}>
-                              <div style={{ width: `${prec}%`, height: '100%', background: prec >= 70 ? '#4ade80' : prec >= 50 ? 'var(--gold)' : 'var(--red)', borderRadius: 6, transition: 'width 0.8s ease' }} />
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 8 }}>
+                               <div style={{ textAlign: 'center' }}>
+                                 <div style={{ fontSize: 14, fontWeight: 900, color: 'var(--text-primary)' }}>{m.totalFlashcards}</div>
+                                 <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>🎴 Cards</div>
+                               </div>
+                               <div style={{ textAlign: 'center', borderLeft: '1px solid var(--border-color)', borderRight: '1px solid var(--border-color)' }}>
+                                 <div style={{ fontSize: 14, fontWeight: 900, color: 'var(--gold)' }}>{m.quizzes || 0}</div>
+                                 <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>📝 Quizzes</div>
+                               </div>
+                               <div style={{ textAlign: 'center' }}>
+                                 <div style={{ fontSize: 14, fontWeight: 900, color: '#3b82f6' }}>{objsCompletados}/{objsMateria.length}</div>
+                                 <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>🎯 {idioma === 'en' ? 'Goals' : 'Objetivos'}</div>
+                               </div>
+                            </div>
+
+                            <div style={{ background: 'var(--bg-primary)', borderRadius: 6, height: 5, overflow: 'hidden', marginTop: 10 }}>
+                              <div style={{ width: `${prec}%`, height: '100%', background: m.color, borderRadius: 6, transition: 'width 0.8s ease' }} />
                             </div>
                           </div>
                         );

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { registrarEstudioHoy } from '../lib/racha';
 import {
   getLevelFromXp,
   getLevelProgress,
@@ -31,9 +32,8 @@ interface XPState {
   cargando: boolean;
 }
 
-// Cache global en memoria — persiste entre navegaciones sin refetch
 let _cache: { xpTotal: number; nivel: number; breakdown: Record<string, number>; ts: number } | null = null;
-const CACHE_TTL = 60_000; // 1 minuto
+const CACHE_TTL = 60_000;
 
 export function useXP() {
   const [state, setState] = useState<XPState>(() => {
@@ -56,23 +56,29 @@ export function useXP() {
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   const getToken = useCallback(async (): Promise<string | null> => {
     if (tokenRef.current) return tokenRef.current;
+
     const { data } = await supabase.auth.getSession();
     tokenRef.current = data.session?.access_token ?? null;
-    // Renovar token si expira
+
     supabase.auth.onAuthStateChange((_e, session) => {
       tokenRef.current = session?.access_token ?? null;
     });
+
     return tokenRef.current;
   }, []);
 
   const actualizarEstado = useCallback((xpTotal: number, nivel: number, breakdown: Record<string, number>) => {
     if (!mountedRef.current) return;
+
     _cache = { xpTotal, nivel, breakdown, ts: Date.now() };
+
     setState({
       xpTotal,
       nivel,
@@ -85,18 +91,21 @@ export function useXP() {
     });
   }, []);
 
-  // Cargar XP inicial desde Supabase
   const recargar = useCallback(async () => {
-    // Si el cache es fresco, no re-fetch
     if (_cache && Date.now() - _cache.ts < CACHE_TTL) {
-      if (mountedRef.current) setState(prev => ({ ...prev, cargando: false }));
+      if (mountedRef.current) {
+        setState(prev => ({ ...prev, cargando: false }));
+      }
       return;
     }
 
     try {
       const token = await getToken();
+
       if (!token) {
-        if (mountedRef.current) setState(prev => ({ ...prev, cargando: false }));
+        if (mountedRef.current) {
+          setState(prev => ({ ...prev, cargando: false }));
+        }
         return;
       }
 
@@ -104,32 +113,52 @@ export function useXP() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!res.ok) return;
+      if (!res.ok) {
+        if (mountedRef.current) {
+          setState(prev => ({ ...prev, cargando: false }));
+        }
+        return;
+      }
+
       const data = await res.json();
+
       if (data.ok) {
         actualizarEstado(data.xp_total, data.nivel, data.xp_breakdown ?? {});
       }
-    } catch {}
+    } catch {
+    }
 
-    if (mountedRef.current) setState(prev => ({ ...prev, cargando: false }));
+    if (mountedRef.current) {
+      setState(prev => ({ ...prev, cargando: false }));
+    }
   }, [getToken, actualizarEstado]);
 
   useEffect(() => {
     recargar();
   }, [recargar]);
 
-  // Dar XP — llama al API y actualiza estado local inmediatamente
+  const marcarEstudioSiAplica = useCallback((fuente: FuenteXP) => {
+    if (fuente === 'racha') return;
+    registrarEstudioHoy().catch(() => {});
+  }, []);
+
   const darXP = useCallback(async (fuente: FuenteXP, cantidad: number, meta?: any): Promise<XPResult> => {
     const nivelAnterior = state.nivel;
     const xpAnterior = state.xpTotal;
 
     if (cantidad <= 0) {
-      return { xpGanado: 0, xpTotal: xpAnterior, nivelAnterior, nivelNuevo: nivelAnterior, subioNivel: false };
+      return {
+        xpGanado: 0,
+        xpTotal: xpAnterior,
+        nivelAnterior,
+        nivelNuevo: nivelAnterior,
+        subioNivel: false,
+      };
     }
 
-    // Optimistic update — actualizar UI antes de esperar respuesta
     const xpOptimista = xpAnterior + cantidad;
     const nivelOptimista = getLevelFromXp(xpOptimista);
+
     actualizarEstado(xpOptimista, nivelOptimista, {
       ...(state.breakdown),
       [fuente]: (state.breakdown[fuente] ?? 0) + cantidad,
@@ -137,8 +166,16 @@ export function useXP() {
 
     try {
       const token = await getToken();
+
       if (!token) {
-        return { xpGanado: cantidad, xpTotal: xpOptimista, nivelAnterior, nivelNuevo: nivelOptimista, subioNivel: nivelOptimista > nivelAnterior };
+        marcarEstudioSiAplica(fuente);
+        return {
+          xpGanado: cantidad,
+          xpTotal: xpOptimista,
+          nivelAnterior,
+          nivelNuevo: nivelOptimista,
+          subioNivel: nivelOptimista > nivelAnterior,
+        };
       }
 
       const res = await fetch('/api/xp', {
@@ -151,22 +188,35 @@ export function useXP() {
       });
 
       if (!res.ok) {
-        // Revertir optimistic update
         actualizarEstado(xpAnterior, nivelAnterior, state.breakdown);
-        return { xpGanado: 0, xpTotal: xpAnterior, nivelAnterior, nivelNuevo: nivelAnterior, subioNivel: false };
+        return {
+          xpGanado: 0,
+          xpTotal: xpAnterior,
+          nivelAnterior,
+          nivelNuevo: nivelAnterior,
+          subioNivel: false,
+        };
       }
 
       const data = await res.json();
+
       if (!data.ok) {
         actualizarEstado(xpAnterior, nivelAnterior, state.breakdown);
-        return { xpGanado: 0, xpTotal: xpAnterior, nivelAnterior, nivelNuevo: nivelAnterior, subioNivel: false };
+        return {
+          xpGanado: 0,
+          xpTotal: xpAnterior,
+          nivelAnterior,
+          nivelNuevo: nivelAnterior,
+          subioNivel: false,
+        };
       }
 
-      // Confirmar con valor real de Supabase
       actualizarEstado(data.xp_total, data.nivel, {
         ...(state.breakdown),
         [fuente]: (state.breakdown[fuente] ?? 0) + data.xp_ganado,
       });
+
+      marcarEstudioSiAplica(fuente);
 
       return {
         xpGanado: data.xp_ganado,
@@ -176,7 +226,7 @@ export function useXP() {
         subioNivel: data.subio_nivel,
       };
     } catch {
-      // En error de red, mantener optimistic
+      marcarEstudioSiAplica(fuente);
       return {
         xpGanado: cantidad,
         xpTotal: xpOptimista,
@@ -185,7 +235,7 @@ export function useXP() {
         subioNivel: nivelOptimista > nivelAnterior,
       };
     }
-  }, [state, getToken, actualizarEstado]);
+  }, [state, getToken, actualizarEstado, marcarEstudioSiAplica]);
 
   return { ...state, darXP, recargar };
 }
