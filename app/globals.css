@@ -302,3 +302,125 @@ body {
   --pink-dim: rgba(123,47,246,0.15);
   --pink-border: rgba(123,47,246,0.3);
 }
+
+/* Modo claro: líneas más visibles */
+html.light body {
+  background-image:
+    linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 60px,
+      rgba(239, 68, 68, 0.32) 60px,
+      rgba(239, 68, 68, 0.32) 62px,
+      transparent 62px
+    ),
+    repeating-linear-gradient(
+      180deg,
+      transparent 0,
+      transparent 31px,
+      rgba(56, 189, 248, 0.28) 31px,
+      rgba(56, 189, 248, 0.28) 32px
+    );
+}
+
+/* Tema executive: líneas verdes elegantes */
+html[data-theme="executive"] body {
+  background-image:
+    linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 60px,
+      rgba(34, 197, 94, 0.18) 60px,
+      rgba(34, 197, 94, 0.18) 62px,
+      transparent 62px
+    ),
+    repeating-linear-gradient(
+      180deg,
+      transparent 0,
+      transparent 31px,
+      rgba(245, 200, 66, 0.10) 31px,
+      rgba(245, 200, 66, 0.10) 32px
+    );
+}
+
+/* Tema sunset: líneas naranjas */
+html[data-theme="sunset"] body {
+  background-image:
+    linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 60px,
+      rgba(249, 115, 22, 0.22) 60px,
+      rgba(249, 115, 22, 0.22) 62px,
+      transparent 62px
+    ),
+    repeating-linear-gradient(
+      180deg,
+      transparent 0,
+      transparent 31px,
+      rgba(252, 211, 77, 0.12) 31px,
+      rgba(252, 211, 77, 0.12) 32px
+    );
+}
+
+/* Tema neon: líneas cyan brillantes */
+html[data-theme="neon"] body {
+  background-image:
+    linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 60px,
+      rgba(236, 72, 153, 0.25) 60px,
+      rgba(236, 72, 153, 0.25) 62px,
+      transparent 62px
+    ),
+    repeating-linear-gradient(
+      180deg,
+      transparent 0,
+      transparent 31px,
+      rgba(34, 211, 238, 0.15) 31px,
+      rgba(34, 211, 238, 0.15) 32px
+    );
+}
+
+/* Tema playa: líneas turquesa */
+html[data-theme="playa"] body {
+  background-image:
+    linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 60px,
+      rgba(20, 184, 166, 0.20) 60px,
+      rgba(20, 184, 166, 0.20) 62px,
+      transparent 62px
+    ),
+    repeating-linear-gradient(
+      180deg,
+      transparent 0,
+      transparent 31px,
+      rgba(56, 189, 248, 0.12) 31px,
+      rgba(56, 189, 248, 0.12) 32px
+    );
+}
+
+/* En mobile, esconder margen rojo (queda raro) */
+@media (max-width: 768px) {
+  body {
+    background-image: repeating-linear-gradient(
+      180deg,
+      transparent 0,
+      transparent 31px,
+      rgba(56, 189, 248, 0.08) 31px,
+      rgba(56, 189, 248, 0.08) 32px
+    );
+  }
+  html.light body {
+    background-image: repeating-linear-gradient(
+      180deg,
+      transparent 0,
+      transparent 31px,
+      rgba(56, 189, 248, 0.25) 31px,
+      rgba(56, 189, 248, 0.25) 32px
+    );
+  }
+}

@@ -33,7 +33,7 @@ export default function RangoSubidaModal({ rangoAnterior, rangoNuevo, onClose }:
       }}
     >
       <div
-        onClick={e => e.stopPropagation()}
+        onClick={(e: any) => e.stopPropagation()}
         style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center',
           gap: 24, textAlign: 'center', maxWidth: 400, width: '100%',

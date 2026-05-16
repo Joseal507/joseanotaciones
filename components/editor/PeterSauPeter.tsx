@@ -342,7 +342,7 @@ export default function PeterSauPeter({
               </p>
               <textarea
                 value={textoManual}
-                onChange={e => setTextoManual(e.target.value)}
+                onChange={(e: any) => setTextoManual(e.target.value)}
                 placeholder={idioma === 'en' ? 'Example: x^2 + 5x + 6 = 0' : 'Ejemplo: x^2 + 5x + 6 = 0'}
                 rows={3}
                 autoFocus

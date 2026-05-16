@@ -81,7 +81,7 @@ export default function PdfBackgroundInserter({ temaColor, onInsert, onClose }: 
       } else if (file.type.startsWith('image/')) {
         const base64 = await new Promise<string>((resolve) => {
           const reader = new FileReader();
-          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.onload = (e: any) => resolve(e.target?.result as string);
           reader.readAsDataURL(file);
         });
         pagesBase64 = [base64];
@@ -102,7 +102,7 @@ export default function PdfBackgroundInserter({ temaColor, onInsert, onClose }: 
   return (
     <div
       style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(10px)' }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e: any) => e.target === e.currentTarget && onClose()}
     >
       <div style={{ background: 'var(--bg-card)', borderRadius: '24px', border: `2px solid ${temaColor}`, padding: '30px', width: '90%', maxWidth: '500px', boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
         <h2 style={{ marginTop: 0, color: 'var(--text-primary)' }}>📋 Insertar Fondo (PDF, Word, Imagen)</h2>
@@ -158,7 +158,7 @@ export default function PdfBackgroundInserter({ temaColor, onInsert, onClose }: 
         )}
 
         <input ref={inputRef} type="file" accept=".pdf,.doc,.docx,image/*" hidden
-          onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+          onChange={(e: any) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
       </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>

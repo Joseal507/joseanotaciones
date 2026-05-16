@@ -1,5 +1,7 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+
 import { useState, useEffect } from 'react';
 import UserMenu from './UserMenu';
 import RachaWidget from './RachaWidget';
@@ -13,6 +15,7 @@ interface Props {
 }
 
 export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: Props) {
+  const router = useRouter();
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [userId, setUserId] = useState('');
   const [appNombre, setAppNombre] = useState('StudyAL');
@@ -67,7 +70,7 @@ export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: P
         height: '60px',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
-          onClick={() => window.location.href = '/'}>
+          onClick={() => ((window as any).__showNavLoader?.('/'), router.push('/'))}>
           <img src="/logo.png" alt="Logo"
             style={{ width: '34px', height: '34px', borderRadius: '8px', objectFit: 'cover' }}
             onError={(e: any) => { e.target.style.display = 'none'; }}

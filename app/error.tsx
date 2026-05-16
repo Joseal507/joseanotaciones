@@ -57,7 +57,7 @@ export default function GlobalError({
           Reintentar
         </button>
         <button
-          onClick={() => window.location.href = '/'}
+          onClick={() => ((window as any).__showNavLoader?.('/'), window.location.href = '/')}
           style={{
             padding: '10px 20px',
             borderRadius: '10px',

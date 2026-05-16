@@ -123,7 +123,7 @@ export default function DrawingCanvas({ onSave, onClose, color }: Props) {
             <button key={c} onClick={() => { setBrushColor(c); setTool('pen'); }}
               style={{ width: '22px', height: '22px', borderRadius: '50%', background: c, border: brushColor === c ? '3px solid white' : '2px solid var(--border-color)', cursor: 'pointer', transform: brushColor === c ? 'scale(1.2)' : 'scale(1)', transition: 'transform 0.15s' }} />
           ))}
-          <input type="color" value={brushColor} onChange={e => { setBrushColor(e.target.value); setTool('pen'); }}
+          <input type="color" value={brushColor} onChange={(e: any) => { setBrushColor(e.target.value); setTool('pen'); }}
             style={{ width: '28px', height: '28px', borderRadius: '50%', border: 'none', cursor: 'pointer', padding: 0 }} />
         </div>
 

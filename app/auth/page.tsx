@@ -7,6 +7,8 @@ import { supabase } from '../../lib/supabase';
 import OnboardingModal from '../../components/OnboardingModal';
 import { useIdioma } from '../../hooks/useIdioma';
 
+const HAND = "'Caveat',cursive";
+
 export default function AuthPage() {
   const [modo, setModo] = useState<'login' | 'registro' | 'reset'>('login');
   const [email, setEmail] = useState('');
@@ -18,7 +20,7 @@ export default function AuthPage() {
   const [mensaje, setMensaje] = useState('');
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [nombreUsuario, setNombreUsuario] = useState('');
-  const { tr, idioma } = useIdioma();
+  const { tr } = useIdioma();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -36,8 +38,8 @@ export default function AuthPage() {
         .eq('user_id', userId)
         .single();
 
-      if (entry?.genero && entry?.tipo_estudiante) { window.location.href = '/'; return; }
-      if (entry?.onboarding_completo) { window.location.href = '/'; return; }
+      if (entry?.genero && entry?.tipo_estudiante) { (window as any).__showNavLoader?.('/'); window.location.href = '/'; return; }
+      if (entry?.onboarding_completo) { (window as any).__showNavLoader?.('/'); window.location.href = '/'; return; }
 
       const { data: profile } = await supabase
         .from('user_profiles')
@@ -52,16 +54,16 @@ export default function AuthPage() {
             tipo_estudiante: profile.tipo_estudiante, onboarding_completo: true,
           }, { onConflict: 'user_id' });
         }
-        window.location.href = '/'; return;
+        (window as any).__showNavLoader?.('/'); window.location.href = '/'; return;
       }
 
       const localDone = localStorage.getItem(`josea_onboarding_done_${userId}`);
-      if (localDone === 'true') { window.location.href = '/'; return; }
+      if (localDone === 'true') { (window as any).__showNavLoader?.('/'); window.location.href = '/'; return; }
 
       setNombreUsuario(nombre);
       setShowOnboarding(true);
     } catch {
-      window.location.href = '/';
+      (window as any).__showNavLoader?.('/'); window.location.href = '/';
     }
   };
 
@@ -120,67 +122,137 @@ export default function AuthPage() {
   };
 
   if (showOnboarding) {
-    return <OnboardingModal nombre={nombreUsuario} onComplete={() => { window.location.href = '/'; }} />;
+    return <OnboardingModal nombre={nombreUsuario} onComplete={() => { (window as any).__showNavLoader?.('/'); window.location.href = '/'; }} />;
   }
 
   const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '12px 16px', borderRadius: '10px',
-    border: '2px solid var(--border-color)', background: 'var(--bg-secondary)',
-    color: 'var(--text-primary)', fontSize: '15px', outline: 'none',
-    boxSizing: 'border-box', transition: 'border 0.2s', fontFamily: 'inherit',
+    width: '100%', padding: '11px 14px', borderRadius: 8,
+    border: '2px dashed var(--border-color)', background: 'var(--bg-secondary)',
+    color: 'var(--text-primary)', fontSize: 15, outline: 'none',
+    boxSizing: 'border-box', transition: 'border 0.2s',
+    fontFamily: HAND, fontWeight: 700,
   };
 
   return (
     <div style={{
       minHeight: '100vh', background: 'var(--bg-primary)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontFamily: '-apple-system, sans-serif', padding: '20px',
+      padding: 20, position: 'relative', overflow: 'hidden',
     }}>
-      <div style={{ width: '100%', maxWidth: '420px' }}>
+      {/* Stickers flotantes */}
+      {['📚', '✏️', '🎯', '💡', '⭐', '🔥'].map((e, i) => (
+        <div key={i} style={{
+          position: 'absolute',
+          top: `${15 + i * 14}%`,
+          left: i % 2 === 0 ? `${5 + i * 3}%` : 'auto',
+          right: i % 2 !== 0 ? `${5 + i * 3}%` : 'auto',
+          fontSize: 28, opacity: 0.15,
+          transform: `rotate(${-20 + i * 12}deg)`,
+          pointerEvents: 'none',
+        }}>{e}</div>
+      ))}
 
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+      <div style={{ width: '100%', maxWidth: 400, position: 'relative', zIndex: 1 }}>
+
+        {/* Logo idéntico al home */}
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          gap: 2, marginBottom: 24,
+        }}>
           <div style={{
-            width: '80px', height: '80px', borderRadius: '20px',
-            border: '3px solid var(--gold)', overflow: 'hidden',
-            margin: '0 auto 16px', background: 'var(--bg-card)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '36px',
+            position: 'relative', width: 100, height: 100,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <img src="/logo.png" alt="Logo"
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              onError={(e: any) => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = '📚'; }}
-            />
+            <svg width="100" height="100" viewBox="0 0 100 100" style={{ position: 'absolute', inset: 0 }}>
+              <circle cx="50" cy="50" r="46" fill="none"
+                stroke="var(--gold)" strokeWidth="2.5" opacity="0.7"
+                strokeDasharray="6 4" strokeLinecap="round"
+                style={{ filter: 'drop-shadow(0 0 6px rgba(245,200,66,0.4))' }}
+              />
+              <circle cx="50" cy="50" r="40" fill="none"
+                stroke="var(--gold)" strokeWidth="1.5" opacity="0.3"
+                strokeDasharray="3 5"
+              />
+            </svg>
+            <img src="/logo.png" alt="StudyAL" style={{
+              width: 62, height: 62, objectFit: 'contain',
+              filter: 'drop-shadow(0 4px 12px rgba(245,200,66,0.5))',
+            }} />
           </div>
-          <h1 style={{ fontSize: '24px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 4px' }}>
-            <span style={{ fontSize: '85%', fontWeight: 700, color: 'var(--text-primary)' }}>Study</span>
-            <span style={{ color: 'var(--gold)' }}>AL</span>
+          <h1 style={{
+            fontFamily: HAND, fontSize: 34, fontWeight: 900,
+            color: 'var(--text-primary)', margin: 0,
+            transform: 'rotate(-1.5deg)',
+          }}>
+            Study<span style={{ color: 'var(--red)' }}>A</span>L
           </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>
-            {tr('tuPlataformaEstudio')}
+          <p style={{
+            fontFamily: HAND, fontSize: 15, fontStyle: 'italic',
+            color: 'var(--text-muted)', margin: 0,
+            transform: 'rotate(0.5deg)',
+          }}>
+            ~ {tr('tuPlataformaEstudio')} ~
           </p>
         </div>
 
+        {/* Hoja de cuaderno = formulario */}
         <div style={{
-          background: 'var(--bg-card)', borderRadius: '20px',
-          border: '1px solid var(--border-color)', overflow: 'hidden',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+          position: 'relative',
+          background: 'var(--bg-card)',
+          border: '2.5px solid var(--text-primary)',
+          borderRadius: 8,
+          boxShadow: '5px 6px 0 var(--gold), 0 16px 50px rgba(0,0,0,0.25)',
+          transform: 'rotate(-0.5deg)',
+          overflow: 'hidden',
         }}>
-          <div style={{ height: '4px', background: 'var(--gold)' }} />
-          <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Cinta adhesiva arriba */}
+          <div style={{
+            position: 'absolute', top: -10, left: '50%',
+            transform: 'translateX(-50%) rotate(-3deg)',
+            width: 80, height: 18,
+            background: 'rgba(245,200,66,0.55)',
+            border: '1px solid rgba(245,200,66,0.3)',
+            boxShadow: '0 2px 5px rgba(0,0,0,0.18)',
+            zIndex: 10,
+          }} />
 
+          {/* Margen rojo */}
+          <div style={{
+            position: 'absolute', top: 0, bottom: 0, left: 32,
+            width: 1.5, background: '#ef4444', opacity: 0.3,
+          }} />
+
+          {/* Líneas del cuaderno */}
+          {Array.from({ length: 16 }).map((_, i) => (
+            <div key={i} style={{
+              position: 'absolute', left: 24, right: 24,
+              top: 20 + i * 28, height: 1,
+              background: 'var(--blue)', opacity: 0.06,
+            }} />
+          ))}
+
+          <div style={{ padding: '28px 28px 24px', position: 'relative', zIndex: 1 }}>
+
+            {/* Tabs login / registro */}
             {modo !== 'reset' && (
-              <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-secondary)', borderRadius: '12px', padding: '4px' }}>
+              <div style={{
+                display: 'flex', gap: 0, marginBottom: 20,
+                border: '2px dashed var(--border-color)', borderRadius: 10,
+                overflow: 'hidden',
+              }}>
                 {[
-                  { id: 'login' as const, label: tr('iniciaSesionTab') },
-                  { id: 'registro' as const, label: tr('registrarse') },
+                  { id: 'login' as const, label: '🔑 ' + tr('iniciaSesionTab') },
+                  { id: 'registro' as const, label: '✨ ' + tr('registrarse') },
                 ].map(tab => (
                   <button key={tab.id}
                     onClick={() => { setModo(tab.id); setError(''); setMensaje(''); }}
                     style={{
-                      flex: 1, padding: '10px', borderRadius: '8px', border: 'none',
+                      flex: 1, padding: '10px 8px', border: 'none',
                       background: modo === tab.id ? 'var(--gold)' : 'transparent',
                       color: modo === tab.id ? '#000' : 'var(--text-muted)',
-                      fontSize: '14px', fontWeight: modo === tab.id ? 800 : 600,
+                      fontFamily: HAND, fontSize: 17, fontWeight: modo === tab.id ? 900 : 700,
                       cursor: 'pointer', transition: 'all 0.2s',
+                      transform: modo === tab.id ? 'rotate(-0.5deg)' : 'none',
                     }}>
                     {tab.label}
                   </button>
@@ -189,130 +261,150 @@ export default function AuthPage() {
             )}
 
             {modo === 'reset' && (
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '40px', marginBottom: '10px' }}>🔑</div>
-                <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 6px' }}>
+              <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                <div style={{ fontSize: 36, marginBottom: 6 }}>🔑</div>
+                <h2 style={{ fontFamily: HAND, fontSize: 22, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 4px' }}>
                   {tr('recuperarContrasena')}
                 </h2>
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
-                  {tr('recuperarDesc')}
+                <p style={{ fontFamily: HAND, fontSize: 14, color: 'var(--text-muted)', margin: 0, fontStyle: 'italic' }}>
+                  ~ {tr('recuperarDesc')} ~
                 </p>
               </div>
             )}
 
+            {/* Mensajes */}
             {mensaje && (
-              <div style={{ background: '#4ade8020', border: '1px solid #4ade8044', borderRadius: '10px', padding: '12px 16px' }}>
-                <p style={{ fontSize: '14px', color: '#4ade80', margin: 0, fontWeight: 600 }}>{mensaje}</p>
+              <div style={{
+                background: 'rgba(74,222,128,0.1)', border: '2px dashed #4ade80',
+                borderRadius: 8, padding: '10px 14px', marginBottom: 14,
+                transform: 'rotate(0.3deg)',
+              }}>
+                <p style={{ fontFamily: HAND, fontSize: 15, color: '#4ade80', margin: 0, fontWeight: 700 }}>☘️ {mensaje}</p>
               </div>
             )}
             {error && (
-              <div style={{ background: 'var(--red-dim)', border: '1px solid var(--red-border)', borderRadius: '10px', padding: '12px 16px' }}>
-                <p style={{ fontSize: '14px', color: 'var(--red)', margin: 0, fontWeight: 600 }}>{error}</p>
+              <div style={{
+                background: 'rgba(239,68,68,0.08)', border: '2px dashed #ef4444',
+                borderRadius: 8, padding: '10px 14px', marginBottom: 14,
+                transform: 'rotate(-0.3deg)',
+              }}>
+                <p style={{ fontFamily: HAND, fontSize: 15, color: '#ef4444', margin: 0, fontWeight: 700 }}>⚠️ {error}</p>
               </div>
             )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {/* Campos */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
               {modo === 'registro' && (
                 <div>
-                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
-                    {tr('nombre')}
+                  <label style={{
+                    fontFamily: HAND, fontSize: 14, fontWeight: 800,
+                    color: 'var(--text-muted)', display: 'block', marginBottom: 4,
+                    transform: 'rotate(-0.5deg)',
+                  }}>
+                    ✏️ {tr('nombre')}
                   </label>
                   <input
-                    type="text"
-                    value={nombre}
-                    onChange={e => setNombre(e.target.value)}
+                    type="text" value={nombre}
+                    onChange={(e: any) => setNombre(e.target.value)}
                     placeholder={tr('tuNombre')}
-                    onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+                    onKeyDown={(e: any) => e.key === 'Enter' && handleSubmit()}
                     style={inputStyle}
-                    onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
-                    onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                    onFocus={(e: any) => { e.currentTarget.style.borderColor = 'var(--gold)'; e.currentTarget.style.borderStyle = 'solid'; }}
+                    onBlur={(e: any) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.borderStyle = 'dashed'; }}
                   />
                 </div>
               )}
 
               <div>
-                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
-                  {tr('email')}
+                <label style={{
+                  fontFamily: HAND, fontSize: 14, fontWeight: 800,
+                  color: 'var(--text-muted)', display: 'block', marginBottom: 4,
+                  transform: 'rotate(0.3deg)',
+                }}>
+                  📧 {tr('email')}
                 </label>
                 <input
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
+                  type="email" value={email}
+                  onChange={(e: any) => setEmail(e.target.value)}
                   placeholder={tr('tuEmail')}
-                  onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+                  onKeyDown={(e: any) => e.key === 'Enter' && handleSubmit()}
                   style={inputStyle}
-                  onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
-                  onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                  onFocus={(e: any) => { e.currentTarget.style.borderColor = 'var(--gold)'; e.currentTarget.style.borderStyle = 'solid'; }}
+                  onBlur={(e: any) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.borderStyle = 'dashed'; }}
                 />
               </div>
 
               {modo !== 'reset' && (
                 <div>
-                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
-                    {tr('contrasena')}
+                  <label style={{
+                    fontFamily: HAND, fontSize: 14, fontWeight: 800,
+                    color: 'var(--text-muted)', display: 'block', marginBottom: 4,
+                    transform: 'rotate(-0.3deg)',
+                  }}>
+                    🔒 {tr('contrasena')}
                   </label>
                   <div style={{ position: 'relative' }}>
                     <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
+                      type={showPassword ? 'text' : 'password'} value={password}
+                      onChange={(e: any) => setPassword(e.target.value)}
                       placeholder={modo === 'registro' ? tr('minimo6') : '••••••••'}
                       autoComplete={modo === 'registro' ? 'new-password' : 'current-password'}
-                      onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-                      style={{ ...inputStyle, paddingRight: '48px' }}
-                      onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
-                      onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                      onKeyDown={(e: any) => e.key === 'Enter' && handleSubmit()}
+                      style={{ ...inputStyle, paddingRight: 44 }}
+                      onFocus={(e: any) => { e.currentTarget.style.borderColor = 'var(--gold)'; e.currentTarget.style.borderStyle = 'solid'; }}
+                      onBlur={(e: any) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.borderStyle = 'dashed'; }}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
+                    <button type="button" onClick={() => setShowPassword(!showPassword)}
                       style={{
-                        position: 'absolute', right: '12px', top: '50%',
-                        transform: 'translateY(-50%)',
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        color: 'var(--text-muted)', fontSize: '16px', padding: '4px',
-                        lineHeight: 1,
-                      }}
-                      tabIndex={-1}
-                    >
+                        position: 'absolute', right: 10, top: '50%',
+                        transform: 'translateY(-50%)', background: 'none',
+                        border: 'none', cursor: 'pointer', fontSize: 16,
+                        color: 'var(--text-muted)', padding: 4,
+                      }} tabIndex={-1}>
                       {showPassword ? '🙈' : '👁️'}
                     </button>
                   </div>
                 </div>
               )}
 
-              <button
-                onClick={handleSubmit}
-                disabled={cargando}
+              {/* Botón principal */}
+              <button onClick={handleSubmit} disabled={cargando}
                 style={{
-                  width: '100%', padding: '14px', borderRadius: '12px', border: 'none',
-                  background: cargando ? 'var(--bg-card2)' : 'var(--gold)',
+                  width: '100%', padding: '13px 16px', borderRadius: 10,
+                  border: '2.5px solid var(--text-primary)',
+                  background: cargando ? 'var(--bg-secondary)' : 'var(--gold)',
                   color: cargando ? 'var(--text-faint)' : '#000',
-                  fontSize: '16px', fontWeight: 800, cursor: cargando ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.2s', marginTop: '4px',
+                  fontFamily: HAND, fontSize: 20, fontWeight: 900,
+                  cursor: cargando ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s', marginTop: 4,
+                  boxShadow: cargando ? 'none' : '3px 4px 0 var(--text-primary)',
+                  transform: cargando ? 'none' : 'rotate(-0.5deg)',
                 }}>
                 {cargando
                   ? '⏳ ' + tr('cargando') + '...'
                   : modo === 'login'
-                  ? tr('iniciandoSesion')
+                  ? '🚀 ' + tr('iniciandoSesion')
                   : modo === 'registro'
-                  ? tr('creandoCuenta')
-                  : tr('enviandoEmail')}
+                  ? '✨ ' + tr('creandoCuenta')
+                  : '📧 ' + tr('enviandoEmail')}
               </button>
 
+              {/* Links secundarios */}
               {modo === 'login' && (
                 <button
                   onClick={() => { setModo('reset'); setError(''); setMensaje(''); }}
                   style={{
-                    width: '100%', padding: '8px', border: 'none',
-                    background: 'transparent', color: 'var(--text-muted)',
-                    fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                    width: '100%', padding: 8, border: 'none',
+                    background: 'transparent', fontFamily: HAND,
+                    fontSize: 15, fontWeight: 700, cursor: 'pointer',
+                    color: 'var(--text-muted)', fontStyle: 'italic',
+                    transition: 'color 0.2s',
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--gold)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+                  onMouseEnter={(e: any) => e.currentTarget.style.color = 'var(--gold)'}
+                  onMouseLeave={(e: any) => e.currentTarget.style.color = 'var(--text-muted)'}
                 >
-                  {tr('olvidasteContrasenaLink')}
+                  🔑 {tr('olvidasteContrasenaLink')}
                 </button>
               )}
 
@@ -320,23 +412,41 @@ export default function AuthPage() {
                 <button
                   onClick={() => { setModo('login'); setError(''); setMensaje(''); }}
                   style={{
-                    width: '100%', padding: '8px', border: 'none',
-                    background: 'transparent', color: 'var(--text-muted)',
-                    fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                    width: '100%', padding: 8, border: 'none',
+                    background: 'transparent', fontFamily: HAND,
+                    fontSize: 15, fontWeight: 700, cursor: 'pointer',
+                    color: 'var(--text-muted)', fontStyle: 'italic',
                     transition: 'color 0.2s',
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--gold)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+                  onMouseEnter={(e: any) => e.currentTarget.style.color = 'var(--gold)'}
+                  onMouseLeave={(e: any) => e.currentTarget.style.color = 'var(--text-muted)'}
                 >
-                  {tr('volverIniciarSesion')}
+                  ← {tr('volverIniciarSesion')}
                 </button>
               )}
             </div>
           </div>
+
+          {/* Sticker esquina */}
+          <div style={{
+            position: 'absolute', top: 12, right: 12, fontSize: 20,
+            transform: 'rotate(12deg)', opacity: 0.6,
+          }}>☘️</div>
+
+          <div style={{
+            position: 'absolute', bottom: 10, left: 38, fontSize: 16,
+            transform: 'rotate(-8deg)', opacity: 0.5,
+          }}>⭐</div>
         </div>
 
-        <p style={{ textAlign: 'center', color: 'var(--text-faint)', fontSize: '12px', marginTop: '20px' }}>
-          {tr('datosSegurosCifrados')}
+        {/* Texto seguridad */}
+        <p style={{
+          textAlign: 'center', fontFamily: HAND,
+          fontSize: 13, fontStyle: 'italic',
+          color: 'var(--text-faint)', marginTop: 16,
+          transform: 'rotate(0.5deg)',
+        }}>
+          🔒 ~ {tr('datosSegurosCifrados')} ~
         </p>
       </div>
     </div>

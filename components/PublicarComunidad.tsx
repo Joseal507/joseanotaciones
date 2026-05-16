@@ -1,5 +1,7 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { getMaterias, Materia, Tema, Documento, Apunte } from '../lib/storage';
@@ -41,6 +43,7 @@ export default function PublicarComunidad({
   onClose,
   onPublicado,
 }: Props) {
+  const router = useRouter();
 
   const { tr, idioma } = useIdioma();
   const [paso, setPaso]   = useState<Paso>(tipoProp ? (contenidoProp ? 'detalles' : 'origen') : 'tipo');
@@ -345,7 +348,7 @@ export default function PublicarComunidad({
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', backdropFilter: 'blur(4px)' }}
-      onClick={e => e.target === e.currentTarget && onClose()}
+      onClick={(e: any) => e.target === e.currentTarget && onClose()}
     >
       <div style={{ background: 'var(--bg-card)', borderRadius: '24px', border: `2px solid ${info.color}44`, width: '100%', maxWidth: '580px', maxHeight: '92vh', overflow: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
 
@@ -355,7 +358,7 @@ export default function PublicarComunidad({
             <div style={{ fontSize: '72px', marginBottom: '20px' }}>🎉</div>
             <h2 style={{ fontSize: '26px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 10px' }}>{tr('publicado')}</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '15px', margin: 0 }}>{tr('yaEstaEnComunidad')}</p>
-            <button onClick={() => window.location.href = '/comunidad'} style={{ marginTop: '24px', padding: '12px 28px', borderRadius: '14px', border: 'none', background: info.color, color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>
+            <button onClick={() => ((window as any).__showNavLoader?.('/comunidad'), router.push('/comunidad'))} style={{ marginTop: '24px', padding: '12px 28px', borderRadius: '14px', border: 'none', background: info.color, color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>
               {tr('verEnComunidad')}
             </button>
           </div>
@@ -404,8 +407,8 @@ export default function PublicarComunidad({
                       <button key={key}
                         onClick={() => { setTipo(key as any); limpiarSeleccion(); setPaso(key === 'post' || key === 'video' ? 'detalles' : 'origen'); }}
                         style={{ padding: '18px 14px', borderRadius: '16px', border: `2px solid var(--border-color)`, background: 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s' }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = val.color; (e.currentTarget as HTMLElement).style.background = `${val.color}12`; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
+                        onMouseEnter={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = val.color; (e.currentTarget as HTMLElement).style.background = `${val.color}12`; }}
+                        onMouseLeave={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
                       >
                         <div style={{ fontSize: '26px', marginBottom: '8px' }}>{val.emoji}</div>
                         <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>{val.label}</div>
@@ -432,8 +435,8 @@ export default function PublicarComunidad({
                     <button
                       onClick={() => { limpiarSeleccion(); setPaso('explorar'); }}
                       style={{ padding: '18px 20px', borderRadius: '16px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '14px', transition: 'all 0.2s' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = info.color; (e.currentTarget as HTMLElement).style.background = `${info.color}10`; }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
+                      onMouseEnter={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = info.color; (e.currentTarget as HTMLElement).style.background = `${info.color}10`; }}
+                      onMouseLeave={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
                     >
                       <div style={{ fontSize: '32px' }}>📚</div>
                       <div>
@@ -450,8 +453,8 @@ export default function PublicarComunidad({
                       <button
                         onClick={() => { limpiarSeleccion(); setPaso('decks'); }}
                         style={{ padding: '18px 20px', borderRadius: '16px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '14px', transition: 'all 0.2s' }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#a78bfa'; (e.currentTarget as HTMLElement).style.background = '#a78bfa10'; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
+                        onMouseEnter={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = '#a78bfa'; (e.currentTarget as HTMLElement).style.background = '#a78bfa10'; }}
+                        onMouseLeave={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
                       >
                         <div style={{ fontSize: '32px' }}>🎴</div>
                         <div>
@@ -467,8 +470,8 @@ export default function PublicarComunidad({
                       <button
                         onClick={() => { limpiarSeleccion(); setPaso('quizzes'); }}
                         style={{ padding: '18px 20px', borderRadius: '16px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '14px', transition: 'all 0.2s' }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#34d399'; (e.currentTarget as HTMLElement).style.background = '#34d39910'; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
+                        onMouseEnter={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = '#34d399'; (e.currentTarget as HTMLElement).style.background = '#34d39910'; }}
+                        onMouseLeave={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
                       >
                         <div style={{ fontSize: '32px' }}>🧠</div>
                         <div>
@@ -522,8 +525,8 @@ export default function PublicarComunidad({
                         {materias.map(m => (
                           <button key={m.id} onClick={() => { setMateriaNav(m); setMateriaTag(m); }}
                             style={{ padding: '14px 16px', borderRadius: '14px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '12px', transition: 'all 0.2s' }}
-                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = m.color; (e.currentTarget as HTMLElement).style.background = `${m.color}12`; }}
-                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
+                            onMouseEnter={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = m.color; (e.currentTarget as HTMLElement).style.background = `${m.color}12`; }}
+                            onMouseLeave={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary)'; }}
                           >
                             <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: m.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', flexShrink: 0 }}>{m.emoji}</div>
                             <div>
@@ -553,8 +556,8 @@ export default function PublicarComunidad({
                         {materiaNav.temas.map(t => (
                           <button key={t.id} onClick={() => setTemaNav(t)}
                             style={{ padding: '14px 16px', borderRadius: '14px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '12px', transition: 'all 0.2s' }}
-                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = materiaNav.color; }}
-                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; }}
+                            onMouseEnter={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = materiaNav.color; }}
+                            onMouseLeave={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; }}
                           >
                             <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: `${materiaNav.color}22`, border: `2px solid ${materiaNav.color}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', flexShrink: 0 }}>📂</div>
                             <div>
@@ -689,7 +692,7 @@ export default function PublicarComunidad({
                     <div style={{ textAlign: 'center', padding: '40px' }}>
                       <div style={{ fontSize: '40px', marginBottom: '8px' }}>🎴</div>
                       <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '0 0 12px' }}>{tr('noTienesDecks')}</p>
-                      <button onClick={() => window.location.href = '/materias'} style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>{tr('irAMateriasBTN')}</button>
+                      <button onClick={() => ((window as any).__showNavLoader?.('/materias'), router.push('/materias'))} style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#a78bfa', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>{tr('irAMateriasBTN')}</button>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '340px', overflowY: 'auto' }}>
@@ -720,7 +723,7 @@ export default function PublicarComunidad({
                     <div style={{ textAlign: 'center', padding: '40px' }}>
                       <div style={{ fontSize: '40px', marginBottom: '8px' }}>🧠</div>
                       <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '0 0 12px' }}>{tr('noTienesQuizzes')}</p>
-                      <button onClick={() => window.location.href = '/materias'} style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#34d399', color: '#000', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>{tr('irAMateriasBTN')}</button>
+                      <button onClick={() => ((window as any).__showNavLoader?.('/materias'), router.push('/materias'))} style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#34d399', color: '#000', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>{tr('irAMateriasBTN')}</button>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '340px', overflowY: 'auto' }}>
@@ -777,18 +780,18 @@ export default function PublicarComunidad({
 
                   {/* Título */}
                   <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px' }}>{tr('tituloPub')}</label>
-                  <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder={tr('daleUnNombre')} autoFocus
+                  <input value={titulo} onChange={(e: any) => setTitulo(e.target.value)} placeholder={tr('daleUnNombre')} autoFocus
                     style={{ width: '100%', padding: '13px', borderRadius: '12px', border: `2px solid ${titulo.trim() ? info.color + '66' : 'var(--border-color)'}`, background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', fontWeight: 600, outline: 'none', boxSizing: 'border-box', marginBottom: '12px' }}
-                    onFocus={e => (e.target.style.borderColor = info.color)}
-                    onBlur={e => (e.target.style.borderColor = titulo.trim() ? info.color + '66' : 'var(--border-color)')}
+                    onFocus={(e: any) => (e.target.style.borderColor = info.color)}
+                    onBlur={(e: any) => (e.target.style.borderColor = titulo.trim() ? info.color + '66' : 'var(--border-color)')}
                   />
 
                   {/* Descripción */}
                   <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px', letterSpacing: '1px' }}>{tr('descripcionPub')} <span style={{ fontWeight: 400, letterSpacing: 0 }}>(opcional)</span></label>
-                  <textarea value={descripcion} onChange={e => setDescripcion(e.target.value)} placeholder={tr('deQueTrata')} rows={2}
+                  <textarea value={descripcion} onChange={(e: any) => setDescripcion(e.target.value)} placeholder={tr('deQueTrata')} rows={2}
                     style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', resize: 'vertical', outline: 'none', boxSizing: 'border-box', marginBottom: '12px' }}
-                    onFocus={e => (e.target.style.borderColor = info.color)}
-                    onBlur={e => (e.target.style.borderColor = 'var(--border-color)')}
+                    onFocus={(e: any) => (e.target.style.borderColor = info.color)}
+                    onBlur={(e: any) => (e.target.style.borderColor = 'var(--border-color)')}
                   />
 
                   {/* Video — solo si tipo === video */}
@@ -844,8 +847,8 @@ export default function PublicarComunidad({
                       ) : (
                         <div onClick={() => videoRef.current?.click()}
                           style={{ border: '2px dashed #ff4d6d66', borderRadius: '12px', padding: '28px', textAlign: 'center', cursor: 'pointer', background: '#ff4d6d08', transition: 'all 0.2s' }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#ff4d6d'; }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#ff4d6d66'; }}
+                          onMouseEnter={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = '#ff4d6d'; }}
+                          onMouseLeave={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = '#ff4d6d66'; }}
                         >
                           <div style={{ fontSize: '36px', marginBottom: '6px' }}>🎬</div>
                           <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>{tr('subirVideoEstudio')}</div>
@@ -859,7 +862,7 @@ export default function PublicarComunidad({
 
                   {/* Portada */}
                   <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px', letterSpacing: '1px' }}>{tr('portadaLabel')} <span style={{ fontWeight: 400, letterSpacing: 0 }}>(opcional)</span></label>
-                  <input ref={portadaRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handlePortadaFile(f); }} />
+                  <input ref={portadaRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display: 'none' }} onChange={(e: any) => { const f = e.target.files?.[0]; if (f) handlePortadaFile(f); }} />
 
                   {portadaPreview ? (
                     <div style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', marginBottom: '12px', border: '2px solid var(--border-color)' }}>
@@ -876,8 +879,8 @@ export default function PublicarComunidad({
                   ) : (
                     <div onClick={() => portadaRef.current?.click()}
                       style={{ border: '2px dashed var(--border-color)', borderRadius: '12px', padding: '20px', textAlign: 'center', cursor: 'pointer', background: 'var(--bg-secondary)', marginBottom: '12px', transition: 'all 0.2s' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = info.color; }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; }}
+                      onMouseEnter={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = info.color; }}
+                      onMouseLeave={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'; }}
                     >
                       <div style={{ fontSize: '28px', marginBottom: '4px' }}>🖼️</div>
                       <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{tr('subirImagenPortada')}</div>

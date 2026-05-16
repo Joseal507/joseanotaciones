@@ -319,7 +319,7 @@ export default function PomodoroFlotante() {
             </div>
 
             {/* Materia */}
-            <select value={materiaId} onChange={e => setMateriaId(e.target.value)}
+            <select value={materiaId} onChange={(e: any) => setMateriaId(e.target.value)}
               style={{ width: '100%', padding: '7px 10px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '12px', marginBottom: '10px', outline: 'none' }}>
               <option value="">📚 Materia (opcional)</option>
               {materias.map(m => <option key={m.id} value={m.id}>{m.emoji} {m.nombre}</option>)}

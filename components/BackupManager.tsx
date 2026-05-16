@@ -116,7 +116,7 @@ export default function BackupManager({ temaColor = '#f5c842', onRestored }: Pro
         type="file"
         accept=".json"
         style={{ display: 'none' }}
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImport(f); }}
+        onChange={(e: any) => { const f = e.target.files?.[0]; if (f) handleImport(f); }}
       />
 
       {msg && (

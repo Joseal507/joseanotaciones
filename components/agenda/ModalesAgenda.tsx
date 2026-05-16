@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { Asignacion, ObjetivoAgenda, XP_TAMAÑO, TamañoObjetivo, genId } from '../../lib/agenda';
 import { useIdioma } from '../../hooks/useIdioma';
 
+const HAND = "'Caveat',cursive";
+
 // ══════════════════════════════════════════════════════════════
 // MODAL ASIGNACIÓN
 // ══════════════════════════════════════════════════════════════
@@ -68,117 +70,144 @@ export function ModalAsignacion({ materias, fechaInicial, onCrear, onClose }: Mo
   const tamañoSel = TAMAÑOS.find(t => t.id === tamaño)!;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-      <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '460px', border: '1px solid var(--border-color)', maxHeight: '90vh', overflowY: 'auto' }}>
-        
-        <div style={{ height: '4px', background: 'var(--blue)', borderRadius: '2px', marginBottom: '24px' }} />
-        <h2 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 24px' }}>
-          {idioma === 'en' ? '📋 New Assignment' : '📋 Nueva Asignación'}
-        </h2>
+    <ModalShell color="var(--blue)" emoji="📋" title={idioma === 'en' ? 'New Assignment' : 'Nueva Asignación'} onClose={onClose}>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Título */}
+      <Field label={idioma === 'en' ? 'Title' : 'Título'}>
+        <input
+          value={titulo}
+          onChange={(e: any) => setTitulo(e.target.value)}
+          onKeyDown={(e: any) => e.key === 'Enter' && crear()}
+          placeholder={idioma === 'en' ? 'e.g. Calculus exam...' : 'Ej: Examen de Cálculo...'}
+          autoFocus
+          style={inputStyle}
+        />
+      </Field>
 
-          {/* Título */}
-          <div>
-            <label style={labelStyle}>{idioma === 'en' ? 'Title' : 'Título'}</label>
-            <input
-              value={titulo} onChange={e => setTitulo(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && crear()}
-              placeholder={idioma === 'en' ? 'e.g. Calculus exam...' : 'Ej: Examen de Cálculo...'}
-              autoFocus
-              style={inputStyle}
-            />
-          </div>
+      {/* Tipo */}
+      <Field label={idioma === 'en' ? 'Type' : 'Tipo'}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {TIPOS.map((t, i) => {
+            const active = tipo === t.id;
+            return (
+              <button key={t.id} onClick={() => setTipo(t.id as any)}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 10,
+                  border: `2.5px solid ${active ? t.color : 'var(--border-color)'}`,
+                  background: active ? t.color + '22' : 'var(--bg-secondary)',
+                  color: active ? t.color : 'var(--text-muted)',
+                  fontFamily: HAND,
+                  fontSize: 16, fontWeight: 800,
+                  cursor: 'pointer',
+                  boxShadow: active ? `2px 3px 0 ${t.color}` : 'none',
+                  transform: active ? `rotate(${i % 2 === 0 ? -1.5 : 1.5}deg)` : `rotate(${i % 2 === 0 ? -0.5 : 0.5}deg)`,
+                  transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+                }}
+                onMouseEnter={(e:any)=>{ if (!active) e.currentTarget.style.transform = 'rotate(0deg) translateY(-2px)'; }}
+                onMouseLeave={(e:any)=>{ e.currentTarget.style.transform = active ? `rotate(${i % 2 === 0 ? -1.5 : 1.5}deg)` : `rotate(${i % 2 === 0 ? -0.5 : 0.5}deg)`; }}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+      </Field>
 
-          {/* Tipo */}
-          <div>
-            <label style={labelStyle}>{idioma === 'en' ? 'Type' : 'Tipo'}</label>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              {TIPOS.map(t => (
-                <button key={t.id} onClick={() => setTipo(t.id as any)}
-                  style={{
-                    padding: '6px 12px', borderRadius: '8px',
-                    border: `2px solid ${tipo === t.id ? t.color : 'var(--border-color)'}`,
-                    background: tipo === t.id ? t.color + '25' : 'transparent',
-                    color: tipo === t.id ? t.color : 'var(--text-muted)',
-                    fontSize: '12px', fontWeight: 700, cursor: 'pointer',
-                  }}>
+      {/* Tamaño y XP */}
+      <Field label={idioma === 'en' ? 'Size & XP reward' : 'Tamaño y recompensa XP'}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {TAMAÑOS.map((t, i) => {
+            const active = tamaño === t.id;
+            return (
+              <button key={t.id} onClick={() => setTamaño(t.id)}
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: 12,
+                  border: `2.5px solid ${active ? t.color : 'var(--border-color)'}`,
+                  background: active ? t.color + '18' : 'var(--bg-secondary)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  boxShadow: active ? `3px 3px 0 ${t.color}` : 'none',
+                  transform: active ? 'rotate(-0.5deg)' : `rotate(${i % 2 === 0 ? -0.2 : 0.2}deg)`,
+                  transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+                }}
+              >
+                <span style={{
+                  fontFamily: HAND,
+                  fontSize: 18, fontWeight: 800,
+                  color: active ? t.color : 'var(--text-primary)',
+                }}>
                   {t.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Tamaño / XP */}
-          <div>
-            <label style={labelStyle}>
-              {idioma === 'en' ? 'Size & XP reward' : 'Tamaño y recompensa XP'}
-            </label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {TAMAÑOS.map(t => (
-                <button key={t.id} onClick={() => setTamaño(t.id)}
-                  style={{
-                    padding: '10px 14px', borderRadius: '10px',
-                    border: `2px solid ${tamaño === t.id ? t.color : 'var(--border-color)'}`,
-                    background: tamaño === t.id ? t.color + '15' : 'var(--bg-secondary)',
-                    cursor: 'pointer', textAlign: 'left',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  }}>
-                  <span style={{ fontSize: '13px', fontWeight: 700, color: tamaño === t.id ? t.color : 'var(--text-primary)' }}>
-                    {t.label}
-                  </span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t.desc}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Preview XP */}
-            <div style={{ marginTop: '8px', padding: '10px 14px', background: tamañoSel.color + '15', borderRadius: '10px', border: `1px solid ${tamañoSel.color}44`, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '18px' }}>⭐</span>
-              <div>
-                <p style={{ margin: 0, fontSize: '13px', fontWeight: 800, color: tamañoSel.color }}>
-                  +{XP_TAMAÑO[tamaño]} XP {idioma === 'en' ? 'if completed on time' : 'si se completa a tiempo'}
-                </p>
-                <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
-                  {idioma === 'en'
-                    ? '⛔ 0 XP if you miss the deadline'
-                    : '⛔ 0 XP si vence sin completar'}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Materia */}
-          <div>
-            <label style={labelStyle}>{idioma === 'en' ? 'Subject' : 'Materia'}</label>
-            <select value={materia} onChange={e => setMateria(e.target.value)} style={selectStyle}>
-              <option value="">{idioma === 'en' ? 'No subject' : 'Sin materia'}</option>
-              {materias.map(m => (
-                <option key={m.id} value={m.id}>{m.emoji} {m.nombre}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Fecha límite */}
-          <div>
-            <label style={labelStyle}>{idioma === 'en' ? 'Deadline' : 'Fecha límite'}</label>
-            <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={inputStyle} />
-          </div>
-
+                </span>
+                <span style={{
+                  fontFamily: HAND,
+                  fontSize: 14, fontStyle: 'italic',
+                  color: 'var(--text-muted)',
+                }}>
+                  {t.desc}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Botones */}
-        <div style={{ display: 'flex', gap: '10px', marginTop: '24px' }}>
-          <button onClick={onClose} style={btnSecondary}>
-            {idioma === 'en' ? 'Cancel' : 'Cancelar'}
-          </button>
-          <button onClick={crear} disabled={!titulo.trim() || !fecha}
-            style={{ ...btnPrimary, opacity: (!titulo.trim() || !fecha) ? 0.4 : 1 }}>
-            {idioma === 'en' ? '+ Add Assignment' : '+ Agregar Asignación'}
-          </button>
+        {/* Preview XP estilo postit */}
+        <div style={{
+          marginTop: 12,
+          padding: '10px 14px',
+          background: tamañoSel.color + '18',
+          borderRadius: 10,
+          border: `2px dashed ${tamañoSel.color}`,
+          display: 'flex', alignItems: 'center', gap: 10,
+          transform: 'rotate(0.5deg)',
+        }}>
+          <span style={{ fontSize: 24 }}>⭐</span>
+          <div>
+            <p style={{
+              margin: 0,
+              fontFamily: HAND, fontSize: 17, fontWeight: 800,
+              color: tamañoSel.color, lineHeight: 1.1,
+            }}>
+              +{XP_TAMAÑO[tamaño]} XP {idioma === 'en' ? 'if completed on time' : 'si se completa a tiempo'}
+            </p>
+            <p style={{
+              margin: 0,
+              fontFamily: HAND, fontSize: 14,
+              color: 'var(--text-muted)', fontStyle: 'italic',
+            }}>
+              ⛔ {idioma === 'en' ? '0 XP if you miss the deadline' : '0 XP si vence sin completar'}
+            </p>
+          </div>
         </div>
-      </div>
-    </div>
+      </Field>
+
+      {/* Materia */}
+      <Field label={idioma === 'en' ? 'Subject' : 'Materia'}>
+        <select value={materia} onChange={(e: any) => setMateria(e.target.value)} style={selectStyle}>
+          <option value="">{idioma === 'en' ? '— No subject —' : '— Sin materia —'}</option>
+          {materias.map(m => (
+            <option key={m.id} value={m.id}>{m.emoji} {m.nombre}</option>
+          ))}
+        </select>
+      </Field>
+
+      {/* Fecha */}
+      <Field label={idioma === 'en' ? 'Deadline' : 'Fecha límite'}>
+        <input type="date" value={fecha} onChange={(e: any) => setFecha(e.target.value)} style={inputStyle} />
+      </Field>
+
+      {/* Botones */}
+      <ButtonRow>
+        <ModalBtn variant="secondary" onClick={onClose}>
+          ✕ {idioma === 'en' ? 'Cancel' : 'Cancelar'}
+        </ModalBtn>
+        <ModalBtn variant="primary" color="var(--blue)" onClick={crear} disabled={!titulo.trim() || !fecha}>
+          + {idioma === 'en' ? 'Add Assignment' : 'Agregar Asignación'}
+        </ModalBtn>
+      </ButtonRow>
+    </ModalShell>
   );
 }
 
@@ -198,20 +227,20 @@ export function ModalObjetivo({ onCrear, onClose }: ModalObjProps) {
 
   const CATS = idioma === 'en'
     ? [
-        { id: 'estudio',  label: '📚 Study',    color: 'var(--blue)' },
-        { id: 'personal', label: '🌟 Personal',  color: 'var(--gold)' },
-        { id: 'materia',  label: '📖 Subject',   color: 'var(--pink)' },
+        { id: 'estudio',  label: '📚 Study',    color: '#38bdf8' },
+        { id: 'personal', label: '🌟 Personal', color: '#f5c842' },
+        { id: 'materia',  label: '📖 Subject',  color: '#f472b6' },
       ]
     : [
-        { id: 'estudio',  label: '📚 Estudio',   color: 'var(--blue)' },
-        { id: 'personal', label: '🌟 Personal',  color: 'var(--gold)' },
-        { id: 'materia',  label: '📖 Materia',   color: 'var(--pink)' },
+        { id: 'estudio',  label: '📚 Estudio',  color: '#38bdf8' },
+        { id: 'personal', label: '🌟 Personal', color: '#f5c842' },
+        { id: 'materia',  label: '📖 Materia',  color: '#f472b6' },
       ];
 
-  const TAMAÑOS: { id: TamañoObjetivo; label: string; xp: number }[] = [
-    { id: 'pequeño', label: idioma === 'en' ? '🟢 Small'  : '🟢 Pequeño', xp: 50  },
-    { id: 'mediano', label: idioma === 'en' ? '🟡 Medium' : '🟡 Mediano', xp: 120 },
-    { id: 'grande',  label: idioma === 'en' ? '🔴 Large'  : '🔴 Grande',  xp: 250 },
+  const TAMAÑOS: { id: TamañoObjetivo; label: string; xp: number; color: string }[] = [
+    { id: 'pequeño', label: idioma === 'en' ? '🟢 Small'  : '🟢 Pequeño', xp: 50,  color: '#22c55e' },
+    { id: 'mediano', label: idioma === 'en' ? '🟡 Medium' : '🟡 Mediano', xp: 120, color: '#f5c842' },
+    { id: 'grande',  label: idioma === 'en' ? '🔴 Large'  : '🔴 Grande',  xp: 250, color: '#ff4d6d' },
   ];
 
   const crear = () => {
@@ -228,99 +257,281 @@ export function ModalObjetivo({ onCrear, onClose }: ModalObjProps) {
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-      <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '420px', border: '1px solid var(--border-color)' }}>
-        
-        <div style={{ height: '4px', background: 'var(--pink)', borderRadius: '2px', marginBottom: '24px' }} />
-        <h2 style={{ fontSize: '20px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 24px' }}>
-          {idioma === 'en' ? '🎯 New Goal' : '🎯 Nuevo Objetivo'}
-        </h2>
+    <ModalShell color="var(--pink)" emoji="🎯" title={idioma === 'en' ? 'New Goal' : 'Nuevo Objetivo'} onClose={onClose}>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <Field label={idioma === 'en' ? 'Goal' : 'Objetivo'}>
+        <input
+          value={titulo}
+          onChange={(e: any) => setTitulo(e.target.value)}
+          onKeyDown={(e: any) => e.key === 'Enter' && crear()}
+          placeholder={idioma === 'en' ? 'e.g. Study 50 flashcards...' : 'Ej: Estudiar 50 flashcards...'}
+          autoFocus
+          style={inputStyle}
+        />
+      </Field>
 
-          <div>
-            <label style={labelStyle}>{idioma === 'en' ? 'Goal' : 'Objetivo'}</label>
-            <input
-              value={titulo} onChange={e => setTitulo(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && crear()}
-              placeholder={idioma === 'en' ? 'e.g. Study 50 flashcards...' : 'Ej: Estudiar 50 flashcards...'}
-              autoFocus style={inputStyle}
-            />
-          </div>
+      <Field label={idioma === 'en' ? 'Category' : 'Categoría'}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {CATS.map((c, i) => {
+            const active = categoria === c.id;
+            return (
+              <button key={c.id} onClick={() => setCategoria(c.id as any)}
+                style={{
+                  flex: 1,
+                  padding: '10px 6px',
+                  borderRadius: 10,
+                  border: `2.5px solid ${active ? c.color : 'var(--border-color)'}`,
+                  background: active ? c.color + '22' : 'var(--bg-secondary)',
+                  color: active ? c.color : 'var(--text-muted)',
+                  fontFamily: HAND,
+                  fontSize: 16, fontWeight: 800,
+                  cursor: 'pointer',
+                  boxShadow: active ? `2px 3px 0 ${c.color}` : 'none',
+                  transform: active ? `rotate(${i % 2 === 0 ? -1.5 : 1.5}deg)` : `rotate(${i % 2 === 0 ? -0.4 : 0.4}deg)`,
+                  transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+                }}
+              >
+                {c.label}
+              </button>
+            );
+          })}
+        </div>
+      </Field>
 
-          <div>
-            <label style={labelStyle}>{idioma === 'en' ? 'Category' : 'Categoría'}</label>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              {CATS.map(c => (
-                <button key={c.id} onClick={() => setCategoria(c.id as any)}
-                  style={{
-                    flex: 1, padding: '8px 4px', borderRadius: '8px',
-                    border: `2px solid ${categoria === c.id ? c.color : 'var(--border-color)'}`,
-                    background: categoria === c.id ? c.color + '20' : 'transparent',
-                    color: categoria === c.id ? c.color : 'var(--text-muted)',
-                    fontSize: '11px', fontWeight: 700, cursor: 'pointer',
-                  }}>
-                  {c.label}
-                </button>
-              ))}
-            </div>
-          </div>
+      <Field label={idioma === 'en' ? 'Size' : 'Tamaño'}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {TAMAÑOS.map((t, i) => {
+            const active = tamaño === t.id;
+            return (
+              <button key={t.id} onClick={() => setTamaño(t.id)}
+                style={{
+                  flex: 1,
+                  padding: '12px 6px',
+                  borderRadius: 10,
+                  border: `2.5px solid ${active ? t.color : 'var(--border-color)'}`,
+                  background: active ? t.color + '20' : 'var(--bg-secondary)',
+                  color: active ? t.color : 'var(--text-muted)',
+                  fontFamily: HAND,
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                  boxShadow: active ? `2px 3px 0 ${t.color}` : 'none',
+                  transform: active ? `rotate(${i % 2 === 0 ? -1.5 : 1.5}deg)` : `rotate(${i % 2 === 0 ? -0.4 : 0.4}deg)`,
+                  transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+                }}
+              >
+                <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.1 }}>{t.label}</div>
+                <div style={{ fontSize: 14, marginTop: 3, fontWeight: 700, fontStyle: 'italic' }}>⭐ {t.xp} XP</div>
+              </button>
+            );
+          })}
+        </div>
+      </Field>
 
-          <div>
-            <label style={labelStyle}>{idioma === 'en' ? 'Size' : 'Tamaño'}</label>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              {TAMAÑOS.map(t => (
-                <button key={t.id} onClick={() => setTamaño(t.id)}
-                  style={{
-                    flex: 1, padding: '10px 6px', borderRadius: '8px',
-                    border: `2px solid ${tamaño === t.id ? 'var(--gold)' : 'var(--border-color)'}`,
-                    background: tamaño === t.id ? 'var(--gold-dim)' : 'transparent',
-                    color: tamaño === t.id ? 'var(--gold)' : 'var(--text-muted)',
-                    fontSize: '12px', fontWeight: 700, cursor: 'pointer', textAlign: 'center',
-                  }}>
-                  <div>{t.label}</div>
-                  <div style={{ fontSize: '10px', marginTop: '2px' }}>⭐ {t.xp} XP</div>
-                </button>
-              ))}
-            </div>
-          </div>
+      <ButtonRow>
+        <ModalBtn variant="secondary" onClick={onClose}>
+          ✕ {idioma === 'en' ? 'Cancel' : 'Cancelar'}
+        </ModalBtn>
+        <ModalBtn variant="primary" color="var(--pink)" onClick={crear} disabled={!titulo.trim()}>
+          + {idioma === 'en' ? 'Add Goal' : 'Agregar'}
+        </ModalBtn>
+      </ButtonRow>
+    </ModalShell>
+  );
+}
 
+// ══════════════════════════════════════════════════════════════
+// SHELL DE MODAL CUADERNO
+// ══════════════════════════════════════════════════════════════
+function ModalShell({ children, color, emoji, title, onClose }: {
+  children: React.ReactNode;
+  color: string;
+  emoji: string;
+  title: string;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0,
+        background: 'rgba(0,0,0,0.78)',
+        backdropFilter: 'blur(6px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000, padding: 20,
+        animation: 'modalFade 0.25s ease',
+      }}
+    >
+      <div
+        onClick={(e: any) => e.stopPropagation()}
+        style={{
+          background: 'var(--bg-card)',
+          borderRadius: 16,
+          padding: '24px 28px',
+          width: '100%',
+          maxWidth: 480,
+          border: '2.5px solid var(--text-primary)',
+          boxShadow: '6px 7px 0 var(--text-primary), 0 16px 50px rgba(0,0,0,0.45)',
+          maxHeight: '92vh',
+          overflowY: 'auto',
+          transform: 'rotate(-0.5deg)',
+          position: 'relative',
+          animation: 'modalPop 0.4s cubic-bezier(.34,1.4,.64,1)',
+        }}
+      >
+        {/* Cinta scotch arriba */}
+        <div style={{
+          position: 'absolute',
+          top: -12, left: '50%',
+          transform: 'translateX(-50%) rotate(-4deg)',
+          width: 90, height: 22,
+          background: `color-mix(in srgb, ${color} 55%, transparent)`,
+          border: `1px solid color-mix(in srgb, ${color} 30%, transparent)`,
+          boxShadow: '0 2px 5px rgba(0,0,0,0.18)',
+          zIndex: 5,
+        }} />
+
+        {/* Banda título */}
+        <div style={{
+          margin: '8px -28px 18px',
+          padding: '10px 28px',
+          background: color,
+          borderTop: '2px solid var(--text-primary)',
+          borderBottom: '2px solid var(--text-primary)',
+        }}>
+          <h2 style={{
+            fontFamily: HAND,
+            fontSize: 28, fontWeight: 900,
+            color: '#fff',
+            textShadow: '0 1px 3px rgba(0,0,0,0.35)',
+            margin: 0, lineHeight: 1.1,
+            transform: 'rotate(-0.8deg)',
+            display: 'inline-block',
+          }}>
+            {emoji} {title}
+          </h2>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', marginTop: '24px' }}>
-          <button onClick={onClose} style={btnSecondary}>
-            {idioma === 'en' ? 'Cancel' : 'Cancelar'}
-          </button>
-          <button onClick={crear} disabled={!titulo.trim()}
-            style={{ ...btnPrimary, background: 'var(--pink)', opacity: !titulo.trim() ? 0.4 : 1 }}>
-            {idioma === 'en' ? '+ Add Goal' : '+ Agregar'}
-          </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {children}
         </div>
       </div>
+
+      <style>{`
+        @keyframes modalFade {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        @keyframes modalPop {
+          0%   { transform: rotate(0deg) scale(0.85); opacity: 0; }
+          60%  { transform: rotate(-0.5deg) scale(1.02); opacity: 1; }
+          100% { transform: rotate(-0.5deg) scale(1); opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }
 
-// ── Estilos compartidos ──────────────────────────────────────
-const labelStyle: React.CSSProperties = {
-  fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)',
-  display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px',
-};
+// ── Field ──
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label style={{
+        fontFamily: HAND,
+        fontSize: 16, fontWeight: 800,
+        color: 'var(--text-muted)',
+        display: 'block',
+        marginBottom: 6,
+        fontStyle: 'italic',
+        transform: 'rotate(-0.5deg)',
+        transformOrigin: 'left',
+      }}>
+        ✏️ {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+// ── Botones ──
+function ButtonRow({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      display: 'flex', gap: 10,
+      marginTop: 8,
+      paddingTop: 12,
+      borderTop: '1.5px dashed var(--border-color)',
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function ModalBtn({ children, onClick, disabled, variant, color }: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  variant: 'primary' | 'secondary';
+  color?: string;
+}) {
+  const isPrimary = variant === 'primary';
+  const bg = isPrimary ? (color || 'var(--blue)') : 'transparent';
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        flex: isPrimary ? 2 : 1,
+        padding: '12px 16px',
+        borderRadius: 12,
+        border: isPrimary ? '2.5px solid var(--text-primary)' : '2.5px dashed var(--text-faint)',
+        background: bg,
+        color: isPrimary ? '#fff' : 'var(--text-muted)',
+        fontFamily: HAND,
+        fontSize: 20, fontWeight: 800,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.45 : 1,
+        boxShadow: isPrimary && !disabled ? '3px 4px 0 var(--text-primary)' : 'none',
+        textShadow: isPrimary ? '0 1px 2px rgba(0,0,0,0.25)' : 'none',
+        transform: isPrimary ? 'rotate(-1deg)' : 'rotate(1deg)',
+        transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+      }}
+      onMouseEnter={(e:any)=>{
+        if (!disabled) {
+          e.currentTarget.style.transform = isPrimary ? 'rotate(0deg) translateY(-2px)' : 'rotate(0deg) translateY(-1px)';
+          if (isPrimary) e.currentTarget.style.boxShadow = '4px 6px 0 var(--text-primary)';
+        }
+      }}
+      onMouseLeave={(e:any)=>{
+        e.currentTarget.style.transform = isPrimary ? 'rotate(-1deg)' : 'rotate(1deg)';
+        if (isPrimary && !disabled) e.currentTarget.style.boxShadow = '3px 4px 0 var(--text-primary)';
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── Estilos input/select ──
 const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '10px 14px', borderRadius: '10px',
-  border: '2px solid var(--border-color)', background: 'var(--bg-secondary)',
-  color: 'var(--text-primary)', fontSize: '14px', boxSizing: 'border-box', outline: 'none',
+  width: '100%',
+  padding: '10px 14px',
+  borderRadius: 10,
+  border: '2.5px solid var(--text-primary)',
+  background: 'var(--bg-secondary)',
+  color: 'var(--text-primary)',
+  fontFamily: HAND,
+  fontSize: 19,
+  fontWeight: 600,
+  boxSizing: 'border-box',
+  outline: 'none',
+  boxShadow: '3px 3px 0 var(--text-primary)',
+  transform: 'rotate(-0.3deg)',
+  transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
 };
+
 const selectStyle: React.CSSProperties = {
-  ...inputStyle, cursor: 'pointer',
-};
-const btnSecondary: React.CSSProperties = {
-  flex: 1, padding: '12px', borderRadius: '10px',
-  border: '2px solid var(--border-color)', background: 'transparent',
-  color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer',
-};
-const btnPrimary: React.CSSProperties = {
-  flex: 2, padding: '12px', borderRadius: '10px',
-  border: 'none', background: 'var(--blue)',
-  color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer',
+  ...inputStyle,
+  cursor: 'pointer',
+  fontSize: 18,
 };

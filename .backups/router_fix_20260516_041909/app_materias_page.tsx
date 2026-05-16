@@ -1,0 +1,599 @@
+'use client';
+export const dynamic = 'force-dynamic';
+
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { getMaterias, saveMaterias, generateId, Materia, Tema, Apunte, Documento } from '../../lib/storage';
+import { supabase } from '../../lib/supabase';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import { useIdioma } from '../../hooks/useIdioma';
+import NavbarMobile from '../../components/NavbarMobile';
+import MateriasList from '../../components/materias/MateriasList';
+import MateriaView from '../../components/materias/MateriaView';
+import TemaView from '../../components/materias/TemaView';
+import ApunteEditor from '../../components/materias/ApunteEditor';
+import DocumentoView from '../../components/materias/DocumentoView';
+import { ModalMateria, ModalTema, ModalApunte } from '../../components/materias/Modales';
+import Buscador from '../../components/Buscador';
+
+type Vista = 'materias' | 'materia' | 'tema' | 'apunte' | 'documento';
+
+export default function MateriasPage() {
+  const [materias, setMaterias] = useState<Materia[]>([]);
+  const [vista, setVista] = useState<'lista' | 'materia'>(() => {
+    if (typeof window !== 'undefined') {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get('open')) return 'materia';
+    }
+    return 'lista';
+  });
+  const [materiaActual, setMateriaActual] = useState<Materia | null>(null);
+  const [temaActual, setTemaActual] = useState<Tema | null>(null);
+  const [apunteActual, setApunteActual] = useState<Apunte | null>(null);
+  const [documentoActual, setDocumentoActual] = useState<Documento | null>(null);
+  const [modalMateria, setModalMateria] = useState(false);
+  const [modalTema, setModalTema] = useState(false);
+  const [modalApunte, setModalApunte] = useState(false);
+  const [subiendoDoc, setSubiendoDoc] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [showBuscador, setShowBuscador] = useState(false);
+  const isMobile = useIsMobile();
+  const searchParams = useSearchParams();
+  const openParam = searchParams?.get('open') || '';
+  const { tr, idioma } = useIdioma();
+
+  useEffect(() => {
+    const cargar = async () => {
+      setCargando(true);
+      try {
+        const materiasLocal = getMaterias();
+        if (materiasLocal.length > 0) {
+          setMaterias(materiasLocal);
+          setCargando(false);
+        }
+
+        let session = (await supabase.auth.getSession()).data.session;
+        if (!session) {
+          const { data } = await supabase.auth.refreshSession();
+          session = data.session;
+        }
+        if (!session) { window.location.href = '/auth'; return; }
+
+        const uid = session.user.id;
+        const token = session.access_token;
+        setUserId(uid);
+
+        const lastUserId = localStorage.getItem('josea_last_user');
+        if (lastUserId !== uid) {
+          localStorage.setItem('josea_last_user', uid);
+          localStorage.removeItem('josea_perfil');
+          localStorage.removeItem('josea_asignaciones');
+          localStorage.removeItem('josea_objetivos');
+        }
+
+        const res = await fetch('/api/materias', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const data = await res.json();
+
+        if (data.success && data.materias.length > 0) {
+          setMaterias(data.materias);
+          saveMaterias(data.materias);
+          // Auto-abrir materia si viene del home (URL param o localStorage)
+          try {
+            const openId = openParam || localStorage.getItem('josea_open_materia');
+            if (openId) {
+              const mat = data.materias.find((m: any) => m.id === openId);
+              if (mat) {
+                setMateriaActual(mat);
+                setVista('materia');
+              }
+              localStorage.removeItem('josea_open_materia');
+            }
+          } catch {}
+        } else if (materiasLocal.length > 0) {
+          await fetch('/api/materias', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ materias: materiasLocal }),
+          });
+        } else {
+          await new Promise(r => setTimeout(r, 2000));
+          const res2 = await fetch('/api/materias', {
+            headers: { 'Authorization': `Bearer ${token}` },
+          });
+          const data2 = await res2.json();
+          if (data2.success && data2.materias.length > 0) {
+            setMaterias(data2.materias);
+            saveMaterias(data2.materias);
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        const materiasLocal = getMaterias();
+        if (materiasLocal.length > 0) setMaterias(materiasLocal);
+      } finally {
+        setCargando(false);
+      }
+    };
+    cargar();
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowBuscador(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  const save = (m: Materia[]) => {
+    setMaterias(m);
+    saveMaterias(m);
+  };
+
+  const actualizarMateria = (materia: Materia) => {
+    const nuevas = materias.map(m => m.id === materia.id ? materia : m);
+    save(nuevas);
+    setMateriaActual(materia);
+  };
+
+  const actualizarTema = (tema: Tema) => {
+    if (!materiaActual) return;
+    const nuevaMateria = {
+      ...materiaActual,
+      temas: materiaActual.temas.map(t => t.id === tema.id ? tema : t),
+    };
+    actualizarMateria(nuevaMateria);
+    setTemaActual(tema);
+  };
+
+  const actualizarDocumento = (doc: Documento) => {
+    if (!temaActual) return;
+    const nuevoTema = {
+      ...temaActual,
+      documentos: temaActual.documentos.map(d => d.id === doc.id ? doc : d),
+    };
+    actualizarTema(nuevoTema);
+    setDocumentoActual(doc);
+  };
+
+  const crearMateria = (data: { nombre: string; color: string; emoji: string }) => {
+    const nueva: Materia = {
+      id: generateId(),
+      nombre: data.nombre,
+      color: data.color,
+      emoji: data.emoji,
+      temas: [],
+    };
+    save([...materias, nueva]);
+    setModalMateria(false);
+  };
+
+  const eliminarMateria = (id: string) => {
+    if (!confirm(idioma === 'en'
+      ? 'Delete this subject and all its content?'
+      : '¿Eliminar esta materia y todo su contenido?')) return;
+    save(materias.filter(m => m.id !== id));
+  };
+
+  const crearTema = (data: { nombre: string; color: string }) => {
+    if (!materiaActual) return;
+    const nuevo: Tema = {
+      id: generateId(),
+      nombre: data.nombre,
+      color: data.color,
+      apuntes: [],
+      documentos: [],
+    };
+    actualizarMateria({ ...materiaActual, temas: [...materiaActual.temas, nuevo] });
+    setModalTema(false);
+  };
+
+  const eliminarTema = (id: string) => {
+    if (!confirm(idioma === 'en' ? 'Delete this topic?' : '¿Eliminar este tema?')) return;
+    if (!materiaActual) return;
+    actualizarMateria({
+      ...materiaActual,
+      temas: materiaActual.temas.filter(t => t.id !== id),
+    });
+  };
+
+  const crearApunte = (data: { titulo: string; paperColor?: string; paperStyle?: string; paperSize?: string; scrollDirection?: 'vertical' | 'horizontal' }) => {
+    if (!temaActual) return;
+    // Guardar config del papel en el contenido inicial
+    const paperConfig = {
+      paperColor: data.paperColor || 'white',
+      paperStyle: data.paperStyle || 'lined',
+      paperSize: data.paperSize || 'normal',
+      scrollDirection: data.scrollDirection || 'vertical',
+    };
+    const nuevo: Apunte = {
+      id: generateId(),
+      titulo: data.titulo,
+      contenido: JSON.stringify({ paginas: [{ bloques: [], canvasData: null }], paperConfig }),
+      fechaCreacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
+      fechaModificacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
+    };
+    const nuevoTema = { ...temaActual, apuntes: [...temaActual.apuntes, nuevo] };
+    actualizarTema(nuevoTema);
+    setApunteActual(nuevo);
+    setModalApunte(false);
+    setVista('apunte');
+  };
+
+  const guardarApunte = (contenido: string) => {
+    if (!apunteActual || !temaActual) return;
+    const updated: Apunte = {
+      ...apunteActual,
+      contenido,
+      fechaModificacion: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
+    };
+    const nuevoTema = {
+      ...temaActual,
+      apuntes: temaActual.apuntes.map(a => a.id === updated.id ? updated : a),
+    };
+    actualizarTema(nuevoTema);
+    setApunteActual(updated);
+  };
+
+  const eliminarApunte = (id: string) => {
+    if (!confirm(idioma === 'en' ? 'Delete this note?' : '¿Eliminar este apunte?')) return;
+    if (!temaActual) return;
+    actualizarTema({
+      ...temaActual,
+      apuntes: temaActual.apuntes.filter(a => a.id !== id),
+    });
+    setVista('tema');
+  };
+
+  const subirDocumento = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  if (!e.target.files?.[0] || !temaActual) return;
+  const file = e.target.files[0];
+  setSubiendoDoc(true);
+
+  try {
+    let data: any;
+    const MAX_DIRECT = 4 * 1024 * 1024; // 4MB — debajo de este tamaño usamos la API normal
+
+    if (file.size > MAX_DIRECT) {
+      // Archivo grande: upload directo a R2 + procesar separado
+      console.log(`Archivo grande (${(file.size/1024/1024).toFixed(1)}MB), usando upload directo a R2...`);
+
+      // 1. Obtener presigned URL
+      const urlRes = await fetch('/api/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          contentType: file.type || 'application/pdf',
+          userId: (await import('../../lib/supabase').then(m => m.supabase.auth.getUser())).data.user?.id || 'anonymous',
+        }),
+      });
+      const { presignedUrl, r2Url } = await urlRes.json();
+      if (!presignedUrl) throw new Error('No se pudo obtener URL de upload');
+
+      // 2. Upload directo a R2
+      const uploadRes = await fetch(presignedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type || 'application/pdf' },
+        body: file,
+      });
+      if (!uploadRes.ok) throw new Error(`Upload a R2 falló: ${uploadRes.status}`);
+      console.log('✅ Subido directo a R2:', r2Url);
+
+      // 3. Procesar PDF (extraer texto) desde R2
+      const processRes = await fetch('/api/process-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ r2Url, fileName: file.name }),
+      });
+      const processData = await processRes.json();
+
+      data = {
+        success: true,
+        r2Url,
+        content: processData.content || '',
+        fileName: file.name,
+        mimeType: file.type,
+      };
+
+    } else {
+      // Archivo pequeño: usar API normal
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      data = await res.json();
+      if (!data.success) throw new Error(data.error);
+    }
+
+    // ✅ Usar R2 directamente (10GB gratis, más rápido que Supabase)
+    let archivoUrl: string | undefined;
+
+    // 🔥 Si el backend subió a R2, usar esa URL directamente
+    if (data.r2Url) {
+      archivoUrl = data.r2Url;
+      console.log('✅ Usando URL de R2:', data.r2Url);
+    } else if (data.fileBase64 && data.mimeType) {
+      // Fallback a blob URL local si R2 no está disponible
+      const byteCharacters = atob(data.fileBase64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: data.mimeType });
+      archivoUrl = URL.createObjectURL(blob);
+    }
+
+    const nombre = file.name.toLowerCase();
+    const esImagen = nombre.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+    const tipo = esImagen ? 'imagen'
+      : nombre.endsWith('.pdf') ? 'pdf'
+      : nombre.endsWith('.docx') || nombre.endsWith('.doc') ? 'word'
+      : nombre.endsWith('.pptx') || nombre.endsWith('.ppt') ? 'ppt'
+      : 'txt';
+
+    const nuevoDoc: Documento = {
+      id: generateId(),
+      nombre: file.name,
+      contenido: data.content,
+      tipo,
+      fechaSubida: new Date().toLocaleDateString(idioma === 'en' ? 'en-US' : 'es-ES'),
+      archivoUrl,
+      // ✅ NO guardar base64 si ya está en storage (ahorra mucho espacio en DB)
+      archivoBase64: archivoUrl?.startsWith('http') ? undefined : data.fileBase64,
+      archivoMime: data.mimeType,
+    };
+
+    actualizarTema({ ...temaActual, documentos: [...temaActual.documentos, nuevoDoc] });
+  } catch (err: any) {
+    alert('Error: ' + err.message);
+  } finally {
+    setSubiendoDoc(false);
+    e.target.value = '';
+  }
+};
+
+// Guardar video YouTube en el tema actual
+const agregarYoutube = (doc: Documento) => {
+  if (!temaActual) return;
+  actualizarTema({ ...temaActual, documentos: [...temaActual.documentos, doc] });
+};
+
+// DESPUÉS ✅
+const eliminarDocumento = async (id: string) => {
+  if (!confirm(idioma === 'en' ? 'Delete this file?' : '¿Eliminar este archivo?')) return;
+  if (!temaActual) return;
+
+  // Buscar el documento para obtener su URL
+  const doc = temaActual.documentos.find(d => d.id === id);
+
+  // Borrar de R2 o Supabase Storage si tiene URL
+  if (doc?.archivoUrl && doc.archivoUrl.startsWith('http')) {
+    try {
+      await fetch('/api/delete-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archivoUrl: doc.archivoUrl }),
+      });
+    } catch (e) {
+      console.warn('Error borrando archivo:', e);
+    }
+  }
+
+  actualizarTema({
+    ...temaActual,
+    documentos: temaActual.documentos.filter(d => d.id !== id),
+  });
+  setVista('tema');
+};
+
+  const reordenarMaterias = (nuevasMaterias: Materia[]) => {
+    setMaterias(nuevasMaterias);
+    saveMaterias(nuevasMaterias);
+  };
+
+  const editarMateria = (materiaEditada: Materia) => {
+    const nuevas = materias.map(m => m.id === materiaEditada.id ? materiaEditada : m);
+    setMaterias(nuevas);
+    saveMaterias(nuevas);
+    if (materiaActual?.id === materiaEditada.id) setMateriaActual(materiaEditada);
+  };
+
+  if (cargando || (openParam && vista === 'lista')) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: 'var(--bg-primary)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'column',
+        gap: 16,
+      }}>
+        <div style={{ fontSize: 56, animation: 'matBounce 1.2s ease-in-out infinite' }}>📚</div>
+        <p style={{
+          fontFamily: "'Caveat',cursive", fontSize: 22, fontStyle: 'italic',
+          color: 'var(--text-muted)', margin: 0,
+        }}>
+          ~ {openParam ? 'abriendo materia' : tr('cargando')} ~
+        </p>
+        <style>{`
+          @keyframes matBounce {
+            0%, 100% { transform: rotate(-5deg) translateY(0); }
+            50% { transform: rotate(5deg) translateY(-8px); }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', fontFamily: '-apple-system, sans-serif' }}>
+
+      {showBuscador && <Buscador onClose={() => setShowBuscador(false)} />}
+
+      {isMobile ? (
+        <NavbarMobile />
+      ) : (
+        <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '24px 40px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => window.location.href = '/'}
+                style={{
+                  background: 'none',
+                  border: '2px solid var(--gold)',
+                  color: 'var(--gold)',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  fontWeight: 700,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                }}
+              >
+                ← {tr('inicio')}
+              </button>
+              <button
+                onClick={() => setShowBuscador(true)}
+                style={{
+                  background: 'none',
+                  border: '2px solid var(--border-color)',
+                  color: 'var(--text-muted)',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  fontWeight: 700,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                🔍 {tr('buscar')}
+                <span style={{
+                  fontSize: '11px',
+                  background: 'var(--bg-secondary)',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                }}>⌘K</span>
+              </button>
+            </div>
+            {userId && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '12px',
+                color: 'var(--text-faint)',
+              }}>
+                <div style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: '#4ade80',
+                }} />
+                {tr('sincronizado')}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div style={{ padding: isMobile ? '16px' : '0 40px 40px' }}>
+
+        {vista === 'materias' && (
+          <MateriasList
+            materias={materias}
+            onAbrir={m => { setMateriaActual(m); setVista('materia'); }}
+            onEliminar={eliminarMateria}
+            onNueva={() => setModalMateria(true)}
+            onReordenar={reordenarMaterias}
+            onEditar={editarMateria}
+          />
+        )}
+
+        {vista === 'materia' && materiaActual && (
+          <MateriaView
+            materia={materiaActual}
+            onBack={() => setVista('materias')}
+            onAbrirTema={t => { setTemaActual(t); setVista('tema'); }}
+            onEliminarTema={eliminarTema}
+            onNuevoTema={() => setModalTema(true)}
+            onActualizarMateria={actualizarMateria}
+          />
+        )}
+
+        {vista === 'tema' && temaActual && materiaActual && (
+          <TemaView
+            materia={materiaActual}
+            tema={temaActual}
+            onBack={() => setVista('materias')}
+            onBackMateria={() => setVista('materia')}
+            onAbrirApunte={a => { setApunteActual(a); setVista('apunte'); }}
+            onAbrirDocumento={d => { setDocumentoActual(d); setVista('documento'); }}
+            onEliminarApunte={eliminarApunte}
+            onEliminarDocumento={eliminarDocumento}
+            onNuevoApunte={() => setModalApunte(true)}
+            onSubirDocumento={subirDocumento}
+            subiendoDoc={subiendoDoc}
+            onAgregarYoutube={agregarYoutube}
+          />
+        )}
+
+        {vista === 'apunte' && apunteActual && materiaActual && temaActual && (
+          <ApunteEditor
+            apunte={apunteActual}
+            materia={materiaActual}
+            tema={temaActual}
+            onBack={() => setVista('materias')}
+            onBackMateria={() => setVista('materia')}
+            onBackTema={() => setVista('tema')}
+            onGuardar={guardarApunte}
+          />
+        )}
+
+        {vista === 'documento' && documentoActual && materiaActual && temaActual && (
+          <DocumentoView
+            documento={documentoActual}
+            materia={materiaActual}
+            tema={temaActual}
+            onBack={() => setVista('materias')}
+            onBackMateria={() => setVista('materia')}
+            onBackTema={() => setVista('tema')}
+            onActualizar={actualizarDocumento}
+          />
+        )}
+
+        {modalMateria && (
+          <ModalMateria
+            onClose={() => setModalMateria(false)}
+            onConfirm={crearMateria}
+          />
+        )}
+        {modalTema && materiaActual && (
+          <ModalTema
+            onClose={() => setModalTema(false)}
+            onConfirm={crearTema}
+            colorMateria={materiaActual.color}
+          />
+        )}
+        {modalApunte && temaActual && (
+          <ModalApunte
+            onClose={() => setModalApunte(false)}
+            onConfirm={crearApunte}
+            colorTema={temaActual.color}
+          />
+        )}
+      </div>
+    </div>
+  );
+}

@@ -241,13 +241,13 @@ export default function FlashcardEditor({ flashcards, onSave, onClose, temaColor
                     </label>
                     <textarea
                       value={editQuestion}
-                      onChange={e => setEditQuestion(e.target.value)}
+                      onChange={(e: any) => setEditQuestion(e.target.value)}
                       placeholder="Escribe la pregunta..."
                       autoFocus
                       rows={3}
                       style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '2px solid #f5c84244', background: '#111122', color: '#ffffff', fontSize: '15px', resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.6, transition: 'border 0.2s' }}
-                      onFocus={e => e.currentTarget.style.borderColor = '#f5c842'}
-                      onBlur={e => e.currentTarget.style.borderColor = '#f5c84244'}
+                      onFocus={(e: any) => e.currentTarget.style.borderColor = '#f5c842'}
+                      onBlur={(e: any) => e.currentTarget.style.borderColor = '#f5c84244'}
                     />
                   </div>
 
@@ -258,12 +258,12 @@ export default function FlashcardEditor({ flashcards, onSave, onClose, temaColor
                     </label>
                     <textarea
                       value={editAnswer}
-                      onChange={e => setEditAnswer(e.target.value)}
+                      onChange={(e: any) => setEditAnswer(e.target.value)}
                       placeholder="Escribe la respuesta..."
                       rows={3}
                       style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '2px solid #ff4d6d44', background: '#111122', color: '#ffffff', fontSize: '15px', resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.6, transition: 'border 0.2s' }}
-                      onFocus={e => e.currentTarget.style.borderColor = '#ff4d6d'}
-                      onBlur={e => e.currentTarget.style.borderColor = '#ff4d6d44'}
+                      onFocus={(e: any) => e.currentTarget.style.borderColor = '#ff4d6d'}
+                      onBlur={(e: any) => e.currentTarget.style.borderColor = '#ff4d6d44'}
                     />
                   </div>
 

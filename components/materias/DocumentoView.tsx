@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Documento, Materia, Tema } from '../../lib/storage';
 import ChatDocumento from '../flashcards/ChatDocumento';
 import EstudioModal from '../flashcards/EstudioModal';
@@ -11,13 +11,14 @@ import { guardarDeck } from '../../lib/quizStorage';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
 import { detectContentLanguage } from '../../lib/detectLanguage';
-import { getIdioma } from '../../lib/i18n';
 import BannerCargando from './BannerCargando';
 import AIExhausted from '../AIExhausted';
 import TabAnalisis from './TabAnalisis';
 import TabFlashcards from './TabFlashcards';
 import TabQuiz from './TabQuiz';
 import PublicarComunidad from '../PublicarComunidad';
+
+const HAND = "'Caveat',cursive";
 
 interface Props {
   documento: Documento;
@@ -28,20 +29,6 @@ interface Props {
   onBackTema: () => void;
   onActualizar: (doc: Documento) => void;
 }
-
-
-// Detectar idioma del documento automáticamente
-const detectarIdiomaDoc = (texto: string): 'en' | 'es' => {
-  if (!texto || texto.length < 30) return 'es';
-  const t = texto.toLowerCase().substring(0, 2000);
-  const en = ['the','is','are','was','were','have','has','this','that','with','from','they','what','which','when','how','can','will','would','should','could','about','there','their','been','an','of','in','to','for','on','at','by','or','and','but','a','it','we','our','us','them','your','who','not','just','now','also','than','more','some','any','do','does','did'];
-  const es = ['que','con','para','por','una','los','las','del','está','son','como','pero','más','muy','todo','este','esta','también','hacer','tiene','pueden','cuando','donde','porque','aunque','se','lo','le','su','el','la','de','en','un','es','al','si','ya','me','mi','hay','fue','ser','estar'];
-  const words = t.split(/[\s,\.!?;:\-]+/).filter((w: string) => w.length > 1);
-  let enC = 0, esC = 0;
-  words.forEach((w: string) => { if (en.includes(w)) enC++; if (es.includes(w)) esC++; });
-  if (enC === 0 && esC === 0) return /[áéíóúüñ¿¡]/i.test(t) ? 'es' : 'en';
-  return enC > esC ? 'en' : 'es';
-};
 
 export default function DocumentoView({ documento, materia, tema, onBack, onBackMateria, onBackTema, onActualizar }: Props) {
   const [analizando, setAnalizando] = useState(false);
@@ -75,7 +62,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   const docBase64 = (documento as any).archivoBase64;
   const docMime = (documento as any).archivoMime;
 
-  useState(() => {
+  useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (tab !== 'flashcards' || flashcards.length === 0) return;
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
@@ -85,7 +72,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  });
+  }, [tab, flashcards.length]);
 
   const analizar = async () => {
     setAnalizando(true);
@@ -167,16 +154,19 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
     if (addingMore) return;
     setAddingMore(true);
     setFlashcardsMessage('');
+
     try {
       const res = await fetch('/api/flashcards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           content: documento.contenido,
+          count: addCount,
           idioma: detectContentLanguage(documento.contenido || '', idioma === 'en' ? 'en' : 'es'),
           existingQuestions: flashcards.map((f: any) => f.question),
         }),
       });
+
       const data = await res.json();
 
       if (data.exhausted) {
@@ -189,30 +179,62 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
         return;
       }
 
-      if (data.success && data.flashcards?.length > 0) {
-        const nuevas = [...flashcards, ...data.flashcards];
-        setFlashcards(nuevas);
-        onActualizar({ ...documento, flashcards: nuevas });
-        setFlashcardsMessage(
-          idioma === 'en'
-            ? `${data.flashcards.length} new flashcards generated successfully.`
-            : `${data.flashcards.length} nuevas flashcards generadas correctamente.`
-        );
-      } else {
+      if (!data.success || !data.flashcards) {
         setFlashcardsMessage(
           idioma === 'en'
             ? 'No more unique flashcards could be generated.'
             : 'No se pudieron generar más flashcards únicas.'
         );
+        return;
       }
-    } catch (e) {
-      console.error(e);
+
+      // 🛡️ FILTRO DE SEGURIDAD POR PALABRAS CLAVE (60% similarity)
+      const getKeywords = (str: string) => {
+        return new Set(
+          str.toLowerCase()
+            .replace(/[¿?¡!.,;]/g, '')
+            .split(/\s+/)
+            .filter((word: string) => word.length > 3)
+        );
+      };
+
+      const nuevasUnicas = data.flashcards.filter((nueva: any) => {
+        const keysNueva = getKeywords(nueva.question);
+        return !flashcards.some((vieja: any) => {
+          const keysVieja = getKeywords(vieja.question);
+          let coincidencias = 0;
+          keysNueva.forEach((word: string) => { if (keysVieja.has(word)) coincidencias++; });
+          const ratio = coincidencias / Math.max(keysNueva.size, 1);
+          return ratio > 0.6;
+        });
+      });
+
+      if (nuevasUnicas.length === 0) {
+        setFlashcardsMessage(
+          idioma === 'en'
+            ? 'AI tried to repeat concepts. No duplicates added.'
+            : 'La IA intentó repetir conceptos. No se agregaron duplicados.'
+        );
+      } else {
+        const finalDeck = [...flashcards, ...nuevasUnicas];
+        setFlashcards(finalDeck);
+        onActualizar({ ...documento, flashcards: finalDeck });
+        setCurrentCard(flashcards.length);
+        setFlipped(false);
+        setFlashcardsMessage(
+          idioma === 'en'
+            ? `✅ ${nuevasUnicas.length} new unique flashcards added.`
+            : `✅ Se añadieron ${nuevasUnicas.length} tarjetas nuevas sin repeticiones.`
+        );
+      }
+    } catch (err) {
+      console.error(err);
       setFlashcardsMessage(
-        idioma === 'en'
-          ? 'Error generating more flashcards.'
-          : 'Error al generar más flashcards.'
+        idioma === 'en' ? 'Error generating more flashcards.' : 'Error al generar más flashcards.'
       );
-    } finally { setAddingMore(false); }
+    } finally {
+      setAddingMore(false);
+    }
   };
 
   const handleGuardarDeck = async () => {
@@ -222,7 +244,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   };
 
   return (
-    <div>
+    <div style={{ maxWidth: 1200, margin: '0 auto' }}>
       {aiExhausted && <AIExhausted onClose={() => setAiExhausted(false)} />}
 
       {showEstudio && flashcards.length > 0 && (
@@ -241,11 +263,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
         <PublicarComunidad
           tipo={tipoPublicar}
           titulo={documento.nombre}
-          contenido={
-            tipoPublicar === 'flashcards'
-              ? { flashcards }
-              : { quiz: preguntasParaPublicar }
-          }
+          contenido={tipoPublicar === 'flashcards' ? { flashcards } : { quiz: preguntasParaPublicar }}
           materiaColor={materia.color}
           materiaEmoji={materia.emoji}
           materiaNombre={materia.nombre}
@@ -254,257 +272,558 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
         />
       )}
 
-      {/* Modal guardar deck */}
+      {/* MODAL Guardar deck — vibra cuaderno */}
       {showGuardarDeck && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-          <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '32px', maxWidth: '420px', width: '100%', border: `2px solid ${tema.color}44` }}>
-            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>💾 {trAny('guardarDeck')}</h3>
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 20px' }}>{flashcards.length} {trAny('tarjetas')} · &quot;{documento.nombre}&quot;</p>
-            {deckGuardado ? (
-              <div style={{ padding: '14px', background: '#4ade8015', borderRadius: '12px', border: '1px solid #4ade8044', textAlign: 'center' }}>
-                <p style={{ color: '#4ade80', fontWeight: 700, margin: 0 }}>✅ {idioma === 'en' ? 'Deck saved!' : '¡Deck guardado!'}</p>
-              </div>
-            ) : (
-              <>
-                <input autoFocus value={nombreDeck} onChange={e => setNombreDeck(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleGuardarDeck()}
-                  placeholder={idioma === 'en' ? 'Deck name...' : 'Nombre del deck...'}
-                  style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: `2px solid ${tema.color}`, background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box', marginBottom: '16px' }} />
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button onClick={handleGuardarDeck} disabled={!nombreDeck.trim()}
-                    style={{ flex: 1, padding: '12px', borderRadius: '12px', border: 'none', background: nombreDeck.trim() ? tema.color : '#333', color: nombreDeck.trim() ? '#000' : '#666', fontWeight: 800, fontSize: '14px', cursor: nombreDeck.trim() ? 'pointer' : 'not-allowed' }}>
-                    💾 {trAny('guardar')}
-                  </button>
-                  <button onClick={() => setShowGuardarDeck(false)}
-                    style={{ padding: '12px 20px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontWeight: 700, fontSize: '14px', cursor: 'pointer' }}>
-                    {trAny('cancelar')}
-                  </button>
+        <div onClick={() => setShowGuardarDeck(false)} style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.78)',
+          backdropFilter: 'blur(6px)',
+          zIndex: 3000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 20,
+          animation: 'modalFadeDv 0.25s ease',
+        }}>
+          <div onClick={(e: any) => e.stopPropagation()} style={{
+            background: 'var(--bg-card)',
+            border: '2.5px solid var(--text-primary)',
+            borderRadius: 16,
+            padding: 0,
+            width: '100%', maxWidth: 440,
+            boxShadow: '6px 7px 0 var(--text-primary), 0 16px 50px rgba(0,0,0,0.45)',
+            transform: 'rotate(-0.5deg)',
+            position: 'relative',
+            overflow: 'hidden',
+            animation: 'modalPopDv 0.4s cubic-bezier(.34,1.4,.64,1)',
+          }}>
+            <div style={{
+              position: 'absolute', top: -10, left: '50%',
+              transform: 'translateX(-50%) rotate(-4deg)',
+              width: 80, height: 18,
+              background: `color-mix(in srgb,${tema.color} 55%,transparent)`,
+              border: `1px solid color-mix(in srgb,${tema.color} 30%,transparent)`,
+              boxShadow: '0 2px 5px rgba(0,0,0,0.18)',
+              zIndex: 5,
+            }}/>
+
+            <div style={{
+              background: tema.color,
+              padding: '10px 24px',
+              borderBottom: '2px solid var(--text-primary)',
+            }}>
+              <h3 style={{
+                fontFamily: HAND, fontSize: 26, fontWeight: 900,
+                color: '#000', margin: 0, lineHeight: 1.1,
+                transform: 'rotate(-0.8deg)', display: 'inline-block',
+                fontStyle: 'italic',
+              }}>
+                💾 {trAny('guardarDeck')}
+              </h3>
+            </div>
+
+            <div style={{ padding: '20px 24px' }}>
+              <p style={{
+                fontFamily: HAND, fontSize: 17,
+                color: 'var(--text-muted)', margin: '0 0 16px',
+                fontStyle: 'italic',
+              }}>
+                ~ {flashcards.length} {trAny('tarjetas')} · "{documento.nombre}" ~
+              </p>
+
+              {deckGuardado ? (
+                <div style={{
+                  padding: 16,
+                  background: 'color-mix(in srgb,#4ade80 18%,transparent)',
+                  border: '2.5px solid #4ade80',
+                  borderRadius: 12,
+                  textAlign: 'center',
+                  transform: 'rotate(-0.5deg)',
+                  boxShadow: '3px 3px 0 #4ade80',
+                }}>
+                  <p style={{
+                    fontFamily: HAND, fontSize: 22, fontWeight: 900,
+                    color: '#16a34a', margin: 0,
+                  }}>
+                    ✅ {idioma === 'en' ? 'Deck saved!' : '¡Deck guardado!'}
+                  </p>
                 </div>
-              </>
-            )}
+              ) : (
+                <>
+                  <input autoFocus value={nombreDeck} onChange={(e: any) => setNombreDeck(e.target.value)}
+                    onKeyDown={(e: any) => e.key === 'Enter' && handleGuardarDeck()}
+                    placeholder={idioma === 'en' ? 'Deck name...' : 'Nombre del deck...'}
+                    style={{
+                      width: '100%',
+                      padding: '11px 14px',
+                      borderRadius: 10,
+                      border: `2.5px solid var(--text-primary)`,
+                      background: 'var(--bg-secondary)',
+                      color: 'var(--text-primary)',
+                      fontFamily: HAND, fontSize: 19, fontWeight: 600,
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                      boxShadow: '3px 3px 0 var(--text-primary)',
+                      transform: 'rotate(-0.3deg)',
+                      marginBottom: 16,
+                    }}/>
+
+                  <div style={{
+                    display: 'flex', gap: 10,
+                    paddingTop: 14,
+                    borderTop: '1.5px dashed var(--border-color)',
+                  }}>
+                    <button onClick={() => setShowGuardarDeck(false)}
+                      style={{
+                        flex: 1, padding: 12,
+                        borderRadius: 12,
+                        border: '2.5px dashed var(--text-faint)',
+                        background: 'transparent', color: 'var(--text-muted)',
+                        fontFamily: HAND, fontSize: 18, fontWeight: 800,
+                        cursor: 'pointer',
+                        transform: 'rotate(1deg)',
+                      }}>
+                      ✕ {trAny('cancelar')}
+                    </button>
+                    <button onClick={handleGuardarDeck} disabled={!nombreDeck.trim()}
+                      style={{
+                        flex: 2, padding: 12,
+                        borderRadius: 12,
+                        border: '2.5px solid var(--text-primary)',
+                        background: nombreDeck.trim() ? tema.color : 'var(--bg-card2)',
+                        color: nombreDeck.trim() ? '#000' : 'var(--text-faint)',
+                        fontFamily: HAND, fontSize: 19, fontWeight: 800,
+                        cursor: nombreDeck.trim() ? 'pointer' : 'not-allowed',
+                        boxShadow: nombreDeck.trim() ? '3px 4px 0 var(--text-primary)' : 'none',
+                        transform: 'rotate(-1deg)',
+                      }}>
+                      💾 {trAny('guardar')}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
+          <style>{`
+            @keyframes modalFadeDv { from{opacity:0} to{opacity:1} }
+            @keyframes modalPopDv {
+              0% { transform: rotate(0deg) scale(0.85); opacity: 0; }
+              60% { transform: rotate(-0.5deg) scale(1.02); opacity: 1; }
+              100% { transform: rotate(-0.5deg) scale(1); opacity: 1; }
+            }
+          `}</style>
         </div>
       )}
 
-      {/* Chat flotante */}
       {showChat && (
         <ChatDocumento contexto={documento.contenido} temaColor={tema.color} nombreDoc={documento.nombre} onClose={() => setShowChat(false)} />
       )}
 
-      <div style={{ background: 'var(--bg-card)', borderRadius: '20px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
-        <div style={{ height: '4px', background: `linear-gradient(90deg, ${tema.color}, ${materia.color})` }} />
+      {/* BREADCRUMB */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        marginBottom: 16, fontFamily: HAND,
+        flexWrap: 'wrap',
+      }}>
+        <button onClick={onBack} style={breadBtn}>📚 {trAny('materias')}</button>
+        <span style={breadSep}>›</span>
+        <button onClick={onBackMateria} style={{ ...breadBtn, color: materia.color }}>{materia.emoji} {materia.nombre}</button>
+        <span style={breadSep}>›</span>
+        <button onClick={onBackTema} style={{ ...breadBtn, color: tema.color }}>📁 {tema.nombre}</button>
+        <span style={breadSep}>›</span>
+        <span style={{
+          fontSize: 17, fontWeight: 800, color: 'var(--text-primary)',
+          fontStyle: 'italic',
+        }}>
+          {documento.nombre.length > 30 ? documento.nombre.slice(0, 30) + '…' : documento.nombre}
+        </span>
+      </div>
 
-        {/* Header documento */}
-        <div style={{ padding: isMobile ? '16px' : '24px 28px', borderBottom: '1px solid var(--border-color)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+      {/* CARD PRINCIPAL */}
+      <div style={{
+        background: 'var(--bg-card)',
+        border: '2.5px solid var(--text-primary)',
+        borderRadius: 14,
+        boxShadow: `5px 6px 0 ${tema.color}`,
+        transform: 'rotate(-0.3deg)',
+        overflow: 'hidden',
+      }}>
+        {/* Banda título */}
+        <div style={{
+          background: `linear-gradient(90deg, ${tema.color} 0%, ${materia.color} 100%)`,
+          padding: '10px 22px',
+          borderBottom: '2.5px solid var(--text-primary)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12, flexWrap: 'wrap',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: 28 }}>
+              {documento.tipo === 'youtube' ? '🎬'
+                : documento.tipo === 'imagen' ? '🖼️'
+                : documento.tipo === 'pdf' ? '📄'
+                : documento.tipo === 'audio' ? '🎵'
+                : '📝'}
+            </span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '20px' }}>
-                  {documento.tipo === 'youtube' ? '🎬' : documento.tipo === 'imagen' ? '🖼️' : documento.tipo === 'pdf' ? '📄' : documento.tipo === 'audio' ? '🎵' : '📝'}
+              <h2 style={{
+                fontFamily: HAND, fontSize: isMobile ? 22 : 26, fontWeight: 900,
+                color: '#000', margin: 0, lineHeight: 1.05,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                textShadow: '0 1px 2px rgba(255,255,255,0.25)',
+              }}>
+                {documento.nombre}
+              </h2>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 2 }}>
+                <span style={{
+                  fontFamily: HAND, fontSize: 14, fontWeight: 700,
+                  color: 'rgba(0,0,0,0.7)', fontStyle: 'italic',
+                }}>
+                  {documento.fechaSubida}
                 </span>
-                <h2 style={{ fontSize: isMobile ? '16px' : '18px', fontWeight: 800, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: isMobile ? '200px' : '400px' }}>
-                  {documento.nombre}
-                </h2>
-              </div>
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-faint)' }}>{documento.fechaSubida}</span>
-                {flashcards.length > 0 && <span style={{ fontSize: '12px', color: tema.color, fontWeight: 600 }}>🎴 {flashcards.length} {trAny('tarjetas')}</span>}
+                {flashcards.length > 0 && (
+                  <span style={{
+                    fontFamily: HAND, fontSize: 14, fontWeight: 800,
+                    color: '#000',
+                    background: 'rgba(0,0,0,0.18)',
+                    padding: '0 8px', borderRadius: 6,
+                  }}>
+                    🎴 {flashcards.length} {trAny('tarjetas')}
+                  </span>
+                )}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
-              <button onClick={() => setShowChat(true)}
-                style={{ padding: '8px 14px', borderRadius: '8px', border: `2px solid ${tema.color}`, background: 'transparent', color: tema.color, fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                💬 Chat
-              </button>
-              <button onClick={analizar} disabled={analizando}
-                style={{ padding: '9px 16px', borderRadius: '10px', border: 'none', background: analizando ? 'var(--bg-card2)' : 'var(--gold)', color: analizando ? 'var(--text-faint)' : '#000', fontSize: '12px', fontWeight: 800, cursor: analizando ? 'not-allowed' : 'pointer', minWidth: '130px' }}>
-                {analizando ? '⏳ ...' : analisisLocal ? '🔄 ' + trAny('reAnalizar') : esImagen ? '🔍 ' + (idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen') : '🔍 ' + trAny('analizar')}
-              </button>
-            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button onClick={() => setShowChat(true)}
+              style={{
+                padding: '7px 14px',
+                borderRadius: 10,
+                border: '2.5px solid var(--text-primary)',
+                background: 'var(--bg-card)',
+                color: 'var(--text-primary)',
+                fontFamily: HAND, fontSize: 16, fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '2px 3px 0 var(--text-primary)',
+                transform: 'rotate(-1.5deg)',
+                transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+              }}
+              onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0deg) translateY(-2px)';}}
+              onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(-1.5deg)';}}
+            >
+              💬 chat
+            </button>
+            <button onClick={analizar} disabled={analizando}
+              style={{
+                padding: '7px 16px',
+                borderRadius: 10,
+                border: '2.5px solid var(--text-primary)',
+                background: analizando ? 'var(--bg-card2)' : 'var(--gold)',
+                color: analizando ? 'var(--text-faint)' : '#000',
+                fontFamily: HAND, fontSize: 16, fontWeight: 800,
+                cursor: analizando ? 'not-allowed' : 'pointer',
+                boxShadow: analizando ? 'none' : '2px 3px 0 var(--text-primary)',
+                transform: 'rotate(1.5deg)',
+                transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+              }}
+              onMouseEnter={(e:any)=>{
+                if (!analizando) e.currentTarget.style.transform='rotate(0deg) translateY(-2px)';
+              }}
+              onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(1.5deg)';}}
+            >
+              {analizando
+                ? '⏳ ...'
+                : analisisLocal
+                  ? '🔄 ' + trAny('reAnalizar')
+                  : esImagen ? '🔍 ' + (idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen') : '🔍 ' + trAny('analizar')}
+            </button>
           </div>
         </div>
 
-        {/* Banner cargando */}
         {analizando && <BannerCargando pasoActual={pasoActual} temaColor={tema.color} esImagen={esImagen} idioma={idioma} />}
 
-        {/* ── TABS ── */}
-        <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', marginBottom: '24px', overflowX: 'auto' }}>
+        {/* TABS */}
+        <div style={{
+          display: 'flex', gap: 6,
+          padding: '14px 18px 4px',
+          borderBottom: '2px dashed var(--border-color)',
+          overflowX: 'auto', flexWrap: 'wrap',
+          background: 'var(--bg-card)',
+        }}>
           {[
             {
               id: 'leer',
               label: esImagen
                 ? `🖼️ ${idioma === 'en' ? 'Image' : 'Imagen'}`
-                : documento.tipo === 'youtube' ? '▶️ Ver video' : `📖 ${documento.archivoUrl || docBase64 ? trAny('verDocumento') : trAny('leerTexto')}`,
+                : documento.tipo === 'youtube' ? '▶️ Video' : `📖 ${documento.archivoUrl || docBase64 ? trAny('verDocumento') : trAny('leerTexto')}`,
+              color: tema.color,
             },
-            { id: 'analisis',   label: `🔍 ${trAny('analisisAI')}${analisisLocal ? ' ✓' : ''}` },
-            { id: 'flashcards', label: `🎴 ${trAny('flashcards')}${flashcards.length > 0 ? ` (${flashcards.length})` : ''}` },
-            { id: 'quiz',       label: `🤓 Quiz` },
-          ].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id as any)}
-              style={{
-                padding: '12px 20px',
-                border: 'none',
-                background: 'transparent',
-                borderBottom: tab === t.id ? `3px solid ${t.id === 'quiz' ? '#a78bfa' : tema.color}` : '3px solid transparent',
-                color: tab === t.id ? (t.id === 'quiz' ? '#a78bfa' : tema.color) : 'var(--text-muted)',
-                fontSize: '14px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                marginBottom: '-2px',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.2s',
-              }}>
-              {t.label}
-            </button>
-          ))}
+            { id: 'analisis',   label: `🔍 ${trAny('analisisAI')}${analisisLocal ? ' ✓' : ''}`, color: tema.color },
+            { id: 'flashcards', label: `🎴 ${trAny('flashcards')}${flashcards.length > 0 ? ` (${flashcards.length})` : ''}`, color: tema.color },
+            { id: 'quiz',       label: `🤓 Quiz`, color: '#a78bfa' },
+          ].map((t, i) => {
+            const active = tab === t.id;
+            return (
+              <button key={t.id} onClick={() => setTab(t.id as any)}
+                style={{
+                  padding: '8px 16px',
+                  background: active ? t.color : 'var(--bg-secondary)',
+                  color: active ? '#000' : 'var(--text-muted)',
+                  border: `2.5px solid ${active ? t.color : 'var(--border-color)'}`,
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  fontFamily: HAND, fontSize: 17, fontWeight: 800,
+                  whiteSpace: 'nowrap',
+                  boxShadow: active ? '2px 3px 0 var(--text-primary)' : 'none',
+                  transform: active
+                    ? `rotate(${i % 2 === 0 ? -1.5 : 1.5}deg)`
+                    : `rotate(${i % 2 === 0 ? -0.4 : 0.4}deg)`,
+                  transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+                }}>
+                {t.label}
+              </button>
+            );
+          })}
         </div>
 
-        {/* TAB LEER */}
-        {tab === 'leer' && (
-          <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
-            <div style={{ height: '4px', background: tema.color }} />
-            {esImagen && docBase64 ? (
-              <div style={{ padding: '20px', textAlign: 'center' }}>
-                <img src={`data:${docMime};base64,${docBase64}`} alt={documento.nombre}
-                  style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', objectFit: 'contain' }} />
-                {documento.contenido && (
-                  <div style={{ marginTop: '16px', background: 'var(--bg-secondary)', borderRadius: '10px', padding: '14px', textAlign: 'left' }}>
-                    <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', margin: '0 0 8px' }}>
-                      {idioma === 'en' ? '🤖 Extracted text' : '🤖 Texto extraído'}
-                    </p>
-                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6, maxHeight: '200px', overflowY: 'auto' }}>{documento.contenido}</p>
+        <div style={{ padding: 18 }}>
+          {/* TAB LEER */}
+          {tab === 'leer' && (
+            <div style={{
+              background: 'var(--bg-secondary)',
+              border: '2.5px solid var(--text-primary)',
+              borderRadius: 12,
+              boxShadow: `3px 4px 0 ${tema.color}`,
+              overflow: 'hidden',
+            }}>
+              {esImagen && docBase64 ? (
+                <div style={{ padding: 20, textAlign: 'center' }}>
+                  <div style={{
+                    display: 'inline-block',
+                    padding: 12,
+                    background: '#fff',
+                    border: '2.5px solid var(--text-primary)',
+                    boxShadow: '4px 5px 0 var(--text-primary)',
+                    transform: 'rotate(-1.5deg)',
+                    marginBottom: 16,
+                  }}>
+                    <img src={`data:${docMime};base64,${docBase64}`} alt={documento.nombre}
+                      style={{ maxWidth: '100%', maxHeight: '60vh', display: 'block', objectFit: 'contain' }} />
                   </div>
-                )}
-                {!analisisLocal && !analizando && (
-                  <div style={{ marginTop: '20px' }}>
-                    <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '12px' }}>
-                      {idioma === 'en' ? '🤖 Analyze this image' : '🤖 Analiza esta imagen'}
-                    </p>
-                    <button onClick={analizar}
-                      style={{ padding: '12px 28px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-                      🔍 {idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <>
-                <VisorDocumento
-                  contenido={documento.contenido}
-                  tipo={documento.tipo}
-                  nombre={documento.nombre}
-                  archivoUrl={documento.archivoUrl}
-                  archivoBase64={docBase64}
-                  archivoMime={docMime}
-                  analisis={analisisLocal}
-                  temaColor={tema.color}
-                  youtubeId={documento.youtubeId}
-                  youtubeChannel={documento.youtubeChannel}
-                  youtubeWordCount={documento.youtubeWordCount}
-                />
-                {!analisisLocal && !analizando && (
-                  <div style={{ padding: '24px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)', textAlign: 'center' }}>
-                    <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: '0 0 12px' }}>
-                      {idioma === 'en' ? '🤖 Analyze to extract keywords and generate flashcards' : '🤖 Analiza para extraer palabras clave y generar flashcards'}
-                    </p>
-                    <button onClick={analizar} disabled={analizando}
-                      style={{ padding: '12px 28px', borderRadius: '12px', border: 'none', background: 'var(--gold)', color: '#000', fontSize: '14px', fontWeight: 800, cursor: 'pointer' }}>
-                      🔍 {idioma === 'en' ? 'Analyze & Generate Flashcards' : 'Analizar y Generar Flashcards'}
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
+                  {documento.contenido && (
+                    <div style={{
+                      background: 'var(--bg-card)',
+                      border: '2px dashed var(--border-color)',
+                      borderRadius: 10,
+                      padding: 14,
+                      textAlign: 'left',
+                      marginTop: 8,
+                      transform: 'rotate(0.3deg)',
+                    }}>
+                      <p style={{
+                        fontFamily: HAND, fontSize: 14, fontWeight: 800,
+                        color: 'var(--text-faint)', fontStyle: 'italic',
+                        margin: '0 0 6px',
+                      }}>
+                        ✏️ {idioma === 'en' ? 'extracted text' : 'texto extraído'}
+                      </p>
+                      <p style={{
+                        fontSize: 14, color: 'var(--text-secondary)',
+                        margin: 0, lineHeight: 1.6,
+                        maxHeight: 200, overflowY: 'auto',
+                      }}>
+                        {documento.contenido}
+                      </p>
+                    </div>
+                  )}
+                  {!analisisLocal && !analizando && (
+                    <AnalyzeCTA tema={tema} onAnalizar={analizar} idioma={idioma} esImagen={esImagen} />
+                  )}
+                </div>
+              ) : (
+                <>
+                  <VisorDocumento
+                    contenido={documento.contenido}
+                    tipo={documento.tipo}
+                    nombre={documento.nombre}
+                    archivoUrl={documento.archivoUrl}
+                    archivoBase64={docBase64}
+                    archivoMime={docMime}
+                    analisis={analisisLocal}
+                    temaColor={tema.color}
+                    youtubeId={documento.youtubeId}
+                    youtubeChannel={documento.youtubeChannel}
+                    youtubeWordCount={documento.youtubeWordCount}
+                  />
+                  {!analisisLocal && !analizando && (
+                    <div style={{ borderTop: '2px dashed var(--border-color)', padding: 20 }}>
+                      <AnalyzeCTA tema={tema} onAnalizar={analizar} idioma={idioma} esImagen={esImagen} />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
-        {/* TAB ANÁLISIS */}
-        {tab === 'analisis' && (
-          <TabAnalisis
-            documento={{ ...documento, analisis: analisisLocal }}
-            tema={tema}
-            idioma={idioma}
-            isMobile={isMobile}
-            analizando={analizando}
-            recommendedCount={recommendedCount}
-            recommendedReason={recommendedReason}
-            flashcardsLength={flashcards.length}
-            tr={trAny}
-            onAnalizar={analizar}
-            onVerFlashcards={() => setTab('flashcards')}
-            onVerDoc={() => setTab('leer')}
-            esImagen={esImagen}
-          />
-        )}
+          {/* TAB ANÁLISIS */}
+          {tab === 'analisis' && (
+            <TabAnalisis
+              documento={{ ...documento, analisis: analisisLocal }}
+              tema={tema}
+              idioma={idioma}
+              isMobile={isMobile}
+              analizando={analizando}
+              recommendedCount={recommendedCount}
+              recommendedReason={recommendedReason}
+              flashcardsLength={flashcards.length}
+              tr={trAny}
+              onAnalizar={analizar}
+              onVerFlashcards={() => setTab('flashcards')}
+              onVerDoc={() => setTab('leer')}
+              esImagen={esImagen}
+            />
+          )}
 
-        {/* TAB FLASHCARDS */}
-        {tab === 'flashcards' && (
-          <div>
-            {flashcards.length > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+          {/* TAB FLASHCARDS */}
+          {tab === 'flashcards' && (
+            <div>
+              {flashcards.length > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                  <button
+                    onClick={() => { setTipoPublicar('flashcards'); setShowPublicarComunidad(true); }}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 10,
+                      border: '2.5px solid #a78bfa',
+                      background: 'color-mix(in srgb,#a78bfa 16%,var(--bg-card))',
+                      color: '#a78bfa',
+                      fontFamily: HAND, fontSize: 16, fontWeight: 800,
+                      cursor: 'pointer',
+                      boxShadow: '2px 3px 0 #a78bfa',
+                      transform: 'rotate(1.5deg)',
+                      transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+                    }}
+                    onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0deg) translateY(-2px)';}}
+                    onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(1.5deg)';}}
+                  >
+                    🌍 publicar en comunidad
+                  </button>
+                </div>
+              )}
+              <TabFlashcards
+                flashcards={flashcards} currentCard={currentCard} flipped={flipped}
+                addCount={addCount} addingMore={addingMore} flashcardsMessage={flashcardsMessage} recommendedCount={recommendedCount}
+                recommendedReason={recommendedReason} tema={tema} isMobile={isMobile}
+                idioma={idioma} esImagen={esImagen} analizando={analizando} tr={trAny}
+                onFlip={() => setFlipped(!flipped)}
+                onPrev={() => { setFlipped(false); setCurrentCard((currentCard - 1 + flashcards.length) % flashcards.length); }}
+                onNext={() => { setFlipped(false); setCurrentCard((currentCard + 1) % flashcards.length); }}
+                onSetCard={(i: number) => { setCurrentCard(i); setFlipped(false); }}
+                onSetAddCount={setAddCount} onAddMore={addMore} onAnalizar={analizar}
+                onEstudio={() => setShowEstudio(true)} onQuiz={() => setTab('quiz')}
+                onEditor={() => setShowEditor(true)} onGuardar={() => { setShowGuardarDeck(true); setDeckGuardado(false); }}
+              />
+            </div>
+          )}
+
+          {/* TAB QUIZ */}
+          {tab === 'quiz' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
                 <button
-                  onClick={() => { setTipoPublicar('flashcards'); setShowPublicarComunidad(true); }}
+                  onClick={() => { setTipoPublicar('quiz'); setShowPublicarComunidad(true); }}
                   style={{
                     padding: '8px 16px',
-                    borderRadius: '20px',
-                    border: '2px solid #a78bfa',
-                    background: '#a78bfa22',
-                    color: '#a78bfa',
-                    fontSize: '13px',
-                    fontWeight: 700,
+                    borderRadius: 10,
+                    border: '2.5px solid #34d399',
+                    background: 'color-mix(in srgb,#34d399 16%,var(--bg-card))',
+                    color: '#34d399',
+                    fontFamily: HAND, fontSize: 16, fontWeight: 800,
                     cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
-                >
-                  🌍 Publicar en Comunidad
+                    boxShadow: '2px 3px 0 #34d399',
+                    transform: 'rotate(1.5deg)',
+                  }}>
+                  🌍 publicar en comunidad
                 </button>
               </div>
-            )}
-            <TabFlashcards
-              flashcards={flashcards} currentCard={currentCard} flipped={flipped}
-              addCount={addCount} addingMore={addingMore} flashcardsMessage={flashcardsMessage} recommendedCount={recommendedCount}
-              recommendedReason={recommendedReason} tema={tema} isMobile={isMobile}
-              idioma={idioma} esImagen={esImagen} analizando={analizando} tr={trAny}
-              onFlip={() => setFlipped(!flipped)}
-              onPrev={() => { setFlipped(false); setCurrentCard((currentCard - 1 + flashcards.length) % flashcards.length); }}
-              onNext={() => { setFlipped(false); setCurrentCard((currentCard + 1) % flashcards.length); }}
-              onSetCard={(i) => { setCurrentCard(i); setFlipped(false); }}
-              onSetAddCount={setAddCount} onAddMore={addMore} onAnalizar={analizar}
-              onEstudio={() => setShowEstudio(true)} onQuiz={() => setTab('quiz')}
-              onEditor={() => setShowEditor(true)} onGuardar={() => { setShowGuardarDeck(true); setDeckGuardado(false); }}
-            />
-          </div>
-        )}
-
-        {/* TAB QUIZ */}
-        {tab === 'quiz' && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
-              <button
-                onClick={() => { setTipoPublicar('quiz'); setShowPublicarComunidad(true); }}
-                style={{
-                  padding: '8px 16px', borderRadius: '20px', border: '2px solid #34d399',
-                  background: '#34d39922', color: '#34d399', fontSize: '13px',
-                  fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
-                }}>
-                🌍 Publicar en Comunidad
-              </button>
+              <TabQuiz
+                contenido={documento.contenido}
+                temaColor={tema.color}
+                materiaNombre={materia.nombre}
+                materiaColor={materia.color}
+                idioma={idioma}
+                esImagen={esImagen}
+                onQuizGenerado={setPreguntasParaPublicar}
+              />
             </div>
-            <TabQuiz
-              contenido={documento.contenido}
-              temaColor={tema.color}
-              materiaNombre={materia.nombre}
-              materiaColor={materia.color}
-              idioma={idioma}
-              esImagen={esImagen}
-              onQuizGenerado={setPreguntasParaPublicar}
-            />
-          </div>
-        )}
-
+          )}
+        </div>
       </div>
     </div>
   );
 }
+
+// ── CTA Analyze ──
+function AnalyzeCTA({ tema, onAnalizar, idioma, esImagen }: { tema: any; onAnalizar: () => void; idioma: string; esImagen: boolean }) {
+  return (
+    <div style={{
+      textAlign: 'center', padding: '20px 16px',
+      background: `color-mix(in srgb,${tema.color} 10%,transparent)`,
+      border: `2.5px dashed ${tema.color}`,
+      borderRadius: 12,
+      transform: 'rotate(-0.5deg)',
+    }}>
+      <p style={{
+        fontFamily: HAND, fontSize: 19, fontWeight: 700,
+        color: 'var(--text-muted)', fontStyle: 'italic',
+        margin: '0 0 12px',
+      }}>
+        🤖 ~ {esImagen
+          ? (idioma === 'en' ? 'analyze this image' : 'analiza esta imagen')
+          : (idioma === 'en' ? 'analyze to extract keywords & generate flashcards' : 'analiza para extraer palabras clave y generar flashcards')} ~
+      </p>
+      <button onClick={onAnalizar}
+        style={{
+          padding: '10px 26px',
+          borderRadius: 12,
+          border: '2.5px solid var(--text-primary)',
+          background: 'var(--gold)', color: '#000',
+          fontFamily: HAND, fontSize: 19, fontWeight: 800,
+          cursor: 'pointer',
+          boxShadow: '3px 4px 0 var(--text-primary)',
+          transform: 'rotate(-1.5deg)',
+          transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+        }}
+        onMouseEnter={(e:any)=>{
+          e.currentTarget.style.transform = 'rotate(0deg) translateY(-2px)';
+          e.currentTarget.style.boxShadow = '4px 6px 0 var(--text-primary)';
+        }}
+        onMouseLeave={(e:any)=>{
+          e.currentTarget.style.transform = 'rotate(-1.5deg)';
+          e.currentTarget.style.boxShadow = '3px 4px 0 var(--text-primary)';
+        }}
+      >
+        🔍 {esImagen
+          ? (idioma === 'en' ? 'Analyze Image' : 'Analizar Imagen')
+          : (idioma === 'en' ? 'Analyze & Generate Flashcards' : 'Analizar y Generar Flashcards')}
+      </button>
+    </div>
+  );
+}
+
+// ── Helpers ──
+const breadBtn: React.CSSProperties = {
+  background: 'transparent',
+  border: '1.5px dashed var(--border-color)',
+  color: 'var(--text-muted)',
+  fontFamily: HAND, fontSize: 16, fontWeight: 800,
+  cursor: 'pointer',
+  padding: '4px 10px', borderRadius: 8,
+  fontStyle: 'italic',
+  transition: 'all 0.2s',
+};
+
+const breadSep: React.CSSProperties = {
+  color: 'var(--text-faint)',
+  fontSize: 18, fontWeight: 800,
+};

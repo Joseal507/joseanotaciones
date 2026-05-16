@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { registrarXpDiario } from './xpDiario';
 
 export type FuenteXP = 'timer' | 'flashcards' | 'quiz' | 'post' | 'objetivo' | 'login' | 'racha' | 'comunidad';
 
@@ -26,9 +27,14 @@ export async function darXP(
     if (!res.ok) return { ok: false, xpGanado: 0, xpTotal: 0, nivel: 1, subioNivel: false };
 
     const data = await res.json();
+    const xpGanado = data.xp_ganado ?? 0;
+
+    // Registrar en tracking diario local
+    if (xpGanado > 0) registrarXpDiario(xpGanado);
+
     return {
       ok: data.ok ?? false,
-      xpGanado: data.xp_ganado ?? 0,
+      xpGanado,
       xpTotal: data.xp_total ?? 0,
       nivel: data.nivel ?? 1,
       subioNivel: data.subio_nivel ?? false,

@@ -1,4 +1,6 @@
 'use client';
+
+import { useRouter } from 'next/navigation';
 export const dynamic = 'force-dynamic';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -194,6 +196,7 @@ function DeckVisor({ deck, currentCard, flipped, onSetCard, onFlip, onEstudiar, 
 }
 
 export default function QuizzesPage() {
+  const router = useRouter();
   const { tr, idioma } = useIdioma();
   const isMobile = useIsMobile();
 
@@ -293,7 +296,7 @@ export default function QuizzesPage() {
           <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '32px', maxWidth: '420px', width: '100%', border: '2px solid #a78bfa44' }}>
             <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>Guardar en deck</h3>
             <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 20px' }}>Dale un nombre a este deck de flashcards</p>
-            <input autoFocus value={nombreTemporal} onChange={e => setNombreTemporal(e.target.value)}
+            <input autoFocus value={nombreTemporal} onChange={(e: any) => setNombreTemporal(e.target.value)}
               onKeyDown={async e => {
                 if (e.key === 'Enter' && nombreTemporal.trim()) {
                   await pasarTemporalADeck(guardandoId, nombreTemporal.trim());
@@ -324,7 +327,7 @@ export default function QuizzesPage() {
         <>
           <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: '0 40px', height: '68px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <button onClick={() => fase !== 'lista' ? setFase('lista') : window.location.href = '/'}
+              <button onClick={() => fase !== 'lista' ? setFase('lista') : ((window as any).__showNavLoader?.('/'), router.push('/'))}
                 style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
                 {fase !== 'lista' ? `← ${tr('volver')}` : `← ${tr('inicio')}`}
               </button>
@@ -335,7 +338,7 @@ export default function QuizzesPage() {
                 </p>
               </div>
             </div>
-            <button onClick={() => window.location.href = '/materias'}
+            <button onClick={() => ((window as any).__showNavLoader?.('/materias'), router.push('/materias'))}
               style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
               📚 Mis materias
             </button>
@@ -350,16 +353,16 @@ export default function QuizzesPage() {
         <div style={{ maxWidth: '900px', margin: '0 auto', padding: isMobile ? '16px' : '40px' }}>
           {isMobile && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-              <button onClick={() => window.location.href = '/'} style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 14px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>←</button>
+              <button onClick={() => ((window as any).__showNavLoader?.('/'), router.push('/'))} style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 14px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>←</button>
               <h1 style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>🎓 Mis materiales de estudio</h1>
             </div>
           )}
 
           <div style={{ position: 'relative', marginBottom: '24px' }}>
-            <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar por nombre o materia..."
+            <input value={busqueda} onChange={(e: any) => setBusqueda(e.target.value)} placeholder="Buscar por nombre o materia..."
               style={{ width: '100%', padding: '13px 16px 13px 46px', borderRadius: '14px', border: '2px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }}
-              onFocus={e => e.currentTarget.style.borderColor = '#a78bfa'}
-              onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'} />
+              onFocus={(e: any) => e.currentTarget.style.borderColor = '#a78bfa'}
+              onBlur={(e: any) => e.currentTarget.style.borderColor = 'var(--border-color)'} />
             <span style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', fontSize: '18px' }}>🔍</span>
           </div>
 

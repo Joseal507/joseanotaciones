@@ -125,7 +125,7 @@ export default function FlashcardsScreen({
               </button>
             ))}
             <input type="number" min={1} max={30} value={addCount}
-              onChange={e => onSetAddCount(Math.min(30, Math.max(1, parseInt(e.target.value) || 1)))}
+              onChange={(e: any) => onSetAddCount(Math.min(30, Math.max(1, parseInt(e.target.value) || 1)))}
               style={{ width: '65px', padding: '8px 10px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', fontWeight: 700, textAlign: 'center' }} />
             <button onClick={onAddMore} disabled={addingMore || !documentContent}
               style={{ padding: '10px 22px', borderRadius: '10px', border: 'none', cursor: addingMore || !documentContent ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 800, color: addingMore || !documentContent ? 'var(--text-faint)' : '#000', background: addingMore || !documentContent ? 'var(--bg-card2)' : 'var(--blue)', whiteSpace: 'nowrap' }}>

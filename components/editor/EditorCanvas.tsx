@@ -955,7 +955,7 @@ Rules:
       {/* Input layer: captura todos los eventos, bloquea selección */}
       <div
         ref={inputLayerRef}
-        onDragStart={e => e.preventDefault()}
+        onDragStart={(e: any) => e.preventDefault()}
         style={{
           position: 'absolute', top: 0, left: 0,
           width: '100%', height: '100%',

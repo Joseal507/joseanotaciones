@@ -1,4 +1,6 @@
 'use client';
+
+import { useRouter } from 'next/navigation';
 import { BetaBadge } from '../BetaBanner';
 
 type Screen = 'home' | 'upload' | 'document' | 'flashcards';
@@ -11,6 +13,7 @@ interface Props {
 }
 
 export default function Navbar({ screen, darkMode, onToggleDark, onSetScreen }: Props) {
+  const router = useRouter();
   return (
     <>
       <header style={{
@@ -30,7 +33,7 @@ export default function Navbar({ screen, darkMode, onToggleDark, onSetScreen }: 
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <h1 style={{ fontSize: '22px', fontWeight: 900, margin: 0 }}>
                 <span style={{ fontSize: '85%', fontWeight: 700, color: 'var(--text-primary)' }}>Study</span>
-                <span style={{ color: 'var(--gold)' }}>AL</span>
+                <span style={{ color: 'var(--red)' }}>A</span>L
               </h1>
               <BetaBadge size="sm" />
             </div>
@@ -60,7 +63,7 @@ export default function Navbar({ screen, darkMode, onToggleDark, onSetScreen }: 
               <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 4px' }} />
             </>
           )}
-          <button onClick={() => window.location.href = '/materias'}
+          <button onClick={() => ((window as any).__showNavLoader?.('/materias'), router.push('/materias'))}
             style={{ padding: '8px 16px', borderRadius: '8px', border: '2px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
             📚 Materias
           </button>

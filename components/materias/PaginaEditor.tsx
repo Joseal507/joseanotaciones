@@ -189,8 +189,8 @@ export default function PaginaEditor({
                         color: effectivePaperStyle === s.id ? '#f5c842' : '#d4d4d8',
                         fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = effectivePaperStyle === s.id ? 'rgba(245,200,66,0.1)' : 'transparent'; }}
+                      onMouseEnter={(e: any) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                      onMouseLeave={(e: any) => { e.currentTarget.style.background = effectivePaperStyle === s.id ? 'rgba(245,200,66,0.1)' : 'transparent'; }}
                     >
                       <span style={{ fontSize: '14px', opacity: 0.6 }}>{s.icon}</span> {s.label}
                     </button>
@@ -215,15 +215,15 @@ export default function PaginaEditor({
                   ].map(item => (
                     <button key={item.label} onClick={item.action}
                       style={{ width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: '8px', border: 'none', background: 'transparent', color: '#d4d4d8', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                      onMouseEnter={(e: any) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                      onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; }}
                     >{item.label}</button>
                   ))}
                   <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '4px 0' }} />
                   <button onClick={() => { onEliminarPagina(pagina.id); setMenuOpen('closed'); }}
                     style={{ width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: '8px', border: 'none', background: 'transparent', color: '#ef4444', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                    onMouseEnter={(e: any) => { e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; }}
+                    onMouseLeave={(e: any) => { e.currentTarget.style.background = 'transparent'; }}
                   >🗑️ Borrar página</button>
                 </div>
               )}
@@ -235,7 +235,7 @@ export default function PaginaEditor({
       {/* Área del editor */}
       <div
         className="editor-area-principal"
-        onClick={(e) => {
+        onClick={(e: any) => {
           if (!isDrawingMode && herramienta === 'texto') {
             onClickEditor(e, pagina.id);
           }

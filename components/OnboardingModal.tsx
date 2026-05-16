@@ -249,23 +249,23 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
                 <label style={LabelStyle}>🏫 {idioma === 'en' ? 'University' : 'Universidad'}</label>
-                <select value={universidad} onChange={e => setUniversidad(e.target.value)} style={{ ...SelectStyle, border: universidad ? '2px solid var(--gold)' : '2px solid var(--border-color)' }}>
+                <select value={universidad} onChange={(e: any) => setUniversidad(e.target.value)} style={{ ...SelectStyle, border: universidad ? '2px solid var(--gold)' : '2px solid var(--border-color)' }}>
                   <option value="">{tr('onbSeleccionaUni')}</option>
                   {UNIVERSIDADES.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
                 {universidad === 'Otra universidad' && (
-                  <input type="text" value={universidadCustom} onChange={e => setUniversidadCustom(e.target.value)}
+                  <input type="text" value={universidadCustom} onChange={(e: any) => setUniversidadCustom(e.target.value)}
                     placeholder={tr('onbEscribeUni')} style={InputStyle} />
                 )}
               </div>
               <div>
                 <label style={LabelStyle}>📚 {idioma === 'en' ? 'Major' : 'Carrera'}</label>
-                <select value={carrera} onChange={e => setCarrera(e.target.value)} style={{ ...SelectStyle, border: carrera ? '2px solid var(--gold)' : '2px solid var(--border-color)' }}>
+                <select value={carrera} onChange={(e: any) => setCarrera(e.target.value)} style={{ ...SelectStyle, border: carrera ? '2px solid var(--gold)' : '2px solid var(--border-color)' }}>
                   <option value="">{tr('onbSeleccionaCarrera')}</option>
                   {CARRERAS.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
                 {carrera === 'Otra carrera' && (
-                  <input type="text" value={carreraCustom} onChange={e => setCarreraCustom(e.target.value)}
+                  <input type="text" value={carreraCustom} onChange={(e: any) => setCarreraCustom(e.target.value)}
                     placeholder={tr('onbEscribeCarrera')} style={InputStyle} />
                 )}
               </div>
@@ -281,7 +281,7 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
               </div>
               <div>
                 <label style={LabelStyle}>🏫 {idioma === 'en' ? 'School' : 'Escuela'}</label>
-                <select value={escuela} onChange={e => setEscuela(e.target.value)} style={{ ...SelectStyle, border: escuela ? '2px solid var(--gold)' : '2px solid var(--border-color)' }}>
+                <select value={escuela} onChange={(e: any) => setEscuela(e.target.value)} style={{ ...SelectStyle, border: escuela ? '2px solid var(--gold)' : '2px solid var(--border-color)' }}>
                   <option value="">{tr('onbSeleccionaEscuela')}</option>
                   <optgroup label="🏛️ {idioma === 'en' ? 'Public Schools' : 'Escuelas Públicas'}">
                     {ESCUELAS_PUBLICAS.map(e => <option key={e} value={e}>{e}</option>)}
@@ -291,7 +291,7 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
                   </optgroup>
                 </select>
                 {escuela === 'Otra escuela' && (
-                  <input type="text" value={escuelaCustom} onChange={e => setEscuelaCustom(e.target.value)}
+                  <input type="text" value={escuelaCustom} onChange={(e: any) => setEscuelaCustom(e.target.value)}
                     placeholder={tr('onbEscribeEscuela')} style={InputStyle} />
                 )}
               </div>
@@ -311,11 +311,11 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
               <label style={LabelStyle}>
                 {tr('onbMetaLabel')} <span style={{ color: 'var(--text-faint)', fontWeight: 500, textTransform: 'none' }}>({tr('onbOpcional')})</span>
               </label>
-              <textarea value={queQuieresEstudiar} onChange={e => setQueQuieresEstudiar(e.target.value)}
+              <textarea value={queQuieresEstudiar} onChange={(e: any) => setQueQuieresEstudiar(e.target.value)}
                 placeholder={tr('onbMetaPlaceholder')} rows={4}
                 style={{ width: '100%', padding: '14px 16px', borderRadius: '14px', border: queQuieresEstudiar ? '2px solid var(--gold)' : '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', resize: 'vertical', lineHeight: '1.6', boxSizing: 'border-box', fontFamily: 'inherit' }}
-                onFocus={e => e.currentTarget.style.borderColor = 'var(--gold)'}
-                onBlur={e => { if (!queQuieresEstudiar) e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                onFocus={(e: any) => e.currentTarget.style.borderColor = 'var(--gold)'}
+                onBlur={(e: any) => { if (!queQuieresEstudiar) e.currentTarget.style.borderColor = 'var(--border-color)'; }}
               />
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
                 {metaSuggestions.map(s => (

@@ -2,6 +2,7 @@
 export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { getMaterias, saveMaterias, generateId, Materia, Tema, Apunte, Documento } from '../../lib/storage';
 import { supabase } from '../../lib/supabase';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -18,8 +19,15 @@ import Buscador from '../../components/Buscador';
 type Vista = 'materias' | 'materia' | 'tema' | 'apunte' | 'documento';
 
 export default function MateriasPage() {
+  const router = useRouter();
   const [materias, setMaterias] = useState<Materia[]>([]);
-  const [vista, setVista] = useState<Vista>('materias');
+  const [vista, setVista] = useState<'lista' | 'materia' | 'materias' | 'apunte' | 'tema' | 'documento'>(() => {
+    if (typeof window !== 'undefined') {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get('open')) return 'materia';
+    }
+    return 'lista';
+  });
   const [materiaActual, setMateriaActual] = useState<Materia | null>(null);
   const [temaActual, setTemaActual] = useState<Tema | null>(null);
   const [apunteActual, setApunteActual] = useState<Apunte | null>(null);
@@ -32,6 +40,8 @@ export default function MateriasPage() {
   const [cargando, setCargando] = useState(true);
   const [showBuscador, setShowBuscador] = useState(false);
   const isMobile = useIsMobile();
+  const searchParams = useSearchParams();
+  const openParam = searchParams?.get('open') || '';
   const { tr, idioma } = useIdioma();
 
   useEffect(() => {
@@ -49,7 +59,7 @@ export default function MateriasPage() {
           const { data } = await supabase.auth.refreshSession();
           session = data.session;
         }
-        if (!session) { window.location.href = '/auth'; return; }
+        if (!session) { ((window as any).__showNavLoader?.('/auth'), router.push('/auth')); return; }
 
         const uid = session.user.id;
         const token = session.access_token;
@@ -71,6 +81,18 @@ export default function MateriasPage() {
         if (data.success && data.materias.length > 0) {
           setMaterias(data.materias);
           saveMaterias(data.materias);
+          // Auto-abrir materia si viene del home (URL param o localStorage)
+          try {
+            const openId = openParam || localStorage.getItem('josea_open_materia');
+            if (openId) {
+              const mat = data.materias.find((m: any) => m.id === openId);
+              if (mat) {
+                setMateriaActual(mat);
+                setVista('materia');
+              }
+              localStorage.removeItem('josea_open_materia');
+            }
+          } catch {}
         } else if (materiasLocal.length > 0) {
           await fetch('/api/materias', {
             method: 'POST',
@@ -387,7 +409,7 @@ const eliminarDocumento = async (id: string) => {
     if (materiaActual?.id === materiaEditada.id) setMateriaActual(materiaEditada);
   };
 
-  if (cargando) {
+  if (cargando || (openParam && vista === 'lista')) {
     return (
       <div style={{
         minHeight: '100vh',
@@ -396,12 +418,21 @@ const eliminarDocumento = async (id: string) => {
         alignItems: 'center',
         justifyContent: 'center',
         flexDirection: 'column',
-        gap: '16px',
+        gap: 16,
       }}>
-        <div style={{ fontSize: '48px' }}>📚</div>
-        <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600 }}>
-          {tr('cargando')}
+        <div style={{ fontSize: 56, animation: 'matBounce 1.2s ease-in-out infinite' }}>📚</div>
+        <p style={{
+          fontFamily: "'Caveat',cursive", fontSize: 22, fontStyle: 'italic',
+          color: 'var(--text-muted)', margin: 0,
+        }}>
+          ~ {openParam ? 'abriendo materia' : tr('cargando')} ~
         </p>
+        <style>{`
+          @keyframes matBounce {
+            0%, 100% { transform: rotate(-5deg) translateY(0); }
+            50% { transform: rotate(5deg) translateY(-8px); }
+          }
+        `}</style>
       </div>
     );
   }
@@ -418,7 +449,7 @@ const eliminarDocumento = async (id: string) => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
-                onClick={() => window.location.href = '/'}
+                onClick={() => ((window as any).__showNavLoader?.('/'), router.push('/'))}
                 style={{
                   background: 'none',
                   border: '2px solid var(--gold)',

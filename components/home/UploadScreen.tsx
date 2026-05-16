@@ -67,7 +67,7 @@ export default function UploadScreen({ file, loading, message, loadingStep, flas
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px' }}>
               <span style={{ color: 'var(--text-faint)', fontSize: '12px' }}>Personalizado:</span>
               <input type="number" min={1} max={50} value={flashcardCount}
-                onChange={e => onSetCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
+                onChange={(e: any) => onSetCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
                 style={{ width: '70px', padding: '8px 12px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', fontWeight: 700, textAlign: 'center' }}
               />
               <span style={{ color: 'var(--text-faint)', fontSize: '12px' }}>tarjetas</span>

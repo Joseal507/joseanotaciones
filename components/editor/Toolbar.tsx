@@ -159,7 +159,7 @@ export default function Toolbar(p: Props) {
               cursor: 'pointer', transition: 'all .12s', boxShadow: bc===c ? `0 0 12px ${c}50` : 'none',
             }} />
           ))}
-          <input type="color" value={bc} onChange={e => setBC(e.target.value)}
+          <input type="color" value={bc} onChange={(e: any) => setBC(e.target.value)}
             style={{ width: 26, height: 26, borderRadius: '50%', border: '2px solid #333', cursor: 'pointer', padding: 0 }} />
         </div>
       )}
@@ -197,10 +197,10 @@ export default function Toolbar(p: Props) {
 
       {false && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '6px 12px', background: '#111116', borderTop: '1px solid #222', overflowX: 'auto' }}>
-          <select onChange={e => ex('fontName', e.target.value)} style={{ height: 28, padding: '0 6px', borderRadius: 7, border: '1px solid #333', background: '#1a1a1a', color: '#ccc', fontSize: 11, cursor: 'pointer', outline: 'none' }}>
+          <select onChange={(e: any) => ex('fontName', e.target.value)} style={{ height: 28, padding: '0 6px', borderRadius: 7, border: '1px solid #333', background: '#1a1a1a', color: '#ccc', fontSize: 11, cursor: 'pointer', outline: 'none' }}>
             {['Georgia','Arial','Helvetica','Times New Roman','Courier New','Verdana'].map(f => <option key={f} value={f}>{f}</option>)}
           </select>
-          <select onChange={e => ex('fontSize', e.target.value)} style={{ height: 28, width: 50, borderRadius: 7, border: '1px solid #333', background: '#1a1a1a', color: '#ccc', fontSize: 11, cursor: 'pointer', outline: 'none' }}>
+          <select onChange={(e: any) => ex('fontSize', e.target.value)} style={{ height: 28, width: 50, borderRadius: 7, border: '1px solid #333', background: '#1a1a1a', color: '#ccc', fontSize: 11, cursor: 'pointer', outline: 'none' }}>
             {[{v:'1',l:'10'},{v:'2',l:'12'},{v:'3',l:'14'},{v:'4',l:'16'},{v:'5',l:'20'},{v:'6',l:'28'},{v:'7',l:'36'}].map(s => <option key={s.v} value={s.v}>{s.l}</option>)}
           </select>
           <S />
@@ -217,11 +217,11 @@ export default function Toolbar(p: Props) {
           <S />
           <label style={{ display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}>
             <span style={{ fontSize: 13, fontWeight: 900, color: G }}>A</span>
-            <input type="color" defaultValue="#000000" onChange={e => ex('foreColor', e.target.value)} style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid #444', cursor: 'pointer', padding: 0 }} />
+            <input type="color" defaultValue="#000000" onChange={(e: any) => ex('foreColor', e.target.value)} style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid #444', cursor: 'pointer', padding: 0 }} />
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}>
             <span style={{ fontSize: 11, color: '#666' }}>bg</span>
-            <input type="color" defaultValue="#fef08a" onChange={e => ex('hiliteColor', e.target.value)} style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid #444', cursor: 'pointer', padding: 0 }} />
+            <input type="color" defaultValue="#fef08a" onChange={(e: any) => ex('hiliteColor', e.target.value)} style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid #444', cursor: 'pointer', padding: 0 }} />
           </label>
         </div>
       )}

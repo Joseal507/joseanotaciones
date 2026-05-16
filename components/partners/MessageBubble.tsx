@@ -4,23 +4,12 @@ import { useState, useRef } from 'react';
 import { Message, PartnerInfo } from './types';
 import { Av, fmtTime, fmtSize } from './helpers';
 
+const HAND = "'Caveat',cursive";
+
 export default function MessageBubble({
-  msg,
-  esMio,
-  partner,
-  miInfo,
-  isMobile,
-  isSavedMsg,
-  onGuardar,
-  onBorrar,
-  onEditar,
-  onReply,
-  onCopy,
-  onViewImage,
-  onShowProfile,
-  onJumpToMessage,
-  registerRef,
-  jumped,
+  msg, esMio, partner, miInfo, isMobile, isSavedMsg,
+  onGuardar, onBorrar, onEditar, onReply, onCopy, onViewImage, onShowProfile,
+  onJumpToMessage, registerRef, jumped,
 }: {
   msg: Message;
   esMio: boolean;
@@ -51,26 +40,32 @@ export default function MessageBubble({
     if (!isMobile) return;
     longPressTimer.current = setTimeout(openActions, 500);
   };
-
   const handleTouchEnd = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
   };
-
   const handleTouchMove = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
   };
 
   if (msg.deleted_at) {
     return (
-      <div ref={registerRef} data-message-id={msg.id} style={{ display: 'flex', justifyContent: esMio ? 'flex-end' : 'flex-start', marginBottom: '4px' }}>
-        <div style={{ padding: '6px 12px', borderRadius: '12px', background: 'var(--bg-secondary)', opacity: 0.5 }}>
-          <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0, fontStyle: 'italic' }}>🚫 Eliminado</p>
+      <div ref={registerRef} data-message-id={msg.id} style={{
+        display: 'flex', justifyContent: esMio ? 'flex-end' : 'flex-start', marginBottom: 4,
+      }}>
+        <div style={{
+          padding: '6px 14px',
+          borderRadius: 12,
+          background: 'var(--bg-secondary)',
+          border: '2px dashed var(--border-color)',
+          opacity: 0.55,
+          transform: 'rotate(-0.5deg)',
+        }}>
+          <p style={{
+            fontFamily: HAND, fontSize: 15, fontStyle: 'italic',
+            color: 'var(--text-faint)', margin: 0,
+          }}>
+            🚫 ~ eliminado ~
+          </p>
         </div>
       </div>
     );
@@ -79,71 +74,48 @@ export default function MessageBubble({
   const replyPreview = msg.metadata?.reply_preview;
   const replyToId = msg.metadata?.reply_to;
 
-  const bubbleBorder = jumped
-    ? '2px solid #38bdf8'
-    : isSavedMsg
-      ? '2px solid #f5c842'
-      : esMio
-        ? 'none'
-        : '1px solid var(--border-color)';
-
-  const bubbleShadow = jumped
-    ? '0 0 0 4px rgba(56,189,248,0.20), 0 0 18px rgba(56,189,248,0.30)'
-    : isSavedMsg
-      ? '0 0 12px rgba(245,200,66,0.25)'
-      : undefined;
+  const bubbleRot = esMio ? -0.4 : 0.4;
+  const shadowColor = jumped ? '#38bdf8' : isSavedMsg ? '#f5c842' : esMio ? '#38bdf8' : 'var(--text-primary)';
 
   const bubble: any = {
     padding: '10px 14px',
-    borderRadius: esMio ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+    borderRadius: esMio ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
     background: esMio ? '#38bdf8' : 'var(--bg-card)',
     position: 'relative',
     maxWidth: '100%',
-    border: bubbleBorder,
-    boxShadow: bubbleShadow,
-    transition: 'box-shadow 0.25s ease, border-color 0.25s ease',
+    border: `2px ${isSavedMsg ? 'solid' : esMio ? 'solid' : 'solid'} ${jumped ? '#38bdf8' : isSavedMsg ? '#f5c842' : 'var(--text-primary)'}`,
+    boxShadow: `2px 3px 0 ${shadowColor}${jumped ? ', 0 0 0 4px rgba(56,189,248,0.15), 0 0 18px rgba(56,189,248,0.3)' : isSavedMsg ? ', 0 0 12px rgba(245,200,66,0.25)' : ''}`,
+    transition: 'box-shadow 0.25s ease, border-color 0.25s ease, transform 0.2s',
     userSelect: 'none' as const,
     WebkitUserSelect: 'none' as const,
+    transform: `rotate(${bubbleRot}deg)`,
   };
 
   const actions: { label: string; icon: string; fn: () => void; color?: string; danger?: boolean }[] = [];
 
   if (msg.type === 'text') {
     actions.push({ label: 'Copiar', icon: '📋', fn: () => { onCopy(msg.content); closeActions(); } });
-    if (esMio) {
-      actions.push({ label: 'Editar', icon: '✏️', fn: () => { setEditing(true); setEditVal(msg.content); closeActions(); } });
-    }
+    if (esMio) actions.push({ label: 'Editar', icon: '✏️', fn: () => { setEditing(true); setEditVal(msg.content); closeActions(); } });
   }
-
   actions.push({
     label: isSavedMsg ? 'Guardado' : 'Guardar',
     icon: '📌',
     fn: () => { onGuardar(msg.id); closeActions(); },
     color: isSavedMsg ? '#f5c842' : undefined,
   });
-
-  actions.push({
-    label: 'Responder',
-    icon: '↩️',
-    fn: () => { onReply(msg); closeActions(); },
-  });
-
-  if (esMio) {
-    actions.push({
-      label: 'Borrar',
-      icon: '🗑️',
-      fn: () => { onBorrar(msg.id); closeActions(); },
-      danger: true,
-    });
-  }
+  actions.push({ label: 'Responder', icon: '↩️', fn: () => { onReply(msg); closeActions(); } });
+  if (esMio) actions.push({ label: 'Borrar', icon: '🗑️', fn: () => { onBorrar(msg.id); closeActions(); }, danger: true });
 
   return (
     <div
       ref={registerRef}
       data-message-id={msg.id}
-      style={{ display: 'flex', justifyContent: esMio ? 'flex-end' : 'flex-start', gap: '6px', alignItems: 'flex-end', marginBottom: '8px', position: 'relative' }}
+      style={{
+        display: 'flex', justifyContent: esMio ? 'flex-end' : 'flex-start',
+        gap: 6, alignItems: 'flex-end', marginBottom: 10, position: 'relative',
+      }}
     >
-      {!esMio && <Av user={partner} size={24} onClick={onShowProfile} />}
+      {!esMio && <Av user={partner} size={26} onClick={onShowProfile} />}
 
       <div
         style={{ maxWidth: '75%', position: 'relative' }}
@@ -158,35 +130,59 @@ export default function MessageBubble({
             {isMobile && (
               <div onClick={closeActions} style={{ position: 'fixed', inset: 0, zIndex: 49, background: 'rgba(0,0,0,0.25)' }} />
             )}
-            <div style={{ position: 'absolute', bottom: '100%', left: esMio ? 'auto' : '0', right: esMio ? '0' : 'auto', zIndex: 50, paddingBottom: '6px', animation: 'fadeUp 0.12s ease-out' }}>
-              <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}`}</style>
-              <div style={{ display: 'flex', gap: '2px', background: 'var(--bg-card)', padding: '4px 6px', borderRadius: '12px', boxShadow: '0 4px 24px rgba(0,0,0,0.5)', border: '1px solid var(--border-color)' }}>
+            <div style={{
+              position: 'absolute', bottom: '100%',
+              left: esMio ? 'auto' : 0, right: esMio ? 0 : 'auto',
+              zIndex: 50, paddingBottom: 6,
+              animation: 'fadeUpAct 0.18s cubic-bezier(.34,1.4,.64,1)',
+            }}>
+              <style>{`@keyframes fadeUpAct{from{opacity:0;transform:translateY(8px) rotate(-2deg)}to{opacity:1;transform:translateY(0) rotate(-1deg)}}`}</style>
+              <div style={{
+                display: 'flex', gap: 3,
+                background: 'var(--bg-card)',
+                padding: '5px 7px',
+                borderRadius: 12,
+                border: '2.5px solid var(--text-primary)',
+                boxShadow: '3px 4px 0 var(--text-primary)',
+                transform: 'rotate(-1deg)',
+              }}>
                 {actions.map((a, i) => (
-                  <button
-                    key={i}
-                    onClick={e => { e.stopPropagation(); a.fn(); }}
+                  <button key={i}
+                    onClick={(e: any) => { e.stopPropagation(); a.fn(); }}
                     title={a.label}
                     style={{
-                      padding: isMobile ? '8px 12px' : '5px 8px',
-                      borderRadius: '8px',
+                      padding: isMobile ? '8px 12px' : '6px 10px',
+                      borderRadius: 8,
                       border: 'none',
-                      background: a.danger ? 'rgba(255,77,109,0.12)' : a.color ? `${a.color}22` : 'transparent',
+                      background: a.danger ? 'color-mix(in srgb,var(--red) 16%,transparent)'
+                        : a.color ? `${a.color}22` : 'transparent',
                       color: a.danger ? 'var(--red)' : a.color || 'var(--text-primary)',
-                      fontSize: isMobile ? '16px' : '13px',
+                      fontFamily: HAND,
+                      fontSize: isMobile ? 17 : 14,
                       cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      fontWeight: 700,
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      fontWeight: 800,
                       whiteSpace: 'nowrap',
+                      transition: 'all 0.15s',
                     }}
+                    onMouseEnter={(e:any)=>{e.currentTarget.style.background = a.danger ? 'color-mix(in srgb,var(--red) 28%,transparent)' : a.color ? `${a.color}44` : 'var(--bg-secondary)';}}
+                    onMouseLeave={(e:any)=>{e.currentTarget.style.background = a.danger ? 'color-mix(in srgb,var(--red) 16%,transparent)' : a.color ? `${a.color}22` : 'transparent';}}
                   >
                     <span>{a.icon}</span>
-                    {!isMobile && <span style={{ fontSize: '11px' }}>{a.label}</span>}
+                    {!isMobile && <span>{a.label}</span>}
                   </button>
                 ))}
                 {isMobile && (
-                  <button onClick={closeActions} style={{ padding: '8px 10px', borderRadius: '8px', border: 'none', background: 'var(--bg-secondary)', color: 'var(--text-faint)', fontSize: '14px', cursor: 'pointer' }}>✕</button>
+                  <button onClick={closeActions}
+                    style={{
+                      padding: '8px 10px', borderRadius: 8,
+                      border: 'none', background: 'var(--bg-secondary)',
+                      color: 'var(--text-faint)',
+                      fontFamily: HAND, fontSize: 17, fontWeight: 800,
+                      cursor: 'pointer',
+                    }}>
+                    ✕
+                  </button>
                 )}
               </div>
             </div>
@@ -195,84 +191,176 @@ export default function MessageBubble({
 
         {replyPreview && (
           <div
-            onClick={e => {
-              e.stopPropagation();
-              if (replyToId) onJumpToMessage(replyToId);
-            }}
+            onClick={(e: any) => { e.stopPropagation(); if (replyToId) onJumpToMessage(replyToId); }}
             style={{
-              padding: '5px 10px',
-              marginBottom: '3px',
+              padding: '6px 12px',
+              marginBottom: 4,
               borderLeft: '3px solid #38bdf8',
-              background: 'rgba(56,189,248,0.08)',
-              borderRadius: '4px 8px 8px 4px',
-              fontSize: '11px',
-              color: 'var(--text-faint)',
+              borderTop: '1.5px dashed #38bdf855',
+              borderRight: '1.5px dashed #38bdf855',
+              borderBottom: '1.5px dashed #38bdf855',
+              background: 'color-mix(in srgb,#38bdf8 12%,transparent)',
+              borderRadius: '4px 10px 10px 4px',
+              fontFamily: HAND, fontSize: 14, fontStyle: 'italic',
+              color: 'var(--text-muted)',
               cursor: replyToId ? 'pointer' : 'default',
+              transform: 'rotate(-0.4deg)',
             }}
           >
-            ↩️ {replyPreview}
+            ↩️ ~ {replyPreview} ~
           </div>
         )}
 
         {editing ? (
-          <div style={{ display: 'flex', gap: '6px' }}>
+          <div style={{ display: 'flex', gap: 6 }}>
             <input
               autoFocus
               value={editVal}
-              onChange={e => setEditVal(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  onEditar(msg.id, editVal);
-                  setEditing(false);
-                }
+              onChange={(e: any) => setEditVal(e.target.value)}
+              onKeyDown={(e: any) => {
+                if (e.key === 'Enter') { onEditar(msg.id, editVal); setEditing(false); }
                 if (e.key === 'Escape') setEditing(false);
               }}
-              style={{ flex: 1, padding: '8px 12px', borderRadius: '10px', border: '2px solid #38bdf8', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
+              style={{
+                flex: 1, padding: '8px 12px',
+                borderRadius: 10,
+                border: '2.5px solid #38bdf8',
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-primary)',
+                fontFamily: HAND, fontSize: 17, fontWeight: 600,
+                outline: 'none',
+                boxShadow: '2px 2px 0 #38bdf8',
+              }}
             />
-            <button onClick={() => { onEditar(msg.id, editVal); setEditing(false); }} style={{ padding: '8px 12px', borderRadius: '10px', border: 'none', background: '#38bdf8', color: '#000', fontWeight: 800, cursor: 'pointer' }}>✓</button>
-            <button onClick={() => setEditing(false)} style={{ padding: '8px', borderRadius: '10px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-faint)', cursor: 'pointer' }}>✕</button>
+            <button onClick={() => { onEditar(msg.id, editVal); setEditing(false); }}
+              style={{
+                padding: '8px 14px',
+                borderRadius: 10,
+                border: '2px solid var(--text-primary)',
+                background: '#38bdf8', color: '#000',
+                fontFamily: HAND, fontSize: 17, fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '2px 2px 0 var(--text-primary)',
+              }}>
+              ✓
+            </button>
+            <button onClick={() => setEditing(false)}
+              style={{
+                padding: '8px 12px',
+                borderRadius: 10,
+                border: '2px dashed var(--text-faint)',
+                background: 'transparent', color: 'var(--text-faint)',
+                fontFamily: HAND, fontSize: 16, fontWeight: 800,
+                cursor: 'pointer',
+              }}>
+              ✕
+            </button>
           </div>
         ) : msg.type === 'image' && msg.file_url ? (
-          <div style={{ ...bubble, padding: '4px', overflow: 'hidden', cursor: 'pointer' }} onDoubleClick={() => onViewImage(msg.file_url!, msg.id)}>
-            <img src={msg.file_url} alt="" style={{ maxWidth: '250px', maxHeight: '250px', objectFit: 'contain', display: 'block', borderRadius: '14px', pointerEvents: 'none' }} />
-            {isSavedMsg && <div style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.6)', borderRadius: '50%', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }}>📌</div>}
+          <div style={{ ...bubble, padding: 5, overflow: 'hidden', cursor: 'pointer' }} onDoubleClick={() => onViewImage(msg.file_url!, msg.id)}>
+            <img src={msg.file_url} alt=""
+              style={{
+                maxWidth: 250, maxHeight: 250,
+                objectFit: 'contain', display: 'block',
+                borderRadius: 12, pointerEvents: 'none',
+              }} />
+            {isSavedMsg && (
+              <div style={{
+                position: 'absolute', top: 10, right: 10,
+                background: '#f5c842',
+                border: '2px solid var(--text-primary)',
+                boxShadow: '1px 2px 0 var(--text-primary)',
+                borderRadius: 8,
+                padding: '2px 7px',
+                fontFamily: HAND, fontSize: 14, fontWeight: 900,
+                color: '#000',
+                transform: 'rotate(-5deg)',
+              }}>
+                📌
+              </div>
+            )}
           </div>
         ) : msg.type === 'audio' && msg.file_url ? (
-          <div style={{ ...bubble, minWidth: '220px' }}>
-            <p style={{ fontSize: '11px', fontWeight: 700, color: esMio ? '#000' : 'var(--text-faint)', margin: '0 0 6px' }}>🎵 Audio</p>
-            <audio controls src={msg.file_url} preload="metadata" style={{ width: '100%', height: '36px' }} />
+          <div style={{ ...bubble, minWidth: 220 }}>
+            <p style={{
+              fontFamily: HAND, fontSize: 14, fontWeight: 800,
+              color: esMio ? '#000' : 'var(--text-faint)',
+              fontStyle: 'italic',
+              margin: '0 0 6px',
+            }}>
+              🎵 ~ audio ~
+            </p>
+            <audio controls src={msg.file_url} preload="metadata" style={{ width: '100%', height: 36 }} />
           </div>
         ) : msg.type === 'file' && msg.file_url ? (
-          <div style={{ ...bubble, cursor: 'pointer' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => window.open(msg.file_url!, '_blank')}>
-              <span style={{ fontSize: '24px' }}>📎</span>
+          <div style={{ ...bubble, cursor: 'pointer' }} onClick={() => window.open(msg.file_url!, '_blank')}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 26 }}>📎</span>
               <div>
-                <p style={{ fontSize: '13px', fontWeight: 700, color: esMio ? '#000' : 'var(--text-primary)', margin: 0 }}>{msg.file_name}</p>
-                <p style={{ fontSize: '11px', color: esMio ? '#00000088' : 'var(--text-faint)', margin: 0 }}>{fmtSize(msg.file_size)}</p>
+                <p style={{
+                  fontFamily: HAND, fontSize: 17, fontWeight: 800,
+                  color: esMio ? '#000' : 'var(--text-primary)',
+                  margin: 0, lineHeight: 1.1,
+                }}>
+                  {msg.file_name}
+                </p>
+                <p style={{
+                  fontFamily: HAND, fontSize: 13, fontStyle: 'italic',
+                  color: esMio ? 'rgba(0,0,0,0.6)' : 'var(--text-faint)',
+                  margin: 0,
+                }}>
+                  ~ {fmtSize(msg.file_size)} ~
+                </p>
               </div>
             </div>
           </div>
         ) : msg.type === 'profile_share' && msg.metadata?.url ? (
           <div onClick={() => window.location.href = msg.metadata.url} style={{ ...bubble, cursor: 'pointer' }}>
-            <p style={{ fontSize: '11px', fontWeight: 700, color: esMio ? '#000' : '#38bdf8', margin: '0 0 4px' }}>🌐 Perfil</p>
-            <p style={{ fontSize: '14px', fontWeight: 800, color: esMio ? '#000' : 'var(--text-primary)', margin: 0 }}>{msg.metadata.nombre} →</p>
+            <p style={{
+              fontFamily: HAND, fontSize: 14, fontWeight: 800,
+              color: esMio ? '#000' : '#38bdf8',
+              fontStyle: 'italic',
+              margin: '0 0 4px',
+            }}>
+              🌐 ~ perfil ~
+            </p>
+            <p style={{
+              fontFamily: HAND, fontSize: 19, fontWeight: 900,
+              color: esMio ? '#000' : 'var(--text-primary)',
+              margin: 0,
+            }}>
+              {msg.metadata.nombre} →
+            </p>
           </div>
         ) : (
           <div style={bubble}>
-            <p style={{ fontSize: '14px', color: esMio ? '#000' : 'var(--text-primary)', margin: 0, lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.content}</p>
+            <p style={{
+              fontFamily: HAND, fontSize: 19, fontWeight: 600,
+              color: esMio ? '#000' : 'var(--text-primary)',
+              margin: 0, lineHeight: 1.35,
+              wordBreak: 'break-word',
+            }}>
+              {msg.content}
+            </p>
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: esMio ? 'flex-end' : 'flex-start', alignItems: 'center', gap: '6px', margin: '2px 4px 0' }}>
-          <span style={{ fontSize: '10px', color: 'var(--text-faint)' }}>
-            {fmtTime(msg.created_at)}{msg.edited_at ? ' · editado' : ''}{esMio && msg.read_at ? ' · visto' : ''}
+        <div style={{
+          display: 'flex', justifyContent: esMio ? 'flex-end' : 'flex-start',
+          alignItems: 'center', gap: 6, margin: '3px 4px 0',
+        }}>
+          <span style={{
+            fontFamily: HAND, fontSize: 12, fontStyle: 'italic',
+            color: 'var(--text-faint)',
+          }}>
+            ~ {fmtTime(msg.created_at)}{msg.edited_at ? ' · editado' : ''}{esMio && msg.read_at ? ' · ✓✓' : ''} ~
           </span>
-          {isSavedMsg && <span style={{ fontSize: '10px', color: '#f5c842' }}>📌</span>}
-          {msg.expires_at && !isSavedMsg && <span style={{ fontSize: '10px', color: 'var(--red)' }}>⏳</span>}
+          {isSavedMsg && <span style={{ fontSize: 12, color: '#f5c842' }}>📌</span>}
+          {msg.expires_at && !isSavedMsg && <span style={{ fontSize: 12, color: 'var(--red)' }}>⏳</span>}
         </div>
       </div>
 
-      {esMio && <Av user={miInfo} size={24} />}
+      {esMio && <Av user={miInfo} size={26} />}
     </div>
   );
 }

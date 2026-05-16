@@ -247,8 +247,8 @@ export default function ChatDocumento({ contexto, nombreDoc, temaColor, onClose 
         >
           <input
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && enviar()}
+            onChange={(e: any) => setInput(e.target.value)}
+            onKeyDown={(e: any) => e.key === 'Enter' && enviar()}
             placeholder={
               idioma === 'en'
                 ? 'Ask something about the document...'

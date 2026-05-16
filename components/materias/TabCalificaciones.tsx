@@ -173,8 +173,8 @@ function TarjetaEvaluacion({ evaluacion, colorMateria, escala, onAgregarNota, on
           step={0.1}
           placeholder={escala === 'letras' ? 'Ej: A, B+, C-' : `Nota (${info.min}-${info.max})`}
           value={inputValor}
-          onChange={e => { setInputValor(e.target.value); setErrInput(''); }}
-          onKeyDown={e => e.key === 'Enter' && handleAgregar()}
+          onChange={(e: any) => { setInputValor(e.target.value); setErrInput(''); }}
+          onKeyDown={(e: any) => e.key === 'Enter' && handleAgregar()}
           style={{
             width: escala === 'letras' ? 130 : 110, padding: '7px 10px', borderRadius: 8,
             border: errInput ? '1.5px solid #f87171' : '1.5px solid var(--border-color)',
@@ -185,8 +185,8 @@ function TarjetaEvaluacion({ evaluacion, colorMateria, escala, onAgregarNota, on
         <input
           type="text" placeholder="Etiqueta (opcional)"
           value={inputEtiqueta}
-          onChange={e => setInputEtiqueta(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleAgregar()}
+          onChange={(e: any) => setInputEtiqueta(e.target.value)}
+          onKeyDown={(e: any) => e.key === 'Enter' && handleAgregar()}
           style={{
             flex: 1, minWidth: 110, padding: '7px 10px', borderRadius: 8,
             border: '1.5px solid var(--border-color)',
@@ -302,8 +302,8 @@ function PantallaSetup({ colorMateria, onConfirm }: {
           step={0.1}
           placeholder={escala === 'letras' ? 'Ej: C' : `Ej: ${info.aprobatorio}`}
           value={objetivo}
-          onChange={e => { setObjetivo(e.target.value); setErr(''); }}
-          onKeyDown={e => e.key === 'Enter' && handleConfirm()}
+          onChange={(e: any) => { setObjetivo(e.target.value); setErr(''); }}
+          onKeyDown={(e: any) => e.key === 'Enter' && handleConfirm()}
           autoFocus
           style={{
             padding: '12px 16px', borderRadius: 12, fontSize: 18, fontWeight: 700,
@@ -500,8 +500,8 @@ export default function TabCalificaciones({ calificaciones, colorMateria, onChan
                 <input
                   type={escala === 'letras' ? 'text' : 'number'}
                   value={inputObjetivo} autoFocus
-                  onChange={e => setInputObjetivo(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && guardarObjetivo()}
+                  onChange={(e: any) => setInputObjetivo(e.target.value)}
+                  onKeyDown={(e: any) => e.key === 'Enter' && guardarObjetivo()}
                   placeholder={escala === 'letras' ? 'Ej: C' : `Max: ${info.max}`}
                   style={{
                     width: 80, padding: '4px 8px', borderRadius: 8,
@@ -624,7 +624,7 @@ export default function TabCalificaciones({ calificaciones, colorMateria, onChan
           }}
         >
           <div
-            onClick={e => e.stopPropagation()}
+            onClick={(e: any) => e.stopPropagation()}
             style={{
               background: 'var(--bg-primary)', border: '1.5px solid var(--border-color)',
               borderRadius: 16, padding: '28px', width: '100%', maxWidth: 420,
@@ -639,8 +639,8 @@ export default function TabCalificaciones({ calificaciones, colorMateria, onChan
                 autoFocus type="text"
                 placeholder="Ej: Examen parcial, Tarea 1..."
                 value={nuevoNombre}
-                onChange={e => { setNuevoNombre(e.target.value); setErrModal(''); }}
-                onKeyDown={e => e.key === 'Enter' && crearEvaluacion()}
+                onChange={(e: any) => { setNuevoNombre(e.target.value); setErrModal(''); }}
+                onKeyDown={(e: any) => e.key === 'Enter' && crearEvaluacion()}
                 style={{
                   padding: '10px 14px', borderRadius: 10,
                   border: '1.5px solid var(--border-color)',
@@ -658,8 +658,8 @@ export default function TabCalificaciones({ calificaciones, colorMateria, onChan
                 type="number" min={1} max={100 - pctUsado}
                 placeholder={`Maximo ${100 - pctUsado}%`}
                 value={nuevoPct}
-                onChange={e => { setNuevoPct(e.target.value); setErrModal(''); }}
-                onKeyDown={e => e.key === 'Enter' && crearEvaluacion()}
+                onChange={(e: any) => { setNuevoPct(e.target.value); setErrModal(''); }}
+                onKeyDown={(e: any) => e.key === 'Enter' && crearEvaluacion()}
                 style={{
                   padding: '10px 14px', borderRadius: 10,
                   border: '1.5px solid var(--border-color)',

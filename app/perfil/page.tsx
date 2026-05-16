@@ -1,5 +1,7 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+
 import { useState, useEffect } from 'react';
 import { getPerfil, getMaterias, PerfilEstudio } from '../../lib/storage';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -15,7 +17,10 @@ import { getRango, getLogrosObtenidos, LogroStats } from '../../lib/xpSystem';
 import { getObjetivos } from '../../lib/agenda';
 import { getRacha } from '../../lib/racha';
 
+const HAND = "'Caveat',cursive";
+
 export default function PerfilPage() {
+  const router = useRouter();
   const [perfil, setPerfil] = useState<PerfilEstudio | null>(null);
   const [tabActivo, setTabActivo] = useState<'stats' | 'rangos' | 'logros'>('stats');
   const [nombre, setNombre] = useState('');
@@ -44,7 +49,6 @@ export default function PerfilPage() {
         }
       }
 
-      // Cargar nombre y foto
       const { supabase } = await import('../../lib/supabase');
       const { data } = await supabase.auth.getUser();
       if (data.user) {
@@ -60,7 +64,7 @@ export default function PerfilPage() {
 
   if (!perfil) return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <p style={{ color: 'var(--text-faint)' }}>{tr('cargando')}</p>
+      <p style={{ fontFamily: HAND, fontSize: 22, color: 'var(--text-faint)', fontStyle: 'italic' }}>~ {tr('cargando')} ~</p>
     </div>
   );
 
@@ -75,14 +79,6 @@ export default function PerfilPage() {
   const materiasOrdenadas = Object.entries(perfil.materiasStats || {})
     .map(([id, stats]) => ({ id, ...stats }))
     .sort((a, b) => b.totalFlashcards - a.totalFlashcards);
-
-  const materiaDificil = materiasOrdenadas
-    .filter(m => m.totalFlashcards > 0)
-    .sort((a, b) => (b.falladas / b.totalFlashcards) - (a.falladas / a.totalFlashcards))[0];
-
-  const materiaFuerte = materiasOrdenadas
-    .filter(m => m.totalFlashcards > 0)
-    .sort((a, b) => (b.acertadas / b.totalFlashcards) - (a.acertadas / a.totalFlashcards))[0];
 
   const quizzesTotales = Object.values(perfil.materiasStats || {}).reduce((a: number, m: any) => a + (m.quizzes || 0), 0);
 
@@ -105,307 +101,592 @@ export default function PerfilPage() {
   const logrosObtenidos = getLogrosObtenidos(logroStats);
 
   const tabs = [
-    { id: 'stats' as const, label: tr('tabs_stats'), emoji: '📊' },
-    { id: 'rangos' as const, label: tr('tabs_rangos'), emoji: '🏆' },
-    { id: 'logros' as const, label: `${tr('tabs_logros')} (${logrosObtenidos.length})`, emoji: '🎖️' },
+    { id: 'stats'  as const, label: tr('tabs_stats'),  emoji: '📊', color: 'var(--gold)' },
+    { id: 'rangos' as const, label: tr('tabs_rangos'), emoji: '🏆', color: rango.color },
+    { id: 'logros' as const, label: `${tr('tabs_logros')} (${logrosObtenidos.length})`, emoji: '🎖️', color: '#a78bfa' },
   ];
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', fontFamily: '-apple-system, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', position: 'relative' }}>
 
       {isMobile ? <NavbarMobile /> : (
-        <>
-          <header style={{ background: 'var(--bg-card)', borderBottom: '3px solid var(--gold)', padding: '0 40px', height: '68px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <button onClick={() => window.location.href = '/'}
-                style={{ background: 'none', border: '2px solid var(--gold)', color: 'var(--gold)', padding: '8px 16px', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-                ← {tr('inicio')}
-              </button>
-              <div>
-                <h1 style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{tr('misStats')}</h1>
-                <p style={{ color: 'var(--text-muted)', fontSize: 11, margin: 0 }}>{tr('tuProgresoYStats')}</p>
-              </div>
-            </div>
-            <button onClick={() => window.location.href = '/chat'}
-              style={{ padding: '8px 16px', borderRadius: 8, border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-              🤖 ChapBot
+        <header style={{
+          position: 'sticky', top: 0, zIndex: 100,
+          background: 'color-mix(in srgb,var(--bg-primary) 92%,transparent)',
+          backdropFilter: 'blur(14px)',
+          borderBottom: '2.5px solid var(--text-primary)',
+          padding: '12px 36px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 16,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <button onClick={() => ((window as any).__showNavLoader?.('/'), router.push('/'))}
+              style={{
+                background: 'var(--bg-card)',
+                border: '2.5px solid var(--text-primary)',
+                color: 'var(--text-primary)',
+                padding: '8px 16px',
+                borderRadius: 10,
+                fontFamily: HAND, fontSize: 17, fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '3px 3px 0 var(--text-primary)',
+                transform: 'rotate(-1.5deg)',
+                transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+              }}
+              onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0deg) translateY(-2px)';}}
+              onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(-1.5deg)';}}
+            >
+              ← {tr('inicio')}
             </button>
-          </header>
-          <div style={{ display: 'flex', height: 3 }}>
-            <div style={{ flex: 1, background: 'var(--gold)' }} />
-            <div style={{ flex: 1, background: 'var(--red)' }} />
-            <div style={{ flex: 1, background: 'var(--blue)' }} />
-            <div style={{ flex: 1, background: 'var(--pink)' }} />
+            <div>
+              <h1 style={{
+                fontFamily: HAND, fontSize: 32, fontWeight: 900,
+                color: 'var(--text-primary)', margin: 0, lineHeight: 1,
+                transform: 'rotate(-1deg)', display: 'inline-block',
+              }}>
+                📊 {tr('misStats')}
+              </h1>
+              <svg width="160" height="6" style={{ display: 'block', marginTop: 2 }}>
+                <path d="M2 3 Q 80 0 158 4" stroke="var(--gold)" strokeWidth="2.5" fill="none" strokeLinecap="round" opacity=".7"/>
+              </svg>
+            </div>
           </div>
-        </>
+          <button onClick={() => ((window as any).__showNavLoader?.('/chat'), router.push('/chat'))}
+            style={{
+              padding: '8px 16px',
+              borderRadius: 10,
+              border: '2.5px solid var(--pink)',
+              background: 'transparent',
+              color: 'var(--pink)',
+              fontFamily: HAND, fontSize: 17, fontWeight: 800,
+              cursor: 'pointer',
+              transform: 'rotate(1.5deg)',
+              transition: 'all 0.25s',
+            }}
+            onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0deg) translateY(-2px)';e.currentTarget.style.background='color-mix(in srgb,var(--pink) 14%,transparent)';}}
+            onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(1.5deg)';e.currentTarget.style.background='transparent';}}
+          >
+            🤖 ChapBot
+          </button>
+        </header>
       )}
 
-      <div style={{ maxWidth: 1000, margin: '0 auto', padding: isMobile ? 16 : 40 }}>
+      {/* Línea rasgada */}
+      <svg viewBox="0 0 1200 14" preserveAspectRatio="none" style={{
+        display: 'block', width: '100%', height: 14,
+      }}>
+        <path
+          d="M 0 7 Q 50 2 100 6 T 200 5 T 300 8 T 400 4 T 500 7 T 600 5 T 700 8 T 800 4 T 900 7 T 1000 5 T 1100 8 T 1200 6"
+          fill="none" stroke="var(--text-primary)" strokeWidth="2" strokeLinecap="round" opacity="0.45"
+        />
+      </svg>
 
-        {/* ── HERO: Avatar + Rango ── */}
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: isMobile ? 16 : '28px 36px 60px' }}>
+
+        {/* HERO: Avatar + Rango */}
         <div style={{
-          background: `linear-gradient(135deg, ${rango.color}15, var(--bg-card))`,
-          border: `2px solid ${rango.color}44`,
-          borderRadius: 20,
-          padding: isMobile ? '20px 16px' : '28px 32px',
-          marginBottom: 24,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 24,
+          background: 'var(--bg-card)',
+          border: '2.5px solid var(--text-primary)',
+          borderRadius: 16,
+          padding: isMobile ? '20px 16px' : '24px 28px',
+          marginBottom: 22,
+          display: 'flex', alignItems: 'center', gap: 22,
           flexWrap: 'wrap',
-          boxShadow: `0 0 40px ${rango.color}22`,
+          boxShadow: `5px 6px 0 ${rango.color}`,
+          transform: 'rotate(-0.4deg)',
+          position: 'relative',
         }}>
+          {/* Cinta scotch */}
+          <div style={{
+            position: 'absolute', top: -10, left: '50%',
+            transform: 'translateX(-50%) rotate(-3deg)',
+            width: 90, height: 18,
+            background: `color-mix(in srgb,${rango.color} 55%,transparent)`,
+            border: `1px solid color-mix(in srgb,${rango.color} 30%,transparent)`,
+            boxShadow: '0 2px 5px rgba(0,0,0,0.18)',
+          }}/>
+
           <MarcoAvatar
             xpTotal={xpTotal}
             fotoPerfil={fotoPerfil}
             nombre={nombre}
-            size={isMobile ? 72 : 96}
+            size={isMobile ? 76 : 100}
           />
           <div style={{ flex: 1, minWidth: 200 }}>
-            <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 900, color: 'var(--text-primary)', marginBottom: 4 }}>
+            <div style={{
+              fontFamily: HAND,
+              fontSize: isMobile ? 28 : 36, fontWeight: 900,
+              color: 'var(--text-primary)', marginBottom: 4,
+              transform: 'rotate(-0.8deg)', display: 'inline-block',
+              lineHeight: 1.05,
+            }}>
               {nombre}
             </div>
             <div style={{ marginBottom: 12 }}>
               <RangoDisplay xpTotal={xpTotal} size={isMobile ? 'sm' : 'md'} mostrarProgreso />
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, background: 'var(--bg-secondary)', borderRadius: 8, padding: '3px 10px', color: 'var(--text-muted)', fontWeight: 600 }}>
-                {tr('nivel')} {nivel} · {titulo.emoji} {titulo.titulo}
-              </span>
-              <span style={{ fontSize: 11, background: rango.color + '22', borderRadius: 8, padding: '3px 10px', color: rango.color, fontWeight: 700 }}>
-                {xpTotal.toLocaleString()} {tr('xpTotales')}
-              </span>
-              <span style={{ fontSize: 11, background: '#a78bfa22', borderRadius: 8, padding: '3px 10px', color: '#a78bfa', fontWeight: 600 }}>
-                🎖️ {logrosObtenidos.length} {idioma === 'en' ? 'achievements' : 'logros'}
-              </span>
-              <span style={{ fontSize: 11, background: 'rgba(239,68,68,0.1)', borderRadius: 8, padding: '3px 10px', color: '#ef4444', fontWeight: 700 }}>
-                🔥 {rachaData.rachaActual} {idioma === 'en' ? 'day streak' : 'días de racha'}
-              </span>
+              {[
+                { txt: `${tr('nivel')} ${nivel} · ${titulo.emoji} ${titulo.titulo}`, color: 'var(--text-muted)', rot: -1.5 },
+                { txt: `${xpTotal.toLocaleString()} ${tr('xpTotales')}`,             color: rango.color,          rot: 1.5 },
+                { txt: `🎖️ ${logrosObtenidos.length} ${idioma === 'en' ? 'achievements' : 'logros'}`, color: '#a78bfa', rot: -1 },
+                { txt: `🔥 ${rachaData.rachaActual} ${idioma === 'en' ? 'day streak' : 'días de racha'}`, color: '#ef4444', rot: 1 },
+              ].map((badge, i) => (
+                <span key={i} style={{
+                  fontFamily: HAND, fontSize: 14, fontWeight: 800,
+                  background: `color-mix(in srgb,${badge.color} 16%,transparent)`,
+                  color: badge.color,
+                  border: `1.5px dashed ${badge.color}`,
+                  padding: '3px 10px',
+                  borderRadius: 8,
+                  transform: `rotate(${badge.rot}deg)`,
+                  fontStyle: 'italic',
+                }}>
+                  {badge.txt}
+                </span>
+              ))}
             </div>
           </div>
 
-          {/* Botón perfil público */}
-          <button
-            onClick={async () => {
-              const { supabase } = await import('../../lib/supabase');
-              const { data } = await supabase.auth.getUser();
-              if (data.user?.id) window.location.href = '/u/' + data.user.id;
-            }}
+          <button onClick={async () => {
+            const { supabase } = await import('../../lib/supabase');
+            const { data } = await supabase.auth.getUser();
+            if (data.user?.id) { const uid = data.user.id; (window as any).__showNavLoader?.(`/u/${uid}`); router.push(`/u/${uid}`); }
+          }}
             style={{
-              padding: '10px 18px', borderRadius: 12,
-              border: `2px solid ${rango.color}`,
-              background: rango.color + '15',
-              color: rango.color, fontWeight: 700, fontSize: 13,
+              padding: '10px 18px',
+              borderRadius: 12,
+              border: '2.5px solid var(--text-primary)',
+              background: rango.color, color: '#000',
+              fontFamily: HAND, fontSize: 18, fontWeight: 800,
               cursor: 'pointer', whiteSpace: 'nowrap',
+              boxShadow: '3px 4px 0 var(--text-primary)',
+              transform: 'rotate(2deg)',
+              transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
             }}
+            onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0deg) translateY(-2px)';e.currentTarget.style.boxShadow='4px 6px 0 var(--text-primary)';}}
+            onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(2deg)';e.currentTarget.style.boxShadow='3px 4px 0 var(--text-primary)';}}
           >
-            🌐 tr('verPerfilPublicoBtn').replace('🌐 ','')
+            🌐 {tr('verPerfilPublicoBtn').replace('🌐 ','')}
           </button>
         </div>
 
-        {/* ── TABS ── */}
-        <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '2px solid var(--border-color)' }}>
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setTabActivo(tab.id)}
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                borderBottom: tabActivo === tab.id ? `3px solid ${rango.color}` : '3px solid transparent',
-                padding: '10px 20px', fontSize: 14,
-                fontWeight: tabActivo === tab.id ? 700 : 500,
-                color: tabActivo === tab.id ? rango.color : 'var(--text-muted)',
-                marginBottom: -2,
-                transition: 'all 0.15s',
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
+        {/* TABS estilo pestañas */}
+        <div style={{
+          display: 'flex', gap: 8, marginBottom: 22,
+          flexWrap: 'wrap', justifyContent: 'flex-start',
+        }}>
+          {tabs.map((tab, i) => {
+            const active = tabActivo === tab.id;
+            return (
+              <button key={tab.id} onClick={() => setTabActivo(tab.id)}
+                style={{
+                  padding: '10px 20px',
+                  background: active ? tab.color : 'var(--bg-card)',
+                  color: active ? '#000' : 'var(--text-muted)',
+                  border: `2.5px solid ${active ? tab.color : 'var(--border-color)'}`,
+                  borderRadius: 12,
+                  cursor: 'pointer',
+                  fontFamily: HAND, fontSize: 19, fontWeight: 800,
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  boxShadow: active ? '3px 4px 0 var(--text-primary)' : 'none',
+                  transform: active
+                    ? `rotate(${i % 2 === 0 ? -1.5 : 1.5}deg)`
+                    : `rotate(${i % 2 === 0 ? -0.5 : 0.5}deg)`,
+                  transition: 'all 0.3s cubic-bezier(.25,.8,.25,1)',
+                }}
+                onMouseEnter={(e:any)=>{ if (!active) e.currentTarget.style.transform = 'rotate(0deg) translateY(-2px)'; }}
+                onMouseLeave={(e:any)=>{
+                  e.currentTarget.style.transform = active
+                    ? `rotate(${i % 2 === 0 ? -1.5 : 1.5}deg)`
+                    : `rotate(${i % 2 === 0 ? -0.5 : 0.5}deg)`;
+                }}
+              >
+                <span style={{ fontSize: 20 }}>{tab.emoji}</span>
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* ── TAB: STATS ── */}
+        {/* TAB STATS */}
         {tabActivo === 'stats' && (
           <div>
             {/* Stats globales */}
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 1, background: 'var(--border-color)', borderRadius: 16, overflow: 'hidden', marginBottom: 24 }}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)',
+              gap: 14, marginBottom: 22,
+            }}>
               {[
-                { label: tr('totalEstudiadas'), value: total, color: 'var(--gold)', emoji: '📚' },
-                { label: tr('acertadas'), value: totalAcertadas, color: '#4ade80', emoji: '✅' },
-                { label: tr('falladas'), value: totalFalladas, color: 'var(--red)', emoji: '❌' },
-                { label: tr('precision'), value: `${porcentajeGlobal}%`, color: 'var(--blue)', emoji: '🎯' },
+                { label: tr('totalEstudiadas'), value: total,           color: 'var(--gold)', emoji: '📚', rot: -2 },
+                { label: tr('acertadas'),       value: totalAcertadas,  color: '#4ade80',     emoji: '✅', rot: 1.5 },
+                { label: tr('falladas'),        value: totalFalladas,   color: 'var(--red)',  emoji: '❌', rot: -1.5 },
+                { label: tr('precision'),       value: `${porcentajeGlobal}%`, color: 'var(--blue)', emoji: '🎯', rot: 2 },
               ].map((s, i) => (
-                <div key={i} style={{ background: 'var(--bg-card)', padding: isMobile ? '16px 12px' : '24px 16px', textAlign: 'center' }}>
-                  <div style={{ fontSize: isMobile ? 20 : 24, marginBottom: 4 }}>{s.emoji}</div>
-                  <div style={{ fontSize: isMobile ? 22 : 28, fontWeight: 900, color: s.color }}>{s.value}</div>
-                  <div style={{ fontSize: isMobile ? 9 : 12, color: 'var(--text-muted)', fontWeight: 600, marginTop: 4 }}>{s.label}</div>
+                <div key={i} style={{
+                  background: 'var(--bg-card)',
+                  border: '2.5px solid var(--text-primary)',
+                  borderRadius: 12,
+                  padding: isMobile ? '14px 12px' : '18px 14px',
+                  textAlign: 'center',
+                  boxShadow: `3px 4px 0 ${s.color}`,
+                  transform: `rotate(${s.rot}deg)`,
+                  transition: 'transform 0.25s',
+                }}
+                  onMouseEnter={(e:any)=>e.currentTarget.style.transform='rotate(0deg) translateY(-2px)'}
+                  onMouseLeave={(e:any)=>e.currentTarget.style.transform=`rotate(${s.rot}deg)`}
+                >
+                  <div style={{ fontSize: isMobile ? 22 : 26, marginBottom: 4 }}>{s.emoji}</div>
+                  <div style={{
+                    fontFamily: HAND, fontSize: isMobile ? 26 : 32, fontWeight: 900,
+                    color: s.color, lineHeight: 1,
+                  }}>{s.value}</div>
+                  <div style={{
+                    fontFamily: HAND, fontSize: isMobile ? 12 : 14, fontWeight: 700,
+                    color: 'var(--text-muted)', fontStyle: 'italic',
+                    marginTop: 4,
+                  }}>{s.label}</div>
                 </div>
               ))}
             </div>
 
             {/* XP Card */}
-            <div style={{ background: 'var(--bg-card)', borderRadius: 16, border: `1px solid ${rango.color}44`, overflow: 'hidden', marginBottom: 24 }}>
-              <div style={{ height: 4, background: rango.marcoGradient }} />
+            <div style={{
+              background: 'var(--bg-card)',
+              border: '2.5px solid var(--text-primary)',
+              borderRadius: 14,
+              boxShadow: `4px 5px 0 ${rango.color}`,
+              transform: 'rotate(-0.3deg)',
+              marginBottom: 22,
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                background: rango.marcoGradient,
+                padding: '8px 18px',
+                borderBottom: '2px solid var(--text-primary)',
+              }}>
+                <span style={{
+                  fontFamily: HAND, fontSize: 18, fontWeight: 900,
+                  color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.35)',
+                  fontStyle: 'italic',
+                }}>
+                  {rango.emoji} {tr('progresoXP')}
+                </span>
+              </div>
               <div style={{ padding: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-                  <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: rango.color, textTransform: 'uppercase', letterSpacing: 1 }}>
-                    {rango.emoji} tr('progresoXP')
-                  </h3>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    {tr('nivel')} {nivel} · {xpEnNivel}/{xpParaSiguiente} XP
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between',
+                  alignItems: 'center', marginBottom: 14,
+                  flexWrap: 'wrap', gap: 12,
+                }}>
+                  <span style={{
+                    fontFamily: HAND, fontSize: 17, fontStyle: 'italic',
+                    color: 'var(--text-muted)',
+                  }}>
+                    ~ {tr('nivel')} {nivel} · {xpEnNivel}/{xpParaSiguiente} XP ~
                   </span>
                 </div>
-                <div style={{ height: 10, background: 'var(--bg-secondary)', borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
+                <div style={{
+                  height: 14,
+                  background: 'var(--bg-secondary)',
+                  border: '2px solid var(--text-primary)',
+                  borderRadius: 7,
+                  overflow: 'hidden', marginBottom: 8,
+                }}>
                   <div style={{
                     height: '100%', width: `${progreso}%`,
                     background: rango.marcoGradient,
-                    borderRadius: 10, transition: 'width 0.6s ease',
-                    boxShadow: `0 0 8px ${rango.color}`,
+                    borderRadius: 5,
+                    transition: 'width 0.6s ease',
+                    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.3)`,
                   }} />
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
-                  <span>{progreso}% {tr('delNivel')} {nivel}</span>
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between',
+                  fontFamily: HAND, fontSize: 14, fontStyle: 'italic',
+                  color: 'var(--text-faint)',
+                }}>
+                  <span>~ {progreso}% {tr('delNivel')} {nivel} ~</span>
                   <span>→ {tr('nivel')} {nivel + 1}</span>
                 </div>
               </div>
             </div>
 
             {/* Materias + Falladas */}
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20, marginBottom: 24 }}>
-              {/* Precisión por materia */}
-              <div style={{ background: 'var(--bg-card)', borderRadius: 16, border: '1px solid var(--border-color)', overflow: 'hidden' }}>
-                <div style={{ height: 4, background: 'var(--gold)' }} />
-                <div style={{ padding: 20 }}>
-                  <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    📚 {idioma === 'en' ? 'Stats by Subject' : 'Estadísticas por materia'}
-                  </h2>
-                  {materiasOrdenadas.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
-                      📚 {idioma === 'en' ? 'Study flashcards, complete quizzes and goals to see stats' : 'Estudia flashcards, completa quizzes y objetivos para ver tus estadísticas'}
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                      {materiasOrdenadas.map((m, i) => {
-                        const prec = m.totalFlashcards > 0 ? Math.round((m.acertadas / m.totalFlashcards) * 100) : 0;
-                        const objsMateria = objetivos.filter(o => o.materiaColor === m.color);
-                        const objsCompletados = objsMateria.filter(o => o.completado).length;
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+              gap: 18, marginBottom: 22,
+            }}>
+              {/* Stats por materia */}
+              <NotebookCard color="var(--gold)" emoji="📚" title={idioma === 'en' ? 'Stats by Subject' : 'Estadísticas por materia'} rot={-0.4}>
+                {materiasOrdenadas.length === 0 ? (
+                  <Texto>📚 {idioma === 'en' ? 'Study flashcards, quizzes & goals to see stats' : 'Estudia flashcards, quizzes y objetivos para ver tus estadísticas'}</Texto>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {materiasOrdenadas.map((m: any, i) => {
+                      const prec = m.totalFlashcards > 0 ? Math.round((m.acertadas / m.totalFlashcards) * 100) : 0;
+                      const objsMateria = objetivos.filter(o => o.materiaColor === m.color);
+                      const objsCompletados = objsMateria.filter(o => o.completado).length;
 
-                        return (
-                          <div key={i} style={{ background: 'var(--bg-secondary)', padding: 12, borderRadius: 12, border: '1px solid var(--border-color)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                                <div style={{ width: 10, height: 10, borderRadius: '50%', background: m.color }} />
-                                <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>{m.nombre}</span>
+                      return (
+                        <div key={i} style={{
+                          background: 'var(--bg-secondary)',
+                          padding: 12,
+                          borderRadius: 12,
+                          border: `2px dashed ${m.color}`,
+                          transform: `rotate(${i % 2 === 0 ? -0.3 : 0.3}deg)`,
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{
+                                width: 12, height: 12, borderRadius: '50%',
+                                background: m.color,
+                                border: '1.5px solid var(--text-primary)',
+                                boxShadow: `0 0 6px ${m.color}88`,
+                              }} />
+                              <span style={{
+                                fontFamily: HAND, fontSize: 19, fontWeight: 800,
+                                color: 'var(--text-primary)',
+                              }}>{m.nombre}</span>
+                            </div>
+                            <span style={{
+                              fontFamily: HAND, fontSize: 15, fontWeight: 800,
+                              color: prec >= 70 ? '#4ade80' : prec >= 50 ? 'var(--gold)' : 'var(--red)',
+                              background: 'var(--bg-primary)',
+                              border: `1.5px solid ${prec >= 70 ? '#4ade80' : prec >= 50 ? 'var(--gold)' : 'var(--red)'}`,
+                              padding: '1px 10px', borderRadius: 6,
+                              transform: 'rotate(-2deg)',
+                            }}>
+                              {prec}% {tr('precision')}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 8 }}>
+                            {[
+                              { v: m.totalFlashcards, l: '🎴 Cards', c: 'var(--text-primary)' },
+                              { v: m.quizzes || 0,    l: '📝 Quizzes', c: 'var(--gold)' },
+                              { v: `${objsCompletados}/${objsMateria.length}`, l: '🎯 ' + (idioma === 'en' ? 'Goals' : 'Objetivos'), c: '#3b82f6' },
+                            ].map((stat, j) => (
+                              <div key={j} style={{
+                                textAlign: 'center',
+                                padding: '4px 0',
+                                background: 'var(--bg-card)',
+                                border: '1.5px dashed var(--border-color)',
+                                borderRadius: 8,
+                                transform: `rotate(${(j % 2 === 0 ? -0.5 : 0.5)}deg)`,
+                              }}>
+                                <div style={{ fontFamily: HAND, fontSize: 18, fontWeight: 900, color: stat.c }}>{stat.v}</div>
+                                <div style={{ fontFamily: HAND, fontSize: 12, fontStyle: 'italic', color: 'var(--text-muted)' }}>{stat.l}</div>
                               </div>
-                              <span style={{ fontSize: 12, fontWeight: 800, color: prec >= 70 ? '#4ade80' : prec >= 50 ? 'var(--gold)' : 'var(--red)', background: 'var(--bg-primary)', padding: '2px 8px', borderRadius: 6 }}>
-                                {prec}% {tr('precision')}
-                              </span>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 8 }}>
-                               <div style={{ textAlign: 'center' }}>
-                                 <div style={{ fontSize: 14, fontWeight: 900, color: 'var(--text-primary)' }}>{m.totalFlashcards}</div>
-                                 <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>🎴 Cards</div>
-                               </div>
-                               <div style={{ textAlign: 'center', borderLeft: '1px solid var(--border-color)', borderRight: '1px solid var(--border-color)' }}>
-                                 <div style={{ fontSize: 14, fontWeight: 900, color: 'var(--gold)' }}>{m.quizzes || 0}</div>
-                                 <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>📝 Quizzes</div>
-                               </div>
-                               <div style={{ textAlign: 'center' }}>
-                                 <div style={{ fontSize: 14, fontWeight: 900, color: '#3b82f6' }}>{objsCompletados}/{objsMateria.length}</div>
-                                 <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>🎯 {idioma === 'en' ? 'Goals' : 'Objetivos'}</div>
-                               </div>
-                            </div>
-
-                            <div style={{ background: 'var(--bg-primary)', borderRadius: 6, height: 5, overflow: 'hidden', marginTop: 10 }}>
-                              <div style={{ width: `${prec}%`, height: '100%', background: m.color, borderRadius: 6, transition: 'width 0.8s ease' }} />
-                            </div>
+                            ))}
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
 
-              {/* Temas que más fallas */}
-              <div style={{ background: 'var(--bg-card)', borderRadius: 16, border: '1px solid var(--border-color)', overflow: 'hidden' }}>
-                <div style={{ height: 4, background: 'var(--red)' }} />
-                <div style={{ padding: 20 }}>
-                  <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 16px' }}>
-                    {tr('temasQueFallas')}
-                  </h2>
-                  {topFalladas.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
-                      🎉 {tr('sinFallas')}
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                      {topFalladas.map(([pregunta, veces], i) => (
-                        <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 10px', background: 'var(--bg-secondary)', borderRadius: 10, border: '1px solid var(--red-border)' }}>
-                          <div style={{ width: 26, height: 26, borderRadius: 7, background: 'var(--red)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: '#000', flexShrink: 0 }}>
-                            {veces}x
+                          <div style={{
+                            background: 'var(--bg-primary)',
+                            border: '1.5px solid var(--text-primary)',
+                            borderRadius: 5, height: 7,
+                            overflow: 'hidden', marginTop: 10,
+                          }}>
+                            <div style={{
+                              width: `${prec}%`, height: '100%',
+                              background: m.color,
+                              borderRadius: 3,
+                              transition: 'width 0.8s ease',
+                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.3)',
+                            }} />
                           </div>
-                          <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
-                            {pregunta.length > 80 ? pregunta.substring(0, 80) + '...' : pregunta}
-                          </p>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </NotebookCard>
+
+              {/* Temas falladas */}
+              <NotebookCard color="var(--red)" emoji="❌" title={tr('temasQueFallas')} rot={0.4}>
+                {topFalladas.length === 0 ? (
+                  <Texto>🎉 {tr('sinFallas')}</Texto>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {topFalladas.map(([pregunta, veces], i) => (
+                      <div key={i} style={{
+                        display: 'flex', gap: 10, alignItems: 'flex-start',
+                        padding: '8px 12px',
+                        background: 'color-mix(in srgb,var(--red) 10%,transparent)',
+                        border: '2px dashed var(--red)',
+                        borderRadius: 10,
+                        transform: `rotate(${i % 2 === 0 ? -0.3 : 0.3}deg)`,
+                      }}>
+                        <div style={{
+                          width: 32, height: 32, borderRadius: 7,
+                          background: 'var(--red)',
+                          border: '2px solid var(--text-primary)',
+                          boxShadow: '2px 2px 0 var(--text-primary)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontFamily: HAND, fontSize: 14, fontWeight: 900, color: '#fff',
+                          flexShrink: 0,
+                          transform: 'rotate(-5deg)',
+                        }}>
+                          {veces}×
+                        </div>
+                        <p style={{
+                          fontFamily: HAND, fontSize: 15, fontWeight: 600,
+                          color: 'var(--text-secondary)',
+                          margin: 0, lineHeight: 1.35,
+                        }}>
+                          {pregunta.length > 80 ? pregunta.substring(0, 80) + '...' : pregunta}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </NotebookCard>
             </div>
 
             <ReporteSemanal />
 
             {/* Acciones */}
-            <div style={{ display: 'flex', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
-              <button onClick={() => window.location.href = '/materias'}
-                style={{ padding: '12px 24px', borderRadius: 12, border: 'none', background: 'var(--gold)', color: '#000', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>
-                {tr('irAEstudiar')}
-              </button>
-              <button onClick={() => window.location.href = '/chat'}
-                style={{ padding: '12px 24px', borderRadius: 12, border: '2px solid var(--pink)', background: 'transparent', color: 'var(--pink)', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-                {tr('hablarChapBot')}
-              </button>
-              <button onClick={() => {
+            <div style={{ display: 'flex', gap: 12, marginTop: 22, flexWrap: 'wrap' }}>
+              <PrimaryBtn onClick={() => ((window as any).__showNavLoader?.('/materias'), router.push('/materias'))} color="var(--gold)">
+                📚 {tr('irAEstudiar')}
+              </PrimaryBtn>
+              <SecondaryBtn onClick={() => ((window as any).__showNavLoader?.('/chat'), router.push('/chat'))} color="var(--pink)">
+                🤖 {tr('hablarChapBot')}
+              </SecondaryBtn>
+              <SecondaryBtn onClick={() => {
                 if (!confirm(tr('limpiarRachaStats'))) return;
                 localStorage.removeItem('josea_racha');
                 localStorage.removeItem('josea_perfil');
                 window.location.reload();
-              }}
-                style={{ padding: '12px 24px', borderRadius: 12, border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-                {tr('limpiarStats')}
-              </button>
+              }} color="var(--text-faint)">
+                🗑️ {tr('limpiarStats')}
+              </SecondaryBtn>
             </div>
           </div>
         )}
 
-        {/* ── TAB: RANGOS ── */}
+        {/* TAB RANGOS */}
         {tabActivo === 'rangos' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-            <div style={{
-              background: 'var(--bg-card)', borderRadius: 16,
-              border: `2px solid ${rango.color}44`, padding: 24,
-              textAlign: 'center',
-            }}>
-              <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>
-                {tr('tuRangoActual')}
-              </p>
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <NotebookCard color={rango.color} emoji={rango.emoji} title={tr('tuRangoActual')} rot={-0.4}>
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
                 <RangoDisplay xpTotal={xpTotal} size="lg" mostrarProgreso />
               </div>
-            </div>
+            </NotebookCard>
             <TablaRangos xpTotal={xpTotal} />
           </div>
         )}
 
-        {/* ── TAB: LOGROS ── */}
+        {/* TAB LOGROS */}
         {tabActivo === 'logros' && (
           <LogrosPanel stats={logroStats} colorAccent={rango.color} />
         )}
       </div>
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+function NotebookCard({ children, color, emoji, title, rot }: {
+  children: React.ReactNode;
+  color: string;
+  emoji: string;
+  title: string;
+  rot: number;
+}) {
+  return (
+    <div style={{
+      background: 'var(--bg-card)',
+      border: '2.5px solid var(--text-primary)',
+      borderRadius: 14,
+      boxShadow: `4px 5px 0 ${color}`,
+      transform: `rotate(${rot}deg)`,
+      overflow: 'hidden',
+    }}>
+      <div style={{
+        background: color,
+        padding: '8px 18px',
+        borderBottom: '2px solid var(--text-primary)',
+      }}>
+        <h2 style={{
+          fontFamily: HAND, fontSize: 22, fontWeight: 900,
+          color: '#000', margin: 0, fontStyle: 'italic',
+          transform: 'rotate(-0.5deg)', display: 'inline-block',
+        }}>
+          {emoji} {title}
+        </h2>
+      </div>
+      <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Texto({ children }: { children: React.ReactNode }) {
+  return (
+    <p style={{
+      fontFamily: HAND, fontSize: 17, fontStyle: 'italic',
+      color: 'var(--text-muted)', margin: 0, textAlign: 'center',
+      padding: '14px 0',
+    }}>
+      ~ {children} ~
+    </p>
+  );
+}
+
+function PrimaryBtn({ children, onClick, color }: any) {
+  return (
+    <button onClick={onClick}
+      style={{
+        padding: '12px 22px',
+        borderRadius: 12,
+        border: '2.5px solid var(--text-primary)',
+        background: color, color: '#000',
+        fontFamily: HAND, fontSize: 19, fontWeight: 800,
+        cursor: 'pointer',
+        boxShadow: '3px 4px 0 var(--text-primary)',
+        transform: 'rotate(-1deg)',
+        transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+      }}
+      onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0deg) translateY(-2px)';e.currentTarget.style.boxShadow='4px 6px 0 var(--text-primary)';}}
+      onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(-1deg)';e.currentTarget.style.boxShadow='3px 4px 0 var(--text-primary)';}}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SecondaryBtn({ children, onClick, color }: any) {
+  return (
+    <button onClick={onClick}
+      style={{
+        padding: '11px 20px',
+        borderRadius: 12,
+        border: `2.5px dashed ${color}`,
+        background: 'transparent',
+        color,
+        fontFamily: HAND, fontSize: 18, fontWeight: 800,
+        cursor: 'pointer',
+        transform: 'rotate(1deg)',
+        transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+      }}
+      onMouseEnter={(e:any)=>{
+        e.currentTarget.style.transform='rotate(0deg) translateY(-2px)';
+        e.currentTarget.style.borderStyle='solid';
+        e.currentTarget.style.background=`color-mix(in srgb,${color} 14%,transparent)`;
+      }}
+      onMouseLeave={(e:any)=>{
+        e.currentTarget.style.transform='rotate(1deg)';
+        e.currentTarget.style.borderStyle='dashed';
+        e.currentTarget.style.background='transparent';
+      }}
+    >
+      {children}
+    </button>
   );
 }

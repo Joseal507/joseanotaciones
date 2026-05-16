@@ -126,7 +126,7 @@ export default function ImageBlock({ bloque, temaColor, onUpdate, onDelete, onDu
         pointerEvents: 'auto',
       }}
       onPointerDown={handlePointerDown}
-      onDoubleClick={e => { e.stopPropagation(); setShowMenu(true); }}
+      onDoubleClick={(e: any) => { e.stopPropagation(); setShowMenu(true); }}
     >
       {/* Image */}
       <div style={{
@@ -164,7 +164,7 @@ export default function ImageBlock({ bloque, temaColor, onUpdate, onDelete, onDu
           {/* Resize handle */}
           <div
             data-resize="true"
-            onPointerDown={e => {
+            onPointerDown={(e: any) => {
               e.stopPropagation();
               e.preventDefault();
               if (longPress.current) clearTimeout(longPress.current);
@@ -183,7 +183,7 @@ export default function ImageBlock({ bloque, temaColor, onUpdate, onDelete, onDu
 
           {/* Quick action toolbar */}
           <div
-            onPointerDown={e => e.stopPropagation()}
+            onPointerDown={(e: any) => e.stopPropagation()}
             style={{
               position: 'absolute',
               top: -44,

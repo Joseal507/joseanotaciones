@@ -1,5 +1,7 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+
 import { useState, useRef, useEffect } from 'react';
 import { getPerfil, getMaterias } from '../lib/storage';
 import { getIdioma } from '../lib/i18n';
@@ -8,6 +10,7 @@ import { getSettings } from '../lib/settings';
 interface Mensaje { role: 'user' | 'assistant'; content: string; }
 
 export default function ChatFlotante() {
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [enabled, setEnabled] = useState(true);
   const [abierto, setAbierto] = useState(false);
@@ -169,7 +172,7 @@ export default function ChatFlotante() {
               <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>ChapBot</div>
               <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{cargando ? '✍️...' : '🟢 Online'}</div>
             </div>
-            <button onClick={() => window.location.href = '/chat'} style={{ background: 'none', border: '1px solid var(--pink)', borderRadius: '6px', color: 'var(--pink)', fontSize: '10px', fontWeight: 700, cursor: 'pointer', padding: '2px 7px' }}>↗</button>
+            <button onClick={() => ((window as any).__showNavLoader?.('/chat'), router.push('/chat'))} style={{ background: 'none', border: '1px solid var(--pink)', borderRadius: '6px', color: 'var(--pink)', fontSize: '10px', fontWeight: 700, cursor: 'pointer', padding: '2px 7px' }}>↗</button>
             <button onClick={() => setMinimizado(true)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '14px', cursor: 'pointer', padding: '2px', lineHeight: 1 }}>▬</button>
             <button onClick={() => setAbierto(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '14px', cursor: 'pointer', padding: '2px' }}>✕</button>
           </div>
@@ -199,8 +202,8 @@ export default function ChatFlotante() {
           <div style={{ padding: '8px 10px', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '6px', flexShrink: 0 }}>
             <input
               ref={inputRef} value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && enviar()}
+              onChange={(e: any) => setInput(e.target.value)}
+              onKeyDown={(e: any) => e.key === 'Enter' && !e.shiftKey && enviar()}
               placeholder="Pregunta algo..."
               disabled={cargando}
               style={{ flex: 1, padding: '8px 10px', borderRadius: '8px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}

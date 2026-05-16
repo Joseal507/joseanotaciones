@@ -396,7 +396,7 @@ export default function ExportMenu({
           zIndex: 999999, display: 'flex', flexDirection: 'column',
           alignItems: 'center', padding: '20px', overflowY: 'auto',
         }}>
-          <div onClick={e => e.stopPropagation()} style={{
+          <div onClick={(e: any) => e.stopPropagation()} style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             width: '100%', maxWidth: '800px', marginBottom: '16px', flexShrink: 0,
           }}>
@@ -418,7 +418,7 @@ export default function ExportMenu({
               </button>
             </div>
           </div>
-          <div onClick={e => e.stopPropagation()} style={{
+          <div onClick={(e: any) => e.stopPropagation()} style={{
             width: '100%', maxWidth: '800px', display: 'flex', flexDirection: 'column',
             gap: '20px', paddingBottom: '40px',
           }}>

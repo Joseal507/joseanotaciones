@@ -1,4 +1,6 @@
 'use client';
+
+import { useRouter } from 'next/navigation';
 import { darXP } from '../../lib/xpClient';
 import { dispararXPToast } from '../XPToast';
 import { calcularXpQuiz } from '../../lib/xpSystem';
@@ -26,6 +28,7 @@ interface Props {
 }
 
 export default function QuizModal({ contenido, temaColor, onClose, materiaNombre, materiaColor }: Props) {
+  const router = useRouter();
   const { tr, idioma } = useIdioma();
 
   const [fase, setFase] = useState<'config' | 'quiz' | 'fin' | 'guardados'>('config');
@@ -302,7 +305,7 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', background: '#111', borderRadius: '10px', border: '1px solid #222' }}>
                     <span style={{ fontSize: '12px', color: '#666', whiteSpace: 'nowrap' }}>Personalizado:</span>
                     <input type="number" min={1} max={100} value={cantidadPersonalizada}
-                      onChange={e => { const val = Math.min(100, Math.max(1, parseInt(e.target.value) || 1)); setCantidadPersonalizada(val); setCantidad(val); }}
+                      onChange={(e: any) => { const val = Math.min(100, Math.max(1, parseInt(e.target.value) || 1)); setCantidadPersonalizada(val); setCantidad(val); }}
                       style={{ width: '65px', padding: '7px 10px', borderRadius: '8px', border: `2px solid ${temaColor}44`, background: '#1a1a2e', color: '#fff', fontSize: '15px', fontWeight: 700, textAlign: 'center', outline: 'none' }} />
                     <span style={{ fontSize: '12px', color: '#666' }}>max 100</span>
                   </div>
@@ -411,12 +414,12 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
                     </div>
                   ) : (
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <input type="text" value={nombreQuiz} onChange={e => setNombreQuiz(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && handleGuardarPermanente()}
+                      <input type="text" value={nombreQuiz} onChange={(e: any) => setNombreQuiz(e.target.value)}
+                        onKeyDown={(e: any) => e.key === 'Enter' && handleGuardarPermanente()}
                         placeholder="Nombre del quiz... ej: Tema 1"
                         style={{ flex: 1, padding: '10px 14px', borderRadius: '10px', border: '2px solid #333', background: '#111', color: '#fff', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
-                        onFocus={e => e.currentTarget.style.borderColor = temaColor}
-                        onBlur={e => e.currentTarget.style.borderColor = '#333'} />
+                        onFocus={(e: any) => e.currentTarget.style.borderColor = temaColor}
+                        onBlur={(e: any) => e.currentTarget.style.borderColor = '#333'} />
                       <button onClick={handleGuardarPermanente} disabled={!nombreQuiz.trim() || guardando}
                         style={{ padding: '10px 18px', borderRadius: '10px', border: 'none', background: nombreQuiz.trim() ? temaColor : '#333', color: nombreQuiz.trim() ? '#000' : '#555', fontWeight: 800, fontSize: '13px', cursor: nombreQuiz.trim() ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}>
                         Guardar
@@ -443,7 +446,7 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
 
                 <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
                   <button onClick={reiniciar} style={{ padding: '14px 28px', borderRadius: '12px', border: 'none', background: temaColor, color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>🔄 Nuevo quiz</button>
-                  <button onClick={() => window.location.href = '/quizzes'} style={{ padding: '14px 28px', borderRadius: '12px', border: `2px solid ${temaColor}`, background: 'transparent', color: temaColor, fontSize: '15px', fontWeight: 700, cursor: 'pointer' }}>📚 Mis quizzes</button>
+                  <button onClick={() => ((window as any).__showNavLoader?.('/quizzes'), router.push('/quizzes'))} style={{ padding: '14px 28px', borderRadius: '12px', border: `2px solid ${temaColor}`, background: 'transparent', color: temaColor, fontSize: '15px', fontWeight: 700, cursor: 'pointer' }}>📚 Mis quizzes</button>
                   <button onClick={onClose} style={{ padding: '14px 28px', borderRadius: '12px', border: '2px solid #444', background: 'transparent', color: '#aaa', fontSize: '15px', fontWeight: 700, cursor: 'pointer' }}>Cerrar</button>
                 </div>
               </div>

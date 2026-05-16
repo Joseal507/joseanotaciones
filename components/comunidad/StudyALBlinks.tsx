@@ -1,8 +1,12 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
+
+const HAND = "'Caveat',cursive";
 
 interface Post {
   id: string;
@@ -25,12 +29,12 @@ interface Post {
   created_at: string;
 }
 
-const TIPO: Record<Post['tipo'], { label: string; color: string }> = {
-  apunte: { label: 'Apunte', color: '#f5c842' },
-  flashcards: { label: 'Flashcards', color: '#a78bfa' },
-  quiz: { label: 'Quiz', color: '#34d399' },
-  post: { label: 'Post', color: '#38bdf8' },
-  video: { label: 'Video', color: '#ff4d6d' },
+const TIPO: Record<Post['tipo'], { label: string; color: string; emoji: string }> = {
+  apunte:     { label: 'Apunte',     color: '#f5c842', emoji: '📝' },
+  flashcards: { label: 'Flashcards', color: '#a78bfa', emoji: '🎴' },
+  quiz:       { label: 'Quiz',       color: '#34d399', emoji: '🧠' },
+  post:       { label: 'Post',       color: '#38bdf8', emoji: '💬' },
+  video:      { label: 'Video',      color: '#ff4d6d', emoji: '🎥' },
 };
 
 export default function StudyALBlinks({
@@ -40,6 +44,7 @@ export default function StudyALBlinks({
   userId: string;
   topOffset?: number;
 }) {
+  const router = useRouter();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -367,18 +372,21 @@ export default function StudyALBlinks({
     return (
       <div style={{
         position: 'fixed',
-        top: topOffset,
-        left: 0,
-        right: 0,
-        bottom: 0,
+        top: topOffset, left: 0, right: 0, bottom: 0,
         background: '#000',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        alignItems: 'center', justifyContent: 'center',
+        flexDirection: 'column', gap: 14,
         color: '#fff',
-        fontWeight: 700,
       }}>
-        Cargando Blinks...
+        <div style={{ fontSize: 50, animation: 'spinBlink 1.2s linear infinite' }}>⏳</div>
+        <p style={{
+          fontFamily: HAND, fontSize: 20, fontStyle: 'italic',
+          color: 'rgba(255,255,255,0.75)', margin: 0,
+        }}>
+          ~ cargando Blinks ~
+        </p>
+        <style>{`@keyframes spinBlink{to{transform:rotate(360deg)}}`}</style>
       </div>
     );
   }
@@ -386,55 +394,59 @@ export default function StudyALBlinks({
   return (
     <div style={{
       position: 'fixed',
-      top: topOffset,
-      left: 0,
-      right: 0,
-      bottom: 0,
+      top: topOffset, left: 0, right: 0, bottom: 0,
       background: '#000',
       overflow: 'hidden',
       zIndex: 1,
     }}>
+
+      {/* Filtros con vibra cuaderno */}
       <div style={{
         position: 'absolute',
-        top: '10px',
-        left: '50%',
+        top: 12, left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 30,
         display: 'flex',
-        gap: '8px',
+        gap: 6,
         padding: '8px 12px',
-        background: 'rgba(0,0,0,0.45)',
+        background: 'rgba(0,0,0,0.55)',
         backdropFilter: 'blur(14px)',
-        border: '1px solid rgba(255,255,255,0.12)',
-        borderRadius: '999px',
+        border: '2px solid rgba(255,255,255,0.18)',
+        borderRadius: 14,
+        boxShadow: '3px 4px 0 rgba(255,255,255,0.1)',
         maxWidth: '92vw',
         overflowX: 'auto',
       }}>
         {[
-          { id: 'all', label: 'Todo' },
-          { id: 'video', label: 'Videos' },
-          { id: 'apunte', label: 'Apuntes' },
-          { id: 'flashcards', label: 'Flashcards' },
-          { id: 'quiz', label: 'Quizzes' },
-        ].map(f => (
-          <button
-            key={f.id}
-            onClick={() => setFilter(f.id as any)}
-            style={{
-              padding: '7px 12px',
-              borderRadius: '999px',
-              border: 'none',
-              background: filter === f.id ? '#fff' : 'rgba(255,255,255,0.08)',
-              color: filter === f.id ? '#000' : '#fff',
-              fontSize: '12px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {f.label}
-          </button>
-        ))}
+          { id: 'all',        label: 'Todo',       color: '#fff' },
+          { id: 'video',      label: 'Videos',     color: '#ff4d6d' },
+          { id: 'apunte',     label: 'Apuntes',    color: '#f5c842' },
+          { id: 'flashcards', label: 'Flashcards', color: '#a78bfa' },
+          { id: 'quiz',       label: 'Quizzes',    color: '#34d399' },
+        ].map((f, i) => {
+          const active = filter === f.id;
+          return (
+            <button key={f.id}
+              onClick={() => setFilter(f.id as any)}
+              style={{
+                padding: '6px 13px',
+                borderRadius: 8,
+                border: `2px ${active ? 'solid' : 'dashed'} ${active ? f.color : 'rgba(255,255,255,0.25)'}`,
+                background: active ? f.color : 'rgba(255,255,255,0.05)',
+                color: active ? '#000' : '#fff',
+                fontFamily: HAND, fontSize: 16, fontWeight: 800,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: active ? `2px 2px 0 rgba(0,0,0,0.5)` : 'none',
+                transform: active
+                  ? `rotate(${i % 2 === 0 ? -1.5 : 1.5}deg)`
+                  : `rotate(${i % 2 === 0 ? -0.4 : 0.4}deg)`,
+                transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+              }}>
+              {f.label}
+            </button>
+          );
+        })}
       </div>
 
       <div
@@ -459,8 +471,7 @@ export default function StudyALBlinks({
               ref={el => { itemRefs.current[post.id] = el; }}
               onDoubleClick={() => handleDoubleTapLikeNonVideo(post)}
               style={{
-                height: '100%',
-                width: '100%',
+                height: '100%', width: '100%',
                 position: 'relative',
                 scrollSnapAlign: 'start',
                 scrollSnapStop: 'always',
@@ -478,28 +489,17 @@ export default function StudyALBlinks({
                     playsInline
                     preload="auto"
                     style={{
-                      position: 'absolute',
-                      inset: 0,
-                      width: '100%',
-                      height: '100%',
+                      position: 'absolute', inset: 0,
+                      width: '100%', height: '100%',
                       objectFit: 'cover',
                       background: '#000',
                     }}
                   />
 
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', zIndex: 2 }}>
-                    <div
-                      style={{ flex: 1 }}
-                      onClick={e => { e.stopPropagation(); handleZoneTap(post, 'left'); }}
-                    />
-                    <div
-                      style={{ flex: 1 }}
-                      onClick={e => { e.stopPropagation(); handleZoneTap(post, 'center'); }}
-                    />
-                    <div
-                      style={{ flex: 1 }}
-                      onClick={e => { e.stopPropagation(); handleZoneTap(post, 'right'); }}
-                    />
+                    <div style={{ flex: 1 }} onClick={(e: any) => { e.stopPropagation(); handleZoneTap(post, 'left'); }} />
+                    <div style={{ flex: 1 }} onClick={(e: any) => { e.stopPropagation(); handleZoneTap(post, 'center'); }} />
+                    <div style={{ flex: 1 }} onClick={(e: any) => { e.stopPropagation(); handleZoneTap(post, 'right'); }} />
                   </div>
                 </>
               ) : post.portada_url ? (
@@ -507,299 +507,305 @@ export default function StudyALBlinks({
                   src={post.portada_url}
                   alt={post.titulo}
                   style={{
-                    position: 'absolute',
-                    inset: 0,
-                    width: '100%',
-                    height: '100%',
+                    position: 'absolute', inset: 0,
+                    width: '100%', height: '100%',
                     objectFit: 'cover',
                   }}
                 />
               ) : (
                 <div style={{
-                  position: 'absolute',
-                  inset: 0,
-                  background: `linear-gradient(135deg, ${post.materia_color || info.color}33 0%, #0b0b0b 100%)`,
-                }} />
-              )}
-
-              <div style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.08) 28%, rgba(0,0,0,0.82) 100%)',
-              }} />
-
-              {heartId === post.id && (
-                <div style={{
-                  position: 'absolute',
-                  inset: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  pointerEvents: 'none',
-                  zIndex: 4,
+                  position: 'absolute', inset: 0,
+                  background: `linear-gradient(135deg, ${post.materia_color || info.color}44 0%, #0b0b0b 100%)`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 100,
+                  opacity: 0.6,
                 }}>
-                  <div style={{ fontSize: '86px', animation: 'blinkHeart 0.8s ease forwards' }}>❤️</div>
+                  {post.materia_emoji || info.emoji}
                 </div>
               )}
 
+              {/* Gradient oscuro */}
+              <div style={{
+                position: 'absolute', inset: 0,
+                background: 'linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.08) 28%, rgba(0,0,0,0.82) 100%)',
+              }} />
+
+              {/* Heart anim */}
+              {heartId === post.id && (
+                <div style={{
+                  position: 'absolute', inset: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  pointerEvents: 'none', zIndex: 4,
+                }}>
+                  <div style={{ fontSize: 90, animation: 'blinkHeart 0.8s ease forwards' }}>❤️</div>
+                </div>
+              )}
+
+              {/* Video hint */}
               {videoHint?.id === post.id && (
                 <div style={{
                   position: 'absolute',
-                  top: '50%',
-                  left: '50%',
-                  transform: 'translate(-50%, -50%)',
+                  top: '50%', left: '50%',
+                  transform: 'translate(-50%, -50%) rotate(-3deg)',
                   zIndex: 4,
-                  background: 'rgba(0,0,0,0.55)',
+                  background: 'rgba(0,0,0,0.7)',
+                  border: '2.5px solid rgba(255,255,255,0.3)',
                   color: '#fff',
-                  borderRadius: '999px',
-                  padding: '12px 18px',
-                  fontSize: '20px',
-                  fontWeight: 900,
+                  borderRadius: 12,
+                  padding: '12px 22px',
+                  fontFamily: HAND, fontSize: 26, fontWeight: 900,
                   pointerEvents: 'none',
+                  boxShadow: '3px 4px 0 rgba(255,255,255,0.15)',
                   animation: 'hintFade 0.6s ease forwards',
                 }}>
                   {videoHint.text}
                 </div>
               )}
 
+              {/* Info izquierda */}
               <div style={{
                 position: 'absolute',
-                left: 0,
-                right: '88px',
-                bottom: 0,
+                left: 0, right: 88, bottom: 0,
                 padding: '18px 18px 26px',
                 zIndex: 3,
               }}>
+                {/* Avatar + nombre */}
                 <div
-                  onClick={e => {
+                  onClick={(e: any) => {
                     e.stopPropagation();
-                    window.location.href = `/u/${post.user_id}`;
+                    router.push(`/u/${post.user_id}`);
                   }}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    marginBottom: '10px',
-                    cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    marginBottom: 10, cursor: 'pointer',
                   }}
                 >
                   <div style={{
-                    width: '38px',
-                    height: '38px',
-                    borderRadius: '999px',
+                    width: 42, height: 42, borderRadius: '50%',
                     overflow: 'hidden',
                     background: post.materia_color || info.color,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
+                    border: '2.5px solid rgba(255,255,255,0.4)',
+                    boxShadow: '2px 2px 0 rgba(0,0,0,0.5)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
                     color: '#000',
-                    fontWeight: 900,
-                    border: '2px solid rgba(255,255,255,0.3)',
+                    fontFamily: HAND, fontSize: 19, fontWeight: 900,
                     flexShrink: 0,
+                    transform: 'rotate(-4deg)',
                   }}>
                     {post.user_avatar
                       ? <img src={post.user_avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       : (post.user_nombre?.[0]?.toUpperCase() || '?')}
                   </div>
                   <div>
-                    <div style={{ color: '#fff', fontWeight: 800, fontSize: '13px' }}>{post.user_nombre}</div>
-                    <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: '10px' }}>{tiempoAtras(post.created_at)}</div>
+                    <div style={{
+                      color: '#fff',
+                      fontFamily: HAND, fontSize: 19, fontWeight: 900,
+                      textShadow: '0 1px 4px rgba(0,0,0,0.6)',
+                      lineHeight: 1.05,
+                    }}>{post.user_nombre}</div>
+                    <div style={{
+                      color: 'rgba(255,255,255,0.65)',
+                      fontFamily: HAND, fontSize: 14, fontStyle: 'italic',
+                    }}>
+                      ~ hace {tiempoAtras(post.created_at)} ~
+                    </div>
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                {/* Badges */}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
                   <span style={{
-                    background: 'rgba(0,0,0,0.35)',
-                    border: `1px solid ${info.color}88`,
-                    color: '#fff',
-                    padding: '3px 8px',
-                    borderRadius: '999px',
-                    fontSize: '11px',
-                    fontWeight: 700,
+                    background: info.color, color: '#000',
+                    border: '2px solid var(--text-primary)',
+                    boxShadow: '2px 2px 0 rgba(0,0,0,0.4)',
+                    padding: '3px 10px', borderRadius: 8,
+                    fontFamily: HAND, fontSize: 14, fontWeight: 800,
+                    fontStyle: 'italic',
+                    transform: 'rotate(-2deg)',
+                    display: 'inline-block',
                   }}>
-                    {info.label}
+                    {info.emoji} {info.label}
                   </span>
 
                   {post.materia_nombre && (
                     <span style={{
-                      background: 'rgba(255,255,255,0.1)',
-                      color: 'rgba(255,255,255,0.82)',
-                      padding: '3px 8px',
-                      borderRadius: '999px',
-                      fontSize: '11px',
-                      fontWeight: 600,
+                      background: 'rgba(255,255,255,0.15)',
+                      color: '#fff',
+                      border: '2px dashed rgba(255,255,255,0.35)',
+                      padding: '3px 10px', borderRadius: 8,
+                      fontFamily: HAND, fontSize: 14, fontWeight: 700,
+                      fontStyle: 'italic',
+                      transform: 'rotate(1.5deg)',
+                      display: 'inline-block',
                     }}>
                       {post.materia_emoji} {post.materia_nombre}
                     </span>
                   )}
                 </div>
 
+                {/* Título handwritten */}
                 <h2 style={{
                   color: '#fff',
-                  fontWeight: 900,
-                  fontSize: '20px',
-                  lineHeight: 1.24,
+                  fontFamily: HAND, fontWeight: 900,
+                  fontSize: 28, lineHeight: 1.15,
                   margin: '0 0 8px',
-                  textShadow: '0 2px 12px rgba(0,0,0,0.7)',
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
+                  textShadow: '0 2px 12px rgba(0,0,0,0.8)',
+                  transform: 'rotate(-0.8deg)',
+                  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
                 }}>
                   {post.titulo}
                 </h2>
 
                 {post.descripcion && (
                   <p style={{
-                    color: 'rgba(255,255,255,0.78)',
-                    fontSize: '13px',
-                    lineHeight: 1.5,
+                    color: 'rgba(255,255,255,0.85)',
+                    fontFamily: HAND, fontSize: 17, fontStyle: 'italic',
+                    lineHeight: 1.4,
                     margin: '0 0 12px',
-                    display: '-webkit-box',
-                    WebkitLineClamp: 3,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden',
+                    textShadow: '0 1px 4px rgba(0,0,0,0.6)',
+                    display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
                   }}>
-                    {post.descripcion}
+                    ~ {post.descripcion} ~
                   </p>
                 )}
 
+                {/* Botón ver post */}
                 <Link href={`/comunidad/${post.id}`} style={{ textDecoration: 'none' }}>
                   <button
-                    onClick={e => e.stopPropagation()}
+                    onClick={(e: any) => e.stopPropagation()}
                     style={{
-                      padding: '8px 16px',
-                      borderRadius: '999px',
-                      border: '1px solid rgba(255,255,255,0.2)',
-                      background: 'rgba(0,0,0,0.35)',
+                      padding: '8px 18px',
+                      borderRadius: 10,
+                      border: '2.5px solid rgba(255,255,255,0.4)',
+                      background: 'rgba(0,0,0,0.5)',
                       color: '#fff',
-                      fontSize: '12px',
-                      fontWeight: 800,
+                      fontFamily: HAND, fontSize: 17, fontWeight: 800,
                       cursor: 'pointer',
+                      boxShadow: '3px 3px 0 rgba(255,255,255,0.15)',
+                      transform: 'rotate(-1.5deg)',
+                      transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+                    }}
+                    onMouseEnter={(e:any)=>{
+                      e.currentTarget.style.transform='rotate(0deg) translateY(-2px)';
+                      e.currentTarget.style.background='rgba(0,0,0,0.7)';
+                    }}
+                    onMouseLeave={(e:any)=>{
+                      e.currentTarget.style.transform='rotate(-1.5deg)';
+                      e.currentTarget.style.background='rgba(0,0,0,0.5)';
                     }}
                   >
-                    Ver post
+                    📖 Ver post
                   </button>
                 </Link>
               </div>
 
+              {/* Botones derecha */}
               <div style={{
                 position: 'absolute',
-                right: '14px',
-                bottom: '92px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '18px',
-                alignItems: 'center',
+                right: 14, bottom: 96,
+                display: 'flex', flexDirection: 'column',
+                gap: 18, alignItems: 'center',
                 zIndex: 3,
               }}>
-                <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    void triggerLike(post);
-                  }}
+                {/* Like */}
+                <button onClick={(e: any) => { e.stopPropagation(); void triggerLike(post); }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer' }}
                 >
                   <div style={{
-                    width: '50px',
-                    height: '50px',
-                    borderRadius: '999px',
-                    background: post.user_liked ? '#ff4d6d' : 'rgba(0,0,0,0.46)',
-                    border: '2px solid rgba(255,255,255,0.18)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '22px',
-                    transform: likeAnimId === post.id ? 'scale(1.16)' : 'scale(1)',
-                    transition: 'transform 0.18s ease',
+                    width: 54, height: 54, borderRadius: '50%',
+                    background: post.user_liked ? '#ff4d6d' : 'rgba(0,0,0,0.55)',
+                    border: post.user_liked ? '2.5px solid #fff' : '2.5px solid rgba(255,255,255,0.25)',
+                    boxShadow: post.user_liked ? '2px 3px 0 rgba(0,0,0,0.5), 0 0 16px #ff4d6d88' : '2px 3px 0 rgba(0,0,0,0.5)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 24,
+                    transform: likeAnimId === post.id ? 'scale(1.2) rotate(-8deg)' : 'rotate(-3deg)',
+                    transition: 'transform 0.2s cubic-bezier(.34,1.4,.64,1)',
                   }}>
                     {post.user_liked ? '❤️' : '🤍'}
                   </div>
-                  <div style={{ color: '#fff', fontSize: '11px', fontWeight: 800, marginTop: '4px', textAlign: 'center' }}>
+                  <div style={{
+                    color: '#fff',
+                    fontFamily: HAND, fontSize: 14, fontWeight: 800,
+                    marginTop: 4, textAlign: 'center',
+                    textShadow: '0 1px 3px rgba(0,0,0,0.7)',
+                  }}>
                     {post.likes_count}
                   </div>
                 </button>
 
-                <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    void toggleGuardar(post);
-                  }}
+                {/* Guardar */}
+                <button onClick={(e: any) => { e.stopPropagation(); void toggleGuardar(post); }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer' }}
                 >
                   <div style={{
-                    width: '50px',
-                    height: '50px',
-                    borderRadius: '999px',
-                    background: post.guardado ? '#f5c842' : 'rgba(0,0,0,0.46)',
-                    border: '2px solid rgba(255,255,255,0.18)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '22px',
-                    transform: saveAnimId === post.id ? 'scale(1.14)' : 'scale(1)',
-                    transition: 'transform 0.18s ease',
+                    width: 54, height: 54, borderRadius: '50%',
+                    background: post.guardado ? '#f5c842' : 'rgba(0,0,0,0.55)',
+                    border: post.guardado ? '2.5px solid #fff' : '2.5px solid rgba(255,255,255,0.25)',
+                    boxShadow: post.guardado ? '2px 3px 0 rgba(0,0,0,0.5), 0 0 16px #f5c84288' : '2px 3px 0 rgba(0,0,0,0.5)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 24,
+                    transform: saveAnimId === post.id ? 'scale(1.18) rotate(5deg)' : 'rotate(3deg)',
+                    transition: 'transform 0.2s cubic-bezier(.34,1.4,.64,1)',
                   }}>
                     {post.guardado ? '🔖' : '📌'}
                   </div>
-                  <div style={{ color: '#fff', fontSize: '10px', fontWeight: 800, marginTop: '4px', textAlign: 'center' }}>
-                    Guardar
+                  <div style={{
+                    color: '#fff',
+                    fontFamily: HAND, fontSize: 12, fontStyle: 'italic',
+                    marginTop: 4, textAlign: 'center',
+                    textShadow: '0 1px 3px rgba(0,0,0,0.7)',
+                  }}>
+                    ~ guardar ~
                   </div>
                 </button>
               </div>
 
+              {/* Mute video */}
               {esVideo && (
-                <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    void toggleMute(post.id);
-                  }}
+                <button onClick={(e: any) => { e.stopPropagation(); void toggleMute(post.id); }}
                   style={{
                     position: 'absolute',
-                    top: '64px',
-                    right: '14px',
+                    top: 68, right: 14,
                     zIndex: 3,
-                    width: '44px',
-                    height: '44px',
-                    borderRadius: '999px',
-                    border: '2px solid rgba(255,255,255,0.18)',
-                    background: 'rgba(0,0,0,0.46)',
+                    width: 46, height: 46, borderRadius: '50%',
+                    border: '2.5px solid rgba(255,255,255,0.3)',
+                    background: 'rgba(0,0,0,0.55)',
                     color: '#fff',
-                    fontSize: '18px',
+                    fontSize: 20,
                     cursor: 'pointer',
+                    boxShadow: '2px 3px 0 rgba(0,0,0,0.5)',
+                    transform: 'rotate(-3deg)',
+                    transition: 'transform 0.2s',
                   }}
+                  onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0deg) scale(1.1)';}}
+                  onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(-3deg)';}}
                 >
                   {muted ? '🔇' : '🔊'}
                 </button>
               )}
 
+              {/* Indicador lateral de posición */}
               <div style={{
                 position: 'absolute',
-                left: '12px',
-                top: '50%',
+                left: 12, top: '50%',
                 transform: 'translateY(-50%)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '4px',
-                zIndex: 3,
+                display: 'flex', flexDirection: 'column',
+                gap: 4, zIndex: 3,
               }}>
                 {posts.slice(Math.max(0, current - 3), current + 5).map((p, i) => {
                   const realIndex = Math.max(0, current - 3) + i;
                   const active = realIndex === current;
                   return (
-                    <div
-                      key={p.id}
-                      onClick={e => {
-                        e.stopPropagation();
-                        scrollToIndex(realIndex);
-                      }}
+                    <div key={p.id}
+                      onClick={(e: any) => { e.stopPropagation(); scrollToIndex(realIndex); }}
                       style={{
-                        width: active ? '4px' : '3px',
-                        height: active ? '26px' : '8px',
-                        borderRadius: '999px',
-                        background: active ? '#fff' : 'rgba(255,255,255,0.28)',
+                        width: active ? 5 : 4,
+                        height: active ? 28 : 9,
+                        borderRadius: 999,
+                        background: active ? '#fff' : 'rgba(255,255,255,0.3)',
                         cursor: 'pointer',
-                        transition: 'all 0.18s ease',
+                        transition: 'all 0.2s cubic-bezier(.25,.8,.25,1)',
+                        boxShadow: active ? '0 0 8px rgba(255,255,255,0.5)' : 'none',
                       }}
                     />
                   );
@@ -812,14 +818,19 @@ export default function StudyALBlinks({
 
       <style>{`
         @keyframes blinkHeart {
-          0% { transform: scale(0.25); opacity: 0; }
-          30% { transform: scale(1.15); opacity: 1; }
-          100% { transform: scale(1); opacity: 0; }
+          0%   { transform: scale(0.25) rotate(-10deg); opacity: 0; }
+          30%  { transform: scale(1.2) rotate(5deg); opacity: 1; }
+          100% { transform: scale(1) rotate(0deg); opacity: 0; }
         }
 
         @keyframes hintFade {
-          0% { opacity: 1; }
-          100% { opacity: 0; }
+          0%   { opacity: 1; transform: translate(-50%, -50%) rotate(-3deg) scale(0.9); }
+          20%  { opacity: 1; transform: translate(-50%, -50%) rotate(0deg) scale(1); }
+          100% { opacity: 0; transform: translate(-50%, -50%) rotate(-3deg) scale(0.95); }
+        }
+
+        @keyframes spinBlink {
+          to { transform: rotate(360deg); }
         }
 
         *::-webkit-scrollbar {

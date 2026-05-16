@@ -199,7 +199,7 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
     <div
       ref={containerRef}
       data-textblock="true"
-      onMouseDown={e => {
+      onMouseDown={(e: any) => {
         if (editing) return;
         if ((e.target as HTMLElement).dataset.resize || (e.target as HTMLElement).dataset.del) return;
         e.stopPropagation();
@@ -207,7 +207,7 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
         const sx=e.clientX,sy=e.clientY,px=posRef.current.x,py=posRef.current.y;
         lp.current = setTimeout(() => { isDrag.current=true; dOrig.current={mx:sx,my:sy,ex:px,ey:py}; }, 150);
       }}
-      onDoubleClick={e => {
+      onDoubleClick={(e: any) => {
         e.stopPropagation();
         if (lp.current) clearTimeout(lp.current);
         isDrag.current=false; setDragging(false);
@@ -253,7 +253,7 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
           contentEditable={editing}
           suppressContentEditableWarning
           className="ebloque"
-          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Escape') exitEditing(); }}
+          onKeyDown={(e: any) => { e.stopPropagation(); if (e.key === 'Escape') exitEditing(); }}
           onBlur={() => {
             setTimeout(() => {
               if (toolbarRef.current?.contains(document.activeElement)) return;
@@ -285,7 +285,7 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
       {(selected || editing) && (
         <div
           data-resize="true"
-          onMouseDown={e => {
+          onMouseDown={(e: any) => {
             e.preventDefault(); e.stopPropagation();
             if (lp.current) clearTimeout(lp.current);
             isRsz.current=true; rOrig.current={mx:e.clientX,w:wRef.current};
@@ -304,8 +304,8 @@ export default function TextBlock({ bloque, temaColor, isNew, onUpdate, onDelete
 
       {selected && !editing && (
         <div data-del="true"
-          onClick={e => { e.stopPropagation(); onDelete(); }}
-          onMouseDown={e => { e.stopPropagation(); if (lp.current) clearTimeout(lp.current); }}
+          onClick={(e: any) => { e.stopPropagation(); onDelete(); }}
+          onMouseDown={(e: any) => { e.stopPropagation(); if (lp.current) clearTimeout(lp.current); }}
           style={{
             position: 'absolute', top: -14, right: -6,
             background: '#fef2f2', border: '1px solid #fca5a5',

@@ -399,7 +399,7 @@ export default function PomodoroProvider({ children }: { children: React.ReactNo
               {/* Controles */}
               <div style={{ display: 'flex', gap: '5px' }}>
                 <button
-                  onClick={e => { e.stopPropagation(); corriendo ? pausar() : iniciar(); }}
+                  onClick={(e: any) => { e.stopPropagation(); corriendo ? pausar() : iniciar(); }}
                   style={{
                     width: '30px', height: '30px', borderRadius: '8px',
                     border: 'none', background: colorFase, color: '#000',
@@ -410,7 +410,7 @@ export default function PomodoroProvider({ children }: { children: React.ReactNo
                   {corriendo ? '⏸' : '▶'}
                 </button>
                 <button
-                  onClick={e => { e.stopPropagation(); saltarFase(); }}
+                  onClick={(e: any) => { e.stopPropagation(); saltarFase(); }}
                   style={{
                     width: '30px', height: '30px', borderRadius: '8px',
                     border: '1px solid var(--border-color,#333)',
@@ -425,7 +425,7 @@ export default function PomodoroProvider({ children }: { children: React.ReactNo
 
               {/* Ir a pomodoro */}
               <button
-                onClick={() => router.push('/pomodoro')}
+                onClick={() => ((window as any).__showNavLoader?.('/pomodoro'), router.push('/pomodoro'))}
                 style={{
                   padding: '5px 9px', borderRadius: '8px',
                   border: `1px solid ${colorFase}44`,

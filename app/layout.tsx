@@ -4,6 +4,7 @@ import RangoWatcher from '../components/RangoWatcher';
 import { Caveat } from 'next/font/google';
 import './globals.css';
 import ThemeInit from '../components/ThemeInit';
+import NavLoader from '../components/NavLoader';
 import PomodoroProvider from '../components/PomodoroProvider';
 import XPToast from '../components/XPToast';
 import RachaInit from '../components/RachaInit';
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <ThemeInit />
+        <NavLoader />
         <RachaInit />
         <PomodoroProvider>
           {children}

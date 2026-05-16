@@ -1,5 +1,7 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { getPerfil, getMaterias } from '../../lib/storage';
 import { getSettings } from '../../lib/settings';
@@ -78,6 +80,7 @@ function hablarConSynthesis(
 }
 
 export default function ChatPage() {
+  const router = useRouter();
   const { tr, idioma } = useIdioma();
   const isMobile = useIsMobile();
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
@@ -511,7 +514,7 @@ export default function ChatPage() {
         {/* Header */}
         <header style={{background:'var(--bg-card)',borderBottom:'3px solid var(--gold)',padding:isMobile?'0 12px':'0 24px',height:isMobile?'56px':'68px',display:'flex',justifyContent:'space-between',alignItems:'center',position:'sticky',top:0,zIndex:100}}>
           <div style={{display:'flex',alignItems:'center',gap:isMobile?'8px':'12px'}}>
-            <button onClick={() => window.location.href='/'} style={{background:'none',border:'2px solid var(--gold)',color:'var(--gold)',padding:isMobile?'6px 10px':'7px 14px',borderRadius:'8px',fontWeight:700,fontSize:isMobile?'12px':'13px',cursor:'pointer'}}>←</button>
+            <button onClick={() => ((window as any).__showNavLoader?.('/'), router.push('/'))} style={{background:'none',border:'2px solid var(--gold)',color:'var(--gold)',padding:isMobile?'6px 10px':'7px 14px',borderRadius:'8px',fontWeight:700,fontSize:isMobile?'12px':'13px',cursor:'pointer'}}>←</button>
             <div>
               <h1 style={{fontSize:isMobile?'15px':'18px',fontWeight:900,color:'var(--text-primary)',margin:0,display:'flex',alignItems:'center',gap:'6px'}}>
                 🤖 {isMobile?'El Chap':'ChapBot'}
@@ -534,7 +537,7 @@ export default function ChatPage() {
             <button onClick={() => setUsarDocumentos(!usarDocumentos)} style={{padding:isMobile?'7px 10px':'7px 14px',borderRadius:'8px',border:`2px solid ${usarDocumentos?'var(--blue)':'var(--border-color)'}`,background:usarDocumentos?'var(--blue-dim)':'transparent',color:usarDocumentos?'var(--blue)':'var(--text-muted)',fontSize:isMobile?'13px':'12px',fontWeight:700,cursor:'pointer'}}>
               {isMobile?(usarDocumentos?'📚✓':'📚'):`📚 ${usarDocumentos?`ON (${todosDocumentos.length})`:tr('usarDocs')}`}
             </button>
-            {!isMobile && <button onClick={() => window.location.href='/perfil'} style={{padding:'7px 14px',borderRadius:'8px',border:'2px solid var(--gold)',background:'transparent',color:'var(--gold)',fontSize:'12px',fontWeight:700,cursor:'pointer'}}>📊</button>}
+            {!isMobile && <button onClick={() => ((window as any).__showNavLoader?.('/perfil'), router.push('/perfil'))} style={{padding:'7px 14px',borderRadius:'8px',border:'2px solid var(--gold)',background:'transparent',color:'var(--gold)',fontSize:'12px',fontWeight:700,cursor:'pointer'}}>📊</button>}
             <button onClick={() => setMensajes([{role:'assistant',content:idioma==='en'?"Hi! I'm El Chap 🤖":'¡Hola! Soy El Chap 🤖'}])} style={{padding:isMobile?'7px 10px':'7px 14px',borderRadius:'8px',border:'2px solid var(--border-color)',background:'transparent',color:'var(--text-muted)',fontSize:isMobile?'14px':'12px',fontWeight:700,cursor:'pointer'}}>🗑️</button>
           </div>
         </header>
@@ -695,7 +698,7 @@ export default function ChatPage() {
             {!audioGrabado&&(
               <div style={{display:'flex',gap:'10px',alignItems:'flex-end'}}>
                 <UserAvatar size={36}/>
-                <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();enviar();}}} placeholder={grabando?(idioma==='en'?'🔴 Recording...':'🔴 Grabando...'):(idioma==='en'?'Type or record voice...':'Escribe o graba voz...')} disabled={cargando||grabando} rows={2}
+                <textarea value={input} onChange={(e: any) =>setInput(e.target.value)} onKeyDown={(e: any) =>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();enviar();}}} placeholder={grabando?(idioma==='en'?'🔴 Recording...':'🔴 Grabando...'):(idioma==='en'?'Type or record voice...':'Escribe o graba voz...')} disabled={cargando||grabando} rows={2}
                   style={{flex:1,padding:'14px 16px',borderRadius:'14px',border:`2px solid ${grabando?'var(--red)':(input||selectedImage)?'var(--gold)':'var(--border-color)'}`,background:'var(--bg-secondary)',color:'var(--text-primary)',fontSize:'15px',resize:'none',outline:'none',transition:'border 0.2s',fontFamily:'inherit',lineHeight:1.5}}
                 />
                 <button onClick={()=>enviar()} disabled={(!input.trim()&&!selectedImage)||cargando||grabando}

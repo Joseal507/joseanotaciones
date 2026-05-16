@@ -1,0 +1,611 @@
+'use client';
+
+import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import { PartnerInfo, Message, PendingAttachment } from './types';
+import { Av, fmtSize } from './helpers';
+import { ImageViewer, ReportModal } from './Modals';
+import SavedModal from './SavedModal';
+import PartnerProfileModal from './PartnerProfileModal';
+import MessageBubble from './MessageBubble';
+
+export default function ChatView({ partner, miUserId, miInfo, onBack, onChatDeleted, token, isMobile, wallpaper, chatId: initChatId }: {
+  partner: PartnerInfo;
+  miUserId: string;
+  miInfo: PartnerInfo;
+  onBack: () => void;
+  onChatDeleted: () => void;
+  token: string;
+  isMobile: boolean;
+  wallpaper?: string;
+  chatId?: string;
+}) {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [saved, setSaved] = useState<string[]>([]);
+  const [savedMsgs, setSavedMsgs] = useState<Message[]>([]);
+  const [chatIdState, setChatIdState] = useState(initChatId || '');
+  const [chatData, setChatData] = useState<any>(null);
+  const [input, setInput] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [grabando, setGrabando] = useState(false);
+  const [viewImage, setViewImage] = useState<{ url: string; id: string } | null>(null);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showSaved, setShowSaved] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [showWallpaper, setShowWallpaper] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<PendingAttachment[]>([]);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [copiedNotif, setCopiedNotif] = useState(false);
+  const [jumpedMsgId, setJumpedMsgId] = useState<string | null>(null);
+
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const wpRef = useRef<HTMLInputElement>(null);
+  const mediaRecRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const messagesRef = useRef<HTMLDivElement>(null);
+
+  const messageNodeMap = useRef<Record<string, HTMLDivElement | null>>({});
+  const lastSignatureRef = useRef('');
+  const lastSavedRef = useRef('');
+  const lastWallpaperRef = useRef('');
+  const pendingScrollRef = useRef<{ mode: 'none' | 'preserve' | 'bottom'; top?: number }>({ mode: 'none' });
+  const mountedRef = useRef(false);
+
+  const buildMsgSignature = (msgs: Message[]) =>
+    JSON.stringify(
+      msgs.map(m => [
+        m.id,
+        m.content,
+        m.type,
+        m.edited_at,
+        m.deleted_at,
+        m.read_at,
+        m.expires_at,
+        m.file_url,
+        m.file_name,
+        m.metadata?.reply_to || null,
+        m.metadata?.reply_preview || null,
+      ])
+    );
+
+  const jumpToMessage = (id: string) => {
+    const el = messageNodeMap.current[id];
+    if (!el) return;
+
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setJumpedMsgId(id);
+    setTimeout(() => setJumpedMsgId(prev => (prev === id ? null : prev)), 1800);
+  };
+
+  const cargar = useCallback(async (opts?: { forceBottom?: boolean }) => {
+    const container = messagesRef.current;
+    const currentTop = container?.scrollTop ?? 0;
+    const nearBottom = container
+      ? (container.scrollHeight - container.scrollTop - container.clientHeight) < 120
+      : true;
+
+    const res = await fetch(`/api/partner-chat?partnerId=${partner.user_id}&saved=true`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!data.success) return;
+
+    const newMessages: Message[] = data.messages || [];
+    const newSaved: string[] = data.saved || [];
+    const newWallpaper = data.chat?.wallpaper_url || '';
+
+    const msgSig = buildMsgSignature(newMessages);
+    const savedSig = JSON.stringify(newSaved);
+
+    const nothingChanged =
+      msgSig === lastSignatureRef.current &&
+      savedSig === lastSavedRef.current &&
+      newWallpaper === lastWallpaperRef.current;
+
+    if (nothingChanged) return;
+
+    if (!mountedRef.current || opts?.forceBottom) {
+      pendingScrollRef.current = { mode: 'bottom' };
+    } else if (nearBottom) {
+      pendingScrollRef.current = { mode: 'bottom' };
+    } else {
+      pendingScrollRef.current = { mode: 'preserve', top: currentTop };
+    }
+
+    lastSignatureRef.current = msgSig;
+    lastSavedRef.current = savedSig;
+    lastWallpaperRef.current = newWallpaper;
+
+    setMessages(newMessages);
+    setSaved(newSaved);
+    if (data.chatId) setChatIdState(data.chatId);
+    if (data.chat) setChatData(data.chat);
+    setSavedMsgs(newMessages.filter(m => newSaved.includes(m.id)));
+  }, [partner.user_id, token]);
+
+  useLayoutEffect(() => {
+    const container = messagesRef.current;
+    if (!container) return;
+
+    const pending = pendingScrollRef.current;
+    if (pending.mode === 'preserve' && typeof pending.top === 'number') {
+      container.scrollTop = pending.top;
+    } else if (pending.mode === 'bottom') {
+      bottomRef.current?.scrollIntoView({ behavior: mountedRef.current ? 'smooth' : 'auto' });
+    }
+    pendingScrollRef.current = { mode: 'none' };
+  }, [messages, saved]);
+
+  useEffect(() => {
+    cargar({ forceBottom: true }).then(() => {
+      mountedRef.current = true;
+    });
+
+    const iv = setInterval(() => {
+      cargar();
+    }, 4000);
+
+    return () => clearInterval(iv);
+  }, [cargar]);
+
+  const subirYEnviar = async (file: File) => {
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Máx 10MB');
+      return null;
+    }
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('folder', 'partner-files');
+
+    const res = await fetch('/api/partner-upload', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      alert('Error: ' + (data.error || '?'));
+      return null;
+    }
+    return data;
+  };
+
+  const enviarTodo = async () => {
+    const texto = input.trim();
+    if (!texto && pendingFiles.length === 0) return;
+
+    setEnviando(true);
+
+    for (const pf of pendingFiles) {
+      const uploaded = await subirYEnviar(pf.file);
+      if (uploaded) {
+        const body: any = {
+          partnerId: partner.user_id,
+          content: pf.name,
+          type: pf.type,
+          file_url: uploaded.url,
+          file_name: pf.name,
+          file_size: pf.size,
+        };
+        if (replyTo) {
+          body.metadata = {
+            reply_to: replyTo.id,
+            reply_preview: replyTo.content?.slice(0, 80) || replyTo.file_name || replyTo.type,
+          };
+        }
+
+        await fetch('/api/partner-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(body),
+        });
+      }
+    }
+
+    if (texto) {
+      const body: any = {
+        partnerId: partner.user_id,
+        content: texto,
+        type: 'text',
+      };
+      if (replyTo && pendingFiles.length === 0) {
+        body.metadata = {
+          reply_to: replyTo.id,
+          reply_preview: replyTo.content?.slice(0, 80) || replyTo.file_name || replyTo.type,
+        };
+      }
+
+      await fetch('/api/partner-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+    }
+
+    setPendingFiles([]);
+    setInput('');
+    setReplyTo(null);
+    await cargar({ forceBottom: true });
+    setEnviando(false);
+    inputRef.current?.focus();
+  };
+
+  const addPendingFile = (file: File) => {
+    const tipo: 'image' | 'audio' | 'file' =
+      file.type.startsWith('image/')
+        ? 'image'
+        : file.type.startsWith('audio/')
+          ? 'audio'
+          : 'file';
+
+    const att: PendingAttachment = {
+      id: Math.random().toString(36).slice(2),
+      file,
+      type: tipo,
+      name: file.name,
+      size: file.size,
+    };
+
+    if (tipo === 'image') att.preview = URL.createObjectURL(file);
+    setPendingFiles(prev => [...prev, att]);
+  };
+
+  const removePending = (id: string) => {
+    setPendingFiles(prev => {
+      const item = prev.find(p => p.id === id);
+      if (item?.preview) URL.revokeObjectURL(item.preview);
+      return prev.filter(p => p.id !== id);
+    });
+  };
+
+  const editarMsg = async (id: string, content: string) => {
+    if (!content.trim()) return;
+    await fetch('/api/partner-chat', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ message_id: id, action: 'edit', content: content.trim() }),
+    });
+    await cargar();
+  };
+
+  const borrarMsg = async (id: string) => {
+    if (!confirm('¿Eliminar?')) return;
+    await fetch('/api/partner-chat', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ message_id: id, action: 'delete' }),
+    });
+    await cargar();
+  };
+
+  const guardarMsg = async (id: string) => {
+    const res = await fetch('/api/partner-chat', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ message_id: id, action: 'save', chat_id: chatIdState }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      await cargar();
+    }
+  };
+
+  const copyText = (t: string) => {
+    navigator.clipboard.writeText(t);
+    setCopiedNotif(true);
+    setTimeout(() => setCopiedNotif(false), 1500);
+  };
+
+  const borrarChat = async () => {
+    if (!chatIdState || !confirm(`¿Borrar chat con ${partner.nombre}?`)) return;
+    await fetch(`/api/partner-chat?chatId=${chatIdState}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    onChatDeleted();
+  };
+
+  const setWallpaperFn = async (file?: File) => {
+    if (!chatIdState) return;
+
+    if (!file) {
+      await fetch('/api/partner-chat', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          action: 'set_wallpaper',
+          chat_id: chatIdState,
+          wallpaper_url: '',
+        }),
+      });
+      setChatData((prev: any) => prev ? { ...prev, wallpaper_url: null, wallpaper_set_by: null } : prev);
+      setShowWallpaper(false);
+      // Force re-fetch to get clean state
+      setTimeout(async () => { await cargar(); }, 300);
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Máx 5MB');
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('folder', 'wallpapers');
+
+    const res = await fetch('/api/partner-upload', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      alert('Error subiendo');
+      return;
+    }
+
+    await fetch('/api/partner-chat', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        action: 'set_wallpaper',
+        chat_id: chatIdState,
+        wallpaper_url: data.url,
+      }),
+    });
+
+    await cargar();
+    setShowWallpaper(false);
+  };
+
+  const toggleGrabar = async () => {
+    if (grabando) {
+      mediaRecRef.current?.stop();
+      setGrabando(false);
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      chunksRef.current = [];
+
+      rec.ondataavailable = e => chunksRef.current.push(e.data);
+      rec.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        addPendingFile(
+          new File([new Blob(chunksRef.current, { type: 'audio/webm' })], `audio_${Date.now()}.webm`, { type: 'audio/webm' })
+        );
+      };
+
+      rec.start();
+      mediaRecRef.current = rec;
+      setGrabando(true);
+    } catch {
+      alert('Sin acceso al micrófono');
+    }
+  };
+
+  const wp = typeof chatData?.wallpaper_url !== 'undefined' ? chatData.wallpaper_url : wallpaper;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-primary)' }}>
+      {copiedNotif && (
+        <div style={{ position: 'fixed', top: '80px', left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '8px 16px', zIndex: 9998, fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', boxShadow: '0 4px 16px rgba(0,0,0,0.3)' }}>
+          📋 Copiado
+        </div>
+      )}
+
+      {viewImage && (
+        <ImageViewer
+          src={viewImage.url}
+          messageId={viewImage.id}
+          isSaved={saved.includes(viewImage.id)}
+          onSave={guardarMsg}
+          onClose={() => setViewImage(null)}
+        />
+      )}
+
+      {showReport && <ReportModal partner={partner} token={token} onClose={() => setShowReport(false)} />}
+
+      {showProfile && (
+        <PartnerProfileModal
+          partner={partner}
+          savedMsgs={savedMsgs}
+          onOpenSaved={() => {
+            setShowProfile(false);
+            setShowSaved(true);
+          }}
+          onClose={() => setShowProfile(false)}
+        />
+      )}
+
+      {showSaved && (
+        <SavedModal
+          savedMsgs={savedMsgs}
+          onGuardar={guardarMsg}
+          onViewImage={(url, id) => {
+            setShowSaved(false);
+            setViewImage({ url, id });
+          }}
+          onClose={() => setShowSaved(false)}
+        />
+      )}
+
+      {showWallpaper && (
+        <div onClick={() => setShowWallpaper(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', backdropFilter: 'blur(8px)' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg-card)', borderRadius: '24px', padding: '28px', maxWidth: '380px', width: '100%', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 6px' }}>🖼️ Fondo del Chat</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: '0 0 20px' }}>Ambos verán el mismo fondo</p>
+            {wp && (
+              <div style={{ marginBottom: '16px', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+                <img src={wp} alt="" style={{ width: '100%', maxHeight: '150px', objectFit: 'cover', display: 'block' }} />
+              </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button onClick={() => wpRef.current?.click()} style={{ padding: '14px', borderRadius: '14px', border: 'none', background: '#38bdf8', color: '#000', fontWeight: 800, fontSize: '14px', cursor: 'pointer' }}>📤 {wp ? 'Cambiar' : 'Subir'} imagen</button>
+              {wp && <button onClick={() => setWallpaperFn()} style={{ padding: '14px', borderRadius: '14px', border: '2px solid var(--red)', background: 'transparent', color: 'var(--red)', fontWeight: 700, fontSize: '14px', cursor: 'pointer' }}>🗑️ Quitar fondo</button>}
+              <button onClick={() => setShowWallpaper(false)} style={{ padding: '12px', borderRadius: '14px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontWeight: 700, cursor: 'pointer' }}>Cancelar</button>
+            </div>
+            <input ref={wpRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { if (e.target.files?.[0]) setWallpaperFn(e.target.files[0]); }} />
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div style={{ padding: '10px 14px', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+        {isMobile && <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--gold)', fontWeight: 700, fontSize: '20px', cursor: 'pointer', padding: '4px 8px' }}>←</button>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => setShowProfile(true)}>
+          <Av user={partner} size={38} />
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{partner.nombre}</h3>
+            {partner.carrera && <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0 }}>🎓 {partner.carrera}</p>}
+          </div>
+        </div>
+        <button onClick={() => setShowSaved(true)} style={{ padding: '6px 8px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: '#f5c842', fontSize: '16px', cursor: 'pointer' }} title="Guardados">📌</button>
+        <button onClick={() => setShowWallpaper(true)} style={{ padding: '6px 8px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '13px', cursor: 'pointer' }}>🖼️</button>
+        <button onClick={() => setShowReport(true)} style={{ padding: '6px 8px', borderRadius: '8px', border: '1px solid var(--red-border)', background: 'transparent', color: 'var(--red)', fontSize: '13px', cursor: 'pointer' }}>🚨</button>
+        <button onClick={borrarChat} style={{ padding: '6px 8px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-faint)', fontSize: '13px', cursor: 'pointer' }}>🗑️</button>
+      </div>
+
+      {/* Messages */}
+      <div
+        ref={messagesRef}
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '16px',
+          paddingTop: '64px',
+          display: 'flex',
+          flexDirection: 'column',
+          background: wp ? undefined : 'var(--bg-primary)',
+          backgroundImage: wp ? `url(${wp})` : undefined,
+          backgroundSize: wp ? 'cover' : undefined,
+          backgroundPosition: wp ? 'center' : undefined,
+        }}
+      >
+        {messages.length === 0 && (
+          <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-faint)' }}>
+            <div style={{ fontSize: '48px', marginBottom: '12px' }}>👥</div>
+            <p style={{ fontSize: '15px', fontWeight: 600, margin: '0 0 4px', color: 'var(--text-muted)' }}>¡Son partners!</p>
+            <p style={{ fontSize: '13px', margin: 0 }}>Envía el primer mensaje</p>
+          </div>
+        )}
+
+        {messages.map(msg => (
+          <MessageBubble
+            key={msg.id}
+            msg={msg}
+            esMio={msg.sender_id === miUserId}
+            partner={partner}
+            miInfo={miInfo}
+            isMobile={isMobile}
+            isSavedMsg={saved.includes(msg.id)}
+            onGuardar={guardarMsg}
+            onBorrar={borrarMsg}
+            onEditar={editarMsg}
+            onReply={m => {
+              setReplyTo(m);
+              inputRef.current?.focus();
+            }}
+            onCopy={copyText}
+            onViewImage={(url, id) => setViewImage({ url, id })}
+            onShowProfile={() => setShowProfile(true)}
+            onJumpToMessage={jumpToMessage}
+            registerRef={el => {
+              messageNodeMap.current[msg.id] = el;
+            }}
+            jumped={jumpedMsgId === msg.id}
+          />
+        ))}
+
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input */}
+      <div style={{ background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)', flexShrink: 0 }}>
+        {replyTo && (
+          <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(56,189,248,0.06)' }}>
+            <div style={{ width: '3px', height: '28px', background: '#38bdf8', borderRadius: '2px', flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: '10px', fontWeight: 700, color: '#38bdf8', margin: 0 }}>↩️ Respondiendo</p>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {replyTo.type === 'image' ? '🖼️ Imagen' : replyTo.type === 'audio' ? '🎵 Audio' : replyTo.type === 'file' ? `📎 ${replyTo.file_name}` : replyTo.content?.slice(0, 60)}
+              </p>
+            </div>
+            <button onClick={() => setReplyTo(null)} style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontSize: '16px', cursor: 'pointer' }}>✕</button>
+          </div>
+        )}
+
+        {pendingFiles.length > 0 && (
+          <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: '8px', overflowX: 'auto' }}>
+            {pendingFiles.map(pf => (
+              <div key={pf.id} style={{ position: 'relative', flexShrink: 0 }}>
+                {pf.type === 'image' && pf.preview ? (
+                  <div style={{ width: '72px', height: '72px', borderRadius: '12px', overflow: 'hidden', border: '2px solid #38bdf8' }}>
+                    <img src={pf.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  </div>
+                ) : (
+                  <div style={{ padding: '10px 12px', borderRadius: '12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '6px', maxWidth: '150px' }}>
+                    <span style={{ fontSize: '20px' }}>{pf.type === 'audio' ? '🎵' : '📎'}</span>
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pf.name}</p>
+                      <p style={{ fontSize: '10px', color: 'var(--text-faint)', margin: 0 }}>{fmtSize(pf.size)}</p>
+                    </div>
+                  </div>
+                )}
+                <button onClick={() => removePending(pf.id)} style={{ position: 'absolute', top: '-7px', right: '-7px', width: '20px', height: '20px', borderRadius: '50%', border: 'none', background: 'var(--red)', color: '#fff', fontSize: '11px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ padding: '10px 14px' }}>
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', overflowX: 'auto' }}>
+            {[
+              { l: '📎', fn: () => { if (fileRef.current) { fileRef.current.accept = '*/*'; fileRef.current.click(); } } },
+              { l: '🖼️', fn: () => { if (fileRef.current) { fileRef.current.accept = 'image/*'; fileRef.current.click(); } } },
+              { l: grabando ? '⏹️' : '🎙️', fn: toggleGrabar, c: grabando ? 'var(--red)' : undefined },
+            ].map((b, i) => (
+              <button key={i} onClick={b.fn} style={{ padding: '6px 12px', borderRadius: '20px', border: `1px solid ${b.c || 'var(--border-color)'}`, background: b.c ? b.c + '15' : 'transparent', color: b.c || 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>{b.l}</button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && enviarTodo()}
+              placeholder="Mensaje..."
+              style={{ flex: 1, padding: '10px 14px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
+              onFocus={e => e.currentTarget.style.borderColor = '#38bdf8'}
+              onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+            />
+            <button
+              onClick={enviarTodo}
+              disabled={(!input.trim() && pendingFiles.length === 0) || enviando}
+              style={{ padding: '10px 18px', borderRadius: '12px', border: 'none', background: (input.trim() || pendingFiles.length > 0) ? '#38bdf8' : 'var(--bg-secondary)', color: (input.trim() || pendingFiles.length > 0) ? '#000' : 'var(--text-faint)', fontWeight: 800, fontSize: '16px', cursor: (input.trim() || pendingFiles.length > 0) ? 'pointer' : 'not-allowed' }}
+            >
+              {enviando ? '⏳' : '➤'}
+            </button>
+          </div>
+        </div>
+
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          style={{ display: 'none' }}
+          onChange={e => {
+            if (e.target.files) Array.from(e.target.files).forEach(f => addPendingFile(f));
+            e.target.value = '';
+          }}
+        />
+      </div>
+    </div>
+  );
+}

@@ -159,8 +159,8 @@ export default function YoutubeAnalyzer() {
 
             <input
               value={url}
-              onChange={e => setUrl(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && analizar()}
+              onChange={(e: any) => setUrl(e.target.value)}
+              onKeyDown={(e: any) => e.key === 'Enter' && analizar()}
               placeholder="https://youtube.com/watch?v=... o https://youtu.be/..."
               style={{
                 width: '100%', padding: '14px 16px', borderRadius: '12px',
@@ -269,7 +269,7 @@ export default function YoutubeAnalyzer() {
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <select
                 value={selectedMateria}
-                onChange={e => { setSelectedMateria(e.target.value); setSelectedTema(''); setGuardado(false); }}
+                onChange={(e: any) => { setSelectedMateria(e.target.value); setSelectedTema(''); setGuardado(false); }}
                 style={{ flex: 1, minWidth: '140px', padding: '9px 12px', borderRadius: '9px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 600, outline: 'none' }}>
                 <option value="">{idioma === 'en' ? '📚 Select subject...' : '📚 Selecciona materia...'}</option>
                 {materias.map((m: Materia) => (
@@ -278,7 +278,7 @@ export default function YoutubeAnalyzer() {
               </select>
               <select
                 value={selectedTema}
-                onChange={e => { setSelectedTema(e.target.value); setGuardado(false); }}
+                onChange={(e: any) => { setSelectedTema(e.target.value); setGuardado(false); }}
                 disabled={!selectedMateria}
                 style={{ flex: 1, minWidth: '140px', padding: '9px 12px', borderRadius: '9px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: selectedMateria ? 'var(--text-primary)' : 'var(--text-faint)', fontSize: '13px', fontWeight: 600, outline: 'none' }}>
                 <option value="">{idioma === 'en' ? '📁 Select topic...' : '📁 Selecciona tema...'}</option>

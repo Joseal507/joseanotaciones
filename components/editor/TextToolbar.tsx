@@ -38,7 +38,7 @@ function Btn({ onClick, children, title, active, danger }: {
     <button
       onMouseDown={noFocus}
       onTouchStart={noFocus}
-      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClick(); }}
+      onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onClick(); }}
       title={title}
       style={{
         width: 28, height: 28, minWidth: 28, borderRadius: 7, border: 'none',
@@ -95,7 +95,7 @@ export default function TextToolbar({ side, onExec, onFontSize, onFontFamily, on
           <Drop side={side}>
             {[{t:'h1',l:'Título 1',s:18},{t:'h2',l:'Título 2',s:15},{t:'h3',l:'Título 3',s:13},{t:'p',l:'Normal',s:12}].map(h=>(
               <button key={h.t} onMouseDown={noFocus}
-                onClick={(e)=>{e.preventDefault();e.stopPropagation();onHeading(h.t);setSub('none');}}
+                onClick={(e: any)=>{e.preventDefault();e.stopPropagation();onHeading(h.t);setSub('none');}}
                 style={{display:'block',width:'100%',padding:'7px 10px',border:'none',background:'transparent',
                   color:'rgba(255,255,255,0.8)',cursor:'pointer',fontSize:h.s,fontWeight:800,textAlign:'left',borderRadius:7}}
               >{h.l}</button>
@@ -114,7 +114,7 @@ export default function TextToolbar({ side, onExec, onFontSize, onFontFamily, on
             <div style={{ maxHeight: 200, overflowY: 'auto' }}>
               {FONTS.map(f=>(
                 <button key={f} onMouseDown={noFocus}
-                  onClick={(e)=>{e.preventDefault();e.stopPropagation();onFontFamily(f);setSub('none');}}
+                  onClick={(e: any)=>{e.preventDefault();e.stopPropagation();onFontFamily(f);setSub('none');}}
                   style={{display:'block',width:'100%',padding:'7px 10px',border:'none',background:'transparent',
                     color:'rgba(255,255,255,0.75)',cursor:'pointer',fontSize:13,textAlign:'left',fontFamily:f,borderRadius:7}}
                 >{f}</button>
@@ -134,7 +134,7 @@ export default function TextToolbar({ side, onExec, onFontSize, onFontFamily, on
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
               {SIZES.map(s=>(
                 <button key={s} onMouseDown={noFocus}
-                  onClick={(e)=>{e.preventDefault();e.stopPropagation();onFontSize(s);setSub('none');}}
+                  onClick={(e: any)=>{e.preventDefault();e.stopPropagation();onFontSize(s);setSub('none');}}
                   style={{width:40,height:28,borderRadius:7,border:`1px solid ${BD}`,background:'transparent',
                     color:'rgba(255,255,255,0.75)',cursor:'pointer',fontSize:11,fontWeight:700}}
                 >{s}</button>
@@ -143,9 +143,9 @@ export default function TextToolbar({ side, onExec, onFontSize, onFontFamily, on
             <div style={{display:'flex',alignItems:'center',gap:6,borderTop:`1px solid ${BD}`,paddingTop:8}}>
               <span style={{fontSize:10,color:'rgba(255,255,255,0.35)'}}>Custom:</span>
               <input type="number" min={6} max={200} defaultValue={16}
-                onMouseDown={e=>e.stopPropagation()}
-                onClick={e=>e.stopPropagation()}
-                onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter'){onFontSize(parseInt((e.target as HTMLInputElement).value)||16);setSub('none');}}}
+                onMouseDown={(e: any) =>e.stopPropagation()}
+                onClick={(e: any) =>e.stopPropagation()}
+                onKeyDown={(e: any) =>{e.stopPropagation();if(e.key==='Enter'){onFontSize(parseInt((e.target as HTMLInputElement).value)||16);setSub('none');}}}
                 style={{width:56,height:26,borderRadius:7,border:`1px solid ${BD}`,background:'#111118',
                   color:G,fontSize:12,fontWeight:700,textAlign:'center',outline:'none'}}
               />
@@ -180,7 +180,7 @@ export default function TextToolbar({ side, onExec, onFontSize, onFontFamily, on
             <div style={{ display: 'flex', gap: 6 }}>
               {[{c:'justifyLeft',l:'←'},{c:'justifyCenter',l:'↔'},{c:'justifyRight',l:'→'},{c:'justifyFull',l:'⇔'}].map(a=>(
                 <button key={a.c} onMouseDown={noFocus}
-                  onClick={(e)=>{e.preventDefault();e.stopPropagation();onExec(a.c);setSub('none');}}
+                  onClick={(e: any)=>{e.preventDefault();e.stopPropagation();onExec(a.c);setSub('none');}}
                   style={{width:36,height:36,borderRadius:8,border:`1px solid ${BD}`,background:'transparent',
                     color:'rgba(255,255,255,0.7)',cursor:'pointer',fontSize:16,
                     display:'flex',alignItems:'center',justifyContent:'center'}}
@@ -203,19 +203,19 @@ export default function TextToolbar({ side, onExec, onFontSize, onFontFamily, on
             <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:8}}>
               {TCOLORS.map(c=>(
                 <button key={c} onMouseDown={noFocus}
-                  onClick={(e)=>{e.preventDefault();e.stopPropagation();onExec('foreColor',c);setSub('none');}}
+                  onClick={(e: any)=>{e.preventDefault();e.stopPropagation();onExec('foreColor',c);setSub('none');}}
                   style={{width:24,height:24,borderRadius:'50%',background:c,
                     border:c==='#fff'?'2px solid #555':'2px solid transparent',
                     cursor:'pointer',boxShadow:'0 2px 6px rgba(0,0,0,0.3)'}}
                 />
               ))}
             </div>
-            <label onMouseDown={e=>e.stopPropagation()}
+            <label onMouseDown={(e: any) =>e.stopPropagation()}
               style={{display:'flex',alignItems:'center',gap:8,borderTop:`1px solid ${BD}`,paddingTop:8,cursor:'pointer'}}>
               <span style={{fontSize:10,color:'rgba(255,255,255,0.4)'}}>Custom</span>
               <input type="color" defaultValue="#1f2937"
-                onMouseDown={e=>e.stopPropagation()}
-                onChange={e=>{onExec('foreColor',e.target.value);setSub('none');}}
+                onMouseDown={(e: any) =>e.stopPropagation()}
+                onChange={(e: any) =>{onExec('foreColor',e.target.value);setSub('none');}}
                 style={{width:24,height:24,borderRadius:6,border:`1px solid ${BD}`,cursor:'pointer',padding:0}}
               />
             </label>
@@ -233,19 +233,19 @@ export default function TextToolbar({ side, onExec, onFontSize, onFontFamily, on
             <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:8}}>
               {HCOLORS.map(c=>(
                 <button key={c} onMouseDown={noFocus}
-                  onClick={(e)=>{e.preventDefault();e.stopPropagation();onExec('hiliteColor',c);setSub('none');}}
+                  onClick={(e: any)=>{e.preventDefault();e.stopPropagation();onExec('hiliteColor',c);setSub('none');}}
                   style={{width:24,height:24,borderRadius:6,
                     background:c==='transparent'?'repeating-conic-gradient(#444 0% 25%,#222 0% 50%) 50%/8px 8px':c,
                     border:`2px solid ${BD}`,cursor:'pointer'}}
                 />
               ))}
             </div>
-            <label onMouseDown={e=>e.stopPropagation()}
+            <label onMouseDown={(e: any) =>e.stopPropagation()}
               style={{display:'flex',alignItems:'center',gap:8,borderTop:`1px solid ${BD}`,paddingTop:8,cursor:'pointer'}}>
               <span style={{fontSize:10,color:'rgba(255,255,255,0.4)'}}>Custom</span>
               <input type="color" defaultValue="#fef08a"
-                onMouseDown={e=>e.stopPropagation()}
-                onChange={e=>{onExec('hiliteColor',e.target.value);setSub('none');}}
+                onMouseDown={(e: any) =>e.stopPropagation()}
+                onChange={(e: any) =>{onExec('hiliteColor',e.target.value);setSub('none');}}
                 style={{width:24,height:24,borderRadius:6,border:`1px solid ${BD}`,cursor:'pointer',padding:0}}
               />
             </label>

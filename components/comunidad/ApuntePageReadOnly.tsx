@@ -150,7 +150,7 @@ export default function ApuntePageReadOnly({
                       objectFit: 'contain',
                       display: 'block',
                     }}
-                    onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    onError={(e: any) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                   />
                 </div>
               );

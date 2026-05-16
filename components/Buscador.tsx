@@ -167,11 +167,11 @@ export default function Buscador({ onClose }: Props) {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 3000, padding: '60px 20px 20px' }}
       onClick={onClose}>
       <div style={{ width: '100%', maxWidth: '680px', background: 'var(--bg-card)', borderRadius: '20px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.6)' }}
-        onClick={e => e.stopPropagation()}>
+        onClick={(e: any) => e.stopPropagation()}>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px 20px', borderBottom: '1px solid var(--border-color)' }}>
           <span style={{ fontSize: '20px', flexShrink: 0 }}>🔍</span>
-          <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
+          <input ref={inputRef} value={query} onChange={(e: any) => setQuery(e.target.value)}
             placeholder={tr('buscarPlaceholder')}
             style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: '17px', color: 'var(--text-primary)', fontFamily: 'inherit' }}
           />

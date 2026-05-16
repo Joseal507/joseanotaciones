@@ -318,7 +318,7 @@ export default function ModoExamen({ flashcards, contenido, nombreDoc, temaColor
                   </button>
                 ))}
                 <input type="number" min={0} max={flashcards.length} value={cantidadFlashcards}
-                  onChange={e => setCantidadFlashcards(Math.min(flashcards.length, Math.max(0, parseInt(e.target.value) || 0)))}
+                  onChange={(e: any) => setCantidadFlashcards(Math.min(flashcards.length, Math.max(0, parseInt(e.target.value) || 0)))}
                   style={{ width: '55px', padding: '5px 8px', borderRadius: '7px', border: '1px solid #333', background: '#111', color: '#fff', fontSize: '13px', textAlign: 'center' }} />
               </div>
               <p style={{ fontSize: '11px', color: '#555', margin: '8px 0 0' }}>
@@ -349,7 +349,7 @@ export default function ModoExamen({ flashcards, contenido, nombreDoc, temaColor
                   </button>
                 ))}
                 <input type="number" min={0} max={20} value={cantidadQuiz}
-                  onChange={e => setCantidadQuiz(Math.min(20, Math.max(0, parseInt(e.target.value) || 0)))}
+                  onChange={(e: any) => setCantidadQuiz(Math.min(20, Math.max(0, parseInt(e.target.value) || 0)))}
                   style={{ width: '55px', padding: '5px 8px', borderRadius: '7px', border: '1px solid #333', background: '#111', color: '#fff', fontSize: '13px', textAlign: 'center' }} />
               </div>
             </div>
@@ -462,8 +462,8 @@ export default function ModoExamen({ flashcards, contenido, nombreDoc, temaColor
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <textarea
                   value={respuestaEscrita}
-                  onChange={e => setRespuestaEscrita(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) evaluarEscrita(); }}
+                  onChange={(e: any) => setRespuestaEscrita(e.target.value)}
+                  onKeyDown={(e: any) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) evaluarEscrita(); }}
                   placeholder={tr('escribeTuRespuestaExamen')}
                   autoFocus
                   style={{ width: '100%', minHeight: '100px', padding: '16px', borderRadius: '12px', border: `2px solid ${respuestaEscrita ? temaColor : '#333'}`, background: '#0d0d1a', color: '#fff', fontSize: '15px', fontFamily: 'inherit', lineHeight: 1.7, resize: 'vertical', outline: 'none', boxSizing: 'border-box', transition: 'border 0.2s' }}

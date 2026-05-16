@@ -50,8 +50,8 @@ export default function FloatingTextInput({ x, y, temaColor, onSave, onCancel }:
         zIndex: 200,
         pointerEvents: 'all',
       }}
-      onMouseDown={e => e.stopPropagation()}
-      onClick={e => e.stopPropagation()}
+      onMouseDown={(e: any) => e.stopPropagation()}
+      onClick={(e: any) => e.stopPropagation()}
     >
       <div
         ref={ref}
