@@ -45,7 +45,7 @@ export default function LandingPage() {
     { emoji: '🌍', title: 'Comunidad', desc: 'comparte apuntes y aprende juntos', color: '#34d399', rot: 1 },
     { emoji: '🏆', title: 'Leaderboard', desc: 'compite con otros estudiantes', color: 'var(--gold)', rot: -1.5 },
     { emoji: '👥', title: 'Partners', desc: 'chatea con tus compañeros', color: 'var(--blue)', rot: 1.5 },
-    { emoji: '🎥', title: 'Blinks', desc: 'reels de estudio tipo TikTok', color: '#ff4d6d', rot: -1 },
+    { emoji: '🎥', title: 'Blinks', desc: 'reels de estudio tipo TikTok', color: 'var(--red)', rot: -1 },
     { emoji: '✨', title: 'XP & Rangos', desc: 'sube de nivel estudiando', color: 'var(--pink)', rot: 1 },
   ];
 
@@ -71,8 +71,8 @@ export default function LandingPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ position: 'relative', width: 40, height: 40 }}>
             <svg viewBox="0 0 200 200" style={{ position: 'absolute', inset: -10, width: 60, height: 60, pointerEvents: 'none', overflow: 'visible' }}>
-              <circle cx="100" cy="100" r="92" fill="none" stroke="#f3ca4c" strokeWidth="2.5" strokeLinecap="round"
-                style={{ filter: 'drop-shadow(0 0 6px rgba(243,202,76,0.55)) drop-shadow(0 0 14px rgba(243,202,76,0.3))' }}/>
+              <circle cx="100" cy="100" r="92" fill="none" stroke="var(--gold)" strokeWidth="2.5" strokeLinecap="round"
+                style={{ filter: 'drop-shadow(0 0 6px color-mix(in srgb, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in srgb, var(--gold) 30%, transparent))' }}/>
               <circle cx="100" cy="100" r="92" fill="none" stroke="#fffbe0" strokeWidth="3.2" strokeLinecap="round" pathLength={100}
                 style={{ strokeDasharray: '18 82', animation: 'landShine 3.2s linear infinite',
                   filter: 'drop-shadow(0 0 6px #fff8c5) drop-shadow(0 0 12px rgba(255,243,170,0.85))', opacity: 0.95 }}/>
@@ -187,8 +187,8 @@ export default function LandingPage() {
 
                 {/* Círculo dorado base */}
                 <circle cx="100" cy="100" r="92"
-                  fill="none" stroke="#f3ca4c" strokeWidth="2.5" strokeLinecap="round"
-                  style={{ filter: 'drop-shadow(0 0 6px rgba(243,202,76,0.55)) drop-shadow(0 0 14px rgba(243,202,76,0.3))' }}
+                  fill="none" stroke="var(--gold)" strokeWidth="2.5" strokeLinecap="round"
+                  style={{ filter: 'drop-shadow(0 0 6px color-mix(in srgb, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in srgb, var(--gold) 30%, transparent))' }}
                 />
 
                 {/* Destello brillante */}
@@ -198,7 +198,7 @@ export default function LandingPage() {
                     strokeDasharray: '18 82',
                     strokeDashoffset: 0,
                     animation: 'landShine 3.2s linear infinite',
-                    filter: 'drop-shadow(0 0 6px #fff8c5) drop-shadow(0 0 12px rgba(255,243,170,0.85)) drop-shadow(0 0 22px rgba(243,202,76,0.6))',
+                    filter: 'drop-shadow(0 0 6px #fff8c5) drop-shadow(0 0 12px rgba(255,243,170,0.85)) drop-shadow(0 0 22px color-mix(in srgb, var(--gold) 60%, transparent))',
                     opacity: 0.95,
                   }}
                 />
@@ -433,8 +433,8 @@ export default function LandingPage() {
                 position: 'absolute', top: -10, left: '50%',
                 transform: 'translateX(-50%) rotate(-3deg)',
                 width: 70, height: 16,
-                background: 'rgba(245,200,66,0.55)',
-                border: '1px solid rgba(245,200,66,0.3)',
+                background: 'color-mix(in srgb, var(--gold) 55%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
               }}/>
 

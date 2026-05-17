@@ -82,7 +82,7 @@ export default function DrawingCanvas({ onSave, onClose, color }: Props) {
     onSave(canvas.toDataURL('image/png'));
   };
 
-  const colors = ['#ffffff', '#f5c842', '#ff4d6d', '#38bdf8', '#f472b6', '#4ade80', '#fb923c', '#a78bfa', '#000000'];
+  const colors = ['#ffffff', 'var(--gold)', 'var(--red)', '#38bdf8', '#f472b6', '#4ade80', '#fb923c', '#a78bfa', '#000000'];
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', display: 'flex', flexDirection: 'column', zIndex: 3000 }}>

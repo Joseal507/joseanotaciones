@@ -522,7 +522,7 @@ export default function ChatView({ partner, miUserId, miInfo, onBack, onChatDele
           </div>
         </div>
         {[
-          { fn: () => setShowSaved(true),     ic: '📌', c: '#f5c842', title: 'Guardados' },
+          { fn: () => setShowSaved(true),     ic: '📌', c: 'var(--gold)', title: 'Guardados' },
           { fn: () => setShowWallpaper(true), ic: '🖼️', c: 'var(--text-muted)', title: 'Wallpaper' },
           { fn: () => setShowReport(true),    ic: '🚨', c: 'var(--red)', title: 'Reportar' },
           { fn: borrarChat,                   ic: '🗑️', c: 'var(--text-faint)', title: 'Borrar' },

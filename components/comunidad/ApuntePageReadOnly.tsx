@@ -52,7 +52,7 @@ export default function ApuntePageReadOnly({
         <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
           <PaperBackground
             style={paperStyle}
-            temaColor="#f5c842"
+            temaColor="var(--gold)"
             paperColor={paperColor}
           />
         </div>

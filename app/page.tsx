@@ -101,8 +101,9 @@ function HorarioFlecha({ targetId, mob }: { targetId: string; mob: boolean }) {
       border:'3px solid var(--gold)',
       borderRadius:14,padding:mob?'12px 20px':'14px 24px',
       cursor:'pointer',display:'flex',alignItems:'center',gap:14,
-      boxShadow:'5px 5px 0 var(--gold), 0 10px 24px rgba(245,200,66,.35)',
+      boxShadow:'5px 5px 0 var(--gold), 0 10px 24px color-mix(in srgb, var(--gold) 35%, transparent)',
       transform:'rotate(-2deg)',
+      marginTop: mob ? 40 : 60,
     }}>
       <div style={{ display:'flex',flexDirection:'column',alignItems:'flex-start',gap:0 }}>
         <span style={{ fontFamily:HAND,fontSize:mob?16:18,fontWeight:700,color:'var(--text-muted)',fontStyle:'italic',lineHeight:1 }}>ir a</span>
@@ -271,11 +272,11 @@ function StudyALCenter({ mob }: { mob: boolean }) {
             cy="100"
             r="92"
             fill="none"
-            stroke="#f3ca4c"
+            stroke="var(--gold)"
             strokeWidth="2.5"
             strokeLinecap="round"
             style={{
-              filter:'drop-shadow(0 0 6px rgba(243,202,76,0.55)) drop-shadow(0 0 14px rgba(243,202,76,0.3))',
+              filter:'drop-shadow(0 0 6px color-mix(in srgb, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in srgb, var(--gold) 30%, transparent))',
             }}
           />
 
@@ -293,7 +294,7 @@ function StudyALCenter({ mob }: { mob: boolean }) {
               strokeDasharray: '18 82',
               strokeDashoffset: 0,
               animation: 'nbShine 3.2s linear infinite',
-              filter:'drop-shadow(0 0 6px #fff8c5) drop-shadow(0 0 12px rgba(255,243,170,0.85)) drop-shadow(0 0 22px rgba(243,202,76,0.6))',
+              filter:'drop-shadow(0 0 6px #fff8c5) drop-shadow(0 0 12px rgba(255,243,170,0.85)) drop-shadow(0 0 22px color-mix(in srgb, var(--gold) 60%, transparent))',
               opacity: 0.95,
             }}
           />
@@ -372,7 +373,7 @@ function TopPodio({ onClick, mob }: { onClick: () => void; mob: boolean }) {
 
   const order   = [3, 1, 0, 2, 4];
   const heights = mob ? [44, 64, 86, 56, 38] : [56, 80, 105, 70, 48];
-  const colors  = ['#f5c842','#cbd5e1','#cd7f32','#94a3b8','#94a3b8'];
+  const colors  = ['var(--gold)','#cbd5e1','#cd7f32','#94a3b8','#94a3b8'];
   const medals  = ['🥇','🥈','🥉','',''];
 
   return (
@@ -388,8 +389,8 @@ function TopPodio({ onClick, mob }: { onClick: () => void; mob: boolean }) {
       onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(2.5deg)';e.currentTarget.style.boxShadow='5px 6px 0 rgba(0,0,0,.25),0 12px 28px rgba(0,0,0,.18)';}}
     >
       {/* Cinta scotch arriba */}
-      <div style={{ position:'absolute',top:-12,left:'50.8%',transform:'translateX(-50%) rotate(-3deg)',width:70,height:18,background:'rgba(245,200,66,.55)',borderRadius:1,boxShadow:'0 1px 3px rgba(0,0,0,.18)',zIndex:5 }}/>
-      <div style={{ position:'absolute',top:-8,right:14,transform:'rotate(8deg)',width:28,height:10,background:'rgba(245,200,66,.45)',borderRadius:1,zIndex:5 }}/>
+      <div style={{ position:'absolute',top:-12,left:'50.8%',transform:'translateX(-50%) rotate(-3deg)',width:70,height:18,background:'color-mix(in srgb, var(--gold) 55%, transparent)',borderRadius:1,boxShadow:'0 1px 3px rgba(0,0,0,.18)',zIndex:5 }}/>
+      <div style={{ position:'absolute',top:-8,right:14,transform:'rotate(8deg)',width:28,height:10,background:'color-mix(in srgb, var(--gold) 45%, transparent)',borderRadius:1,zIndex:5 }}/>
 
       <div style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:6,marginBottom:8 }}>
         <span style={{ fontSize:18 }}>🏆</span>
@@ -635,13 +636,13 @@ function MiniXPChart({ days = 7, color = 'var(--blue)', xpTotal = 0 }: { days?: 
 
   return (
     <div style={{ display:'flex',flexDirection:'column',alignItems:'center',gap:4 }}>
-      <span style={{ fontFamily:HAND,fontSize:14,fontWeight:700,color:'var(--text-muted)',fontStyle:'italic' }}>📈 XP esta semana</span>
       <svg width={W} height={H+10} style={{ overflow:'visible' }}>
         <polyline points={points} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
         {data.map((v,i)=>(
           <circle key={i} cx={i*stepX} cy={H-(v/max)*H} r="3" fill={color} stroke="var(--bg-card)" strokeWidth="1.5"/>
         ))}
       </svg>
+      <span style={{ fontFamily:HAND,fontSize:13,fontWeight:700,color:'var(--text-faint)',fontStyle:'italic',marginTop:2 }}>~ últimos 7 días ~</span>
     </div>
   );
 }
@@ -675,6 +676,15 @@ function PosicionPostit({ pos, totalUsers, onClick, mob }: { pos: number; totalU
 function MapaProgreso({ playerStats, myRank, totalUsers, onLeaderboard, mob }: {
   playerStats: any; myRank: number; totalUsers: number; onLeaderboard: () => void; mob: boolean;
 }) {
+  const [xpUltimos7, setXpUltimos7] = useState(0);
+  useEffect(() => {
+    import('../lib/xpDiario').then(mod => {
+      const dias = mod.getXpUltimosDias(7);
+      const suma = dias.reduce((acc: number, d: any) => acc + (d.xp || 0), 0);
+      setXpUltimos7(suma);
+    });
+  }, [playerStats?.xpTotal]);
+
   return (
     <div style={{ position: 'relative' }}>
       {/* Título */}
@@ -732,7 +742,7 @@ function MapaProgreso({ playerStats, myRank, totalUsers, onLeaderboard, mob }: {
             color: 'var(--text-primary)', marginBottom: 2,
             textAlign: 'center',
           }}>
-            ⚡ XP
+            ⚡ XP semana
           </div>
           <div style={{
             fontFamily: HAND, fontSize: 26, fontWeight: 900,
@@ -740,7 +750,7 @@ function MapaProgreso({ playerStats, myRank, totalUsers, onLeaderboard, mob }: {
             lineHeight: 1, marginBottom: 6,
             textShadow: '0 0 8px rgba(56,189,248,0.3)',
           }}>
-            {(playerStats?.xpTotal || 0).toLocaleString()}
+            {(xpUltimos7 || 0).toLocaleString()}
           </div>
           <MiniXPChart days={7} color="var(--blue)" xpTotal={playerStats?.xpTotal || 0}/>
         </div>
@@ -801,7 +811,7 @@ function GraficasPanel({ materias, mob, xpTotal }: { materias: Materia[]; mob: b
   useEffect(() => {
     import('../lib/xpDiario').then(mod => {
       setXpDiario(mod.getXpUltimosDias(7));
-      setXpAcum(mod.getXpAcumuladoUltimosDias(30));
+      setXpAcum(mod.getXpAcumuladoConTotal(xpTotal || 0, 30));
     });
   }, []);
 
@@ -1444,12 +1454,12 @@ export default function Home() {
       catch { window.location.href = href; }
       return;
     }
-    nav('/materias','Materias','#f5c842','📚');
+    nav('/materias','Materias','var(--gold)','📚');
   };
 
   useEffect(() => {
     const labels = [
-      { label:'Cargando materias…',     color:'#f5c842', emoji:'📚' },
+      { label:'Cargando materias…',     color:'var(--gold)', emoji:'📚' },
       { label:'Preparando tu espacio…', color:'#f472b6', emoji:'✨' },
       { label:'Casi listo…',            color:'#38bdf8', emoji:'🚀' },
     ];
@@ -1545,7 +1555,7 @@ export default function Home() {
   if (mob) return (
     <div style={{ minHeight:'100vh',paddingBottom:90,position:'relative' }}>
       <OnboardingCheck/>
-      {showDailyReward && <DailyReward onClose={() => setShowDailyReward(false)} onClaim={async () => { await darXP('daily_reward' as any, 15); setShowDailyReward(false); }}/>}
+      {showDailyReward && <DailyReward onClose={() => setShowDailyReward(false)} onClaim={async () => { await darXP('daily_reward', 15); setShowDailyReward(false); }}/>}
       <BuscadorModal open={buscadorOpen} onClose={() => setBuscadorOpen(false)}/>
       <NavbarMobile/>
 
@@ -1572,7 +1582,7 @@ export default function Home() {
 
         {/* Top podio (debajo del logo en mobile) */}
         <div style={{ display:'flex',justifyContent:'center',marginTop:-6 }}>
-          <TopPodio onClick={() => nav('/leaderboard','Leaderboard','#f5c842','🏆')} mob={true}/>
+          <TopPodio onClick={() => nav('/leaderboard','Leaderboard','var(--gold)','🏆')} mob={true}/>
         </div>
 
         {/* Materias */}
@@ -1611,7 +1621,7 @@ export default function Home() {
 
         {/* Mi Progreso */}
         <div style={{ marginTop:20 }}>
-          <MapaProgreso playerStats={playerStats} myRank={myRank} totalUsers={totalUsers} onLeaderboard={() => nav('/leaderboard','Leaderboard','#f5c842','🏆')} mob={true}/>
+          <MapaProgreso playerStats={playerStats} myRank={myRank} totalUsers={totalUsers} onLeaderboard={() => nav('/leaderboard','Leaderboard','var(--gold)','🏆')} mob={true}/>
         </div>
 
         {/* Notas */}
@@ -1639,7 +1649,7 @@ export default function Home() {
   return (
     <div style={{ minHeight:'100vh',position:'relative' }}>
       <OnboardingCheck/>
-      {showDailyReward && <DailyReward onClose={() => setShowDailyReward(false)} onClaim={async () => { await darXP('daily_reward' as any, 15); setShowDailyReward(false); }}/>}
+      {showDailyReward && <DailyReward onClose={() => setShowDailyReward(false)} onClaim={async () => { await darXP('daily_reward', 15); setShowDailyReward(false); }}/>}
       <BuscadorModal open={buscadorOpen} onClose={() => setBuscadorOpen(false)}/>
 
       {/* fondo cuaderno rayado azul */}
@@ -1655,8 +1665,8 @@ export default function Home() {
         <div style={{ display:'flex',alignItems:'center',gap:10,cursor:'pointer' }} onClick={()=>window.scrollTo({top:0,behavior:'smooth'})}>
           <div style={{ position: 'relative', width: 40, height: 40, flexShrink: 0 }}>
             <svg viewBox="0 0 200 200" style={{ position: 'absolute', inset: -10, width: 60, height: 60, pointerEvents: 'none', overflow: 'visible' }}>
-              <circle cx="100" cy="100" r="92" fill="none" stroke="#f3ca4c" strokeWidth="2.5" strokeLinecap="round"
-                style={{ filter: 'drop-shadow(0 0 6px rgba(243,202,76,0.55)) drop-shadow(0 0 14px rgba(243,202,76,0.3))' }}/>
+              <circle cx="100" cy="100" r="92" fill="none" stroke="var(--gold)" strokeWidth="2.5" strokeLinecap="round"
+                style={{ filter: 'drop-shadow(0 0 6px color-mix(in srgb, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in srgb, var(--gold) 30%, transparent))' }}/>
               <circle cx="100" cy="100" r="92" fill="none" stroke="#fffbe0" strokeWidth="3.2" strokeLinecap="round" pathLength={100}
                 style={{ strokeDasharray: '18 82', animation: 'homeHeaderShine 3.2s linear infinite',
                   filter: 'drop-shadow(0 0 6px #fff8c5) drop-shadow(0 0 12px rgba(255,243,170,0.85))', opacity: 0.95 }}/>
@@ -1765,7 +1775,7 @@ export default function Home() {
           {/* DER — Top podio */}
           <div style={{ display:'flex',flexDirection:'column',alignItems:'flex-end',gap:8 }}>
             <span style={{ fontFamily:HAND,fontSize:18,color:'var(--text-muted)',fontStyle:'italic',transform:'rotate(-3deg)',display:'inline-block',marginRight:30 }}>→ improve</span>
-            <TopPodio onClick={() => nav('/leaderboard','Leaderboard','#f5c842','🏆')} mob={false}/>
+            <TopPodio onClick={() => nav('/leaderboard','Leaderboard','var(--gold)','🏆')} mob={false}/>
           </div>
         </div>
 
@@ -1813,7 +1823,7 @@ export default function Home() {
 
         {/* ═══ ZONA 5: Mapa Progreso ═══ */}
         <div style={{ marginBottom:40 }}>
-          <MapaProgreso playerStats={playerStats} myRank={myRank} totalUsers={totalUsers} onLeaderboard={() => nav('/leaderboard','Leaderboard','#f5c842','🏆')} mob={false}/>
+          <MapaProgreso playerStats={playerStats} myRank={myRank} totalUsers={totalUsers} onLeaderboard={() => nav('/leaderboard','Leaderboard','var(--gold)','🏆')} mob={false}/>
         </div>
 
         {/* ═══ ZONA 6: Notas + Gráficas ═══ */}

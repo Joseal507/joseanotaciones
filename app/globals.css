@@ -20,12 +20,12 @@
   --text-secondary: #e2e8f0;
   --text-muted: #cbd5e1;
   --text-faint: #94a3b8;
-  --gold: #f5c842;
-  --gold-dim: rgba(245,200,66,0.15);
-  --gold-border: rgba(245,200,66,0.3);
-  --red: #ff4d6d;
-  --red-dim: rgba(255,77,109,0.15);
-  --red-border: rgba(255,77,109,0.3);
+  --gold: #d6b26f;
+  --gold-dim: rgba(214,178,111,0.15);
+  --gold-border: rgba(214,178,111,0.3);
+  --red: #8a120c;
+  --red-dim: rgba(138,18,12,0.15);
+  --red-border: rgba(138,18,12,0.3);
   --blue: #38bdf8;
   --blue-dim: rgba(56,189,248,0.15);
   --blue-border: rgba(56,189,248,0.3);
@@ -46,10 +46,10 @@
   --text-secondary: #1e293b;
   --text-muted: #475569;
   --text-faint: #64748b;
-  --gold-dim: rgba(212,160,23,0.12);
-  --gold-border: rgba(212,160,23,0.35);
-  --red-dim: rgba(230,51,85,0.1);
-  --red-border: rgba(230,51,85,0.35);
+  --gold-dim: rgba(214,178,111,0.12);
+  --gold-border: rgba(214,178,111,0.35);
+  --red-dim: rgba(138,18,12,0.1);
+  --red-border: rgba(138,18,12,0.35);
   --blue-dim: rgba(14,165,233,0.1);
   --blue-border: rgba(14,165,233,0.35);
   --pink-dim: rgba(219,39,119,0.1);
@@ -57,12 +57,12 @@
 }
 
 :root[data-theme="default"] {
-  --gold: #f5c842;
-  --gold-dim: rgba(245,200,66,0.15);
-  --gold-border: rgba(245,200,66,0.3);
-  --red: #ff4d6d;
-  --red-dim: rgba(255,77,109,0.15);
-  --red-border: rgba(255,77,109,0.3);
+  --gold: #d6b26f;
+  --gold-dim: rgba(214,178,111,0.15);
+  --gold-border: rgba(214,178,111,0.3);
+  --red: #8a120c;
+  --red-dim: rgba(138,18,12,0.15);
+  --red-border: rgba(138,18,12,0.3);
   --blue: #38bdf8;
   --blue-dim: rgba(56,189,248,0.15);
   --blue-border: rgba(56,189,248,0.3);
@@ -211,9 +211,9 @@ body {
 }
 
 @keyframes himmy-glow {
-  0%, 100% { box-shadow: 0 0 20px #f5c842, 0 0 40px #ff4d6d44; }
-  33%       { box-shadow: 0 0 20px #ff4d6d, 0 0 40px #a78bfa44; }
-  66%       { box-shadow: 0 0 20px #a78bfa, 0 0 40px #f5c84244; }
+  0%, 100% { box-shadow: 0 0 20px #d6b26f, 0 0 40px #8a120c44; }
+  33%       { box-shadow: 0 0 20px #8a120c, 0 0 40px #a78bfa44; }
+  66%       { box-shadow: 0 0 20px #a78bfa, 0 0 40px #d6b26f44; }
 }
 
 /* ── Animaciones de rango ── */

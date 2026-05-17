@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
         subject: `🔑 ${nombre || email} acaba de entrar`,
         html: `
           <div style="font-family:sans-serif;background:#0f172a;padding:32px;border-radius:16px;max-width:500px;margin:0 auto;">
-            <h2 style="color:#f5c842;margin:0 0 16px;">🔑 Usuario activo</h2>
+            <h2 style="color:#d6b26f;margin:0 0 16px;">🔑 Usuario activo</h2>
             <table style="width:100%;border-collapse:collapse;">
               <tr>
                 <td style="padding:6px 0;color:#94a3b8;font-size:13px;">👤 Nombre</td>
@@ -86,13 +86,13 @@ export async function POST(req: NextRequest) {
         <div style="margin:0;padding:0;background:#0f172a;font-family:sans-serif;">
           <div style="max-width:560px;margin:0 auto;padding:32px 24px;">
             <div style="text-align:center;margin-bottom:32px;">
-              <h1 style="color:#f5c842;margin:0;font-size:20px;">🎉 Nuevo usuario registrado</h1>
+              <h1 style="color:#d6b26f;margin:0;font-size:20px;">🎉 Nuevo usuario registrado</h1>
               <p style="color:#64748b;font-size:13px;margin:8px 0 0;">
                 ${new Date().toLocaleString('es-PA', { hour12: true })}
               </p>
             </div>
             <div style="background:#1e293b;border-radius:16px;border:1px solid #334155;overflow:hidden;">
-              <div style="height:4px;background:linear-gradient(90deg,#f5c842,#ef4444,#38bdf8,#f472b6);"></div>
+              <div style="height:4px;background:linear-gradient(90deg,#d6b26f,#ef4444,#38bdf8,#f472b6);"></div>
               <div style="padding:24px;">
                 <table style="width:100%;border-collapse:collapse;">
                   <tr>
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
                   ${carrera ? `
                   <tr>
                     <td style="padding:8px 0;color:#94a3b8;font-size:13px;">📚 Carrera</td>
-                    <td style="padding:8px 0;color:#f5c842;font-weight:700;">${carrera}</td>
+                    <td style="padding:8px 0;color:#d6b26f;font-weight:700;">${carrera}</td>
                   </tr>` : ''}
                 </table>
                 ${que_quieres_estudiar ? `
@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
                   <p style="color:#64748b;font-size:11px;font-weight:700;text-transform:uppercase;margin:0 0 8px;">
                     💭 Quiere lograr
                   </p>
-                  <div style="background:#0f172a;border-left:3px solid #f5c842;padding:12px 16px;border-radius:0 8px 8px 0;">
+                  <div style="background:#0f172a;border-left:3px solid #d6b26f;padding:12px 16px;border-radius:0 8px 8px 0;">
                     <p style="color:#f1f5f9;font-size:14px;margin:0;">"${que_quieres_estudiar}"</p>
                   </div>
                 </div>` : ''}

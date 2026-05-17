@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { registrarXpDiario } from './xpDiario';
 
-export type FuenteXP = 'timer' | 'flashcards' | 'quiz' | 'post' | 'objetivo' | 'login' | 'racha' | 'comunidad';
+export type FuenteXP = 'timer' | 'flashcards' | 'quiz' | 'post' | 'objetivo' | 'login' | 'racha' | 'comunidad' | 'daily_reward';
 
 export async function darXP(
   fuente: FuenteXP,

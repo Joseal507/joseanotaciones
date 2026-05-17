@@ -20,7 +20,7 @@ interface Props {
   onRedo: () => void;
 }
 
-const G = '#f5c842';
+const G = 'var(--gold)';
 const INKS = ['#000000','#1e40af','#dc2626','#16a34a','#9333ea','#ea580c','#0d9488','#be185d','#ffffff'];
 
 export default function Toolbar(p: Props) {

@@ -43,11 +43,11 @@ interface Post {
 }
 
 const TIPO_LABELS: Record<string, { label: string; emoji: string; color: string }> = {
-  apunte:     { label: 'Apunte',     emoji: '📝', color: '#f5c842' },
+  apunte:     { label: 'Apunte',     emoji: '📝', color: 'var(--gold)' },
   flashcards: { label: 'Flashcards', emoji: '🎴', color: '#a78bfa' },
   quiz:       { label: 'Quiz',       emoji: '🧠', color: '#34d399' },
   post:       { label: 'Post',       emoji: '💬', color: '#38bdf8' },
-  video:      { label: 'Video',      emoji: '🎥', color: '#ff4d6d' },
+  video:      { label: 'Video',      emoji: '🎥', color: 'var(--red)' },
 };
 
 // Rotación estable por id
@@ -331,12 +331,12 @@ function PostCard({ post, userId, onLike, onGuardar }: { post: Post; userId: str
           <button onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onGuardar(post.id); }}
             style={{
               display: 'flex', alignItems: 'center',
-              background: post.guardado ? 'color-mix(in srgb,#f5c842 18%,transparent)' : 'transparent',
-              border: post.guardado ? '2px solid #f5c842' : '2px dashed var(--border-color)',
+              background: post.guardado ? 'color-mix(in srgb,var(--gold) 18%,transparent)' : 'transparent',
+              border: post.guardado ? '2px solid var(--gold)' : '2px dashed var(--border-color)',
               borderRadius: 8, padding: '4px 8px',
               fontFamily: HAND, fontSize: 15,
               cursor: 'pointer',
-              color: post.guardado ? '#f5c842' : 'var(--text-faint)',
+              color: post.guardado ? 'var(--gold)' : 'var(--text-faint)',
               transition: 'all 0.15s',
               transform: 'rotate(1deg)',
             }}>
@@ -418,11 +418,11 @@ export default function ComunidadPage() {
 
   const tipoFiltros = [
     { key: 'all',        label: 'Todo',       emoji: '✨', color: 'var(--gold)' },
-    { key: 'apunte',     label: 'Apuntes',    emoji: '📝', color: '#f5c842' },
+    { key: 'apunte',     label: 'Apuntes',    emoji: '📝', color: 'var(--gold)' },
     { key: 'flashcards', label: 'Flashcards', emoji: '🎴', color: '#a78bfa' },
     { key: 'quiz',       label: 'Quizzes',    emoji: '🧠', color: '#34d399' },
     { key: 'post',       label: 'Posts',      emoji: '💬', color: '#38bdf8' },
-    { key: 'video',      label: 'Videos',     emoji: '🎥', color: '#ff4d6d' },
+    { key: 'video',      label: 'Videos',     emoji: '🎥', color: 'var(--red)' },
   ];
 
   const filtroOpciones = [
@@ -582,8 +582,8 @@ export default function ComunidadPage() {
               <div style={{
                 padding: '10px 16px',
                 borderRadius: 12,
-                border: '2.5px dashed #ff4d6d',
-                background: 'linear-gradient(135deg, color-mix(in srgb,#ff4d6d 18%,transparent), color-mix(in srgb,#a78bfa 18%,transparent))',
+                border: '2.5px dashed var(--red)',
+                background: 'linear-gradient(135deg, color-mix(in srgb,var(--red) 18%,transparent), color-mix(in srgb,#a78bfa 18%,transparent))',
                 color: 'var(--text-primary)',
                 fontFamily: HAND, fontSize: 18, fontWeight: 800,
                 cursor: 'pointer',

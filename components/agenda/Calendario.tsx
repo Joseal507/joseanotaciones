@@ -12,15 +12,15 @@ const DIAS_EN = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 const TIPOS_ES = [
   { id: 'tarea',    label: '📝 Tarea',    color: '#38bdf8' },
-  { id: 'examen',   label: '📋 Examen',   color: '#ff4d6d' },
-  { id: 'proyecto', label: '🛠️ Proyecto', color: '#f5c842' },
+  { id: 'examen',   label: '📋 Examen',   color: 'var(--red)' },
+  { id: 'proyecto', label: '🛠️ Proyecto', color: 'var(--gold)' },
   { id: 'otro',     label: '📌 Otro',     color: '#a78bfa' },
 ];
 
 const TIPOS_EN = [
   { id: 'tarea',    label: '📝 Homework', color: '#38bdf8' },
-  { id: 'examen',   label: '📋 Exam',     color: '#ff4d6d' },
-  { id: 'proyecto', label: '🛠️ Project',  color: '#f5c842' },
+  { id: 'examen',   label: '📋 Exam',     color: 'var(--red)' },
+  { id: 'proyecto', label: '🛠️ Project',  color: 'var(--gold)' },
   { id: 'otro',     label: '📌 Other',    color: '#a78bfa' },
 ];
 

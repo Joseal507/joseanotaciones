@@ -190,7 +190,7 @@ export default function FlashcardEditor({ flashcards, onSave, onClose, temaColor
                     overflow: 'hidden',
                   }}>
                     <div style={{ flex: 1, overflow: 'hidden' }}>
-                      <p style={{ fontSize: '9px', fontWeight: 700, color: '#f5c842', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 2px' }}>
+                      <p style={{ fontSize: '9px', fontWeight: 700, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 2px' }}>
                         Pregunta
                       </p>
                       <p style={{ fontSize: '13px', color: '#ddd', margin: 0, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>
@@ -201,7 +201,7 @@ export default function FlashcardEditor({ flashcards, onSave, onClose, temaColor
                     <div style={{ height: '1px', background: '#1e1e35', flexShrink: 0 }} />
 
                     <div style={{ flex: 1, overflow: 'hidden' }}>
-                      <p style={{ fontSize: '9px', fontWeight: 700, color: '#ff4d6d', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 2px' }}>
+                      <p style={{ fontSize: '9px', fontWeight: 700, color: 'var(--red)', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 2px' }}>
                         Respuesta
                       </p>
                       <p style={{ fontSize: '13px', color: '#bbb', margin: 0, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>
@@ -221,9 +221,9 @@ export default function FlashcardEditor({ flashcards, onSave, onClose, temaColor
                     </button>
                     <button
                       onClick={() => eliminar(i)}
-                      style={{ padding: '6px 12px', borderRadius: '7px', border: '1px solid #ff4d6d44', background: 'rgba(255,77,109,0.1)', color: '#ff4d6d', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s' }}
-                      onMouseEnter={(e: any) => { e.currentTarget.style.background = '#ff4d6d'; e.currentTarget.style.color = '#000'; }}
-                      onMouseLeave={(e: any) => { e.currentTarget.style.background = 'rgba(255,77,109,0.1)'; e.currentTarget.style.color = '#ff4d6d'; }}>
+                      style={{ padding: '6px 12px', borderRadius: '7px', border: '1px solid var(--red)44', background: 'color-mix(in srgb, var(--red) 10%, transparent)', color: 'var(--red)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s' }}
+                      onMouseEnter={(e: any) => { e.currentTarget.style.background = 'var(--red)'; e.currentTarget.style.color = '#000'; }}
+                      onMouseLeave={(e: any) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--red) 10%, transparent)'; e.currentTarget.style.color = 'var(--red)'; }}>
                       🗑️ Borrar
                     </button>
                   </div>
@@ -236,7 +236,7 @@ export default function FlashcardEditor({ flashcards, onSave, onClose, temaColor
 
                   {/* Pregunta */}
                   <div style={{ marginBottom: '14px' }}>
-                    <label style={{ fontSize: '11px', fontWeight: 700, color: '#f5c842', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--gold)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
                       📌 Pregunta
                     </label>
                     <textarea
@@ -245,15 +245,15 @@ export default function FlashcardEditor({ flashcards, onSave, onClose, temaColor
                       placeholder="Escribe la pregunta..."
                       autoFocus
                       rows={3}
-                      style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '2px solid #f5c84244', background: '#111122', color: '#ffffff', fontSize: '15px', resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.6, transition: 'border 0.2s' }}
-                      onFocus={(e: any) => e.currentTarget.style.borderColor = '#f5c842'}
-                      onBlur={(e: any) => e.currentTarget.style.borderColor = '#f5c84244'}
+                      style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '2px solid var(--gold)44', background: '#111122', color: '#ffffff', fontSize: '15px', resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.6, transition: 'border 0.2s' }}
+                      onFocus={(e: any) => e.currentTarget.style.borderColor = 'var(--gold)'}
+                      onBlur={(e: any) => e.currentTarget.style.borderColor = 'var(--gold)44'}
                     />
                   </div>
 
                   {/* Respuesta */}
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{ fontSize: '11px', fontWeight: 700, color: '#ff4d6d', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--red)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
                       ✅ Respuesta
                     </label>
                     <textarea
@@ -261,9 +261,9 @@ export default function FlashcardEditor({ flashcards, onSave, onClose, temaColor
                       onChange={(e: any) => setEditAnswer(e.target.value)}
                       placeholder="Escribe la respuesta..."
                       rows={3}
-                      style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '2px solid #ff4d6d44', background: '#111122', color: '#ffffff', fontSize: '15px', resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.6, transition: 'border 0.2s' }}
-                      onFocus={(e: any) => e.currentTarget.style.borderColor = '#ff4d6d'}
-                      onBlur={(e: any) => e.currentTarget.style.borderColor = '#ff4d6d44'}
+                      style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '2px solid var(--red)44', background: '#111122', color: '#ffffff', fontSize: '15px', resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.6, transition: 'border 0.2s' }}
+                      onFocus={(e: any) => e.currentTarget.style.borderColor = 'var(--red)'}
+                      onBlur={(e: any) => e.currentTarget.style.borderColor = 'var(--red)44'}
                     />
                   </div>
 

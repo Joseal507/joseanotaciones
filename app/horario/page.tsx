@@ -21,7 +21,7 @@ for (let h = 6; h <= 22; h++) {
 }
 HORAS.push('23:00');
 
-const COLORES = ['#f5c842', '#ff4d6d', '#38bdf8', '#f472b6', '#4ade80', '#fb923c', '#a78bfa', '#e879f9'];
+const COLORES = ['#d6b26f', '#8a120c', '#38bdf8', '#f472b6', '#4ade80', '#fb923c', '#a78bfa', '#e879f9'];
 const HORARIO_VACIO: Horario = { lunes: [], martes: [], miercoles: [], jueves: [], viernes: [] };
 const genId = () => Math.random().toString(36).substr(2, 9);
 

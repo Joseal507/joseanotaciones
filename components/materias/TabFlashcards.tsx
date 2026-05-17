@@ -278,8 +278,8 @@ export default function TabFlashcards({
                 top: -10, left: '50%',
                 transform: 'translateX(-50%) rotate(-4deg)',
                 width: 80, height: 18,
-                background: 'rgba(245,200,66,0.55)',
-                border: '1px solid rgba(245,200,66,0.3)',
+                background: 'color-mix(in srgb, var(--gold) 55%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)',
                 boxShadow: '0 2px 5px rgba(0,0,0,0.18)',
                 zIndex: 5,
               }}/>
@@ -359,8 +359,8 @@ export default function TabFlashcards({
                 top: -10, left: '50%',
                 transform: 'translateX(-50%) rotate(3deg)',
                 width: 80, height: 18,
-                background: 'rgba(255,77,109,0.55)',
-                border: '1px solid rgba(255,77,109,0.3)',
+                background: 'color-mix(in srgb, var(--red) 55%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--red) 30%, transparent)',
                 boxShadow: '0 2px 5px rgba(0,0,0,0.18)',
                 zIndex: 5,
               }}/>

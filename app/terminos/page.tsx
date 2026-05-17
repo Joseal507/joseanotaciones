@@ -66,7 +66,7 @@ export default function TerminosPage() {
           transform:'rotate(-.4deg)',
           position:'relative',
         }}>
-          <div style={{position:'absolute',top:-11,left:'50%',transform:'translateX(-50%) rotate(-3deg)',width:80,height:18,background:'rgba(245,200,66,.55)',border:'1px solid rgba(245,200,66,.3)'}}/>
+          <div style={{position:'absolute',top:-11,left:'50%',transform:'translateX(-50%) rotate(-3deg)',width:80,height:18,background:'color-mix(in srgb, var(--gold) 55%, transparent)',border:'1px solid color-mix(in srgb, var(--gold) 30%, transparent)'}}/>
           <h2 style={{fontFamily:HAND,fontSize:28,fontWeight:900,color:'var(--text-primary)',margin:'0 0 14px',transform:'rotate(-.5deg)',display:'inline-block'}}>
             📑 Índice
           </h2>

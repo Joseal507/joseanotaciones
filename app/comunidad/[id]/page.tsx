@@ -63,10 +63,10 @@ function StarSelector({ value, onChange }: { value: number; onChange: (v: number
           style={{
             background: 'none', border: 'none',
             fontSize: 36, cursor: 'pointer', padding: 2,
-            color: s <= (hover || value) ? '#f5c842' : 'var(--border-color)',
+            color: s <= (hover || value) ? 'var(--gold)' : 'var(--border-color)',
             transform: s <= (hover || value) ? `rotate(${i % 2 === 0 ? -8 : 8}deg) scale(1.2)` : `rotate(${i % 2 === 0 ? -2 : 2}deg)`,
             transition: 'all 0.15s cubic-bezier(.34,1.4,.64,1)',
-            filter: s <= (hover || value) ? 'drop-shadow(0 2px 4px rgba(245,200,66,0.5))' : 'none',
+            filter: s <= (hover || value) ? 'drop-shadow(0 2px 4px color-mix(in srgb, var(--gold) 50%, transparent))' : 'none',
           }}>
           ★
         </button>
@@ -326,9 +326,9 @@ function QuizViewer({ preguntas, onTerminar }: { preguntas: any[]; onTerminar: (
         </h2>
         <div style={{
           fontFamily: HAND, fontSize: 60, fontWeight: 900,
-          color: pct >= 70 ? '#34d399' : pct >= 50 ? '#f5c842' : '#ef4444',
+          color: pct >= 70 ? '#34d399' : pct >= 50 ? 'var(--gold)' : '#ef4444',
           marginBottom: 18, lineHeight: 1,
-          textShadow: `0 0 12px ${pct >= 70 ? '#34d399' : pct >= 50 ? '#f5c842' : '#ef4444'}33`,
+          textShadow: `0 0 12px ${pct >= 70 ? '#34d399' : pct >= 50 ? 'var(--gold)' : '#ef4444'}33`,
         }}>
           {pct}%
         </div>
@@ -900,8 +900,8 @@ function ModalEditar({ post, onGuardar, onCancelar }: { post: Post; onGuardar: (
           position: 'absolute', top: -10, left: '50%',
           transform: 'translateX(-50%) rotate(-3deg)',
           width: 80, height: 18,
-          background: 'rgba(245,200,66,0.55)',
-          border: '1px solid rgba(245,200,66,0.3)',
+          background: 'color-mix(in srgb, var(--gold) 55%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)',
           boxShadow: '0 2px 5px rgba(0,0,0,0.18)',
           zIndex: 5,
         }}/>
@@ -1142,11 +1142,11 @@ export default function PostPage() {
   );
 
   const tipoInfo = {
-    apunte:     { label: 'Apunte',     emoji: '📝', color: '#f5c842' },
+    apunte:     { label: 'Apunte',     emoji: '📝', color: 'var(--gold)' },
     flashcards: { label: 'Flashcards', emoji: '🎴', color: '#a78bfa' },
     quiz:       { label: 'Quiz',       emoji: '🧠', color: '#34d399' },
     post:       { label: 'Post',       emoji: '💬', color: '#38bdf8' },
-    video:      { label: 'Video',      emoji: '🎥', color: '#ff4d6d' },
+    video:      { label: 'Video',      emoji: '🎥', color: 'var(--red)' },
   }[post.tipo] || { label: 'Post', emoji: '💬', color: '#38bdf8' };
 
   const flashcards = post.contenido?.flashcards || [];
@@ -1216,12 +1216,12 @@ export default function PostPage() {
             style={{
               padding: '8px 16px',
               borderRadius: 10,
-              border: `2.5px ${guardado ? 'solid' : 'dashed'} ${guardado ? '#f5c842' : 'var(--border-color)'}`,
-              background: guardado ? 'color-mix(in srgb,#f5c842 18%,transparent)' : 'transparent',
-              color: guardado ? '#f5c842' : 'var(--text-muted)',
+              border: `2.5px ${guardado ? 'solid' : 'dashed'} ${guardado ? 'var(--gold)' : 'var(--border-color)'}`,
+              background: guardado ? 'color-mix(in srgb,var(--gold) 18%,transparent)' : 'transparent',
+              color: guardado ? 'var(--gold)' : 'var(--text-muted)',
               fontFamily: HAND, fontSize: 16, fontWeight: 800,
               cursor: 'pointer',
-              boxShadow: guardado ? '2px 3px 0 #f5c842' : 'none',
+              boxShadow: guardado ? '2px 3px 0 var(--gold)' : 'none',
               transform: 'rotate(1deg)',
             }}>
             {guardado ? '🔖' : '🏷️'}
@@ -1522,7 +1522,7 @@ export default function PostPage() {
           borderRadius: 16,
           padding: 24, marginBottom: 22,
           textAlign: 'center',
-          boxShadow: '4px 5px 0 #f5c842',
+          boxShadow: '4px 5px 0 var(--gold)',
           transform: 'rotate(0.3deg)',
         }}>
           <h3 style={{
@@ -1556,14 +1556,14 @@ export default function PostPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{
                   fontFamily: HAND, fontSize: 36, fontWeight: 900,
-                  color: '#f5c842',
+                  color: 'var(--gold)',
                 }}>{avgRating}</span>
                 <div>
                   <div style={{ display: 'flex', gap: 2 }}>
                     {[1,2,3,4,5].map(s => (
                       <span key={s} style={{
                         fontSize: 16,
-                        color: s <= Math.round(avgRating) ? '#f5c842' : 'var(--border-color)',
+                        color: s <= Math.round(avgRating) ? 'var(--gold)' : 'var(--border-color)',
                       }}>★</span>
                     ))}
                   </div>

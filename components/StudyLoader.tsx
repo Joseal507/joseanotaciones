@@ -43,7 +43,7 @@ function ScribbleSpinner() {
         <path d="M40 8 C55 8, 72 20, 72 40 C72 55, 60 68, 45 70"
           fill="none" stroke="var(--gold)" strokeWidth="2.5"
           strokeLinecap="round" strokeDasharray="8 6"
-          style={{ filter: 'drop-shadow(0 0 4px rgba(245,200,66,0.5))' }} />
+          style={{ filter: 'drop-shadow(0 0 4px color-mix(in srgb, var(--gold) 50%, transparent))' }} />
       </svg>
       <svg width="80" height="80" viewBox="0 0 80 80"
         style={{ position: 'absolute', inset: 0, animation: 'slSpin2 2.4s linear infinite' }}>
@@ -65,7 +65,7 @@ function ScribbleSpinner() {
       <img src="/logo.png" alt="" style={{
         position: 'absolute', inset: 0, margin: 'auto',
         width: 80, height: 80, objectFit: 'contain',
-        filter: 'drop-shadow(0 2px 8px rgba(245,200,66,0.4))',
+        filter: 'drop-shadow(0 2px 8px color-mix(in srgb, var(--gold) 40%, transparent))',
         animation: 'slPulse 1.6s ease-in-out infinite',
       }} />
     </div>
@@ -140,8 +140,8 @@ export default function StudyLoader({ label = 'Página' }: { label?: string }) {
           position: 'absolute', top: -10, left: '50%',
           transform: 'translateX(-50%) rotate(-4deg)',
           width: 90, height: 20,
-          background: 'rgba(245,200,66,0.55)',
-          border: '1px solid rgba(245,200,66,0.3)',
+          background: 'color-mix(in srgb, var(--gold) 55%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)',
           boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
           zIndex: 10,
         }} />

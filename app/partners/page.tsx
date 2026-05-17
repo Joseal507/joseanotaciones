@@ -178,8 +178,8 @@ export default function PartnersPage() {
               position: 'absolute', top: -10, left: '50%',
               transform: 'translateX(-50%) rotate(-4deg)',
               width: 80, height: 18,
-              background: 'rgba(255,77,109,0.55)',
-              border: '1px solid rgba(255,77,109,0.3)',
+              background: 'color-mix(in srgb, var(--red) 55%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--red) 30%, transparent)',
               boxShadow: '0 2px 5px rgba(0,0,0,0.18)',
             }}/>
             <div style={{ fontSize: 54, marginBottom: 12 }}>🚫</div>
@@ -471,7 +471,7 @@ export default function PartnersPage() {
                     {chat.savedCount > 0 && (
                       <span style={{
                         fontFamily: HAND, fontSize: 14, fontWeight: 800,
-                        color: '#f5c842',
+                        color: 'var(--gold)',
                       }}>📌{chat.savedCount}</span>
                     )}
                     <button onClick={(e: any) => {

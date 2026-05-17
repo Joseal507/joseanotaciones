@@ -8,7 +8,7 @@ interface Props {
   onRestored?: () => void;
 }
 
-export default function BackupManager({ temaColor = '#f5c842', onRestored }: Props) {
+export default function BackupManager({ temaColor = 'var(--gold)', onRestored }: Props) {
   const [importing, setImporting] = useState(false);
   const [msg, setMsg] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);

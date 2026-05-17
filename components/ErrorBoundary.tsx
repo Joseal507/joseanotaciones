@@ -40,7 +40,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
     if (this.props.fallback) return this.props.fallback;
 
-    const color = this.props.temaColor ?? '#f5c842';
+    const color = this.props.temaColor ?? 'var(--gold)';
 
     return (
       <div style={{

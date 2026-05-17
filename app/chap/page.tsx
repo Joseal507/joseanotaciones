@@ -117,7 +117,7 @@ export default function ChapPage() {
   };
 
   const themeColor = esMath ? '#38bdf8' : 'var(--gold)';
-  const themeDim   = esMath ? 'rgba(56,189,248,0.15)' : 'rgba(245,200,66,0.15)';
+  const themeDim   = esMath ? 'rgba(56,189,248,0.15)' : 'color-mix(in srgb, var(--gold) 15%, transparent)';
 
   // Render línea con negritas
   const renderInline = (texto: string) => {
@@ -470,7 +470,7 @@ export default function ChapPage() {
                 fontSize: 15,
                 border: '2.5px solid var(--text-primary)',
                 boxShadow: msg.role === 'user'
-                  ? `3px 4px 0 ${esMath ? 'rgba(56,189,248,0.4)' : 'rgba(245,200,66,0.4)'}`
+                  ? `3px 4px 0 ${esMath ? 'rgba(56,189,248,0.4)' : 'color-mix(in srgb, var(--gold) 40%, transparent)'}`
                   : '3px 4px 0 var(--text-primary)',
                 transform: msg.role === 'user' ? 'rotate(0.3deg)' : 'rotate(-0.3deg)',
                 transition: 'background 0.3s',

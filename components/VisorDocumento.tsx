@@ -297,7 +297,7 @@ export default function VisorDocumento({
               </p>
             </div>
             {!analisis && (
-              <div style={{ background: '#fffbeb', border: '1px solid #f5c842', borderRadius: '8px', padding: '12px 16px', marginBottom: '24px' }}>
+              <div style={{ background: '#fffbeb', border: '1px solid var(--gold)', borderRadius: '8px', padding: '12px 16px', marginBottom: '24px' }}>
                 <p style={{ fontSize: '13px', color: '#7a5f00', margin: 0 }}>
                   💡 Haz clic en &quot;🔍 Analizar&quot; para ver highlights
                 </p>

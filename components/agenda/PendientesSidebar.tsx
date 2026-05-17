@@ -25,15 +25,15 @@ export default function PendientesSidebar({
 
   const TIPOS_ES = [
     { id: 'tarea',    label: '📝 Tarea',    color: '#38bdf8' },
-    { id: 'examen',   label: '📋 Examen',   color: '#ff4d6d' },
-    { id: 'proyecto', label: '🛠️ Proyecto', color: '#f5c842' },
+    { id: 'examen',   label: '📋 Examen',   color: 'var(--red)' },
+    { id: 'proyecto', label: '🛠️ Proyecto', color: 'var(--gold)' },
     { id: 'otro',     label: '📌 Otro',     color: '#a78bfa' },
   ];
 
   const TIPOS_EN = [
     { id: 'tarea',    label: '📝 Homework', color: '#38bdf8' },
-    { id: 'examen',   label: '📋 Exam',     color: '#ff4d6d' },
-    { id: 'proyecto', label: '🛠️ Project',  color: '#f5c842' },
+    { id: 'examen',   label: '📋 Exam',     color: 'var(--red)' },
+    { id: 'proyecto', label: '🛠️ Project',  color: 'var(--gold)' },
     { id: 'otro',     label: '📌 Other',    color: '#a78bfa' },
   ];
 
@@ -84,8 +84,8 @@ export default function PendientesSidebar({
           right: 18px;
           width: 50px;
           height: 14px;
-          background: rgba(245,200,66,0.55);
-          border: 1px solid rgba(245,200,66,0.3);
+          background: color-mix(in srgb, var(--gold) 55%, transparent);
+          border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent);
           box-shadow: 0 1px 2px rgba(0,0,0,0.15);
           transform: rotate(8deg);
           z-index: 5;

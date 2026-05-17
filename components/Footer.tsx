@@ -76,7 +76,7 @@ export default function Footer() {
         }
         .nb-footer-social:hover {
           transform: translateX(4px) rotate(-1deg);
-          background: rgba(245,200,66,0.08);
+          background: color-mix(in srgb, var(--gold) 8%, transparent);
         }
         .nb-footer-title {
           font-family: ${HAND};
@@ -124,8 +124,8 @@ export default function Footer() {
               position: 'absolute', top: -12, left: '50%',
               transform: 'translateX(-50%) rotate(-3deg)',
               width: 80, height: 22,
-              background: 'rgba(245,200,66,0.55)',
-              border: '1px solid rgba(245,200,66,0.3)',
+              background: 'color-mix(in srgb, var(--gold) 55%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)',
               boxShadow: '0 2px 4px rgba(0,0,0,0.18)',
             }} />
 

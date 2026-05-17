@@ -34,10 +34,10 @@ interface Props {
 }
 
 const getNivelInfo = (idioma: string) => ({
-  INSANE: { emoji: '🔥', label: 'INSANE', color: '#f5c842', bg: '#f5c84220' },
+  INSANE: { emoji: '🔥', label: 'INSANE', color: 'var(--gold)', bg: 'var(--gold)20' },
   correcta: { emoji: '✅', label: idioma === 'en' ? 'Correct' : 'Correcta', color: '#4ade80', bg: '#4ade8020' },
   medio_correcta: { emoji: '🟡', label: idioma === 'en' ? 'Half correct' : 'Medio correcta', color: '#fb923c', bg: '#fb923c20' },
-  incorrecta: { emoji: '❌', label: idioma === 'en' ? 'Incorrect' : 'Incorrecta', color: '#ff4d6d', bg: '#ff4d6d20' },
+  incorrecta: { emoji: '❌', label: idioma === 'en' ? 'Incorrect' : 'Incorrecta', color: 'var(--red)', bg: 'var(--red)20' },
   muy_incorrecta: { emoji: '💀', label: idioma === 'en' ? 'Very wrong' : 'Muy incorrecta', color: '#888', bg: '#88888820' },
 });
 
@@ -430,8 +430,8 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
                       </button>
                     </div>
                     {repasoMostrarRespuesta && (
-                      <div style={{ background: '#f5c84215', border: '1px solid #f5c84244', borderRadius: '12px', padding: '14px 16px' }}>
-                        <p style={{ fontSize: '10px', color: '#f5c842', fontWeight: 800, margin: '0 0 6px', textTransform: 'uppercase' }}>{tr('respuesta')}</p>
+                      <div style={{ background: 'var(--gold)15', border: '1px solid var(--gold)44', borderRadius: '12px', padding: '14px 16px' }}>
+                        <p style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 800, margin: '0 0 6px', textTransform: 'uppercase' }}>{tr('respuesta')}</p>
                         <p style={{ fontSize: '15px', color: '#fff', margin: 0, lineHeight: 1.6 }}>{repasoCard.answer}</p>
                       </div>
                     )}
@@ -484,7 +484,7 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
       const acertadas2 = (statsUsados.INSANE || 0) + (statsUsados.correcta || 0);
       const xpFlash = calcularXpFlashcards({ tarjetasRevisadas: completadosUsados, correctas: acertadas2 });
       darXP('flashcards', xpFlash.total, { tarjetas: completadosUsados, acertadas: acertadas2 }).then(res => {
-        dispararXPToast({ xp: res.ok ? res.xpGanado : xpFlash.total, fuente: '🎴 Flashcards', emoji: '🎴', color: '#f5c842', descripcion: `${completadosUsados} tarjetas estudiadas` });
+        dispararXPToast({ xp: res.ok ? res.xpGanado : xpFlash.total, fuente: '🎴 Flashcards', emoji: '🎴', color: 'var(--gold)', descripcion: `${completadosUsados} tarjetas estudiadas` });
       });
     }
 
@@ -518,7 +518,7 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
             <div style={{ fontSize: '44px', fontWeight: 900, color: esRepaso ? '#38bdf8' : temaColor }}>{puntuacion}%</div>
             <div style={{ color: '#888', fontSize: '13px' }}>{tr('puntuacionFinal')}</div>
             <div style={{ background: '#1a1a2e', borderRadius: '8px', height: '10px', overflow: 'hidden', marginTop: '12px' }}>
-              <div style={{ width: `${puntuacion}%`, height: '100%', background: puntuacion >= 80 ? '#4ade80' : puntuacion >= 60 ? temaColor : '#ff4d6d', borderRadius: '8px', transition: 'width 1s' }} />
+              <div style={{ width: `${puntuacion}%`, height: '100%', background: puntuacion >= 80 ? '#4ade80' : puntuacion >= 60 ? temaColor : 'var(--red)', borderRadius: '8px', transition: 'width 1s' }} />
             </div>
           </div>
 
@@ -550,7 +550,7 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
           <span style={{ fontSize: '12px', color: '#888' }}>
             {completados}/{totalOriginal.current}
             {modoEstudio === 'bucle' && pendientesRepetir > 0 && (
-              <span style={{ color: '#ff4d6d', marginLeft: '8px' }}>+{cola.length - posicion - 1} por repetir</span>
+              <span style={{ color: 'var(--red)', marginLeft: '8px' }}>+{cola.length - posicion - 1} por repetir</span>
             )}
           </span>
         </div>
@@ -583,7 +583,7 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <p style={{ fontSize: '11px', color: temaColor, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px', margin: 0 }}>{tr('pregunta')}</p>
                     {esRepeticion && (
-                      <span style={{ fontSize: '11px', background: '#ff4d6d20', color: '#ff4d6d', padding: '2px 8px', borderRadius: '6px', fontWeight: 700 }}>
+                      <span style={{ fontSize: '11px', background: 'var(--red)20', color: 'var(--red)', padding: '2px 8px', borderRadius: '6px', fontWeight: 700 }}>
                         🔁 {tr('intentoLabel')} #{(repeticiones.current.get(cardIdx) || 0) + 1}
                       </span>
                     )}
@@ -610,8 +610,8 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
                     </button>
                   </div>
                   {mostrarRespuesta && (
-                    <div style={{ background: '#f5c84215', border: '1px solid #f5c84244', borderRadius: '12px', padding: '14px 16px' }}>
-                      <p style={{ fontSize: '10px', color: '#f5c842', fontWeight: 800, margin: '0 0 6px', textTransform: 'uppercase' }}>{tr('respuesta')}</p>
+                    <div style={{ background: 'var(--gold)15', border: '1px solid var(--gold)44', borderRadius: '12px', padding: '14px 16px' }}>
+                      <p style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 800, margin: '0 0 6px', textTransform: 'uppercase' }}>{tr('respuesta')}</p>
                       <p style={{ fontSize: '15px', color: '#fff', margin: 0, lineHeight: 1.6 }}>{cardActual.answer}</p>
                     </div>
                   )}
@@ -653,9 +653,9 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
                   </div>
 
                   {modoEstudio === 'bucle' && (resultado.nivel === 'incorrecta' || resultado.nivel === 'muy_incorrecta' || resultado.nivel === 'medio_correcta') && (
-                    <div style={{ background: '#ff4d6d15', borderRadius: '8px', padding: '8px 12px', border: '1px solid #ff4d6d44', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ background: 'var(--red)15', borderRadius: '8px', padding: '8px 12px', border: '1px solid var(--red)44', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span>🔁</span>
-                      <p style={{ fontSize: '11px', color: '#ff4d6d', margin: 0, fontWeight: 600 }}>
+                      <p style={{ fontSize: '11px', color: 'var(--red)', margin: 0, fontWeight: 600 }}>
                         {resultado.nivel === 'medio_correcta'
                           ? (idioma === 'en'
                             ? `Almost! Will reappear in ${ESPACIADO_MIN}-${ESPACIADO_MAX} cards to make sure you fully master it`

@@ -52,7 +52,7 @@ export default function PartnerProfileModal({ partner, savedMsgs, onOpenSaved, o
         {/* Banner gradient */}
         <div style={{
           height: 110,
-          background: 'linear-gradient(135deg, color-mix(in srgb,#38bdf8 35%,transparent) 0%, color-mix(in srgb,#a78bfa 35%,transparent) 50%, color-mix(in srgb,#f5c842 35%,transparent) 100%)',
+          background: 'linear-gradient(135deg, color-mix(in srgb,#38bdf8 35%,transparent) 0%, color-mix(in srgb,#a78bfa 35%,transparent) 50%, color-mix(in srgb,var(--gold) 35%,transparent) 100%)',
           borderBottom: '2.5px solid var(--text-primary)',
           position: 'relative',
         }}>

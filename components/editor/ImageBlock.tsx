@@ -191,7 +191,7 @@ export default function ImageBlock({ bloque, temaColor, onUpdate, onDelete, onDu
               transform: 'translateX(-50%)',
               background: '#1c1c28',
               borderRadius: 10,
-              border: '1px solid rgba(245,200,66,0.2)',
+              border: '1px solid color-mix(in srgb, var(--gold) 20%, transparent)',
               boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
               display: 'flex',
               alignItems: 'center',
@@ -203,15 +203,15 @@ export default function ImageBlock({ bloque, temaColor, onUpdate, onDelete, onDu
           >
             {/* Rotate left */}
             <button onClick={rotateLeft} title="Rotate left" style={btnStyle}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f5c842" strokeWidth="2.5"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2.5"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg>
             </button>
             {/* Rotate right */}
             <button onClick={rotateRight} title="Rotate right" style={btnStyle}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f5c842" strokeWidth="2.5"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 000 11H13"/></svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2.5"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 000 11H13"/></svg>
             </button>
             {/* Flip horizontal */}
             <button onClick={flipH} title="Flip horizontal" style={btnStyle}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f5c842" strokeWidth="2"><path d="M12 3v18M4 7l4 5-4 5M20 7l-4 5 4 5"/></svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2"><path d="M12 3v18M4 7l4 5-4 5M20 7l-4 5 4 5"/></svg>
             </button>
             <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)' }} />
             {/* Duplicate */}

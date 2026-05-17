@@ -119,9 +119,9 @@ export default function RangoSubidaModal({ rangoAnterior, rangoNuevo, onClose }:
 
         {esHimmy && (
           <div style={{
-            fontSize: 14, color: '#f5c842', fontWeight: 700,
-            background: '#f5c84215', borderRadius: 12, padding: '12px 20px',
-            border: '1px solid #f5c84244',
+            fontSize: 14, color: 'var(--gold)', fontWeight: 700,
+            background: 'var(--gold)15', borderRadius: 12, padding: '12px 20px',
+            border: '1px solid var(--gold)44',
           }}>
             👑 Has alcanzado el rango más alto de Studyal
           </div>

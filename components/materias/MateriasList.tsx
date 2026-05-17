@@ -16,7 +16,7 @@ interface Props {
 }
 
 const COLORES = [
-  '#f5c842','#ff4d6d','#38bdf8','#f472b6','#4ade80','#fb923c',
+  'var(--gold)','var(--red)','#38bdf8','#f472b6','#4ade80','#fb923c',
   '#a78bfa','#34d399','#f87171','#60a5fa','#fbbf24','#e879f9',
 ];
 

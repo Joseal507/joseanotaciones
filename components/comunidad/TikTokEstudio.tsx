@@ -25,7 +25,7 @@ interface Post {
 }
 
 const TIPO_INFO: Record<string, { emoji: string; label: string; color: string }> = {
-  apunte:     { emoji: '📝', label: 'Apunte',     color: '#f5c842' },
+  apunte:     { emoji: '📝', label: 'Apunte',     color: 'var(--gold)' },
   flashcards: { emoji: '🎴', label: 'Flashcards', color: '#a78bfa' },
   quiz:       { emoji: '🧠', label: 'Quiz',       color: '#34d399' },
   post:       { emoji: '💬', label: 'Post',       color: '#38bdf8' },
@@ -378,8 +378,8 @@ export default function TikTokEstudio({ userId }: Props) {
             >
               <div style={{
                 width: '44px', height: '44px', borderRadius: '50%',
-                background: post.user_liked ? '#ff4d6d' : 'rgba(0,0,0,0.4)',
-                border: `2px solid ${post.user_liked ? '#ff4d6d' : 'rgba(255,255,255,0.2)'}`,
+                background: post.user_liked ? 'var(--red)' : 'rgba(0,0,0,0.4)',
+                border: `2px solid ${post.user_liked ? 'var(--red)' : 'rgba(255,255,255,0.2)'}`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: '20px',
                 transform: likeAnim ? 'scale(1.4)' : 'scale(1)',
@@ -415,8 +415,8 @@ export default function TikTokEstudio({ userId }: Props) {
             >
               <div style={{
                 width: '44px', height: '44px', borderRadius: '50%',
-                background: post.guardado ? '#f5c842' : 'rgba(0,0,0,0.4)',
-                border: `2px solid ${post.guardado ? '#f5c842' : 'rgba(255,255,255,0.2)'}`,
+                background: post.guardado ? 'var(--gold)' : 'rgba(0,0,0,0.4)',
+                border: `2px solid ${post.guardado ? 'var(--gold)' : 'rgba(255,255,255,0.2)'}`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: '20px',
                 transform: saveAnim ? 'scale(1.3)' : 'scale(1)',

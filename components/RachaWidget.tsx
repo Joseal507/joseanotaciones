@@ -134,7 +134,7 @@ export default function RachaWidget({ compact = false }: Props) {
           }}>
             <div style={{
               fontSize: 44,
-              filter: tieneRacha ? 'drop-shadow(0 0 8px rgba(245,200,66,0.6))' : 'grayscale(0.6)',
+              filter: tieneRacha ? 'drop-shadow(0 0 8px color-mix(in srgb, var(--gold) 60%, transparent))' : 'grayscale(0.6)',
               animation: tieneRacha ? 'nbFire 2s infinite' : 'none',
             }}>
               🔥
@@ -144,7 +144,7 @@ export default function RachaWidget({ compact = false }: Props) {
                 fontFamily: HAND, fontSize: 56, fontWeight: 900,
                 color: tieneRacha ? 'var(--gold)' : 'var(--text-faint)',
                 lineHeight: 0.9,
-                textShadow: tieneRacha ? '0 0 12px rgba(245,200,66,0.4)' : 'none',
+                textShadow: tieneRacha ? '0 0 12px color-mix(in srgb, var(--gold) 40%, transparent)' : 'none',
               }}>
                 {racha.rachaActual}
               </div>
@@ -166,7 +166,7 @@ export default function RachaWidget({ compact = false }: Props) {
             padding: '8px 12px',
             textAlign: 'center',
             transform: 'rotate(2deg)',
-            boxShadow: '2px 3px 0 rgba(245,200,66,0.4)',
+            boxShadow: '2px 3px 0 color-mix(in srgb, var(--gold) 40%, transparent)',
           }}>
             <div style={{
               fontFamily: HAND, fontSize: 12, fontWeight: 700,

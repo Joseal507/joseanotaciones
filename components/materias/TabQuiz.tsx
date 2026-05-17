@@ -27,8 +27,8 @@ interface Props {
 
 const NIVELES: { id: NivelQuiz; emoji: string; label: string; desc: string; color: string; presets: number[] }[] = [
   { id: 'facil',      emoji: '🟢', label: 'Fácil',      desc: 'Definiciones',         color: '#4ade80', presets: [5, 10, 15, 20, 25, 35] },
-  { id: 'intermedio', emoji: '🟡', label: 'Intermedio', desc: 'Comprensión',           color: '#f5c842', presets: [5, 10, 15, 20, 35, 50] },
-  { id: 'dificil',    emoji: '🔴', label: 'Difícil',    desc: 'Análisis',              color: '#ff4d6d', presets: [5, 10, 20, 35, 50] },
+  { id: 'intermedio', emoji: '🟡', label: 'Intermedio', desc: 'Comprensión',           color: 'var(--gold)', presets: [5, 10, 15, 20, 35, 50] },
+  { id: 'dificil',    emoji: '🔴', label: 'Difícil',    desc: 'Análisis',              color: 'var(--red)', presets: [5, 10, 20, 35, 50] },
 ];
 
 export default function TabQuiz({ contenido, temaColor, materiaNombre, materiaColor, idioma, esImagen, onQuizGenerado }: Props) {
@@ -358,7 +358,7 @@ export default function TabQuiz({ contenido, temaColor, materiaNombre, materiaCo
             width: i === idx ? 22 : 10,
             height: 10,
             borderRadius: 5,
-            background: i < idx ? (resultados[i]?.correcta ? '#4ade80' : '#ff4d6d') : i === idx ? temaColor : 'var(--border-color)',
+            background: i < idx ? (resultados[i]?.correcta ? '#4ade80' : 'var(--red)') : i === idx ? temaColor : 'var(--border-color)',
             border: i === idx ? '1.5px solid var(--text-primary)' : 'none',
             boxShadow: i === idx ? '1px 1px 0 var(--text-primary)' : 'none',
             transition: 'all 0.3s cubic-bezier(.25,.8,.25,1)',
@@ -439,10 +439,10 @@ export default function TabQuiz({ contenido, temaColor, materiaNombre, materiaCo
               shadowColor = '#4ade80';
               textColor = '#16a34a';
             } else if (i === seleccionada) {
-              borderColor = '#ff4d6d';
-              bgColor = 'color-mix(in srgb,#ff4d6d 18%,var(--bg-card))';
-              shadowColor = '#ff4d6d';
-              textColor = '#ff4d6d';
+              borderColor = 'var(--red)';
+              bgColor = 'color-mix(in srgb,var(--red) 18%,var(--bg-card))';
+              shadowColor = 'var(--red)';
+              textColor = 'var(--red)';
             }
           }
 
@@ -507,8 +507,8 @@ export default function TabQuiz({ contenido, temaColor, materiaNombre, materiaCo
           <div style={{
             background: seleccionada === preguntaActual.correcta
               ? 'color-mix(in srgb,#4ade80 14%,transparent)'
-              : 'color-mix(in srgb,#ff4d6d 14%,transparent)',
-            border: `2.5px dashed ${seleccionada === preguntaActual.correcta ? '#4ade80' : '#ff4d6d'}`,
+              : 'color-mix(in srgb,var(--red) 14%,transparent)',
+            border: `2.5px dashed ${seleccionada === preguntaActual.correcta ? '#4ade80' : 'var(--red)'}`,
             borderRadius: 12,
             padding: '12px 16px',
             marginBottom: 12,
@@ -516,7 +516,7 @@ export default function TabQuiz({ contenido, temaColor, materiaNombre, materiaCo
           }}>
             <p style={{
               fontFamily: HAND, fontSize: 19, fontWeight: 900,
-              color: seleccionada === preguntaActual.correcta ? '#16a34a' : '#ff4d6d',
+              color: seleccionada === preguntaActual.correcta ? '#16a34a' : 'var(--red)',
               margin: '0 0 5px',
               fontStyle: 'italic',
             }}>
@@ -628,7 +628,7 @@ export default function TabQuiz({ contenido, temaColor, materiaNombre, materiaCo
         </div>
         <div style={{
           fontFamily: HAND, fontSize: 42, fontWeight: 900,
-          color: porcentaje >= 80 ? '#4ade80' : porcentaje >= 60 ? '#f5c842' : '#ff4d6d',
+          color: porcentaje >= 80 ? '#4ade80' : porcentaje >= 60 ? 'var(--gold)' : 'var(--red)',
           lineHeight: 1, marginBottom: 4,
         }}>
           {porcentaje}%
@@ -650,7 +650,7 @@ export default function TabQuiz({ contenido, temaColor, materiaNombre, materiaCo
         }}>
           <div style={{
             width: `${porcentaje}%`, height: '100%',
-            background: porcentaje >= 80 ? '#4ade80' : porcentaje >= 60 ? '#f5c842' : '#ff4d6d',
+            background: porcentaje >= 80 ? '#4ade80' : porcentaje >= 60 ? 'var(--gold)' : 'var(--red)',
             borderRadius: 4,
             transition: 'width 1s cubic-bezier(.25,.8,.25,1)',
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.3)',
@@ -762,9 +762,9 @@ export default function TabQuiz({ contenido, temaColor, materiaNombre, materiaCo
               <div key={i} style={{
                 display: 'flex', alignItems: 'flex-start', gap: 10,
                 padding: '8px 10px',
-                background: resultados[i]?.correcta ? 'color-mix(in srgb,#4ade80 8%,transparent)' : 'color-mix(in srgb,#ff4d6d 8%,transparent)',
+                background: resultados[i]?.correcta ? 'color-mix(in srgb,#4ade80 8%,transparent)' : 'color-mix(in srgb,var(--red) 8%,transparent)',
                 borderRadius: 8,
-                border: `1.5px dashed ${resultados[i]?.correcta ? '#4ade80' : '#ff4d6d'}`,
+                border: `1.5px dashed ${resultados[i]?.correcta ? '#4ade80' : 'var(--red)'}`,
                 transform: `rotate(${(i % 2 === 0 ? -0.2 : 0.2)}deg)`,
                 textAlign: 'left',
               }}>

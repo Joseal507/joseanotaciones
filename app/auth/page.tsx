@@ -167,7 +167,7 @@ export default function AuthPage() {
               <circle cx="50" cy="50" r="46" fill="none"
                 stroke="var(--gold)" strokeWidth="2.5" opacity="0.7"
                 strokeDasharray="6 4" strokeLinecap="round"
-                style={{ filter: 'drop-shadow(0 0 6px rgba(245,200,66,0.4))' }}
+                style={{ filter: 'drop-shadow(0 0 6px color-mix(in srgb, var(--gold) 40%, transparent))' }}
               />
               <circle cx="50" cy="50" r="40" fill="none"
                 stroke="var(--gold)" strokeWidth="1.5" opacity="0.3"
@@ -176,7 +176,7 @@ export default function AuthPage() {
             </svg>
             <img src="/logo.png" alt="StudyAL" style={{
               width: 62, height: 62, objectFit: 'contain',
-              filter: 'drop-shadow(0 4px 12px rgba(245,200,66,0.5))',
+              filter: 'drop-shadow(0 4px 12px color-mix(in srgb, var(--gold) 50%, transparent))',
             }} />
           </div>
           <h1 style={{
@@ -210,8 +210,8 @@ export default function AuthPage() {
             position: 'absolute', top: -10, left: '50%',
             transform: 'translateX(-50%) rotate(-3deg)',
             width: 80, height: 18,
-            background: 'rgba(245,200,66,0.55)',
-            border: '1px solid rgba(245,200,66,0.3)',
+            background: 'color-mix(in srgb, var(--gold) 55%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)',
             boxShadow: '0 2px 5px rgba(0,0,0,0.18)',
             zIndex: 10,
           }} />

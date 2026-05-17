@@ -72,10 +72,10 @@ export default function RangoDisplay({ xpTotal, size = 'md', mostrarProgreso = t
       {mostrarProgreso && esHimmy && (
         <div style={{
           fontSize: 12,
-          color: '#f5c842',
+          color: 'var(--gold)',
           fontWeight: 700,
           textAlign: 'center',
-          textShadow: '0 0 8px #f5c842',
+          textShadow: '0 0 8px var(--gold)',
         }}>
           👑 Rango máximo alcanzado
         </div>

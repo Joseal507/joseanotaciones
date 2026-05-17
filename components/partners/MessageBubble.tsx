@@ -75,7 +75,7 @@ export default function MessageBubble({
   const replyToId = msg.metadata?.reply_to;
 
   const bubbleRot = esMio ? -0.4 : 0.4;
-  const shadowColor = jumped ? '#38bdf8' : isSavedMsg ? '#f5c842' : esMio ? '#38bdf8' : 'var(--text-primary)';
+  const shadowColor = jumped ? '#38bdf8' : isSavedMsg ? 'var(--gold)' : esMio ? '#38bdf8' : 'var(--text-primary)';
 
   const bubble: any = {
     padding: '10px 14px',
@@ -83,8 +83,8 @@ export default function MessageBubble({
     background: esMio ? '#38bdf8' : 'var(--bg-card)',
     position: 'relative',
     maxWidth: '100%',
-    border: `2px ${isSavedMsg ? 'solid' : esMio ? 'solid' : 'solid'} ${jumped ? '#38bdf8' : isSavedMsg ? '#f5c842' : 'var(--text-primary)'}`,
-    boxShadow: `2px 3px 0 ${shadowColor}${jumped ? ', 0 0 0 4px rgba(56,189,248,0.15), 0 0 18px rgba(56,189,248,0.3)' : isSavedMsg ? ', 0 0 12px rgba(245,200,66,0.25)' : ''}`,
+    border: `2px ${isSavedMsg ? 'solid' : esMio ? 'solid' : 'solid'} ${jumped ? '#38bdf8' : isSavedMsg ? 'var(--gold)' : 'var(--text-primary)'}`,
+    boxShadow: `2px 3px 0 ${shadowColor}${jumped ? ', 0 0 0 4px rgba(56,189,248,0.15), 0 0 18px rgba(56,189,248,0.3)' : isSavedMsg ? ', 0 0 12px color-mix(in srgb, var(--gold) 25%, transparent)' : ''}`,
     transition: 'box-shadow 0.25s ease, border-color 0.25s ease, transform 0.2s',
     userSelect: 'none' as const,
     WebkitUserSelect: 'none' as const,
@@ -101,7 +101,7 @@ export default function MessageBubble({
     label: isSavedMsg ? 'Guardado' : 'Guardar',
     icon: '📌',
     fn: () => { onGuardar(msg.id); closeActions(); },
-    color: isSavedMsg ? '#f5c842' : undefined,
+    color: isSavedMsg ? 'var(--gold)' : undefined,
   });
   actions.push({ label: 'Responder', icon: '↩️', fn: () => { onReply(msg); closeActions(); } });
   if (esMio) actions.push({ label: 'Borrar', icon: '🗑️', fn: () => { onBorrar(msg.id); closeActions(); }, danger: true });
@@ -267,7 +267,7 @@ export default function MessageBubble({
             {isSavedMsg && (
               <div style={{
                 position: 'absolute', top: 10, right: 10,
-                background: '#f5c842',
+                background: 'var(--gold)',
                 border: '2px solid var(--text-primary)',
                 boxShadow: '1px 2px 0 var(--text-primary)',
                 borderRadius: 8,
@@ -355,7 +355,7 @@ export default function MessageBubble({
           }}>
             ~ {fmtTime(msg.created_at)}{msg.edited_at ? ' · editado' : ''}{esMio && msg.read_at ? ' · ✓✓' : ''} ~
           </span>
-          {isSavedMsg && <span style={{ fontSize: 12, color: '#f5c842' }}>📌</span>}
+          {isSavedMsg && <span style={{ fontSize: 12, color: 'var(--gold)' }}>📌</span>}
           {msg.expires_at && !isSavedMsg && <span style={{ fontSize: 12, color: 'var(--red)' }}>⏳</span>}
         </div>
       </div>

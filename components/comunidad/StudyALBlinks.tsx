@@ -30,11 +30,11 @@ interface Post {
 }
 
 const TIPO: Record<Post['tipo'], { label: string; color: string; emoji: string }> = {
-  apunte:     { label: 'Apunte',     color: '#f5c842', emoji: '📝' },
+  apunte:     { label: 'Apunte',     color: 'var(--gold)', emoji: '📝' },
   flashcards: { label: 'Flashcards', color: '#a78bfa', emoji: '🎴' },
   quiz:       { label: 'Quiz',       color: '#34d399', emoji: '🧠' },
   post:       { label: 'Post',       color: '#38bdf8', emoji: '💬' },
-  video:      { label: 'Video',      color: '#ff4d6d', emoji: '🎥' },
+  video:      { label: 'Video',      color: 'var(--red)', emoji: '🎥' },
 };
 
 export default function StudyALBlinks({
@@ -419,8 +419,8 @@ export default function StudyALBlinks({
       }}>
         {[
           { id: 'all',        label: 'Todo',       color: '#fff' },
-          { id: 'video',      label: 'Videos',     color: '#ff4d6d' },
-          { id: 'apunte',     label: 'Apuntes',    color: '#f5c842' },
+          { id: 'video',      label: 'Videos',     color: 'var(--red)' },
+          { id: 'apunte',     label: 'Apuntes',    color: 'var(--gold)' },
           { id: 'flashcards', label: 'Flashcards', color: '#a78bfa' },
           { id: 'quiz',       label: 'Quizzes',    color: '#34d399' },
         ].map((f, i) => {
@@ -713,9 +713,9 @@ export default function StudyALBlinks({
                 >
                   <div style={{
                     width: 54, height: 54, borderRadius: '50%',
-                    background: post.user_liked ? '#ff4d6d' : 'rgba(0,0,0,0.55)',
+                    background: post.user_liked ? 'var(--red)' : 'rgba(0,0,0,0.55)',
                     border: post.user_liked ? '2.5px solid #fff' : '2.5px solid rgba(255,255,255,0.25)',
-                    boxShadow: post.user_liked ? '2px 3px 0 rgba(0,0,0,0.5), 0 0 16px #ff4d6d88' : '2px 3px 0 rgba(0,0,0,0.5)',
+                    boxShadow: post.user_liked ? '2px 3px 0 rgba(0,0,0,0.5), 0 0 16px var(--red)88' : '2px 3px 0 rgba(0,0,0,0.5)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 24,
                     transform: likeAnimId === post.id ? 'scale(1.2) rotate(-8deg)' : 'rotate(-3deg)',
@@ -739,9 +739,9 @@ export default function StudyALBlinks({
                 >
                   <div style={{
                     width: 54, height: 54, borderRadius: '50%',
-                    background: post.guardado ? '#f5c842' : 'rgba(0,0,0,0.55)',
+                    background: post.guardado ? 'var(--gold)' : 'rgba(0,0,0,0.55)',
                     border: post.guardado ? '2.5px solid #fff' : '2.5px solid rgba(255,255,255,0.25)',
-                    boxShadow: post.guardado ? '2px 3px 0 rgba(0,0,0,0.5), 0 0 16px #f5c84288' : '2px 3px 0 rgba(0,0,0,0.5)',
+                    boxShadow: post.guardado ? '2px 3px 0 rgba(0,0,0,0.5), 0 0 16px color-mix(in srgb, var(--gold) 55%, transparent)' : '2px 3px 0 rgba(0,0,0,0.5)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 24,
                     transform: saveAnimId === post.id ? 'scale(1.18) rotate(5deg)' : 'rotate(3deg)',

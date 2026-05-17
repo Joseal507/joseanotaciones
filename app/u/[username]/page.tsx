@@ -72,10 +72,10 @@ const getNivel = (xp: number) => getLevelFromXp(xp || 0);
 const getXpEnNivel = (xp: number) => getXpInCurrentLevel(xp || 0);
 const getXpParaSiguiente = (xp: number) => getXpNeededForNextLevel(xp || 0);
 const getRankMedal = (r: number) => r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : `#${r}`;
-const getRankColor = (r: number) => r === 1 ? '#f5c842' : r === 2 ? '#c0c0c0' : r === 3 ? '#cd7f32' : '#a78bfa';
+const getRankColor = (r: number) => r === 1 ? 'var(--gold)' : r === 2 ? '#c0c0c0' : r === 3 ? '#cd7f32' : '#a78bfa';
 
 const getTitulo = (nivel: number) => {
-  if (nivel >= 20) return { titulo: 'Maestro del Estudio', color: '#f5c842' };
+  if (nivel >= 20) return { titulo: 'Maestro del Estudio', color: 'var(--gold)' };
   if (nivel >= 15) return { titulo: 'Estudioso Élite', color: '#38bdf8' };
   if (nivel >= 10) return { titulo: 'Estudiante Pro', color: '#4ade80' };
   if (nivel >= 5)  return { titulo: 'En Progreso', color: '#60a5fa' };
@@ -192,8 +192,8 @@ function EditModal({ perfil, onSave, onClose }: {
           position: 'absolute', top: -10, left: '50%',
           transform: 'translateX(-50%) rotate(-4deg)',
           width: 90, height: 18,
-          background: 'rgba(245,200,66,0.55)',
-          border: '1px solid rgba(245,200,66,0.3)',
+          background: 'color-mix(in srgb, var(--gold) 55%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)',
           boxShadow: '0 2px 5px rgba(0,0,0,0.18)',
           zIndex: 5,
         }}/>
@@ -1048,7 +1048,7 @@ export default function PerfilPublicoPage() {
         }}>
           {[
             { emoji: '🎴', label: tr('flashcardsEstudiadas'), value: perfil.flashcards_estudiadas || 0, color: 'var(--gold)', rot: -1.5 },
-            { emoji: '🎯', label: tr('precisionGlobal'),       value: `${Math.round(perfil.precision_global || 0)}%`, color: (perfil.precision_global || 0) >= 80 ? '#4ade80' : (perfil.precision_global || 0) >= 60 ? '#f5c842' : '#ff4d6d', rot: 1.5 },
+            { emoji: '🎯', label: tr('precisionGlobal'),       value: `${Math.round(perfil.precision_global || 0)}%`, color: (perfil.precision_global || 0) >= 80 ? '#4ade80' : (perfil.precision_global || 0) >= 60 ? 'var(--gold)' : 'var(--red)', rot: 1.5 },
             { emoji: '🔥', label: tr('rachaActual'),            value: `${perfil.racha_actual || 0} ${tr('dias')}`, color: 'var(--red)', rot: -1 },
             { emoji: '⚡', label: tr('mejorRachaLabel'),         value: `${perfil.mejor_racha || 0} ${tr('dias')}`, color: 'var(--pink)', rot: 1 },
           ].map((s, i) => (

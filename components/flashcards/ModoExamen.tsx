@@ -54,10 +54,10 @@ interface PreguntaExamen {
 type Fase = 'config' | 'examen' | 'fin';
 
 const NIVEL_INFO = {
-  INSANE: { emoji: '🔥', label: 'INSANE', color: '#f5c842', bg: '#f5c84220' },
+  INSANE: { emoji: '🔥', label: 'INSANE', color: 'var(--gold)', bg: 'var(--gold)20' },
   correcta: { emoji: '✅', label: 'Correcta', color: '#4ade80', bg: '#4ade8020' },
   medio_correcta: { emoji: '🟡', label: 'Medio', color: '#fb923c', bg: '#fb923c20' },
-  incorrecta: { emoji: '❌', label: 'Incorrecta', color: '#ff4d6d', bg: '#ff4d6d20' },
+  incorrecta: { emoji: '❌', label: 'Incorrecta', color: 'var(--red)', bg: 'var(--red)20' },
   muy_incorrecta: { emoji: '💀', label: 'Muy mal', color: '#888', bg: '#88888820' },
 };
 
@@ -433,7 +433,7 @@ export default function ModoExamen({ flashcards, contenido, nombreDoc, temaColor
               flexShrink: 0,
               transition: 'all 0.3s',
               background: i < idxActual
-                ? (resultadosDetalle[i]?.correcto ? '#4ade80' : '#ff4d6d')
+                ? (resultadosDetalle[i]?.correcto ? '#4ade80' : 'var(--red)')
                 : i === idxActual
                   ? temaColor
                   : p.tipo === 'escrita' ? temaColor + '44' : '#a78bfa44',
@@ -479,8 +479,8 @@ export default function ModoExamen({ flashcards, contenido, nombreDoc, temaColor
                   </button>
                 </div>
                 {mostrarRespuesta && (
-                  <div style={{ background: '#f5c84215', border: '1px solid #f5c84244', borderRadius: '10px', padding: '12px 14px' }}>
-                    <p style={{ fontSize: '10px', color: '#f5c842', fontWeight: 700, margin: '0 0 4px', textTransform: 'uppercase' }}>{tr('respuestaLabel')}</p>
+                  <div style={{ background: 'var(--gold)15', border: '1px solid var(--gold)44', borderRadius: '10px', padding: '12px 14px' }}>
+                    <p style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 700, margin: '0 0 4px', textTransform: 'uppercase' }}>{tr('respuestaLabel')}</p>
                     <p style={{ fontSize: '14px', color: '#fff', margin: 0 }}>{preguntaActual.respuestaCorrecta}</p>
                   </div>
                 )}
@@ -534,7 +534,7 @@ export default function ModoExamen({ flashcards, contenido, nombreDoc, temaColor
 
                     if (respondida) {
                       if (i === preguntaActual.correcta) { borderColor = '#4ade80'; bgColor = 'rgba(74,222,128,0.12)'; }
-                      else if (i === opcionSeleccionada) { borderColor = '#ff4d6d'; bgColor = 'rgba(255,77,109,0.12)'; textColor = '#ff4d6d'; }
+                      else if (i === opcionSeleccionada) { borderColor = 'var(--red)'; bgColor = 'color-mix(in srgb, var(--red) 12%, transparent)'; textColor = 'var(--red)'; }
                       else { borderColor = '#222'; textColor = '#555'; }
                     }
 
@@ -545,8 +545,8 @@ export default function ModoExamen({ flashcards, contenido, nombreDoc, temaColor
                         style={{ padding: '14px 18px', borderRadius: '12px', border: `2px solid ${borderColor}`, background: bgColor, color: textColor, fontSize: '14px', fontWeight: 500, cursor: respondida ? 'default' : 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '12px', width: '100%', transition: 'all 0.15s' }}>
                         <span style={{
                           width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0,
-                          border: `2px solid ${respondida && i === preguntaActual.correcta ? '#4ade80' : respondida && i === opcionSeleccionada ? '#ff4d6d' : '#555'}`,
-                          background: respondida && i === preguntaActual.correcta ? '#4ade80' : respondida && i === opcionSeleccionada ? '#ff4d6d' : 'transparent',
+                          border: `2px solid ${respondida && i === preguntaActual.correcta ? '#4ade80' : respondida && i === opcionSeleccionada ? 'var(--red)' : '#555'}`,
+                          background: respondida && i === preguntaActual.correcta ? '#4ade80' : respondida && i === opcionSeleccionada ? 'var(--red)' : 'transparent',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: '12px', fontWeight: 800,
                           color: respondida && (i === preguntaActual.correcta || i === opcionSeleccionada) ? '#000' : '#aaa',
@@ -561,8 +561,8 @@ export default function ModoExamen({ flashcards, contenido, nombreDoc, temaColor
 
                 {respondida && (
                   <>
-                    <div style={{ background: opcionSeleccionada === preguntaActual.correcta ? 'rgba(74,222,128,0.1)' : 'rgba(255,77,109,0.1)', border: `2px solid ${opcionSeleccionada === preguntaActual.correcta ? '#4ade8066' : '#ff4d6d66'}`, borderRadius: '12px', padding: '12px 16px', marginBottom: '12px' }}>
-                      <p style={{ fontSize: '13px', fontWeight: 800, color: opcionSeleccionada === preguntaActual.correcta ? '#4ade80' : '#ff4d6d', margin: '0 0 6px' }}>
+                    <div style={{ background: opcionSeleccionada === preguntaActual.correcta ? 'rgba(74,222,128,0.1)' : 'color-mix(in srgb, var(--red) 10%, transparent)', border: `2px solid ${opcionSeleccionada === preguntaActual.correcta ? '#4ade8066' : 'var(--red)66'}`, borderRadius: '12px', padding: '12px 16px', marginBottom: '12px' }}>
+                      <p style={{ fontSize: '13px', fontWeight: 800, color: opcionSeleccionada === preguntaActual.correcta ? '#4ade80' : 'var(--red)', margin: '0 0 6px' }}>
                         {opcionSeleccionada === preguntaActual.correcta ? '✅ ' + (tr('correcto').replace('✅ ','')) : '❌ ' + (tr('incorrecto').replace('❌ ',''))}
                       </p>
                       <p style={{ fontSize: '13px', color: '#ccc', margin: 0, lineHeight: 1.5 }}><MathText text={preguntaActual.explicacion || ""} /></p>
@@ -601,9 +601,9 @@ export default function ModoExamen({ flashcards, contenido, nombreDoc, temaColor
             {stats.correctas} / {preguntas.length} {tr('correctasCount')}
           </div>
           <div style={{ background: '#1a1a2e', borderRadius: '8px', height: '10px', overflow: 'hidden', marginTop: '14px' }}>
-            <div style={{ width: `${porcentajeFinal}%`, height: '100%', background: porcentajeFinal >= 80 ? '#4ade80' : porcentajeFinal >= 60 ? temaColor : '#ff4d6d', borderRadius: '8px', transition: 'width 1s' }} />
+            <div style={{ width: `${porcentajeFinal}%`, height: '100%', background: porcentajeFinal >= 80 ? '#4ade80' : porcentajeFinal >= 60 ? temaColor : 'var(--red)', borderRadius: '8px', transition: 'width 1s' }} />
           </div>
-          <p style={{ fontSize: '13px', color: porcentajeFinal >= 80 ? '#4ade80' : porcentajeFinal >= 60 ? temaColor : '#ff4d6d', margin: '12px 0 0', fontWeight: 700 }}>
+          <p style={{ fontSize: '13px', color: porcentajeFinal >= 80 ? '#4ade80' : porcentajeFinal >= 60 ? temaColor : 'var(--red)', margin: '12px 0 0', fontWeight: 700 }}>
             {porcentajeFinal >= 80
               ? (tr('excelenteListo'))
               : porcentajeFinal >= 60
@@ -618,8 +618,8 @@ export default function ModoExamen({ flashcards, contenido, nombreDoc, temaColor
             <div style={{ fontSize: '28px', fontWeight: 900, color: '#4ade80' }}>{stats.correctas}</div>
             <div style={{ fontSize: '12px', color: '#888' }}>{tr('acertadas')}</div>
           </div>
-          <div style={{ background: '#ff4d6d20', border: '1px solid #ff4d6d44', borderRadius: '12px', padding: '14px' }}>
-            <div style={{ fontSize: '28px', fontWeight: 900, color: '#ff4d6d' }}>{stats.incorrectas}</div>
+          <div style={{ background: 'var(--red)20', border: '1px solid var(--red)44', borderRadius: '12px', padding: '14px' }}>
+            <div style={{ fontSize: '28px', fontWeight: 900, color: 'var(--red)' }}>{stats.incorrectas}</div>
             <div style={{ fontSize: '12px', color: '#888' }}>{tr('falladas')}</div>
           </div>
         </div>
@@ -631,7 +631,7 @@ export default function ModoExamen({ flashcards, contenido, nombreDoc, temaColor
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {resultadosDetalle.map((r, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '8px 10px', background: r.correcto ? 'rgba(74,222,128,0.05)' : 'rgba(255,77,109,0.05)', borderRadius: '8px', border: `1px solid ${r.correcto ? '#4ade8022' : '#ff4d6d22'}` }}>
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '8px 10px', background: r.correcto ? 'rgba(74,222,128,0.05)' : 'color-mix(in srgb, var(--red) 5%, transparent)', borderRadius: '8px', border: `1px solid ${r.correcto ? '#4ade8022' : 'var(--red)22'}` }}>
                 <span style={{ fontSize: '13px', flexShrink: 0 }}>{r.correcto ? '✅' : '❌'}</span>
                 <span style={{ fontSize: '10px', background: r.tipo === 'escrita' ? temaColor + '20' : '#a78bfa20', color: r.tipo === 'escrita' ? temaColor : '#a78bfa', padding: '1px 6px', borderRadius: '4px', fontWeight: 700, flexShrink: 0, alignSelf: 'flex-start', marginTop: '1px' }}>
                   {r.tipo === 'escrita' ? '✍️' : '🎯'}

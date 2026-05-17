@@ -405,7 +405,7 @@ export default function ExportMenu({
             </h2>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button onClick={() => { setShowPreview(false); exportPDF(); }}
-                style={{ padding: '8px 18px', borderRadius: '10px', border: 'none', background: '#f5c842', color: '#000', fontWeight: 800, cursor: 'pointer', fontSize: '13px' }}>
+                style={{ padding: '8px 18px', borderRadius: '10px', border: 'none', background: 'var(--gold)', color: '#000', fontWeight: 800, cursor: 'pointer', fontSize: '13px' }}>
                 📄 PDF
               </button>
               <button onClick={() => { setShowPreview(false); exportWord(); }}

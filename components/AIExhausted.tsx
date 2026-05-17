@@ -24,8 +24,8 @@ export default function AIExhausted({ onClose }: Props) {
         maxWidth: '420px',
         width: '100%',
         textAlign: 'center',
-        border: '2px solid #ff4d6d44',
-        boxShadow: '0 20px 80px rgba(255,77,109,0.3)',
+        border: '2px solid var(--red)44',
+        boxShadow: '0 20px 80px color-mix(in srgb, var(--red) 30%, transparent)',
       }}>
 
         {/* Termómetro con fiebre animado */}
@@ -38,7 +38,7 @@ export default function AIExhausted({ onClose }: Props) {
 
         <h2 style={{
           fontSize: '22px', fontWeight: 900,
-          color: '#ff4d6d', margin: '0 0 12px',
+          color: 'var(--red)', margin: '0 0 12px',
           lineHeight: 1.3,
         }}>
           {idioma === 'en'
@@ -47,8 +47,8 @@ export default function AIExhausted({ onClose }: Props) {
         </h2>
 
         <div style={{
-          background: 'rgba(255,77,109,0.1)',
-          border: '1px solid #ff4d6d33',
+          background: 'color-mix(in srgb, var(--red) 10%, transparent)',
+          border: '1px solid var(--red)33',
           borderRadius: '14px',
           padding: '16px',
           marginBottom: '20px',
@@ -88,7 +88,7 @@ export default function AIExhausted({ onClose }: Props) {
           }}>
             <div style={{
               width: '3%', height: '100%',
-              background: 'linear-gradient(90deg, #ff4d6d, #ff8c69)',
+              background: 'linear-gradient(90deg, var(--red), #ff8c69)',
               borderRadius: '8px',
               animation: 'pulse 1s infinite',
             }} />
@@ -134,7 +134,7 @@ export default function AIExhausted({ onClose }: Props) {
           <button onClick={onClose} style={{
             width: '100%', padding: '14px',
             borderRadius: '12px', border: 'none',
-            background: 'linear-gradient(135deg, #ff4d6d, #ff8c69)',
+            background: 'linear-gradient(135deg, var(--red), #ff8c69)',
             color: '#fff', fontSize: '15px', fontWeight: 800,
             cursor: 'pointer',
           }}>

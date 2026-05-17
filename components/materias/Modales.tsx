@@ -387,8 +387,8 @@ export function ModalApunte({ onClose, onConfirm, colorTema }: ModalProps & { co
               position: 'absolute', top: -6, left: '50%',
               transform: 'translateX(-50%) rotate(-3deg)',
               width: 50, height: 14,
-              background: 'rgba(245,200,66,0.55)',
-              border: '1px solid rgba(245,200,66,0.3)',
+              background: 'color-mix(in srgb, var(--gold) 55%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)',
               boxShadow: '0 1px 3px rgba(0,0,0,0.18)',
               zIndex: 5,
             }}/>

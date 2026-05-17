@@ -5,6 +5,14 @@ import { getRacha } from '../lib/racha';
 import { dispararXPToast } from './XPToast';
 import { darXP } from '../lib/xpClient';
 
+const getCssVar = (name: string, fallback = '#d6b26f'): string => {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  } catch { return fallback; }
+};
+
 const HAND = "'Caveat',cursive";
 const DAILY_KEY = 'studyal_daily_reward_date';
 
@@ -28,7 +36,7 @@ interface Prize { label: string; xp: number; lineColor: string; isNegative?: boo
 
 function getPrizesForRacha(r: number): Prize[] {
   if (r >= 30) return [
-    { label: '+500 XP', xp: 500,  lineColor: '#f5c842' },
+    { label: '+500 XP', xp: 500,  lineColor: getCssVar('--gold') },
     { label: '-100 XP', xp: -100, lineColor: '#ef4444', isNegative: true },
     { label: '+1000 XP',xp: 1000, lineColor: '#a855f7' },
     { label: '+250 XP', xp: 250,  lineColor: '#38bdf8' },
@@ -38,7 +46,7 @@ function getPrizesForRacha(r: number): Prize[] {
     { label: '+300 XP', xp: 300,  lineColor: '#06b6d4' },
   ];
   if (r >= 14) return [
-    { label: '+150 XP', xp: 150,  lineColor: '#f5c842' },
+    { label: '+150 XP', xp: 150,  lineColor: getCssVar('--gold') },
     { label: '-50 XP',  xp: -50,  lineColor: '#ef4444', isNegative: true },
     { label: '+300 XP', xp: 300,  lineColor: '#a855f7' },
     { label: '+100 XP', xp: 100,  lineColor: '#38bdf8' },
@@ -48,7 +56,7 @@ function getPrizesForRacha(r: number): Prize[] {
     { label: '+125 XP', xp: 125,  lineColor: '#06b6d4' },
   ];
   if (r >= 5) return [
-    { label: '+50 XP',  xp: 50,   lineColor: '#f5c842' },
+    { label: '+50 XP',  xp: 50,   lineColor: getCssVar('--gold') },
     { label: '-20 XP',  xp: -20,  lineColor: '#ef4444', isNegative: true },
     { label: '+100 XP', xp: 100,  lineColor: '#a855f7' },
     { label: '+40 XP',  xp: 40,   lineColor: '#38bdf8' },
@@ -58,7 +66,7 @@ function getPrizesForRacha(r: number): Prize[] {
     { label: '+60 XP',  xp: 60,   lineColor: '#06b6d4' },
   ];
   return [
-    { label: '+15 XP',  xp: 15,   lineColor: '#f5c842' },
+    { label: '+15 XP',  xp: 15,   lineColor: getCssVar('--gold') },
     { label: '-10 XP',  xp: -10,  lineColor: '#ef4444', isNegative: true },
     { label: '+30 XP',  xp: 30,   lineColor: '#a855f7' },
     { label: '+20 XP',  xp: 20,   lineColor: '#38bdf8' },
@@ -70,7 +78,7 @@ function getPrizesForRacha(r: number): Prize[] {
 }
 
 function getTier(r: number) {
-  if (r >= 30) return { label: 'HIMMY ☘', color: '#f5c842' };
+  if (r >= 30) return { label: 'HIMMY ☘', color: getCssVar('--gold') };
   if (r >= 14) return { label: 'PRIME ☘', color: '#a855f7' };
   if (r >= 5)  return { label: 'MID ☘',   color: '#38bdf8' };
   return              { label: 'ROOKIE',  color: '#6b7280' };
@@ -146,13 +154,13 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
 
     // Borde dorado
     ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2);
-    ctx.strokeStyle='#f5c842'; ctx.lineWidth=3;
-    ctx.shadowColor='#f5c842'; ctx.shadowBlur=10; ctx.stroke(); ctx.shadowBlur=0;
+    ctx.strokeStyle=getCssVar('--gold'); ctx.lineWidth=3;
+    ctx.shadowColor=getCssVar('--gold'); ctx.shadowBlur=10; ctx.stroke(); ctx.shadowBlur=0;
 
     // Centro
     ctx.beginPath(); ctx.arc(cx,cy,28,0,Math.PI*2);
     const g = ctx.createRadialGradient(cx,cy,0,cx,cy,28);
-    g.addColorStop(0,'#fde68a'); g.addColorStop(1,'#f5c842');
+    g.addColorStop(0,'#fde68a'); g.addColorStop(1,getCssVar('--gold'));
     ctx.fillStyle=g; ctx.fill();
     ctx.strokeStyle='#000'; ctx.lineWidth=2.5; ctx.stroke();
     ctx.font='18px serif'; ctx.fillStyle='#000';
@@ -234,9 +242,9 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
       <div style={{
         width:'100%',maxWidth:400,
         background:'#0f0f14',
-        border:'2.5px solid #f5c842',
+        border:'2.5px solid var(--gold)',
         borderRadius:18,
-        boxShadow:'6px 7px 0 #f5c842, 0 24px 60px rgba(0,0,0,.75)',
+        boxShadow:'6px 7px 0 var(--gold), 0 24px 60px rgba(0,0,0,.75)',
         padding:'24px 22px 20px',
         transform:'rotate(-1deg)',
         position:'relative',
@@ -247,8 +255,8 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
           position:'absolute',top:-12,left:'50%',
           transform:'translateX(-50%) rotate(-4deg)',
           width:100,height:22,
-          background:'rgba(245,200,66,.55)',
-          border:'1px solid rgba(245,200,66,.3)',
+          background:'color-mix(in srgb, var(--gold) 55%, transparent)',
+          border:'1px solid color-mix(in srgb, var(--gold) 30%, transparent)',
           boxShadow:'0 2px 5px rgba(0,0,0,.2)',zIndex:5,
         }}/>
 
@@ -262,7 +270,7 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
             Ruleta del día
           </h2>
           <svg width="180" height="6" style={{display:'block',margin:'4px auto 0'}}>
-            <path d="M2 3 Q 90 0 178 4" stroke="#f5c842" strokeWidth="2.5" fill="none" strokeLinecap="round" opacity=".7"/>
+            <path d="M2 3 Q 90 0 178 4" stroke={getCssVar('--gold')} strokeWidth="2.5" fill="none" strokeLinecap="round" opacity=".7"/>
           </svg>
           <div style={{marginTop:12,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
             <div style={{
@@ -290,17 +298,17 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
             <div style={{
               width:0,height:0,
               borderLeft:'14px solid transparent',borderRight:'14px solid transparent',
-              borderTop:'26px solid #f5c842',
-              filter:'drop-shadow(0 3px 6px rgba(245,200,66,.6))',
+              borderTop:'26px solid var(--gold)',
+              filter:'drop-shadow(0 3px 6px color-mix(in srgb, var(--gold) 60%, transparent))',
             }}/>
           </div>
           <div style={{
             borderRadius:'50%',padding:8,
             background:'#0a0a0e',
-            border:'3px solid #f5c842',
+            border:'3px solid var(--gold)',
             boxShadow:spinning
-              ?'0 0 50px rgba(245,200,66,.7),inset 0 0 30px rgba(0,0,0,.5)'
-              :'0 0 20px rgba(245,200,66,.3),inset 0 0 30px rgba(0,0,0,.5)',
+              ?'0 0 50px color-mix(in srgb, var(--gold) 70%, transparent),inset 0 0 30px rgba(0,0,0,.5)'
+              :'0 0 20px color-mix(in srgb, var(--gold) 30%, transparent),inset 0 0 30px rgba(0,0,0,.5)',
             transition:'box-shadow .3s',
           }}>
             <canvas ref={canvasRef} style={{display:'block',borderRadius:'50%'}}/>
@@ -335,13 +343,13 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
           {phase==='idle' && (<>
             <button onClick={()=>{setResult(null);setPhase('spinning');setSpinning(true);}} style={{
               flex:1,padding:14,borderRadius:12,
-              border:'2.5px solid #f5c842',background:'#f5c842',color:'#000',
+              border:'2.5px solid var(--gold)',background:getCssVar('--gold'),color:'#000',
               fontFamily:HAND,fontSize:22,fontWeight:800,cursor:'pointer',
-              boxShadow:'3px 4px 0 rgba(245,200,66,.4)',transform:'rotate(-1deg)',
+              boxShadow:'3px 4px 0 color-mix(in srgb, var(--gold) 40%, transparent)',transform:'rotate(-1deg)',
               transition:'all .25s',
             }}
-              onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0)translateY(-2px)';e.currentTarget.style.boxShadow='4px 6px 0 rgba(245,200,66,.5)';}}
-              onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(-1deg)';e.currentTarget.style.boxShadow='3px 4px 0 rgba(245,200,66,.4)';}}>
+              onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0)translateY(-2px)';e.currentTarget.style.boxShadow='4px 6px 0 color-mix(in srgb, var(--gold) 50%, transparent)';}}
+              onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(-1deg)';e.currentTarget.style.boxShadow='3px 4px 0 color-mix(in srgb, var(--gold) 40%, transparent)';}}>
               ☘ Girar
             </button>
             <button onClick={onClose} style={{
@@ -354,8 +362,8 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
           {phase==='spinning' && (
             <div style={{
               flex:1,padding:14,borderRadius:12,
-              border:'2px dashed #f5c842',background:'rgba(245,200,66,.1)',
-              color:'#f5c842',fontFamily:HAND,fontSize:20,fontWeight:800,
+              border:'2px dashed var(--gold)',background:'color-mix(in srgb, var(--gold) 10%, transparent)',
+              color:getCssVar('--gold'),fontFamily:HAND,fontSize:20,fontWeight:800,
               textAlign:'center',fontStyle:'italic',transform:'rotate(-.5deg)',
             }}>⏳ ~ girando... ~</div>
           )}
@@ -363,7 +371,7 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
             <button onClick={handleClaim} disabled={claiming} style={{
               flex:1,padding:14,borderRadius:12,
               border:'2.5px solid #fff',
-              background:result?.isNegative?'#ef4444':'#f5c842',
+              background:result?.isNegative?'#ef4444':getCssVar('--gold'),
               color:result?.isNegative?'#fff':'#000',
               fontFamily:HAND,fontSize:20,fontWeight:800,
               cursor:claiming?'not-allowed':'pointer',

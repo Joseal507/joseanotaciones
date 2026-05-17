@@ -560,7 +560,7 @@ export default function ChatPage() {
                 {nombreUsuario?`${nombreUsuario} ↔ El Chap`:'StudyAL'}
               </p>
               <p style={{fontSize:32,fontWeight:900,color:'#fff',margin:'0 0 6px'}}>El Chap</p>
-              <p style={{fontSize:14,fontWeight:600,margin:0,color:llamadaHablando?'#f5c842':llamadaEscuchando?'#4ade80':llamadaProcesando?'#a78bfa':'#64748b',transition:'color 0.3s'}}>
+              <p style={{fontSize:14,fontWeight:600,margin:0,color:llamadaHablando?'var(--gold)':llamadaEscuchando?'#4ade80':llamadaProcesando?'#a78bfa':'#64748b',transition:'color 0.3s'}}>
                 {llamadaHablando?(idioma==='en'?'Speaking...':'Hablando...'):llamadaEscuchando?(idioma==='en'?'Listening...':'Escuchándote...'):llamadaProcesando?(idioma==='en'?'Thinking...':'Pensando...'):(idioma==='en'?'Connected':'Conectado')}
               </p>
             </div>
@@ -568,15 +568,15 @@ export default function ChatPage() {
             {/* Bola con ondas */}
             <div style={{position:'relative',display:'flex',alignItems:'center',justifyContent:'center',marginBottom:40}}>
               {(llamadaEscuchando||llamadaHablando)&&[1,2,3,4].map(r=>(
-                <div key={r} style={{position:'absolute',width:(isMobile?80:100)+r*(isMobile?35:50),height:(isMobile?80:100)+r*(isMobile?35:50),borderRadius:'50%',border:`1.5px solid ${llamadaHablando?'#f5c842':'#4ade80'}`,opacity:0.3/r,animation:`llamada-ring ${1+r*0.4}s ease-out infinite`,animationDelay:`${r*0.2}s`}}/>
+                <div key={r} style={{position:'absolute',width:(isMobile?80:100)+r*(isMobile?35:50),height:(isMobile?80:100)+r*(isMobile?35:50),borderRadius:'50%',border:`1.5px solid ${llamadaHablando?'var(--gold)':'#4ade80'}`,opacity:0.3/r,animation:`llamada-ring ${1+r*0.4}s ease-out infinite`,animationDelay:`${r*0.2}s`}}/>
               ))}
               {llamadaProcesando&&<div style={{position:'absolute',width:180,height:180,borderRadius:'50%',border:'2px solid transparent',borderTopColor:'#a78bfa',borderRightColor:'#6366f1',animation:'llamada-spin 1s linear infinite'}}/>}
               <div
                 onClick={llamadaHablando?interrumpir:undefined}
-                style={{width:isMobile?110:140,height:isMobile?110:140,borderRadius:'50%',background:llamadaHablando?'radial-gradient(circle at 40% 35%,#f5c842,#f97316)':llamadaEscuchando?'radial-gradient(circle at 40% 35%,#4ade80,#22d3ee)':llamadaProcesando?'radial-gradient(circle at 40% 35%,#a78bfa,#6366f1)':'radial-gradient(circle at 40% 35%,#334155,#1e293b)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:64,cursor:llamadaHablando?'pointer':'default',boxShadow:llamadaHablando?'0 0 60px rgba(245,200,66,0.4)':llamadaEscuchando?'0 0 60px rgba(74,222,128,0.4)':'0 0 20px rgba(0,0,0,0.3)',transition:'all 0.5s ease',animation:(llamadaEscuchando||llamadaHablando)?'llamada-pulse 2s ease-in-out infinite':'none',userSelect:'none'}}>
+                style={{width:isMobile?110:140,height:isMobile?110:140,borderRadius:'50%',background:llamadaHablando?'radial-gradient(circle at 40% 35%,var(--gold),#f97316)':llamadaEscuchando?'radial-gradient(circle at 40% 35%,#4ade80,#22d3ee)':llamadaProcesando?'radial-gradient(circle at 40% 35%,#a78bfa,#6366f1)':'radial-gradient(circle at 40% 35%,#334155,#1e293b)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:64,cursor:llamadaHablando?'pointer':'default',boxShadow:llamadaHablando?'0 0 60px color-mix(in srgb, var(--gold) 40%, transparent)':llamadaEscuchando?'0 0 60px rgba(74,222,128,0.4)':'0 0 20px rgba(0,0,0,0.3)',transition:'all 0.5s ease',animation:(llamadaEscuchando||llamadaHablando)?'llamada-pulse 2s ease-in-out infinite':'none',userSelect:'none'}}>
                 🤖
               </div>
-              {llamadaHablando&&<p style={{position:'absolute',bottom:-28,fontSize:11,color:'#f5c842',whiteSpace:'nowrap',fontWeight:700}}>{idioma==='en'?'👆 Tap to interrupt':'👆 Toca para interrumpir'}</p>}
+              {llamadaHablando&&<p style={{position:'absolute',bottom:-28,fontSize:11,color:'var(--gold)',whiteSpace:'nowrap',fontWeight:700}}>{idioma==='en'?'👆 Tap to interrupt':'👆 Toca para interrumpir'}</p>}
             </div>
 
             {mensajes.length>1&&(

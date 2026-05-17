@@ -19,7 +19,7 @@ export default function PlayerCard({ stats }: { stats: Stats }) {
   const inicial = (stats.nombre||'U')[0].toUpperCase();
 
   const bars = [
-    { l:'🎴 Flash',  v:stats.flashcards,   max:1000, c:'#f5c842' },
+    { l:'🎴 Flash',  v:stats.flashcards,   max:1000, c:'var(--gold)' },
     { l:'🎯 Prec.',  v:stats.precision,    max:100,  c:'#4ade80', s:'%' },
     { l:'⚡ XP',     v:stats.xpTotal,      max:75000,c:'#38bdf8' },
     { l:'🔥 Racha',  v:stats.rachaActual,  max:100,  c:'#f97316', s:'d' },
@@ -33,7 +33,7 @@ export default function PlayerCard({ stats }: { stats: Stats }) {
     Math.min(stats.xpTotal/75000,1)*25 +
     Math.min(stats.mejorRacha/100,1)*25
   ));
-  const ovrC = ovr>=80?'#f5c842':ovr>=60?'#4ade80':ovr>=40?'#38bdf8':'#94a3b8';
+  const ovrC = ovr>=80?'var(--gold)':ovr>=60?'#4ade80':ovr>=40?'#38bdf8':'#94a3b8';
 
   return (
     <div style={{perspective:1000,cursor:'pointer',width:'100%',maxWidth:260}}
@@ -199,7 +199,7 @@ export default function PlayerCard({ stats }: { stats: Stats }) {
             {[
               {l:'OVR', v:ovr,                        c:ovrC,    r:-1.5},
               {l:'Rank',v:`#${stats.rank}`,            c:rango.color,r:1.5},
-              {l:'XP',  v:stats.xpTotal.toLocaleString(),c:'#f5c842',r:-1},
+              {l:'XP',  v:stats.xpTotal.toLocaleString(),c:'var(--gold)',r:-1},
               {l:'Prec',v:`${stats.precision}%`,       c:'#4ade80',r:1},
             ].map((s,i)=>(
               <div key={i} style={{background:'var(--bg-secondary)',border:`2px dashed ${s.c}`,borderRadius:8,padding:'4px',textAlign:'center',transform:`rotate(${s.r}deg)`}}>

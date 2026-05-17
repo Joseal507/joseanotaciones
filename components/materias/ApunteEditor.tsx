@@ -594,7 +594,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
             <button onClick={onBackTema} style={{
               width: '32px', height: '32px', borderRadius: '8px',
               background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)',
-              color: '#f5c842', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--gold)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: '14px', flexShrink: 0,
             }}>←</button>
             <div style={{ minWidth: 0, flex: 1 }}>
@@ -617,7 +617,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
                 borderRadius: '8px',
                 border: '1px solid rgba(255,255,255,0.08)',
                 background: 'rgba(255,255,255,0.05)',
-                color: scrollDirection === 'vertical' ? '#f5c842' : '#38bdf8',
+                color: scrollDirection === 'vertical' ? 'var(--gold)' : '#38bdf8',
                 fontSize: '12px',
                 fontWeight: 800,
                 cursor: 'pointer',
@@ -627,14 +627,14 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
             </button>
 <div style={{
               padding: '3px 8px', borderRadius: '6px',
-              background: guardando ? 'rgba(245,200,66,0.12)' : guardado ? 'rgba(34,197,94,0.1)' : 'rgba(245,200,66,0.12)',
+              background: guardando ? 'color-mix(in srgb, var(--gold) 12%, transparent)' : guardado ? 'rgba(34,197,94,0.1)' : 'color-mix(in srgb, var(--gold) 12%, transparent)',
               display: 'flex', alignItems: 'center', gap: '4px',
             }}>
               {guardando
-                ? <div style={{ width: 6, height: 6, border: '1.5px solid #f5c842', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
-                : <div style={{ width: 5, height: 5, borderRadius: '50%', background: guardado ? '#22c55e' : '#f5c842' }} />
+                ? <div style={{ width: 6, height: 6, border: '1.5px solid var(--gold)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
+                : <div style={{ width: 5, height: 5, borderRadius: '50%', background: guardado ? '#22c55e' : 'var(--gold)' }} />
               }
-              <span style={{ fontSize: '10px', color: guardando ? '#f5c842' : guardado ? '#22c55e' : '#f5c842', fontWeight: 600 }}>
+              <span style={{ fontSize: '10px', color: guardando ? 'var(--gold)' : guardado ? '#22c55e' : 'var(--gold)', fontWeight: 600 }}>
                 {guardando ? '...' : guardado ? '✓' : '●'}
               </span>
             </div>
@@ -647,7 +647,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
                 borderRadius: '8px',
                 border: '1px solid rgba(255,255,255,0.08)',
                 background: 'rgba(255,255,255,0.05)',
-                color: '#f5c842',
+                color: 'var(--gold)',
                 cursor: 'pointer',
                 fontSize: '14px',
                 fontWeight: 800,
@@ -697,7 +697,7 @@ const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
             </div>
             <button onClick={guardar} style={{
               padding: isMobile ? '6px 10px' : '6px 14px', borderRadius: '8px', border: 'none',
-              background: '#f5c842', color: '#000', fontSize: '11px', fontWeight: 800, cursor: 'pointer',
+              background: 'var(--gold)', color: '#000', fontSize: '11px', fontWeight: 800, cursor: 'pointer',
               display: 'flex', alignItems: 'center', gap: '4px',
             }}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/></svg>

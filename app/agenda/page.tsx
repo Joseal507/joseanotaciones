@@ -392,7 +392,7 @@ export default function AgendaPage() {
             fontSize: 28,
             cursor: 'pointer',
             zIndex: 200,
-            boxShadow: '4px 5px 0 var(--text-primary), 0 8px 24px rgba(245,200,66,0.4)',
+            boxShadow: '4px 5px 0 var(--text-primary), 0 8px 24px color-mix(in srgb, var(--gold) 40%, transparent)',
             transform: 'rotate(-3deg)',
             transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
           }}

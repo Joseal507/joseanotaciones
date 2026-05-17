@@ -103,7 +103,7 @@ export default function BlinksPage() {
                 🎥 StudyAL Blinks
               </h1>
               <svg width="180" height="6" style={{ display: 'block', marginTop: 1 }}>
-                <path d="M2 3 Q 90 0 178 4" stroke="#ff4d6d" strokeWidth="2.5" fill="none" strokeLinecap="round" opacity=".85"/>
+                <path d="M2 3 Q 90 0 178 4" stroke="var(--red)" strokeWidth="2.5" fill="none" strokeLinecap="round" opacity=".85"/>
               </svg>
             </div>
           </div>

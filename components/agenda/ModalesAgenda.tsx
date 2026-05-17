@@ -27,27 +27,27 @@ export function ModalAsignacion({ materias, fechaInicial, onCrear, onClose }: Mo
   const TIPOS = idioma === 'en'
     ? [
         { id: 'tarea',    label: '📝 Homework', color: '#38bdf8' },
-        { id: 'examen',   label: '📋 Exam',     color: '#ff4d6d' },
-        { id: 'proyecto', label: '🛠️ Project',  color: '#f5c842' },
+        { id: 'examen',   label: '📋 Exam',     color: 'var(--red)' },
+        { id: 'proyecto', label: '🛠️ Project',  color: 'var(--gold)' },
         { id: 'otro',     label: '📌 Other',    color: '#a78bfa' },
       ]
     : [
         { id: 'tarea',    label: '📝 Tarea',    color: '#38bdf8' },
-        { id: 'examen',   label: '📋 Examen',   color: '#ff4d6d' },
-        { id: 'proyecto', label: '🛠️ Proyecto', color: '#f5c842' },
+        { id: 'examen',   label: '📋 Examen',   color: 'var(--red)' },
+        { id: 'proyecto', label: '🛠️ Proyecto', color: 'var(--gold)' },
         { id: 'otro',     label: '📌 Otro',     color: '#a78bfa' },
       ];
 
   const TAMAÑOS: { id: TamañoObjetivo; label: string; desc: string; color: string }[] = idioma === 'en'
     ? [
         { id: 'pequeño', label: '🟢 Small',  desc: '50 XP · Quick task',       color: '#22c55e' },
-        { id: 'mediano', label: '🟡 Medium', desc: '120 XP · Regular effort',   color: '#f5c842' },
-        { id: 'grande',  label: '🔴 Large',  desc: '250 XP · Major challenge',  color: '#ff4d6d' },
+        { id: 'mediano', label: '🟡 Medium', desc: '120 XP · Regular effort',   color: 'var(--gold)' },
+        { id: 'grande',  label: '🔴 Large',  desc: '250 XP · Major challenge',  color: 'var(--red)' },
       ]
     : [
         { id: 'pequeño', label: '🟢 Pequeño', desc: '50 XP · Tarea rápida',       color: '#22c55e' },
-        { id: 'mediano', label: '🟡 Mediano', desc: '120 XP · Esfuerzo normal',   color: '#f5c842' },
-        { id: 'grande',  label: '🔴 Grande',  desc: '250 XP · Gran desafío',      color: '#ff4d6d' },
+        { id: 'mediano', label: '🟡 Mediano', desc: '120 XP · Esfuerzo normal',   color: 'var(--gold)' },
+        { id: 'grande',  label: '🔴 Grande',  desc: '250 XP · Gran desafío',      color: 'var(--red)' },
       ];
 
   const crear = () => {
@@ -228,19 +228,19 @@ export function ModalObjetivo({ onCrear, onClose }: ModalObjProps) {
   const CATS = idioma === 'en'
     ? [
         { id: 'estudio',  label: '📚 Study',    color: '#38bdf8' },
-        { id: 'personal', label: '🌟 Personal', color: '#f5c842' },
+        { id: 'personal', label: '🌟 Personal', color: 'var(--gold)' },
         { id: 'materia',  label: '📖 Subject',  color: '#f472b6' },
       ]
     : [
         { id: 'estudio',  label: '📚 Estudio',  color: '#38bdf8' },
-        { id: 'personal', label: '🌟 Personal', color: '#f5c842' },
+        { id: 'personal', label: '🌟 Personal', color: 'var(--gold)' },
         { id: 'materia',  label: '📖 Materia',  color: '#f472b6' },
       ];
 
   const TAMAÑOS: { id: TamañoObjetivo; label: string; xp: number; color: string }[] = [
     { id: 'pequeño', label: idioma === 'en' ? '🟢 Small'  : '🟢 Pequeño', xp: 50,  color: '#22c55e' },
-    { id: 'mediano', label: idioma === 'en' ? '🟡 Medium' : '🟡 Mediano', xp: 120, color: '#f5c842' },
-    { id: 'grande',  label: idioma === 'en' ? '🔴 Large'  : '🔴 Grande',  xp: 250, color: '#ff4d6d' },
+    { id: 'mediano', label: idioma === 'en' ? '🟡 Medium' : '🟡 Mediano', xp: 120, color: 'var(--gold)' },
+    { id: 'grande',  label: idioma === 'en' ? '🔴 Large'  : '🔴 Grande',  xp: 250, color: 'var(--red)' },
   ];
 
   const crear = () => {

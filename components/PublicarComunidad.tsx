@@ -21,11 +21,11 @@ interface Props {
 }
 
 const TIPO_INFO = {
-  apunte:     { emoji: '📝', label: 'Apunte',     color: '#f5c842' },
+  apunte:     { emoji: '📝', label: 'Apunte',     color: 'var(--gold)' },
   flashcards: { emoji: '🎴', label: 'Flashcards', color: '#a78bfa' },
   quiz:       { emoji: '🧠', label: 'Quiz',       color: '#34d399' },
   post:       { emoji: '💬', label: 'Post',       color: '#38bdf8' },
-  video:      { emoji: '🎬', label: 'Video',      color: '#ff4d6d' },
+  video:      { emoji: '🎬', label: 'Video',      color: 'var(--red)' },
 };
 
 type Paso = 'tipo' | 'origen' | 'explorar' | 'decks' | 'quizzes' | 'detalles' | 'publicando' | 'exito';
@@ -587,7 +587,7 @@ export default function PublicarComunidad({
                             {temaNav.apuntes.map(a => (
                               <div key={a.id}
                                 onClick={() => { setApunteSeleccionado(apunteSeleccionado?.id === a.id ? null : a); setDocSeleccionado(null); }}
-                                style={{ padding: '12px 14px', borderRadius: '12px', cursor: 'pointer', border: `2px solid ${apunteSeleccionado?.id === a.id ? '#f5c842' : 'var(--border-color)'}`, background: apunteSeleccionado?.id === a.id ? '#f5c84215' : 'var(--bg-secondary)', transition: 'all 0.2s', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                                style={{ padding: '12px 14px', borderRadius: '12px', cursor: 'pointer', border: `2px solid ${apunteSeleccionado?.id === a.id ? 'var(--gold)' : 'var(--border-color)'}`, background: apunteSeleccionado?.id === a.id ? 'var(--gold)15' : 'var(--bg-secondary)', transition: 'all 0.2s', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                               >
                                 <div>
                                   <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>📝 {a.titulo}</div>
@@ -727,15 +727,15 @@ export default function PublicarComunidad({
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '340px', overflowY: 'auto' }}>
-                      {quizzesTemporales.length > 0 && <p style={{ fontSize: '11px', fontWeight: 700, color: '#f5c842', margin: '0 0 4px', letterSpacing: '1px' }}>{tr('porGuardar')}</p>}
+                      {quizzesTemporales.length > 0 && <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--gold)', margin: '0 0 4px', letterSpacing: '1px' }}>{tr('porGuardar')}</p>}
                       {quizzesTemporales.map(q => (
                         <div key={q.id} onClick={() => setQuizSeleccionado(quizSeleccionado?.id === q.id ? null : q)}
-                          style={{ padding: '14px 16px', borderRadius: '14px', cursor: 'pointer', border: `2px solid ${quizSeleccionado?.id === q.id ? '#34d399' : '#f5c84244'}`, background: quizSeleccionado?.id === q.id ? '#34d39915' : '#f5c84208', transition: 'all 0.2s', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                          style={{ padding: '14px 16px', borderRadius: '14px', cursor: 'pointer', border: `2px solid ${quizSeleccionado?.id === q.id ? '#34d399' : 'var(--gold)44'}`, background: quizSeleccionado?.id === q.id ? '#34d39915' : 'var(--gold)08', transition: 'all 0.2s', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                         >
                           <div>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{q.nombre}</span>
-                              <span style={{ fontSize: '10px', background: '#f5c84222', color: '#f5c842', padding: '2px 6px', borderRadius: '8px', fontWeight: 700 }}>{tr('temporal')}</span>
+                              <span style={{ fontSize: '10px', background: 'var(--gold)22', color: 'var(--gold)', padding: '2px 6px', borderRadius: '8px', fontWeight: 700 }}>{tr('temporal')}</span>
                             </div>
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>🧠 {q.preguntas.length} preguntas · {q.materiaNombre || tr('sinMateria')}</div>
                           </div>
@@ -797,7 +797,7 @@ export default function PublicarComunidad({
                   {/* Video — solo si tipo === video */}
                   {tipo === 'video' && (
                     <div style={{ marginBottom: '16px' }}>
-                      <label style={{ fontSize: '11px', fontWeight: 700, color: '#ff4d6d', display: 'block', marginBottom: '8px', letterSpacing: '1px' }}>🎬 VIDEO DE ESTUDIO *</label>
+                      <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--red)', display: 'block', marginBottom: '8px', letterSpacing: '1px' }}>🎬 VIDEO DE ESTUDIO *</label>
                       <input ref={videoRef} type="file" accept="video/mp4,video/webm,video/mov,video/quicktime" style={{ display: 'none' }}
                         onChange={async e => {
                           const file = e.target.files?.[0];
@@ -829,7 +829,7 @@ export default function PublicarComunidad({
                         }}
                       />
                       {videoPreview ? (
-                        <div style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', marginBottom: '8px', border: '2px solid #ff4d6d44', background: '#000' }}>
+                        <div style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', marginBottom: '8px', border: '2px solid var(--red)44', background: '#000' }}>
                           <video src={videoPreview} controls muted style={{ width: '100%', maxHeight: '220px', objectFit: 'contain', display: 'block' }} />
                           {subiendoVideo && (
                             <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '8px' }}>
@@ -846,14 +846,14 @@ export default function PublicarComunidad({
                         </div>
                       ) : (
                         <div onClick={() => videoRef.current?.click()}
-                          style={{ border: '2px dashed #ff4d6d66', borderRadius: '12px', padding: '28px', textAlign: 'center', cursor: 'pointer', background: '#ff4d6d08', transition: 'all 0.2s' }}
-                          onMouseEnter={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = '#ff4d6d'; }}
-                          onMouseLeave={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = '#ff4d6d66'; }}
+                          style={{ border: '2px dashed var(--red)66', borderRadius: '12px', padding: '28px', textAlign: 'center', cursor: 'pointer', background: 'var(--red)08', transition: 'all 0.2s' }}
+                          onMouseEnter={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--red)'; }}
+                          onMouseLeave={(e: any) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--red)66'; }}
                         >
                           <div style={{ fontSize: '36px', marginBottom: '6px' }}>🎬</div>
                           <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>{tr('subirVideoEstudio')}</div>
                           <div style={{ fontSize: '11px', color: 'var(--text-faint)', marginTop: '4px' }}>MP4, WebM · Máx 100MB</div>
-                          <div style={{ fontSize: '11px', color: '#ff4d6d', marginTop: '4px', fontWeight: 600 }}>{tr('videoEnBlinks')}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--red)', marginTop: '4px', fontWeight: 600 }}>{tr('videoEnBlinks')}</div>
                         </div>
                       )}
                       {videoError && <div style={{ background: '#ef444422', border: '1px solid #ef4444', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#ef4444' }}>⚠️ {videoError}</div>}

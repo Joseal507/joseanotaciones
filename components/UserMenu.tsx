@@ -23,19 +23,34 @@ export default function UserMenu() {
         const { data } = await supabase.auth.getUser();
         if (!data.user) return;
         setUsuario(data.user);
+        // Cargar del localStorage como cache temporal
         try {
           const stored = localStorage.getItem('josea_perfil');
           if (stored) {
             const p = JSON.parse(stored);
-            if (p && p.nombre) { setPerfil(p); return; }
+            if (p && p.nombre) setPerfil(p);
           }
         } catch {}
+
+        // SIEMPRE refrescar del servidor (para tener avatar actualizado)
         try {
-          const res = await fetch('/api/user-profile');
+          const res = await fetch(`/api/user-profile?userId=${data.user.id}`);
           const json = await res.json();
-          if (json.success && json.perfil) {
-            setPerfil(json.perfil);
-            localStorage.setItem('josea_perfil', JSON.stringify(json.perfil));
+          if (json.success && json.data) {
+            setPerfil(json.data);
+            localStorage.setItem('josea_perfil', JSON.stringify(json.data));
+          }
+        } catch {}
+
+        // Fallback: si no hay perfil pero hay avatar en leaderboard
+        try {
+          const { data: lb } = await supabase
+            .from('leaderboard')
+            .select('avatar_url, nombre')
+            .eq('user_id', data.user.id)
+            .single();
+          if (lb?.avatar_url) {
+            setPerfil((prev: any) => ({ ...(prev || {}), avatar_url: lb.avatar_url, nombre: prev?.nombre || lb.nombre }));
           }
         } catch {}
       } catch {}
@@ -168,8 +183,8 @@ export default function UserMenu() {
               position: 'absolute', top: -10, left: '50%',
               transform: 'translateX(-50%) rotate(-3deg)',
               width: 80, height: 18,
-              background: 'rgba(245,200,66,.55)',
-              border: '1px solid rgba(245,200,66,.3)',
+              background: 'color-mix(in srgb, var(--gold) 55%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)',
               boxShadow: '0 2px 5px rgba(0,0,0,.18)',
               zIndex: 5,
             }}/>

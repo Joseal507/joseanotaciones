@@ -8,7 +8,7 @@ interface Props {
   colorAccent?: string;
 }
 
-export default function LogrosPanel({ stats, colorAccent = '#f5c842' }: Props) {
+export default function LogrosPanel({ stats, colorAccent = 'var(--gold)' }: Props) {
   const [filtro, setFiltro] = useState<'todos' | 'obtenidos' | 'pendientes'>('todos');
   const obtenidos = getLogrosObtenidos(stats);
   const obtenidosIds = new Set(obtenidos.map(l => l.id));

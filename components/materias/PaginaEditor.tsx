@@ -139,8 +139,8 @@ export default function PaginaEditor({
               padding: '0 8px',
               borderRadius: '8px',
               border: 'none',
-              background: menuOpen !== 'closed' ? 'rgba(245,200,66,0.15)' : 'rgba(255,255,255,0.04)',
-              color: menuOpen !== 'closed' ? '#f5c842' : 'rgba(255,255,255,0.3)',
+              background: menuOpen !== 'closed' ? 'color-mix(in srgb, var(--gold) 15%, transparent)' : 'rgba(255,255,255,0.04)',
+              color: menuOpen !== 'closed' ? 'var(--gold)' : 'rgba(255,255,255,0.3)',
               cursor: 'pointer',
               fontSize: '14px',
               fontWeight: 700,
@@ -160,7 +160,7 @@ export default function PaginaEditor({
                 top: 'calc(100% + 4px)',
                 background: '#1a1a2e',
                 borderRadius: '12px',
-                border: '1px solid rgba(245,200,66,0.15)',
+                border: '1px solid color-mix(in srgb, var(--gold) 15%, transparent)',
                 boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
                 padding: '6px',
                 zIndex: 400,
@@ -172,7 +172,7 @@ export default function PaginaEditor({
               {menuOpen === 'plantilla' && (
                 <div style={{ minWidth: '130px' }}>
                   <button onClick={() => setMenuOpen('main')}
-                    style={{ width: '100%', textAlign: 'left', padding: '6px 10px', borderRadius: '8px', border: 'none', background: 'transparent', color: '#f5c842', fontSize: '11px', fontWeight: 700, cursor: 'pointer', marginBottom: '4px' }}>
+                    style={{ width: '100%', textAlign: 'left', padding: '6px 10px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--gold)', fontSize: '11px', fontWeight: 700, cursor: 'pointer', marginBottom: '4px' }}>
                     ← Volver
                   </button>
                   {[
@@ -185,12 +185,12 @@ export default function PaginaEditor({
                       onClick={() => { onCambiarPlantillaPagina?.(pagina.id, { paperStyle: s.id }); setMenuOpen('closed'); }}
                       style={{
                         width: '100%', textAlign: 'left', padding: '7px 10px', borderRadius: '8px', border: 'none',
-                        background: effectivePaperStyle === s.id ? 'rgba(245,200,66,0.1)' : 'transparent',
-                        color: effectivePaperStyle === s.id ? '#f5c842' : '#d4d4d8',
+                        background: effectivePaperStyle === s.id ? 'color-mix(in srgb, var(--gold) 10%, transparent)' : 'transparent',
+                        color: effectivePaperStyle === s.id ? 'var(--gold)' : '#d4d4d8',
                         fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
                       }}
                       onMouseEnter={(e: any) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
-                      onMouseLeave={(e: any) => { e.currentTarget.style.background = effectivePaperStyle === s.id ? 'rgba(245,200,66,0.1)' : 'transparent'; }}
+                      onMouseLeave={(e: any) => { e.currentTarget.style.background = effectivePaperStyle === s.id ? 'color-mix(in srgb, var(--gold) 10%, transparent)' : 'transparent'; }}
                     >
                       <span style={{ fontSize: '14px', opacity: 0.6 }}>{s.icon}</span> {s.label}
                     </button>

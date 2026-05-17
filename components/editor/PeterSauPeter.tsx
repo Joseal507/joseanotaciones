@@ -31,8 +31,8 @@ interface Props {
   onInsertarSolucion: (html: string) => void;
 }
 
-const PETER_GOLD = '#f5c842';
-const PETER_RED = '#ff4d6d';
+const PETER_GOLD = 'var(--gold)';
+const PETER_RED = 'var(--red)';
 const PETER_EMOJI = '👨🏿‍🏫';
 
 const TIPO_EMOJI: Record<string, string> = {
@@ -133,7 +133,7 @@ export default function PeterSauPeter({
     if (!resultado) return;
 
     const pasos = resultado.pasos.map(p => `
-      <div style="margin:10px 0;padding:10px 12px;border-radius:10px;background:#fff7db;border:1px solid rgba(245,200,66,0.35)">
+      <div style="margin:10px 0;padding:10px 12px;border-radius:10px;background:#fff7db;border:1px solid color-mix(in srgb, var(--gold) 35%, transparent)">
         <p style="margin:0 0 4px;font-weight:800;color:#b45309">${p.numero}. ${p.titulo}</p>
         <p style="margin:0 0 6px;color:#1f2937">${p.explicacion}</p>
         <p style="margin:0;padding:6px 10px;border-radius:8px;background:#ffffff;border:1px solid #f3e3a2;font-family:monospace;color:#111827">
@@ -143,7 +143,7 @@ export default function PeterSauPeter({
     `).join('');
 
     const html = `
-      <div style="margin:10px 0;padding:14px 16px;border-radius:14px;border:2px solid ${PETER_GOLD};background:linear-gradient(135deg, rgba(245,200,66,0.12), rgba(255,77,109,0.06))">
+      <div style="margin:10px 0;padding:14px 16px;border-radius:14px;border:2px solid ${PETER_GOLD};background:linear-gradient(135deg, color-mix(in srgb, var(--gold) 12%, transparent), color-mix(in srgb, var(--red) 6%, transparent))">
         <p style="margin:0 0 6px;font-weight:900;color:${PETER_RED};font-size:15px">${PETER_EMOJI} Peter SauPeter</p>
         <p style="margin:0 0 10px;font-style:italic;color:#374151">${resultado.problema}</p>
         ${pasos}
@@ -183,7 +183,7 @@ export default function PeterSauPeter({
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: `0 28px 90px rgba(0,0,0,0.55), 0 0 40px rgba(245,200,66,0.15), 0 0 20px rgba(255,77,109,0.12)`,
+          boxShadow: `0 28px 90px rgba(0,0,0,0.55), 0 0 40px color-mix(in srgb, var(--gold) 15%, transparent), 0 0 20px color-mix(in srgb, var(--red) 12%, transparent)`,
           animation: 'slideUp 0.28s ease',
         }}
       >
@@ -191,8 +191,8 @@ export default function PeterSauPeter({
         <div
           style={{
             padding: '16px 20px',
-            background: `linear-gradient(135deg, rgba(245,200,66,0.22), rgba(255,77,109,0.14))`,
-            borderBottom: `2px solid rgba(245,200,66,0.35)`,
+            background: `linear-gradient(135deg, color-mix(in srgb, var(--gold) 22%, transparent), color-mix(in srgb, var(--red) 14%, transparent))`,
+            borderBottom: `2px solid color-mix(in srgb, var(--gold) 35%, transparent)`,
             display: 'flex',
             alignItems: 'center',
             gap: '12px',
@@ -210,7 +210,7 @@ export default function PeterSauPeter({
               justifyContent: 'center',
               fontSize: '26px',
               flexShrink: 0,
-              boxShadow: `0 8px 24px rgba(245,200,66,0.25)`,
+              boxShadow: `0 8px 24px color-mix(in srgb, var(--gold) 25%, transparent)`,
             }}
           >
             {PETER_EMOJI}
@@ -255,7 +255,7 @@ export default function PeterSauPeter({
                 maxWidth: '100%',
                 maxHeight: '170px',
                 borderRadius: '14px',
-                border: `2px solid rgba(245,200,66,0.3)`,
+                border: `2px solid color-mix(in srgb, var(--gold) 30%, transparent)`,
                 objectFit: 'contain',
                 background: '#fff',
                 padding: '10px',
@@ -295,7 +295,7 @@ export default function PeterSauPeter({
 
           {/* Error */}
           {error && !cargando && !modoManual && (
-            <div style={{ padding: '16px', borderRadius: '14px', background: 'rgba(255,77,109,0.1)', border: '1px solid rgba(255,77,109,0.35)' }}>
+            <div style={{ padding: '16px', borderRadius: '14px', background: 'color-mix(in srgb, var(--red) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--red) 35%, transparent)' }}>
               <p style={{ color: PETER_RED, fontSize: '14px', margin: '0 0 12px', fontWeight: 700 }}>❌ {error}</p>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button
@@ -402,7 +402,7 @@ export default function PeterSauPeter({
             <>
               {/* Tags */}
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                <span style={{ padding: '4px 12px', borderRadius: '20px', background: 'rgba(245,200,66,0.16)', color: '#d97706', fontSize: '12px', fontWeight: 800 }}>
+                <span style={{ padding: '4px 12px', borderRadius: '20px', background: 'color-mix(in srgb, var(--gold) 16%, transparent)', color: '#d97706', fontSize: '12px', fontWeight: 800 }}>
                   {TIPO_EMOJI[resultado.tipo] || '🧮'} {resultado.tipo}
                 </span>
                 <span style={{ padding: '4px 12px', borderRadius: '20px', background: (DIFICULTAD_COLOR[resultado.dificultad] || '#888') + '20', color: DIFICULTAD_COLOR[resultado.dificultad] || '#888', fontSize: '12px', fontWeight: 800 }}>
@@ -423,14 +423,14 @@ export default function PeterSauPeter({
               {/* Respuesta final */}
               <div
                 style={{
-                  background: 'linear-gradient(135deg, rgba(245,200,66,0.18), rgba(255,77,109,0.08))',
+                  background: 'linear-gradient(135deg, color-mix(in srgb, var(--gold) 18%, transparent), color-mix(in srgb, var(--red) 8%, transparent))',
                   border: `2px solid ${PETER_GOLD}`,
                   borderRadius: '18px',
                   padding: '18px 20px',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '14px',
-                  boxShadow: '0 10px 30px rgba(245,200,66,0.12)',
+                  boxShadow: '0 10px 30px color-mix(in srgb, var(--gold) 12%, transparent)',
                 }}
               >
                 <div style={{ fontSize: '34px' }}>{PETER_EMOJI}</div>
@@ -484,15 +484,15 @@ export default function PeterSauPeter({
                     style={{
                       background: 'var(--bg-secondary)',
                       borderRadius: '18px',
-                      border: `2px solid rgba(245,200,66,0.35)`,
+                      border: `2px solid color-mix(in srgb, var(--gold) 35%, transparent)`,
                       overflow: 'hidden',
                     }}
                   >
                     <div
                       style={{
                         padding: '12px 16px',
-                        background: 'linear-gradient(135deg, rgba(245,200,66,0.18), rgba(255,77,109,0.08))',
-                        borderBottom: '1px solid rgba(245,200,66,0.22)',
+                        background: 'linear-gradient(135deg, color-mix(in srgb, var(--gold) 18%, transparent), color-mix(in srgb, var(--red) 8%, transparent))',
+                        borderBottom: '1px solid color-mix(in srgb, var(--gold) 22%, transparent)',
                         display: 'flex',
                         alignItems: 'center',
                         gap: '10px',
@@ -537,7 +537,7 @@ export default function PeterSauPeter({
                       )}
 
                       {resultado.pasos[pasoActivo].resultado && (
-                        <div style={{ background: 'rgba(245,200,66,0.14)', borderRadius: '10px', padding: '10px 14px', border: `1px solid rgba(245,200,66,0.4)` }}>
+                        <div style={{ background: 'color-mix(in srgb, var(--gold) 14%, transparent)', borderRadius: '10px', padding: '10px 14px', border: `1px solid color-mix(in srgb, var(--gold) 40%, transparent)` }}>
                           <p style={{ fontSize: '10px', color: '#b45309', fontWeight: 800, textTransform: 'uppercase', margin: '0 0 4px' }}>
                             Resultado
                           </p>
@@ -548,7 +548,7 @@ export default function PeterSauPeter({
                       )}
                     </div>
 
-                    <div style={{ display: 'flex', borderTop: '1px solid rgba(245,200,66,0.18)' }}>
+                    <div style={{ display: 'flex', borderTop: '1px solid color-mix(in srgb, var(--gold) 18%, transparent)' }}>
                       <button
                         onClick={() => setPasoActivo(Math.max(0, pasoActivo - 1))}
                         disabled={pasoActivo === 0}
@@ -561,7 +561,7 @@ export default function PeterSauPeter({
                           fontWeight: 700,
                           cursor: pasoActivo === 0 ? 'not-allowed' : 'pointer',
                           fontSize: '13px',
-                          borderRight: '1px solid rgba(245,200,66,0.18)',
+                          borderRight: '1px solid color-mix(in srgb, var(--gold) 18%, transparent)',
                         }}
                       >
                         ← Anterior
@@ -588,7 +588,7 @@ export default function PeterSauPeter({
               </div>
 
               {resultado.verificacion && (
-                <div style={{ background: 'rgba(255,77,109,0.08)', border: '1px solid rgba(255,77,109,0.2)', borderRadius: '12px', padding: '12px 14px' }}>
+                <div style={{ background: 'color-mix(in srgb, var(--red) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--red) 20%, transparent)', borderRadius: '12px', padding: '12px 14px' }}>
                   <p style={{ fontSize: '11px', fontWeight: 900, color: PETER_RED, margin: '0 0 4px', textTransform: 'uppercase' }}>
                     🔍 Verificación
                   </p>
@@ -597,7 +597,7 @@ export default function PeterSauPeter({
               )}
 
               {resultado.consejo && (
-                <div style={{ background: 'rgba(245,200,66,0.12)', border: '1px solid rgba(245,200,66,0.25)', borderRadius: '12px', padding: '12px 14px' }}>
+                <div style={{ background: 'color-mix(in srgb, var(--gold) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--gold) 25%, transparent)', borderRadius: '12px', padding: '12px 14px' }}>
                   <p style={{ fontSize: '11px', fontWeight: 900, color: '#b45309', margin: '0 0 4px', textTransform: 'uppercase' }}>
                     💡 Consejo
                   </p>
@@ -638,7 +638,7 @@ export default function PeterSauPeter({
                 fontWeight: 900,
                 cursor: 'pointer',
                 fontSize: '14px',
-                boxShadow: '0 8px 20px rgba(245,200,66,0.16)',
+                boxShadow: '0 8px 20px color-mix(in srgb, var(--gold) 16%, transparent)',
               }}
             >
               📝 Insertar en apuntes

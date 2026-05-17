@@ -17,7 +17,7 @@ const HAND = "'Caveat',cursive";
 type Seccion = 'perfil' | 'seguridad' | 'personalizacion' | 'notificaciones' | 'datos' | 'cuenta';
 
 const TEMAS: { id: AppSettings['tema']; labelEs: string; labelEn: string; descEs: string; descEn: string; colors: string[] }[] = [
-  { id: 'default', labelEs: '⭐ Clásico', labelEn: '⭐ Classic', descEs: 'Dorado, rojo, celeste y rosado', descEn: 'Gold, red, sky blue and pink', colors: ['#f5c842', '#ff4d6d', '#38bdf8', '#f472b6'] },
+  { id: 'default', labelEs: '⭐ Clásico', labelEn: '⭐ Classic', descEs: 'Dorado, rojo, celeste y rosado', descEn: 'Gold, red, sky blue and pink', colors: ['#d6b26f', '#8a120c', '#38bdf8', '#f472b6'] },
   { id: 'playa', labelEs: '🏖️ Playa', labelEn: '🏖️ Beach', descEs: 'Celeste, arena, rojo y naranja', descEn: 'Sky blue, sand, red and orange', colors: ['#38bdf8', '#ef4444', '#d4a96a', '#fb923c'] },
   { id: 'executive', labelEs: '💼 Ejecutivo', labelEn: '💼 Executive', descEs: 'Gris, verde, azul y blanco', descEn: 'Gray, green, blue and white', colors: ['#a3a3a3', '#4ade80', '#60a5fa', '#e2e8f0'] },
   { id: 'sunset', labelEs: '🌅 Atardecer', labelEn: '🌅 Sunset', descEs: 'Naranja, rojo, dorado y fuego', descEn: 'Orange, red, gold and fire', colors: ['#fb923c', '#ef4444', '#fbbf24', '#f97316'] },
@@ -62,8 +62,8 @@ export default function SettingsPage() {
   const [mensajeReset, setMensajeReset] = useState('');
   const [customName, setCustomName] = useState(settings.customTheme?.name || '');
   const [customColors, setCustomColors] = useState({
-    gold: settings.customTheme?.gold || '#f5c842',
-    red: settings.customTheme?.red || '#ff4d6d',
+    gold: settings.customTheme?.gold || '#d6b26f',
+    red: settings.customTheme?.red || 'var(--red)',
     blue: settings.customTheme?.blue || '#38bdf8',
     pink: settings.customTheme?.pink || '#f472b6',
   });
@@ -71,7 +71,7 @@ export default function SettingsPage() {
   useEffect(() => {
     const cargar = async () => {
       const { data } = await supabase.auth.getUser();
-      if (!data.user) { ((window as any).__showNavLoader?.('/auth'), router.push('/auth')); return; }
+      if (!data.user) { try { (window as any).__hideNavLoader?.(); } catch {} window.location.href = '/auth'; return; }
       setUsuario(data.user);
       setUserId(data.user.id);
       setNombre(data.user.user_metadata?.nombre || '');
@@ -403,8 +403,8 @@ export default function SettingsPage() {
               position: 'absolute', top: -10, left: '50%',
               transform: 'translateX(-50%) rotate(-3deg)',
               width: 70, height: 16,
-              background: 'rgba(245,200,66,0.55)',
-              border: '1px solid rgba(245,200,66,0.3)',
+              background: 'color-mix(in srgb, var(--gold) 55%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)',
               boxShadow: '0 2px 5px rgba(0,0,0,0.18)',
             }}/>
 

@@ -20,8 +20,8 @@ import MathText from '../../components/MathText';
 
 const NIVEL_META: Record<NivelQuiz, { label: string; emoji: string; color: string; bg: string }> = {
   facil:      { label: 'Facil',       emoji: '🟢', color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
-  intermedio: { label: 'Intermedio',  emoji: '🟡', color: '#f5c842', bg: 'rgba(245,200,66,0.12)' },
-  dificil:    { label: 'Dificil',     emoji: '🔴', color: '#ff4d6d', bg: 'rgba(255,77,109,0.12)' },
+  intermedio: { label: 'Intermedio',  emoji: '🟡', color: 'var(--gold)', bg: 'color-mix(in srgb, var(--gold) 12%, transparent)' },
+  dificil:    { label: 'Dificil',     emoji: '🔴', color: 'var(--red)', bg: 'color-mix(in srgb, var(--red) 12%, transparent)' },
 };
 
 function NivelBadge({ nivel }: { nivel?: NivelQuiz }) {
@@ -40,7 +40,7 @@ function CountdownTimer({ expiraEn }: { expiraEn: number }) {
     return () => clearInterval(id);
   }, [expiraEn]);
   const urgente = expiraEn - Date.now() < 3 * 60 * 60 * 1000;
-  return <span style={{ fontSize: '11px', color: urgente ? '#ff4d6d' : '#f5c842', fontWeight: 700 }}>⏳ {tiempo}</span>;
+  return <span style={{ fontSize: '11px', color: urgente ? 'var(--red)' : 'var(--gold)', fontWeight: 700 }}>⏳ {tiempo}</span>;
 }
 
 function EmptyState({ emoji, titulo, desc, boton }: { emoji: string; titulo: string; desc: string; boton?: { label: string; href: string } }) {
@@ -91,8 +91,8 @@ function TemporalCard({ quiz, guardadoOk, onJugar, onGuardar, onEliminar }: {
 }) {
   const meta = NIVEL_META[quiz.nivel || 'intermedio'];
   return (
-    <div style={{ background: 'var(--bg-card)', borderRadius: '18px', border: '1px solid #f5c84244', overflow: 'hidden', opacity: guardadoOk ? 0.6 : 1 }}>
-      <div style={{ height: '4px', background: 'linear-gradient(90deg, #f5c842, #ff9f43)' }} />
+    <div style={{ background: 'var(--bg-card)', borderRadius: '18px', border: '1px solid var(--gold)44', overflow: 'hidden', opacity: guardadoOk ? 0.6 : 1 }}>
+      <div style={{ height: '4px', background: 'linear-gradient(90deg, var(--gold), #ff9f43)' }} />
       <div style={{ padding: '18px 22px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -110,8 +110,8 @@ function TemporalCard({ quiz, guardadoOk, onJugar, onGuardar, onEliminar }: {
             <span style={{ fontSize: '13px', color: '#4ade80', fontWeight: 700 }}>✅ Guardado</span>
           ) : (
             <div style={{ display: 'flex', gap: '8px', flexShrink: 0, flexWrap: 'wrap' }}>
-              <button onClick={onJugar} style={{ padding: '10px 16px', borderRadius: '10px', border: '2px solid #f5c84244', background: 'transparent', color: '#f5c842', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>▶ Jugar</button>
-              <button onClick={onGuardar} style={{ padding: '10px 18px', borderRadius: '10px', border: 'none', background: '#f5c842', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>💾 Guardar</button>
+              <button onClick={onJugar} style={{ padding: '10px 16px', borderRadius: '10px', border: '2px solid var(--gold)44', background: 'transparent', color: 'var(--gold)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>▶ Jugar</button>
+              <button onClick={onGuardar} style={{ padding: '10px 18px', borderRadius: '10px', border: 'none', background: 'var(--gold)', color: '#000', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}>💾 Guardar</button>
               <button onClick={onEliminar} style={{ padding: '10px 13px', borderRadius: '10px', border: '1px solid var(--red-border)', background: 'transparent', color: 'var(--red)', fontSize: '14px', cursor: 'pointer' }}>🗑️</button>
             </div>
           )}
@@ -264,7 +264,7 @@ export default function QuizzesPage() {
   const getOpcionStyle = (i: number) => {
     if (!respondida || !preguntaActual) return { border: '1px solid var(--border-color)', background: 'transparent' };
     if (i === preguntaActual.correcta) return { border: '2px solid #4ade80', background: 'rgba(74,222,128,0.1)' };
-    if (i === seleccionada) return { border: '2px solid #ff4d6d', background: 'rgba(255,77,109,0.1)' };
+    if (i === seleccionada) return { border: '2px solid var(--red)', background: 'color-mix(in srgb, var(--red) 10%, transparent)' };
     return { border: '1px solid var(--border-color)', background: 'transparent' };
   };
 
@@ -369,14 +369,14 @@ export default function QuizzesPage() {
           <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', marginBottom: '28px', gap: '4px' }}>
             {[
               { id: 'quizzes',  label: tr('tabQuizzes'),        count: quizzes.length,    color: '#a78bfa' },
-              { id: 'temporal', label: tr('tabPorGuardar'),     count: temporales.length, color: '#f5c842' },
+              { id: 'temporal', label: tr('tabPorGuardar'),     count: temporales.length, color: 'var(--gold)' },
               { id: 'decks',    label: tr('tabDecks'), count: decks.length,      color: 'var(--gold)' },
             ].map(t => (
               <button key={t.id} onClick={() => setTab(t.id as any)}
                 style={{ flex: 1, padding: '12px 8px', border: 'none', background: 'transparent', borderBottom: tab === t.id ? `3px solid ${t.color}` : '3px solid transparent', color: tab === t.id ? t.color : 'var(--text-muted)', fontSize: isMobile ? '12px' : '14px', fontWeight: 700, cursor: 'pointer', marginBottom: '-2px', position: 'relative' }}>
                 {t.label}
                 <span style={{ marginLeft: '6px', background: tab === t.id ? t.color + '22' : 'var(--bg-secondary)', color: tab === t.id ? t.color : 'var(--text-faint)', padding: '2px 7px', borderRadius: '10px', fontSize: '12px', fontWeight: 800 }}>{t.count}</span>
-                {t.id === 'temporal' && t.count > 0 && <span style={{ position: 'absolute', top: '8px', right: '8px', width: '8px', height: '8px', borderRadius: '50%', background: '#f5c842' }} />}
+                {t.id === 'temporal' && t.count > 0 && <span style={{ position: 'absolute', top: '8px', right: '8px', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--gold)' }} />}
               </button>
             ))}
           </div>
@@ -397,10 +397,10 @@ export default function QuizzesPage() {
             temporalesFiltrados.length === 0
               ? <EmptyState emoji="⏳" titulo="No hay quizzes pendientes" desc="Cuando generes un quiz desde una materia, aparecera aqui. Tienes 24 horas para guardarlo." boton={{ label: tr('irAMateriasBTN2'), href: '/materias' }} />
               : <>
-                  <div style={{ background: 'rgba(245,200,66,0.08)', border: '1px solid #f5c84244', borderRadius: '14px', padding: '14px 18px', marginBottom: '20px', display: 'flex', gap: '12px' }}>
+                  <div style={{ background: 'color-mix(in srgb, var(--gold) 8%, transparent)', border: '1px solid var(--gold)44', borderRadius: '14px', padding: '14px 18px', marginBottom: '20px', display: 'flex', gap: '12px' }}>
                     <span style={{ fontSize: '20px', flexShrink: 0 }}>⚠️</span>
                     <div>
-                      <p style={{ fontSize: '14px', fontWeight: 700, color: '#f5c842', margin: '0 0 4px' }}>Guardalos antes de que expiren</p>
+                      <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--gold)', margin: '0 0 4px' }}>Guardalos antes de que expiren</p>
                       <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>Estos quizzes se borran automaticamente a las 24 horas. Presiona 💾 Guardar para añadirlos a tu biblioteca permanente.</p>
                     </div>
                   </div>
@@ -458,7 +458,7 @@ export default function QuizzesPage() {
 
           <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', flexWrap: 'wrap', justifyContent: 'center' }}>
             {quizActivo.preguntas.map((_, i) => (
-              <div key={i} style={{ width: i === idx ? '22px' : '9px', height: '9px', borderRadius: '5px', background: i < idx ? (resultados[i]?.correcta ? '#4ade80' : '#ff4d6d') : i === idx ? (quizActivo.materiaColor || '#a78bfa') : 'var(--border-color)', transition: 'all 0.3s', flexShrink: 0 }} />
+              <div key={i} style={{ width: i === idx ? '22px' : '9px', height: '9px', borderRadius: '5px', background: i < idx ? (resultados[i]?.correcta ? '#4ade80' : 'var(--red)') : i === idx ? (quizActivo.materiaColor || '#a78bfa') : 'var(--border-color)', transition: 'all 0.3s', flexShrink: 0 }} />
             ))}
           </div>
 
@@ -485,8 +485,8 @@ export default function QuizzesPage() {
 
           {respondida && (
             <>
-              <div style={{ background: seleccionada === preguntaActual.correcta ? 'rgba(74,222,128,0.1)' : 'rgba(255,77,109,0.1)', border: `2px solid ${seleccionada === preguntaActual.correcta ? '#4ade8066' : '#ff4d6d66'}`, borderRadius: '14px', padding: '16px 20px', marginBottom: '14px' }}>
-                <p style={{ fontSize: '13px', fontWeight: 800, color: seleccionada === preguntaActual.correcta ? '#4ade80' : '#ff4d6d', margin: '0 0 6px' }}>{seleccionada === preguntaActual.correcta ? '✅ Correcto!' : '❌ Incorrecto'}</p>
+              <div style={{ background: seleccionada === preguntaActual.correcta ? 'rgba(74,222,128,0.1)' : 'color-mix(in srgb, var(--red) 10%, transparent)', border: `2px solid ${seleccionada === preguntaActual.correcta ? '#4ade8066' : 'var(--red)66'}`, borderRadius: '14px', padding: '16px 20px', marginBottom: '14px' }}>
+                <p style={{ fontSize: '13px', fontWeight: 800, color: seleccionada === preguntaActual.correcta ? '#4ade80' : 'var(--red)', margin: '0 0 6px' }}>{seleccionada === preguntaActual.correcta ? '✅ Correcto!' : '❌ Incorrecto'}</p>
                 <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}><MathText text={preguntaActual.explicacion} /></p>
               </div>
               <button onClick={siguiente} style={{ width: '100%', padding: '15px', borderRadius: '14px', border: 'none', background: quizActivo.materiaColor || '#a78bfa', color: '#000', fontSize: '15px', fontWeight: 800, cursor: 'pointer' }}>
@@ -508,10 +508,10 @@ export default function QuizzesPage() {
               <div style={{ fontSize: '52px', fontWeight: 900, color: quizActivo.materiaColor || '#a78bfa', lineHeight: 1 }}>{puntos}/{quizActivo.preguntas.length}</div>
               <NivelBadge nivel={quizActivo.nivel} />
             </div>
-            <div style={{ fontSize: '36px', fontWeight: 900, color: porcentaje >= 80 ? '#4ade80' : porcentaje >= 60 ? '#f5c842' : '#ff4d6d', marginTop: '4px' }}>{porcentaje}%</div>
+            <div style={{ fontSize: '36px', fontWeight: 900, color: porcentaje >= 80 ? '#4ade80' : porcentaje >= 60 ? 'var(--gold)' : 'var(--red)', marginTop: '4px' }}>{porcentaje}%</div>
             <div style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '6px' }}>{porcentaje >= 80 ? tr('excelente') : porcentaje >= 60 ? tr('bienSigue') : tr('repasaMas')}</div>
             <div style={{ background: 'var(--bg-secondary)', borderRadius: '10px', height: '10px', overflow: 'hidden', marginTop: '18px' }}>
-              <div style={{ width: `${porcentaje}%`, height: '100%', background: porcentaje >= 80 ? '#4ade80' : porcentaje >= 60 ? '#f5c842' : '#ff4d6d', borderRadius: '10px', transition: 'width 1s' }} />
+              <div style={{ width: `${porcentaje}%`, height: '100%', background: porcentaje >= 80 ? '#4ade80' : porcentaje >= 60 ? 'var(--gold)' : 'var(--red)', borderRadius: '10px', transition: 'width 1s' }} />
             </div>
           </div>
 
@@ -519,7 +519,7 @@ export default function QuizzesPage() {
             <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 14px' }}>Detalle pregunta por pregunta</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {quizActivo.preguntas.map((p, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '8px 12px', background: resultados[i]?.correcta ? 'rgba(74,222,128,0.05)' : 'rgba(255,77,109,0.05)', borderRadius: '8px', border: `1px solid ${resultados[i]?.correcta ? '#4ade8022' : '#ff4d6d22'}` }}>
+                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '8px 12px', background: resultados[i]?.correcta ? 'rgba(74,222,128,0.05)' : 'color-mix(in srgb, var(--red) 5%, transparent)', borderRadius: '8px', border: `1px solid ${resultados[i]?.correcta ? '#4ade8022' : 'var(--red)22'}` }}>
                   <span style={{ fontSize: '14px', flexShrink: 0 }}>{resultados[i]?.correcta ? '✅' : '❌'}</span>
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 2px', lineHeight: 1.4 }}>{p.pregunta}</p>

@@ -103,3 +103,81 @@ export const getXpTotalRegistrado = (): number => {
   const data = getXpDiario();
   return Object.values(data).reduce((sum, v) => sum + v, 0);
 };
+
+
+/**
+ * Devuelve XP acumulado mostrando la EVOLUCIÓN desde 0 hasta el total.
+ * - Si hay datos diarios reales: usa esos para los últimos días.
+ * - Para días sin datos: distribuye el XP base de forma creciente (simulada).
+ *
+ * Resultado: línea que SIEMPRE sube desde 0 → totalServidor
+ */
+export const getXpAcumuladoConTotal = (
+  totalServidor: number,
+  dias: number = 30
+): { fecha: string; xpAcumulado: number; xpDia: number }[] => {
+  const data = getXpDiario();
+  const hoy = new Date();
+  const fechasRango: string[] = [];
+
+  for (let i = dias - 1; i >= 0; i--) {
+    const d = new Date(hoy);
+    d.setDate(d.getDate() - i);
+    fechasRango.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+  }
+
+  // XP real ganado dentro del rango (de localStorage)
+  const xpEnRango = fechasRango.reduce((sum, f) => sum + (data[f] || 0), 0);
+
+  // XP base = lo que tenías ANTES del rango (a distribuir)
+  const xpBase = Math.max(0, totalServidor - xpEnRango);
+
+  // Distribuir xpBase entre los días del rango con una curva ascendente
+  // Usa curva sqrt para que crezca más rápido al principio y se estabilice
+  const result: { fecha: string; xpAcumulado: number; xpDia: number }[] = [];
+
+  // Si no hay XP base (usuario nuevo), solo usar datos reales
+  if (xpBase === 0) {
+    let acum = 0;
+    for (const fecha of fechasRango) {
+      const xpDia = data[fecha] || 0;
+      acum += xpDia;
+      result.push({ fecha, xpAcumulado: acum, xpDia });
+    }
+    return result;
+  }
+
+  // Hay XP base — distribuirlo con curva ascendente
+  // Cada día base = xpBase * (sqrt(i+1)/sqrt(dias))
+  const totalPesos = Array.from({ length: dias }, (_, i) => Math.sqrt(i + 1)).reduce((a, b) => a + b, 0);
+
+  let acumBase = 0;
+  for (let i = 0; i < fechasRango.length; i++) {
+    const fecha = fechasRango[i];
+    // Porción del XP base correspondiente a este día (creciente)
+    const pesoDia = Math.sqrt(i + 1) / totalPesos;
+    const baseDia = Math.round(xpBase * pesoDia);
+
+    // XP real ganado ese día
+    const xpRealDia = data[fecha] || 0;
+
+    acumBase += baseDia + xpRealDia;
+    result.push({
+      fecha,
+      xpAcumulado: acumBase,
+      xpDia: baseDia + xpRealDia
+    });
+  }
+
+  // Asegurar que el último valor coincida con el total real
+  if (result.length > 0) {
+    const ultimo = result[result.length - 1];
+    const ajuste = totalServidor - ultimo.xpAcumulado;
+    if (Math.abs(ajuste) > 0) {
+      ultimo.xpAcumulado = totalServidor;
+      ultimo.xpDia += ajuste;
+    }
+  }
+
+  return result;
+};

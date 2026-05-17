@@ -274,7 +274,7 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
 
           {step === 'detalles' && tipoEstudiante === 'escuela' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ padding: '12px 16px', background: 'rgba(245,200,66,0.08)', borderRadius: '12px', border: '1px solid rgba(245,200,66,0.3)' }}>
+              <div style={{ padding: '12px 16px', background: 'color-mix(in srgb, var(--gold) 8%, transparent)', borderRadius: '12px', border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)' }}>
                 <p style={{ fontSize: '13px', color: 'var(--gold)', margin: 0, fontWeight: 600 }}>
                   {tr('onbEscuelasPA')}
                 </p>

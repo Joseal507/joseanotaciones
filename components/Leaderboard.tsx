@@ -20,7 +20,7 @@ interface LeaderEntry {
 // ── MODAL ──────────────────────────────────────────────────────────────────
 function Modal({ entry, rank, onClose }: { entry: LeaderEntry; rank: number; onClose: () => void }) {
   const router = useRouter();
-  const COLORS = ['','#f5c842','#cbd5e1','#cd7f32'];
+  const COLORS = ['','var(--gold)','#cbd5e1','#cd7f32'];
   const color  = COLORS[rank] || '#64748b';
   const medal  = rank===1?'🥇':rank===2?'🥈':rank===3?'🥉':`#${rank}`;
 
@@ -99,10 +99,10 @@ function Modal({ entry, rank, onClose }: { entry: LeaderEntry; rank: number; onC
           {/* Stats */}
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
             {[
-              {l:'XP',       v:entry.xp_total,              e:'⚡',c:'#f5c842', r:-1.5},
+              {l:'XP',       v:entry.xp_total,              e:'⚡',c:'var(--gold)', r:-1.5},
               {l:'Cards',    v:entry.flashcards_estudiadas,  e:'🎴',c:'#f472b6', r:1.5},
               {l:'Racha',    v:entry.racha_actual,           e:'🔥',c:'#ef4444', r:-1},
-              {l:'Mejor',    v:entry.mejor_racha,            e:'🏆',c:'#f5c842', r:1},
+              {l:'Mejor',    v:entry.mejor_racha,            e:'🏆',c:'var(--gold)', r:1},
               {l:'Precisión',v:`${entry.precision_global}%`, e:'🎯',c:'#38bdf8', r:-1.5},
               {l:'Puesto',   v:medal,                        e:'',  c:color,      r:1.5},
             ].map((s,i)=>(
@@ -169,7 +169,7 @@ function Podio({ top3, myName, onClick }: {
 }) {
   // Orden visual: 2° izq, 1° centro, 3° der
   const order = [1, 0, 2];
-  const colors = ['#f5c842','#cbd5e1','#cd7f32'];
+  const colors = ['var(--gold)','#cbd5e1','#cd7f32'];
   const medals = ['🥇','🥈','🥉'];
   const heights = [130, 90, 70];   // pedestal heights: centro más alto
   const avatarSizes = [80, 64, 56];
@@ -234,7 +234,7 @@ function Podio({ top3, myName, onClick }: {
                 {isMe && (
                   <span style={{
                     position:'absolute',top:-7,right:-7,
-                    background:'#f5c842',color:'#000',
+                    background:'var(--gold)',color:'#000',
                     border:'2px solid #000',borderRadius:5,
                     fontFamily:HAND,fontSize:10,fontWeight:900,
                     padding:'1px 5px',
@@ -303,9 +303,9 @@ function EntryRow({ entry, rank, isMe, onClick }: {
     <div onClick={onClick} style={{
       display:'flex',alignItems:'center',gap:10,
       padding:'9px 12px',borderRadius:11,
-      background:isMe?'color-mix(in srgb,#f5c842 16%,#1a1a1f)':'rgba(255,255,255,.03)',
-      border:isMe?'2.5px solid #f5c842':'1.5px dashed rgba(255,255,255,.1)',
-      boxShadow:isMe?'3px 4px 0 #f5c842':'none',
+      background:isMe?'color-mix(in srgb,var(--gold) 16%,#1a1a1f)':'rgba(255,255,255,.03)',
+      border:isMe?'2.5px solid var(--gold)':'1.5px dashed rgba(255,255,255,.1)',
+      boxShadow:isMe?'3px 4px 0 var(--gold)':'none',
       transform:`rotate(${rot}deg)`,
       cursor:'pointer',transition:'all .25s',
     }}
@@ -341,7 +341,7 @@ function EntryRow({ entry, rank, isMe, onClick }: {
           <p style={{fontFamily:HAND,fontSize:17,fontWeight:900,color:'#fff',margin:0,lineHeight:1.05,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
             {entry.nombre}
           </p>
-          {isMe && <span style={{fontFamily:HAND,fontSize:11,fontWeight:900,background:'#f5c842',color:'#000',border:'1.5px solid #000',borderRadius:4,padding:'1px 6px',transform:'rotate(-2deg)',flexShrink:0}}>TÚ</span>}
+          {isMe && <span style={{fontFamily:HAND,fontSize:11,fontWeight:900,background:'var(--gold)',color:'#000',border:'1.5px solid #000',borderRadius:4,padding:'1px 6px',transform:'rotate(-2deg)',flexShrink:0}}>TÚ</span>}
         </div>
         {entry.carrera && <p style={{fontFamily:HAND,fontSize:12,fontWeight:700,color:'rgba(255,255,255,.4)',fontStyle:'italic',margin:'1px 0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>📚 {entry.carrera}</p>}
         <div style={{display:'flex',gap:7,fontFamily:HAND,fontSize:11,fontWeight:700,color:'rgba(255,255,255,.35)'}}>
@@ -355,14 +355,14 @@ function EntryRow({ entry, rank, isMe, onClick }: {
       <div style={{
         textAlign:'right',flexShrink:0,
         padding:'5px 10px',
-        background:'rgba(245,200,66,.1)',
-        border:'2px dashed #f5c842',borderRadius:8,
+        background:'color-mix(in srgb, var(--gold) 10%, transparent)',
+        border:'2px dashed var(--gold)',borderRadius:8,
         transform:'rotate(-2deg)',
       }}>
-        <p style={{fontFamily:HAND,fontSize:18,fontWeight:900,color:'#f5c842',margin:0,lineHeight:1}}>
+        <p style={{fontFamily:HAND,fontSize:18,fontWeight:900,color:'var(--gold)',margin:0,lineHeight:1}}>
           {entry.xp_total.toLocaleString()}
         </p>
-        <p style={{fontFamily:HAND,fontSize:10,fontStyle:'italic',color:'rgba(245,200,66,.6)',margin:0}}>XP</p>
+        <p style={{fontFamily:HAND,fontSize:10,fontStyle:'italic',color:'color-mix(in srgb, var(--gold) 60%, transparent)',margin:0}}>XP</p>
       </div>
     </div>
   );
@@ -413,18 +413,18 @@ export default function Leaderboard() {
 
       <div style={{
         background:'#0f0f14',
-        border:'2.5px solid #f5c842',
+        border:'2.5px solid var(--gold)',
         borderRadius:16,
-        boxShadow:'5px 6px 0 #f5c842',
+        boxShadow:'5px 6px 0 var(--gold)',
         transform:'rotate(-.3deg)',
         overflow:'hidden',position:'relative',
       }}>
         {/* Scotch */}
-        <div style={{position:'absolute',top:-10,left:'50%',transform:'translateX(-50%) rotate(-3deg)',width:90,height:19,background:'rgba(245,200,66,.55)',border:'1px solid rgba(245,200,66,.3)',zIndex:10}}/>
+        <div style={{position:'absolute',top:-10,left:'50%',transform:'translateX(-50%) rotate(-3deg)',width:90,height:19,background:'color-mix(in srgb, var(--gold) 55%, transparent)',border:'1px solid color-mix(in srgb, var(--gold) 30%, transparent)',zIndex:10}}/>
 
         {/* Header */}
         <div style={{
-          background:'linear-gradient(135deg,#f5c842 0%,#ff8c00 55%,#ef4444 100%)',
+          background:'linear-gradient(135deg,var(--gold) 0%,#ff8c00 55%,#ef4444 100%)',
           padding:'14px 20px',
           borderBottom:'2.5px solid #fff',
           display:'flex',justifyContent:'space-between',alignItems:'center',

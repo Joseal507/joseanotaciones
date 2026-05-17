@@ -2,9 +2,9 @@
 
 import React, { useState } from 'react';
 
-const G = '#f5c842';
+const G = 'var(--gold)';
 const BG = '#1c1c28';
-const BD = 'rgba(245,200,66,0.18)';
+const BD = 'color-mix(in srgb, var(--gold) 18%, transparent)';
 
 const FONTS = ['Georgia','Arial','Helvetica','Times New Roman','Courier New','Verdana','Trebuchet MS','Palatino','Garamond','System UI'];
 const SIZES = [10,12,14,16,18,20,24,28,32,36,48,64];
@@ -42,7 +42,7 @@ function Btn({ onClick, children, title, active, danger }: {
       title={title}
       style={{
         width: 28, height: 28, minWidth: 28, borderRadius: 7, border: 'none',
-        background: active ? 'rgba(245,200,66,0.15)' : 'transparent',
+        background: active ? 'color-mix(in srgb, var(--gold) 15%, transparent)' : 'transparent',
         color: danger ? '#ef4444' : active ? G : 'rgba(255,255,255,0.7)',
         cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: 12, fontWeight: 700, flexShrink: 0,

@@ -87,7 +87,10 @@ export default function NavLoader() {
 
   useEffect(() => {
     if (prevPath.current !== pathname) {
+      const previousPath = prevPath.current;
       prevPath.current = pathname;
+      // Solo ocultar si llegamos al destino que pedimos
+      // Si nos redirigieron a otra ruta (ej: por falta de auth), seguir mostrando
       hide();
     }
   }, [pathname]);
