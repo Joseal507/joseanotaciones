@@ -8,7 +8,7 @@ const HAND = "'Caveat',cursive";
 
 interface Notif {
   id: string;
-  tipo: 'chat' | 'partner' | 'comunidad' | 'news' | 'logro' | 'daily';
+  tipo: 'chat' | 'partner' | 'comunidad' | 'news' | 'daily';
   titulo: string;
   desc: string;
   emoji: string;
@@ -19,15 +19,12 @@ interface Notif {
 }
 
 const STORAGE_KEY = 'studyal_notif_leidas';
+const DAILY_KEY = 'studyal_daily_reward_date';
 
 function getLeidas(): Set<string> {
   if (typeof window === 'undefined') return new Set();
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return new Set(raw ? JSON.parse(raw) : []);
-  } catch { return new Set(); }
+  try { return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')); } catch { return new Set(); }
 }
-
 function setLeidas(ids: Set<string>) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify([...ids])); } catch {}
 }
@@ -47,158 +44,255 @@ export default function NotificacionesPanel() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setNotifs([]); setLoading(false); return; }
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
 
-      // 1) Chats — mensajes de partners no leídos
+      // ── 1) Daily reward ──
       try {
-        const { data: msgs } = await supabase
-          .from('partner_messages')
-          .select('id, contenido, remitente_id, created_at')
-          .neq('remitente_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(5);
-        if (msgs) msgs.forEach((m: any) => {
+        const hoy = new Date().toDateString();
+        const last = localStorage.getItem(DAILY_KEY);
+        if (last !== hoy) {
+          const id = 'daily-' + hoy;
           out.push({
-            id: `chat-${m.id}`,
-            tipo: 'chat',
-            titulo: '💬 Nuevo mensaje',
-            desc: (m.contenido || '').substring(0, 60),
-            emoji: '💬',
-            color: 'var(--blue)',
-            href: '/partners',
-            fecha: m.created_at,
-            leida: leidas.has(`chat-${m.id}`),
-          });
-        });
-      } catch {}
-
-      // 2) Solicitudes de amistad partners
-      try {
-        const { data: reqs } = await supabase
-          .from('partner_requests')
-          .select('id, sender_id, sender_nombre, created_at, status')
-          .eq('receiver_id', user.id)
-          .eq('status', 'pending')
-          .order('created_at', { ascending: false })
-          .limit(5);
-        if (reqs) reqs.forEach((r: any) => {
-          out.push({
-            id: `req-${r.id}`,
-            tipo: 'partner',
-            titulo: '🤝 Solicitud de partner',
-            desc: `${r.sender_nombre || 'Alguien'} quiere ser tu partner`,
-            emoji: '🤝',
-            color: '#22c55e',
-            href: '/partners',
-            fecha: r.created_at,
-            leida: leidas.has(`req-${r.id}`),
-          });
-        });
-      } catch {}
-
-      // 3) Comentarios en mis posts de comunidad
-      try {
-        const { data: posts } = await supabase
-          .from('comunidad_posts')
-          .select('id')
-          .eq('user_id', user.id)
-          .limit(20);
-        if (posts && posts.length > 0) {
-          const postIds = posts.map((p: any) => p.id);
-          const { data: comments } = await supabase
-            .from('comunidad_comentarios')
-            .select('id, post_id, usuario_nombre, contenido, created_at')
-            .in('post_id', postIds)
-            .neq('user_id', user.id)
-            .order('created_at', { ascending: false })
-            .limit(5);
-          if (comments) comments.forEach((c: any) => {
-            out.push({
-              id: `com-${c.id}`,
-              tipo: 'comunidad',
-              titulo: '💬 Comentario nuevo',
-              desc: `${c.usuario_nombre}: ${(c.contenido || '').substring(0, 50)}`,
-              emoji: '💬',
-              color: '#a855f7',
-              href: `/comunidad/${c.post_id}`,
-              fecha: c.created_at,
-              leida: leidas.has(`com-${c.id}`),
-            });
+            id, tipo: 'daily',
+            titulo: '🎁 Recompensa diaria lista',
+            desc: '¡Reclama tus puntos y XP de hoy!',
+            emoji: '🎁', color: 'var(--gold)',
+            href: '/', fecha: new Date().toISOString(),
+            leida: leidas.has(id),
           });
         }
       } catch {}
 
-      // 4) News recientes
+      // ── 2) Partners via API (/api/partners) ──
+      let partnersApi: any = null;
       try {
-        const { data: news } = await supabase
-          .from('news_articulos')
-          .select('id, titulo, created_at')
-          .order('created_at', { ascending: false })
-          .limit(3);
-        if (news) news.forEach((n: any) => {
-          out.push({
-            id: `news-${n.id}`,
-            tipo: 'news',
-            titulo: '📰 Nueva noticia',
-            desc: n.titulo,
-            emoji: '📰',
-            color: '#f97316',
-            href: '/news',
-            fecha: n.created_at,
-            leida: leidas.has(`news-${n.id}`),
+        if (token) {
+          const res = await fetch('/api/partners', {
+            headers: { 'Authorization': 'Bearer ' + token },
           });
-        });
+          if (res.ok) {
+            partnersApi = await res.json();
+
+            // Solicitudes que me llegaron
+            (partnersApi?.solicitudes || []).forEach((r: any) => {
+              const id = 'req-' + r.id;
+              const nombre = r.partner?.nombre || 'Alguien';
+              out.push({
+                id,
+                tipo: 'partner',
+                titulo: '🤝 Solicitud de partner',
+                desc: nombre + ' quiere ser tu partner de estudio',
+                emoji: '🤝',
+                color: '#22c55e',
+                href: '/partners',
+                fecha: r.created_at,
+                leida: leidas.has(id),
+              });
+            });
+
+            // Solicitudes enviadas por mí que siguen pendientes
+            (partnersApi?.enviadas || []).forEach((r: any) => {
+              const id = 'sent-' + r.id;
+              const nombre = r.partner?.nombre || 'alguien';
+              out.push({
+                id,
+                tipo: 'partner',
+                titulo: '🕓 Solicitud pendiente',
+                desc: 'Tu solicitud a ' + nombre + ' sigue pendiente',
+                emoji: '🕓',
+                color: '#16a34a',
+                href: '/partners',
+                fecha: r.created_at,
+                leida: leidas.has(id),
+              });
+            });
+
+            // Partners aceptados recientemente
+            const hace7d = Date.now() - 7 * 24 * 60 * 60 * 1000;
+            (partnersApi?.partners || []).forEach((r: any) => {
+              const fecha = r.updated_at || r.created_at;
+              if (!fecha) return;
+              if (new Date(fecha).getTime() < hace7d) return;
+
+              const id = 'accepted-' + r.id;
+              const nombre = r.partner?.nombre || 'Tu partner';
+              out.push({
+                id,
+                tipo: 'partner',
+                titulo: '✅ Nuevo partner',
+                desc: nombre + ' ahora es tu partner de estudio',
+                emoji: '✅',
+                color: '#22c55e',
+                href: '/partners',
+                fecha,
+                leida: leidas.has(id),
+              });
+            });
+          }
+        }
       } catch {}
 
-      // 5) Daily reward disponible
+      // ── 3) Mensajes no leídos via API ──
       try {
-        const DAILY_KEY = 'studyal_daily_reward_date';
-        const last = localStorage.getItem(DAILY_KEY);
-        const hoy = new Date().toDateString();
-        if (last !== hoy) {
-          out.push({
-            id: `daily-${hoy}`,
-            tipo: 'daily',
-            titulo: '🎁 Recompensa diaria',
-            desc: '¡Tu daily reward está listo!',
-            emoji: '🎁',
-            color: 'var(--gold)',
-            href: '/',
-            fecha: new Date().toISOString(),
-            leida: leidas.has(`daily-${hoy}`),
+        if (token) {
+          const res = await fetch('/api/partner-chats', {
+            headers: { 'Authorization': 'Bearer ' + token },
+          });
+
+          if (res.ok) {
+            const payload = await res.json();
+            const chats = Array.isArray(payload)
+              ? payload
+              : (Array.isArray(payload?.chats) ? payload.chats : []);
+
+            chats.forEach((chat: any) => {
+              if ((chat.unread || 0) > 0) {
+                const nombre = chat.partner?.nombre || 'Partner';
+                const id = 'chat-' + chat.id;
+                out.push({
+                  id,
+                  tipo: 'chat',
+                  titulo: '💬 ' + nombre,
+                  desc: chat.unread === 1
+                    ? '1 mensaje nuevo'
+                    : chat.unread + ' mensajes nuevos',
+                  emoji: '💬',
+                  color: 'var(--blue)',
+                  href: '/partners',
+                  fecha: chat.last_message_at || chat.created_at || new Date().toISOString(),
+                  leida: leidas.has(id),
+                });
+              }
+            });
+          }
+        }
+      } catch {}
+
+      // ── 4) Comentarios en mis posts ──
+      try {
+        const { data: misPosts } = await supabase
+          .from('comunidad_posts')
+          .select('id, titulo')
+          .eq('user_id', user.id)
+          .limit(30);
+        if (misPosts && misPosts.length > 0) {
+          const postIds = misPosts.map((p: any) => p.id);
+          const postTitulos: Record<string, string> = {};
+          misPosts.forEach((p: any) => { postTitulos[p.id] = p.titulo || 'tu post'; });
+
+          const { data: comments } = await supabase
+            .from('comunidad_comentarios')
+            .select('id, post_id, user_id, user_nombre, user_avatar, contenido, created_at')
+            .in('post_id', postIds)
+            .order('created_at', { ascending: false })
+            .limit(20);
+          if (comments) {
+            // Filtrar en JS para excluir mis propios comentarios
+            const ajenos = comments.filter((c: any) => c.user_id !== user.id);
+            ajenos.forEach((c: any) => {
+              const id = 'com-' + c.id;
+              const nombreComentador = c.user_nombre || c.usuario_nombre || 'Alguien';
+              out.push({
+                id, tipo: 'comunidad',
+                titulo: '💬 ' + nombreComentador + ' comentó',
+                desc: 'En "' + (postTitulos[c.post_id] || 'tu post') + '": ' + (c.contenido || '').substring(0, 50),
+                emoji: '💬', color: '#a855f7',
+                href: '/comunidad/' + c.post_id, fecha: c.created_at,
+                leida: leidas.has(id),
+              });
+            });
+          }
+        }
+      } catch {}
+
+      // ── 5) Posts de mis partners (últimas 72h) ──
+      try {
+        const partnerRows = partnersApi?.partners || [];
+        if (partnerRows.length > 0) {
+          const partnerIds = partnerRows.map((p: any) =>
+            p.sender_id === user.id ? p.receiver_id : p.sender_id
+          );
+
+          const hace3d = new Date();
+          hace3d.setDate(hace3d.getDate() - 3);
+
+          const { data: posts } = await supabase
+            .from('comunidad_posts')
+            .select('id, user_id, titulo, created_at')
+            .in('user_id', partnerIds)
+            .gte('created_at', hace3d.toISOString())
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+          if (posts && posts.length > 0) {
+            const partnerNombres: Record<string, string> = {};
+            partnerRows.forEach((p: any) => {
+              const pid = p.sender_id === user.id ? p.receiver_id : p.sender_id;
+              partnerNombres[pid] = p.partner?.nombre || 'Tu partner';
+            });
+
+            posts.forEach((post: any) => {
+              const id = 'post-' + post.id;
+              out.push({
+                id,
+                tipo: 'comunidad',
+                titulo: '📝 ' + (partnerNombres[post.user_id] || 'Tu partner') + ' publicó',
+                desc: post.titulo || 'Nuevo post',
+                emoji: '📝',
+                color: '#a855f7',
+                href: '/comunidad/' + post.id,
+                fecha: post.created_at,
+                leida: leidas.has(id),
+              });
+            });
+          }
+        }
+      } catch {}
+
+      // ── 6) News recientes (48h) ──
+      try {
+        const hace48h = new Date();
+        hace48h.setHours(hace48h.getHours() - 48);
+        const { data: news } = await supabase
+          .from('news')
+          .select('id, titulo, created_at')
+          .gte('created_at', hace48h.toISOString())
+          .order('created_at', { ascending: false })
+          .limit(3);
+        if (news) {
+          news.forEach((n: any) => {
+            const id = 'news-' + n.id;
+            out.push({
+              id, tipo: 'news',
+              titulo: '📰 Nueva noticia',
+              desc: n.titulo || 'Actualización de StudyAL',
+              emoji: '📰', color: '#f97316',
+              href: '/news', fecha: n.created_at,
+              leida: leidas.has(id),
+            });
           });
         }
       } catch {}
 
     } catch {}
 
-    // Ordenar por fecha desc
     out.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-    setNotifs(out.slice(0, 15));
+    setNotifs(out.slice(0, 20));
     setLoading(false);
   };
 
+  useEffect(() => { cargar(); const iv = setInterval(cargar, 60000); return () => clearInterval(iv); }, []);
+  useEffect(() => { if (abierto) cargar(); }, [abierto]);
   useEffect(() => {
-    cargar();
-    const iv = setInterval(cargar, 60000); // refrescar cada minuto
-    return () => clearInterval(iv);
-  }, []);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setAbierto(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const h = (e: MouseEvent) => { if (panelRef.current && !panelRef.current.contains(e.target as Node)) setAbierto(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
   }, []);
 
   const noLeidas = notifs.filter(n => !n.leida).length;
 
   const abrirNotif = (n: Notif) => {
-    const leidas = getLeidas();
-    leidas.add(n.id);
-    setLeidas(leidas);
+    const l = getLeidas(); l.add(n.id); setLeidas(l);
     setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, leida: true } : x));
     setAbierto(false);
     try { (window as any).__showNavLoader?.(n.href); } catch {}
@@ -206,43 +300,32 @@ export default function NotificacionesPanel() {
   };
 
   const marcarTodas = () => {
-    const leidas = getLeidas();
-    notifs.forEach(n => leidas.add(n.id));
-    setLeidas(leidas);
+    const l = getLeidas(); notifs.forEach(n => l.add(n.id)); setLeidas(l);
     setNotifs(prev => prev.map(n => ({ ...n, leida: true })));
   };
 
-  const tiempoRelativo = (fecha: string) => {
-    const diff = Date.now() - new Date(fecha).getTime();
-    const min = Math.floor(diff / 60000);
+  const tiempo = (f: string) => {
+    const min = Math.floor((Date.now() - new Date(f).getTime()) / 60000);
     if (min < 1) return 'ahora';
-    if (min < 60) return `${min}m`;
+    if (min < 60) return min + 'm';
     const h = Math.floor(min / 60);
-    if (h < 24) return `${h}h`;
-    const d = Math.floor(h / 24);
-    return `${d}d`;
+    if (h < 24) return h + 'h';
+    return Math.floor(h / 24) + 'd';
   };
+
+  const TIPO: Record<string, string> = { chat:'Chat', partner:'Partners', comunidad:'Comunidad', news:'News', daily:'Daily' };
 
   return (
     <div ref={panelRef} style={{ position: 'relative' }}>
-      {/* Botón campana */}
-      <button
-        onClick={() => setAbierto(!abierto)}
-        style={{
-          width: 42, height: 42, borderRadius: 10,
-          border: '2.5px solid var(--text-primary)',
-          background: noLeidas > 0 ? 'var(--gold)' : 'var(--bg-card)',
-          cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 20,
-          boxShadow: abierto ? '3px 4px 0 var(--gold)' : '2px 2px 0 var(--text-primary)',
-          transform: abierto ? 'rotate(0)' : 'rotate(2deg)',
-          transition: 'all .2s',
-          position: 'relative',
-          padding: 0,
-        }}
-        title="Notificaciones"
-      >
+      <button onClick={() => setAbierto(!abierto)} style={{
+        width: 42, height: 42, borderRadius: 10,
+        border: '2.5px solid var(--text-primary)',
+        background: noLeidas > 0 ? 'var(--gold)' : 'var(--bg-card)',
+        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 20, boxShadow: abierto ? '3px 4px 0 var(--gold)' : '2px 2px 0 var(--text-primary)',
+        transform: abierto ? 'rotate(0)' : 'rotate(2deg)', transition: 'all .2s',
+        position: 'relative', padding: 0,
+      }} title="Notificaciones">
         🔔
         {noLeidas > 0 && (
           <span style={{
@@ -253,150 +336,93 @@ export default function NotificacionesPanel() {
             borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center',
             border: '2px solid var(--bg-primary)',
             animation: 'notifBounce 1.4s ease-in-out infinite',
-          }}>
-            {noLeidas > 9 ? '9+' : noLeidas}
-          </span>
+          }}>{noLeidas > 9 ? '9+' : noLeidas}</span>
         )}
       </button>
 
-      {abierto && (
-        <>
-          <div onClick={() => setAbierto(false)} style={{
-            position: 'fixed', inset: 0, zIndex: 9998,
-            background: 'rgba(0,0,0,.3)', backdropFilter: 'blur(4px)',
-          }} />
+      {abierto && (<>
+        <div onClick={() => setAbierto(false)} style={{
+          position: 'fixed', inset: 0, zIndex: 9998,
+          background: 'rgba(0,0,0,.3)', backdropFilter: 'blur(4px)',
+        }}/>
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 12px)', right: 0,
+          width: 350, maxHeight: 500,
+          background: 'var(--bg-card)', border: '2.5px solid var(--text-primary)',
+          borderRadius: 14, boxShadow: '6px 7px 0 var(--gold), 0 16px 50px rgba(0,0,0,.4)',
+          zIndex: 9999, display: 'flex', flexDirection: 'column',
+          transform: 'rotate(-.5deg)', animation: 'notifSlide .25s cubic-bezier(.34,1.4,.64,1)',
+          overflow: 'hidden',
+        }}>
           <div style={{
-            position: 'absolute', top: 'calc(100% + 12px)', right: 0,
-            width: 340, maxHeight: 480,
-            background: 'var(--bg-card)',
-            border: '2.5px solid var(--text-primary)',
-            borderRadius: 14,
-            boxShadow: '6px 7px 0 var(--gold), 0 16px 50px rgba(0,0,0,.4)',
-            zIndex: 9999,
-            display: 'flex', flexDirection: 'column',
-            transform: 'rotate(-.5deg)',
-            animation: 'notifSlide .25s cubic-bezier(.34,1.4,.64,1)',
-            overflow: 'hidden',
+            padding: '14px 16px 10px', borderBottom: '2px dashed var(--border-color)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: 'color-mix(in srgb, var(--gold) 8%, transparent)',
           }}>
-            {/* Cinta */}
-            <div style={{
-              position: 'absolute', top: -10, left: '50%',
-              transform: 'translateX(-50%) rotate(-3deg)',
-              width: 80, height: 18,
-              background: 'color-mix(in srgb, var(--gold) 55%, transparent)',
-              border: '1px solid color-mix(in srgb, var(--gold) 35%, transparent)',
-              boxShadow: '0 2px 5px rgba(0,0,0,.18)',
-              zIndex: 5,
-            }}/>
-
-            {/* Header */}
-            <div style={{
-              padding: '14px 16px 10px',
-              borderBottom: '2px dashed var(--border-color)',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            <h3 style={{
+              fontFamily: HAND, fontSize: 22, fontWeight: 900,
+              color: 'var(--text-primary)', margin: 0, transform: 'rotate(-1deg)',
             }}>
-              <h3 style={{
-                fontFamily: HAND, fontSize: 22, fontWeight: 900,
-                color: 'var(--text-primary)', margin: 0,
-                transform: 'rotate(-1deg)',
-              }}>
-                🔔 Notificaciones
-              </h3>
-              {noLeidas > 0 && (
-                <button onClick={marcarTodas} style={{
-                  background: 'transparent',
-                  border: '1.5px dashed var(--gold)',
-                  borderRadius: 6, padding: '3px 8px',
-                  fontFamily: HAND, fontSize: 12, fontWeight: 700,
-                  color: 'var(--gold)', cursor: 'pointer',
-                }}>
-                  ✓ todas leídas
-                </button>
-              )}
-            </div>
-
-            {/* Lista */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
-              {loading ? (
-                <p style={{ fontFamily: HAND, fontSize: 15, color: 'var(--text-muted)', textAlign: 'center', padding: 20, fontStyle: 'italic' }}>
-                  ~ cargando... ~
-                </p>
-              ) : notifs.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '30px 20px' }}>
-                  <div style={{ fontSize: 40, marginBottom: 8 }}>🌟</div>
-                  <p style={{ fontFamily: HAND, fontSize: 17, color: 'var(--text-muted)', margin: 0, fontStyle: 'italic' }}>
-                    ~ todo al día ~
-                  </p>
-                </div>
-              ) : (
-                notifs.map((n, i) => (
-                  <div key={n.id}
-                    onClick={() => abrirNotif(n)}
-                    style={{
-                      padding: '10px 12px', marginBottom: 6,
-                      borderRadius: 9,
-                      border: `2px dashed ${n.leida ? 'transparent' : n.color}`,
-                      background: n.leida ? 'transparent' : `color-mix(in srgb, ${n.color} 10%, transparent)`,
-                      cursor: 'pointer',
-                      display: 'flex', gap: 10,
-                      transition: 'all .2s',
-                      transform: `rotate(${i % 2 === 0 ? -0.3 : 0.3}deg)`,
-                    }}
-                    onMouseEnter={(e: any) => {
-                      e.currentTarget.style.transform = 'rotate(0deg) translateX(2px)';
-                      e.currentTarget.style.background = `color-mix(in srgb, ${n.color} 18%, transparent)`;
-                    }}
-                    onMouseLeave={(e: any) => {
-                      e.currentTarget.style.transform = `rotate(${i % 2 === 0 ? -0.3 : 0.3}deg)`;
-                      e.currentTarget.style.background = n.leida ? 'transparent' : `color-mix(in srgb, ${n.color} 10%, transparent)`;
-                    }}
-                  >
-                    <div style={{ fontSize: 22, flexShrink: 0 }}>{n.emoji}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{
-                        display: 'flex', justifyContent: 'space-between',
-                        alignItems: 'center', gap: 6,
-                      }}>
-                        <p style={{
-                          fontFamily: HAND, fontSize: 16, fontWeight: 800,
-                          color: n.color, margin: 0,
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        }}>{n.titulo}</p>
-                        <span style={{
-                          fontFamily: HAND, fontSize: 12, color: 'var(--text-faint)',
-                          flexShrink: 0, fontStyle: 'italic',
-                        }}>{tiempoRelativo(n.fecha)}</span>
-                      </div>
-                      <p style={{
-                        fontFamily: HAND, fontSize: 14,
-                        color: 'var(--text-muted)', margin: 0,
-                        overflow: 'hidden', textOverflow: 'ellipsis',
-                        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-                      }}>{n.desc}</p>
-                    </div>
-                    {!n.leida && (
-                      <div style={{
-                        width: 8, height: 8, borderRadius: '50%',
-                        background: n.color, marginTop: 6, flexShrink: 0,
-                      }}/>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
+              🔔 Buzón
+              {noLeidas > 0 && <span style={{ marginLeft: 8, fontSize: 14, color: 'var(--red)', fontStyle: 'italic' }}>({noLeidas})</span>}
+            </h3>
+            {noLeidas > 0 && (
+              <button onClick={marcarTodas} style={{
+                background: 'transparent', border: '1.5px dashed var(--gold)',
+                borderRadius: 6, padding: '3px 8px',
+                fontFamily: HAND, fontSize: 12, fontWeight: 700,
+                color: 'var(--gold)', cursor: 'pointer',
+              }}>✓ leídas</button>
+            )}
           </div>
-        </>
-      )}
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
+            {loading ? (
+              <p style={{ fontFamily: HAND, fontSize: 15, color: 'var(--text-muted)', textAlign: 'center', padding: 24, fontStyle: 'italic' }}>~ cargando... ~</p>
+            ) : notifs.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '30px 20px' }}>
+                <div style={{ fontSize: 44, marginBottom: 8 }}>🌟</div>
+                <p style={{ fontFamily: HAND, fontSize: 17, color: 'var(--text-muted)', margin: 0, fontStyle: 'italic' }}>~ todo al día ~</p>
+              </div>
+            ) : notifs.map((n, i) => (
+              <div key={n.id} onClick={() => abrirNotif(n)} style={{
+                padding: '10px 12px', marginBottom: 5, borderRadius: 9,
+                border: '2px ' + (n.leida ? 'dashed var(--border-color)' : 'solid ' + n.color),
+                background: n.leida ? 'transparent' : 'color-mix(in srgb, ' + n.color + ' 10%, transparent)',
+                cursor: 'pointer', display: 'flex', gap: 10,
+                transition: 'all .15s', transform: 'rotate(' + (i % 2 === 0 ? -0.3 : 0.3) + 'deg)',
+              }}
+              onMouseEnter={(e: any) => { e.currentTarget.style.transform = 'rotate(0) translateX(3px)'; e.currentTarget.style.background = 'color-mix(in srgb, ' + n.color + ' 18%, transparent)'; }}
+              onMouseLeave={(e: any) => { e.currentTarget.style.transform = 'rotate(' + (i % 2 === 0 ? -0.3 : 0.3) + 'deg)'; e.currentTarget.style.background = n.leida ? 'transparent' : 'color-mix(in srgb, ' + n.color + ' 10%, transparent)'; }}
+              >
+                <div style={{ fontSize: 22, flexShrink: 0 }}>{n.emoji}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                    <p style={{ fontFamily: HAND, fontSize: 15, fontWeight: 800, color: n.color, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.titulo}</p>
+                    <span style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
+                      <span style={{ fontFamily: HAND, fontSize: 10, color: '#fff', background: n.color, borderRadius: 4, padding: '1px 5px', opacity: .85 }}>{TIPO[n.tipo]}</span>
+                      <span style={{ fontFamily: HAND, fontSize: 12, color: 'var(--text-faint)', fontStyle: 'italic' }}>{tiempo(n.fecha)}</span>
+                    </span>
+                  </div>
+                  <p style={{ fontFamily: HAND, fontSize: 13, color: 'var(--text-muted)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>{n.desc}</p>
+                </div>
+                {!n.leida && <div style={{ width: 8, height: 8, borderRadius: '50%', background: n.color, marginTop: 6, flexShrink: 0, boxShadow: '0 0 6px ' + n.color }}/>}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ padding: '8px 12px', borderTop: '2px dashed var(--border-color)', textAlign: 'center' }}>
+            <button onClick={() => { setAbierto(false); cargar(); }} style={{
+              fontFamily: HAND, fontSize: 13, color: 'var(--text-faint)',
+              background: 'transparent', border: 'none', cursor: 'pointer', fontStyle: 'italic',
+            }}>↻ actualizar</button>
+          </div>
+        </div>
+      </>)}
 
       <style>{`
-        @keyframes notifBounce {
-          0%, 100% { transform: scale(1) rotate(0deg); }
-          50% { transform: scale(1.15) rotate(-5deg); }
-        }
-        @keyframes notifSlide {
-          0% { opacity: 0; transform: translateY(-12px) rotate(0deg) scale(.96); }
-          100% { opacity: 1; transform: translateY(0) rotate(-.5deg) scale(1); }
-        }
+        @keyframes notifBounce { 0%,100%{transform:scale(1) rotate(0)} 50%{transform:scale(1.2) rotate(-8deg)} }
+        @keyframes notifSlide { 0%{opacity:0;transform:translateY(-10px) rotate(0) scale(.95)} 100%{opacity:1;transform:translateY(0) rotate(-.5deg) scale(1)} }
       `}</style>
     </div>
   );
