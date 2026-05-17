@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import { getMateriasDB } from '../lib/db';
 import { getObjetivos, ObjetivoAgenda } from '../lib/agenda';
 import UserMenu from '../components/UserMenu';
+import NotificacionesPanel from '../components/NotificacionesPanel';
 import Buscador from '../components/Buscador';
 import NavbarMobile from '../components/NavbarMobile';
 import RachaWidget from '../components/RachaWidget';
@@ -624,10 +625,16 @@ function MiniXPChart({ days = 7, color = 'var(--blue)', xpTotal = 0 }: { days?: 
   // Datos reales de XP diario (localStorage)
   const [data, setData] = useState<number[]>(Array(days).fill(0));
   useEffect(() => {
-    import('../lib/xpDiario').then(mod => {
-      const d = mod.getXpUltimosDias(days);
-      setData(d.map(x => x.xp));
-    });
+    const cargar = () => {
+      import('../lib/xpDiario').then(mod => {
+        const d = mod.getXpUltimosDias(days);
+        setData(d.map(x => x.xp));
+      });
+    };
+    cargar();
+    const handler = () => cargar();
+    window.addEventListener('xp:ganada', handler);
+    return () => window.removeEventListener('xp:ganada', handler);
   }, [days]);
   const max = Math.max(...data, 1);
   const W = 180, H = 70;
@@ -678,19 +685,17 @@ function MapaProgreso({ playerStats, myRank, totalUsers, onLeaderboard, mob }: {
 }) {
   const [xpUltimos7, setXpUltimos7] = useState(0);
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('josea_xp_diario') || '{}';
-      const data = JSON.parse(raw);
-      const hoy = new Date();
-      let suma = 0;
-      for (let i = 0; i < 7; i++) {
-        const d = new Date(hoy);
-        d.setDate(hoy.getDate() - i);
-        const key = d.toISOString().split('T')[0];
-        suma += data[key]?.xp || 0;
-      }
-      setXpUltimos7(suma);
-    } catch {}
+    const cargar = () => {
+      import('../lib/xpDiario').then(mod => {
+        const dias = mod.getXpUltimosDias(7);
+        const suma = dias.reduce((acc: number, d: any) => acc + (d.xp || 0), 0);
+        setXpUltimos7(suma);
+      }).catch(() => {});
+    };
+    cargar();
+    const handler = () => cargar();
+    window.addEventListener('xp:ganada', handler);
+    return () => window.removeEventListener('xp:ganada', handler);
   }, [playerStats?.xpTotal]);
 
   return (
@@ -817,11 +822,17 @@ function GraficasPanel({ materias, mob, xpTotal }: { materias: Materia[]; mob: b
   const [xpAcum, setXpAcum] = useState<{ fecha: string; xpAcumulado: number; xpDia: number }[]>([]);
 
   useEffect(() => {
-    import('../lib/xpDiario').then(mod => {
-      setXpDiario(mod.getXpUltimosDias(7));
-      setXpAcum(mod.getXpAcumuladoConTotal(xpTotal || 0, 30));
-    });
-  }, []);
+    const cargar = () => {
+      import('../lib/xpDiario').then(mod => {
+        setXpDiario(mod.getXpUltimosDias(7));
+        setXpAcum(mod.getXpAcumuladoConTotal(xpTotal || 0, 30));
+      });
+    };
+    cargar();
+    const handler = () => cargar();
+    window.addEventListener('xp:ganada', handler);
+    return () => window.removeEventListener('xp:ganada', handler);
+  }, [xpTotal]);
 
   // Stats agregados
   const totalApuntes = materias.reduce((s,m)=>s+m.temas.reduce((ss,t)=>ss+(t.apuntes?.length||0),0),0);
@@ -1119,6 +1130,18 @@ function LineChartXP({ data, mob }: { data: { fecha: string; xpAcumulado: number
 
 /* ─── Sub: Barras semanales ─── */
 function BarrasSemanales({ data, mob }: { data: { fecha: string; xp: number; diaCorto: string; diaCompleto: string; esHoy: boolean }[]; mob: boolean }) {
+  const [themeKey, setThemeKey] = useState(0);
+  useEffect(() => {
+    const handler = () => setThemeKey(k => k + 1);
+    window.addEventListener('theme:changed', handler);
+    // Observer del atributo data-theme
+    const obs = new MutationObserver(() => setThemeKey(k => k + 1));
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'style'] });
+    return () => {
+      window.removeEventListener('theme:changed', handler);
+      obs.disconnect();
+    };
+  }, []);
   if (!data.length) return null;
   const max = Math.max(...data.map(d => d.xp), 50);
   const totalSemana = data.reduce((s,d)=>s+d.xp, 0);
@@ -1157,12 +1180,13 @@ function BarrasSemanales({ data, mob }: { data: { fecha: string; xp: number; dia
       }}>
         {data.map((d,i)=>{
           const h = (d.xp / max) * 130;
-          const color = d.esHoy ? 'var(--gold)' : 'var(--blue)';
+          const colorHoy = 'var(--gold)';
+          const color = d.esHoy ? colorHoy : 'var(--blue)';
           return (
             <div key={i} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:4, minWidth:0 }}>
               <span style={{
                 fontFamily:HAND, fontSize:13, fontWeight:800,
-                color: d.esHoy ? 'var(--gold)' : 'var(--text-primary)',
+                color: d.esHoy ? colorHoy : 'var(--text-primary)',
               }}>
                 {d.xp}
               </span>
@@ -1170,7 +1194,7 @@ function BarrasSemanales({ data, mob }: { data: { fecha: string; xp: number; dia
                 width:'100%', maxWidth:36,
                 height: Math.max(h, 4),
                 background: d.esHoy
-                  ? 'linear-gradient(180deg, var(--gold) 0%, #b8860b 100%)'
+                  ? `linear-gradient(180deg, ${colorHoy} 0%, color-mix(in srgb, ${colorHoy} 70%, #000) 100%)`
                   : 'linear-gradient(180deg, var(--blue) 0%, #1e88e5 100%)',
                 borderRadius:'4px 4px 0 0',
                 border:`1.5px solid ${color}`,
@@ -1179,13 +1203,13 @@ function BarrasSemanales({ data, mob }: { data: { fecha: string; xp: number; dia
               }}/>
               <span style={{
                 fontFamily:HAND, fontSize:15, fontWeight:800,
-                color: d.esHoy ? 'var(--gold)' : 'var(--text-primary)',
+                color: d.esHoy ? colorHoy : 'var(--text-primary)',
                 lineHeight:1,
               }}>
                 {d.diaCorto}
               </span>
               {d.esHoy && (
-                <span style={{ fontFamily:HAND, fontSize:11, color:'var(--gold)', fontStyle:'italic', lineHeight:1 }}>hoy</span>
+                <span style={{ fontFamily:HAND, fontSize:11, color:colorHoy, fontStyle:'italic', lineHeight:1 }}>hoy</span>
               )}
             </div>
           );
@@ -1757,6 +1781,7 @@ export default function Home() {
             </span>
           </button>
 
+          <NotificacionesPanel/>
           <UserMenu/>
         </div>
       </header>
