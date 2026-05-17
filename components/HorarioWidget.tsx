@@ -78,9 +78,28 @@ export default function HorarioWidget() {
           <p style={{ fontFamily: HAND, fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px', lineHeight: 1.1 }}>
             {idioma === 'en' ? 'Free day!' : '¡Día libre!'}
           </p>
-          <p style={{ fontFamily: HAND, fontSize: 16, color: 'var(--text-muted)', fontStyle: 'italic', margin: 0 }}>
+          <p style={{ fontFamily: HAND, fontSize: 16, color: 'var(--text-muted)', fontStyle: 'italic', margin: '0 0 14px' }}>
             ~ {idioma === 'en' ? 'No classes today. Enjoy!' : 'No hay clases. ¡Descansa!'} ~
           </p>
+          <button
+            onClick={() => {
+              try { (window as any).__showNavLoader?.('/horario'); } catch {}
+              try { router.push('/horario'); } catch { window.location.href = '/horario'; }
+            }}
+            style={{
+              fontFamily: HAND, fontSize: 17, fontWeight: 800,
+              padding: '8px 18px', borderRadius: 9,
+              border: '2px dashed var(--gold)',
+              background: 'color-mix(in srgb, var(--gold) 14%, transparent)',
+              color: 'var(--text-primary)', cursor: 'pointer',
+              transform: 'rotate(-1deg)', transition: 'all .2s',
+              boxShadow: '2px 3px 0 var(--gold)',
+            }}
+            onMouseEnter={(e: any) => { e.currentTarget.style.transform = 'rotate(0deg) translateY(-2px)'; e.currentTarget.style.boxShadow = '3px 5px 0 var(--gold)'; }}
+            onMouseLeave={(e: any) => { e.currentTarget.style.transform = 'rotate(-1deg)'; e.currentTarget.style.boxShadow = '2px 3px 0 var(--gold)'; }}
+          >
+            📅 {idioma === 'en' ? 'Set up schedule' : 'Configurar mi horario'}
+          </button>
         </div>
       </div>
     );

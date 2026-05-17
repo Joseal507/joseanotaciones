@@ -678,11 +678,19 @@ function MapaProgreso({ playerStats, myRank, totalUsers, onLeaderboard, mob }: {
 }) {
   const [xpUltimos7, setXpUltimos7] = useState(0);
   useEffect(() => {
-    import('../lib/xpDiario').then(mod => {
-      const dias = mod.getXpUltimosDias(7);
-      const suma = dias.reduce((acc: number, d: any) => acc + (d.xp || 0), 0);
+    try {
+      const raw = localStorage.getItem('josea_xp_diario') || '{}';
+      const data = JSON.parse(raw);
+      const hoy = new Date();
+      let suma = 0;
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(hoy);
+        d.setDate(hoy.getDate() - i);
+        const key = d.toISOString().split('T')[0];
+        suma += data[key]?.xp || 0;
+      }
       setXpUltimos7(suma);
-    });
+    } catch {}
   }, [playerStats?.xpTotal]);
 
   return (
