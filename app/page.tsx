@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import Link from 'next/link';
 import { Materia } from '../lib/storage';
 import { supabase } from '../lib/supabase';
 import { getMateriasDB } from '../lib/db';
@@ -387,7 +388,7 @@ function StudyALCenter({ mob }: { mob: boolean }) {
           />
 
           {/* Destello brillante que recorre el círculo */}
-          {!finished && <circle
+          <circle
             cx="100"
             cy="100"
             r="92"
@@ -401,13 +402,13 @@ function StudyALCenter({ mob }: { mob: boolean }) {
               strokeDashoffset: 0,
               animation: 'nbShine 3.2s linear 5 forwards',
               filter:'drop-shadow(0 0 6px #fff8c5) drop-shadow(0 0 12px rgba(255,243,170,0.85)) drop-shadow(0 0 22px color-mix(in srgb, var(--gold) 60%, transparent))',
-              opacity: 0.95,
-              transition: 'opacity .5s ease-out',
+              opacity: finished ? 0 : 0.95,
+              transition: 'opacity 1.2s ease-out',
             }}
-          />}
+          />
 
           {/* Segundo destello más sutil, desfasado */}
-          {!finished && <circle
+          <circle
             cx="100"
             cy="100"
             r="92"
@@ -421,9 +422,10 @@ function StudyALCenter({ mob }: { mob: boolean }) {
               strokeDashoffset: -45,
               animation: 'nbShine 3.2s linear 5 forwards',
               filter:'drop-shadow(0 0 4px #fff)',
-              opacity: 0.7,
+              opacity: finished ? 0 : 0.7,
+              transition: 'opacity 1.2s ease-out',
             }}
-          />}
+          />
         </svg>
 
         <img
@@ -1550,27 +1552,56 @@ export default function Home() {
 
 
 
+  
+  // ─── Prefetch agresivo de rutas comunes (mejora velocidad de navegación) ───
+  useEffect(() => {
+    const rutas = ['/materias', '/agenda', '/horario', '/partners', '/comunidad', '/news', '/quizzes', '/chat', '/chap', '/settings', '/perfil', '/leaderboard'];
+    rutas.forEach(r => { try { router.prefetch(r); } catch {} });
+  }, []);
+
   useEffect(() => {
     let alive = true;
 
+    // Verificación rápida: si hay token en localStorage, asumir auth y dejar pasar
+    try {
+      const authKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+      if (authKey) {
+        const raw = localStorage.getItem(authKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.access_token || parsed?.[0]?.access_token) {
+            setAuthChecked(true);
+            // No bloquear el render, validar en background
+            supabase.auth.getSession().then(({ data }) => {
+              if (!alive) return;
+              // Si la sesión expiró Y no hay refresh, recién ahí redirigir
+              if (!data.session && !parsed?.refresh_token) {
+                try { router.replace('/landing'); } catch { window.location.href = '/landing'; }
+              }
+            }).catch(() => {/* silencio - no botear por errores de red */});
+            return () => { alive = false; };
+          }
+        }
+      }
+    } catch {}
+
+    // Sin token en localStorage → redirigir al landing
     (async () => {
       try {
-        const { data } = await supabase.auth.getSession();
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise<any>((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000));
+        const result: any = await Promise.race([sessionPromise, timeoutPromise]);
         if (!alive) return;
 
-        if (!data.session) {
+        if (!result?.data?.session) {
           try { (window as any).__showNavLoader?.('/landing'); } catch {}
-          try { router.replace('/landing'); }
-          catch { window.location.href = '/landing'; }
+          try { router.replace('/landing'); } catch { window.location.href = '/landing'; }
           return;
         }
-
         setAuthChecked(true);
       } catch {
-        if (!alive) return;
-        try { (window as any).__showNavLoader?.('/landing'); } catch {}
-        try { router.replace('/landing'); }
-        catch { window.location.href = '/landing'; }
+        // Si hay timeout/error, NO redirigir agresivamente — dejar render
+        if (alive) setAuthChecked(true);
       }
     })();
 

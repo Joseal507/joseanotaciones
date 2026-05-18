@@ -76,13 +76,20 @@ export default function NavLoader() {
   const show = (arg?: LoaderArg) => {
     clearHide();
     setLabel(getLabel(arg));
-    setVisible(true);
-    hideRef.current = setTimeout(() => setVisible(false), 8000);
+    // Solo mostrar loader si la navegación tarda más de 250ms (evita parpadeo en rutas rápidas)
+    const showTimer = setTimeout(() => setVisible(true), 250);
+    hideRef.current = setTimeout(() => {
+      clearTimeout(showTimer);
+      setVisible(false);
+    }, 4000);
+    // guardar también el showTimer para cancelarlo si hide() se llama antes
+    (hideRef as any).showTimer = showTimer;
   };
 
   const hide = () => {
     clearHide();
-    hideRef.current = setTimeout(() => setVisible(false), 120);
+    try { if ((hideRef as any).showTimer) clearTimeout((hideRef as any).showTimer); } catch {}
+    setVisible(false);
   };
 
   useEffect(() => {
