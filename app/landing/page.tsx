@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabase';
 import Footer from '../../components/Footer';
@@ -69,7 +69,7 @@ export default function LandingPage() {
         gap: 16,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ position: 'relative', width: 40, height: 40 }}>
+          <div id="header-logo-target" style={{ position: 'relative', width: 40, height: 40 }}>
             <svg viewBox="0 0 200 200" style={{ position: 'absolute', inset: -10, width: 60, height: 60, pointerEvents: 'none', overflow: 'visible' }}>
               <circle cx="100" cy="100" r="92" fill="none" stroke="var(--gold)" strokeWidth="2.5" strokeLinecap="round"
                 style={{ filter: 'drop-shadow(0 0 6px color-mix(in srgb, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in srgb, var(--gold) 30%, transparent))' }}/>
@@ -148,7 +148,8 @@ export default function LandingPage() {
         textAlign: 'center',
       }}>
         {/* Logo idéntico al home — box/scale/ringInset iguales */}
-        {(() => {
+        <LogoConParticulas isMobile={isMobile} />
+        {false && (() => {
           const box       = isMobile ? 220 : 340;
           const scale     = isMobile ? 2.05 : 2.7;
           const ringInset = isMobile ? 50  : 75;
@@ -586,6 +587,193 @@ export default function LandingPage() {
       </section>
 
       <Footer />
+    </div>
+  );
+}
+function LogoConParticulas({ isMobile }: { isMobile: boolean }) {
+  const box       = isMobile ? 220 : 340;
+  const scale     = isMobile ? 2.05 : 2.7;
+  const ringInset = isMobile ? 50  : 75;
+
+  const [particles, setParticles] = useState<{ id: number; dx: number; dy: number; size: number; emoji: string; rot: number; delay: number }[]>([]);
+  const [exploding, setExploding] = useState(false);
+  const [finished, setFinished] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const totalDuration = 3.2 * 5 * 1000;
+    const t = setTimeout(() => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+
+      const headerLogo = document.getElementById('header-logo-target');
+      let targetX = 60, targetY = 30;
+      if (headerLogo) {
+        const tRect = headerLogo.getBoundingClientRect();
+        targetX = tRect.left + tRect.width / 2;
+        targetY = tRect.top + tRect.height / 2;
+      }
+
+      const emojis = ['✨', '⭐', '🌟', '💫', '✦', '✧', '⚡'];
+      const newParticles = Array.from({ length: 22 }, (_, i) => ({
+        id: i,
+        dx: targetX - centerX + (Math.random() - 0.5) * 50,
+        dy: targetY - centerY + (Math.random() - 0.5) * 50,
+        size: 16 + Math.random() * 20,
+        emoji: emojis[Math.floor(Math.random() * emojis.length)],
+        rot: Math.random() * 720 - 360,
+        delay: Math.random() * 200,
+      }));
+      setExploding(true);
+      setParticles(newParticles);
+      setFinished(true);
+      setTimeout(() => { setParticles([]); setExploding(false); }, 2200);
+    }, totalDuration);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <div ref={containerRef} style={{
+      position: 'relative',
+      width: box + 'px',
+      height: box + 'px',
+      margin: '0 auto 40px',
+      overflow: 'visible',
+      flexShrink: 0,
+    }}>
+      {/* Partículas */}
+      {particles.map(p => {
+        const rect = containerRef.current?.getBoundingClientRect();
+        const cx = (rect?.left || 0) + box/2;
+        const cy = (rect?.top || 0) + box/2;
+        return (
+          <span key={p.id} style={{
+            position: 'fixed',
+            left: cx + 'px',
+            top: cy + 'px',
+            fontSize: p.size,
+            pointerEvents: 'none',
+            zIndex: 9999,
+            animation: 'particleFly 2s cubic-bezier(.4,1.2,.5,1) forwards',
+            animationDelay: p.delay + 'ms',
+            ['--dx' as any]: p.dx + 'px',
+            ['--dy' as any]: p.dy + 'px',
+            ['--rot' as any]: p.rot + 'deg',
+            filter: 'drop-shadow(0 0 6px #fff8c5) drop-shadow(0 0 14px var(--gold))',
+            opacity: 0,
+          }}>
+            {p.emoji}
+          </span>
+        );
+      })}
+
+      {/* Pulso */}
+      {exploding && (
+        <div style={{
+          position: 'absolute',
+          top: '50%', left: '50%',
+          width: 80, height: 80,
+          marginLeft: -40, marginTop: -40,
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, var(--gold) 0%, transparent 70%)',
+          animation: 'centerPulse 1s ease-out forwards',
+          pointerEvents: 'none',
+          zIndex: 5,
+        }}/>
+      )}
+
+      <style>{`
+        @keyframes particleFly {
+          0% { transform: translate(-50%, -50%) scale(0.4) rotate(0deg); opacity: 0; }
+          15% { transform: translate(-50%, -50%) scale(1.4) rotate(calc(var(--rot) * 0.2)); opacity: 1; }
+          100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.3) rotate(var(--rot)); opacity: 0; }
+        }
+        @keyframes centerPulse {
+          0% { transform: scale(0.2); opacity: 0; }
+          30% { transform: scale(2.5); opacity: 0.85; }
+          100% { transform: scale(5); opacity: 0; }
+        }
+        @keyframes landShine {
+          from { stroke-dashoffset: 0; }
+          to   { stroke-dashoffset: -100; }
+        }
+      `}</style>
+
+      <svg
+        viewBox="0 0 200 200"
+        style={{
+          position: 'absolute',
+          top: -ringInset,
+          left: -ringInset,
+          width: box + ringInset * 2,
+          height: box + ringInset * 2,
+          pointerEvents: 'none',
+          overflow: 'visible',
+          zIndex: 0,
+        }}
+      >
+        <defs>
+          <linearGradient id="landShineGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%"   stopColor="#fff8d1" stopOpacity="0"/>
+            <stop offset="40%"  stopColor="#fff8d1" stopOpacity="1"/>
+            <stop offset="60%"  stopColor="#ffffff" stopOpacity="1"/>
+            <stop offset="100%" stopColor="#fff8d1" stopOpacity="0"/>
+          </linearGradient>
+        </defs>
+
+        {/* Círculo dorado base */}
+        <circle cx="100" cy="100" r="92"
+          fill="none" stroke="var(--gold)" strokeWidth="2.5" strokeLinecap="round"
+          style={{ filter: 'drop-shadow(0 0 6px color-mix(in srgb, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in srgb, var(--gold) 30%, transparent))' }}
+        />
+
+        {/* Destello brillante */}
+        <circle cx="100" cy="100" r="92"
+          fill="none" stroke="#fffbe0" strokeWidth="3.2" strokeLinecap="round" pathLength={100}
+          style={{
+            strokeDasharray: '18 82',
+            strokeDashoffset: 0,
+            animation: 'landShine 3.2s linear 5 forwards',
+            filter: 'drop-shadow(0 0 6px #fff8c5) drop-shadow(0 0 12px rgba(255,243,170,0.85)) drop-shadow(0 0 22px color-mix(in srgb, var(--gold) 60%, transparent))',
+            opacity: finished ? 0 : 0.95,
+            transition: 'opacity 1.2s ease-out',
+          }}
+        />
+
+        {/* Segundo destello */}
+        <circle cx="100" cy="100" r="92"
+          fill="none" stroke="#ffffff" strokeWidth="1.8" strokeLinecap="round" pathLength={100}
+          style={{
+            strokeDasharray: '6 94',
+            strokeDashoffset: -45,
+            animation: 'landShine 3.2s linear 5 forwards',
+            filter: 'drop-shadow(0 0 4px #fff)',
+            opacity: finished ? 0 : 0.7,
+            transition: 'opacity 1.2s ease-out',
+          }}
+        />
+      </svg>
+
+      <img
+        src="/logo.png"
+        alt="StudyAL"
+        style={{
+          position: 'absolute',
+          left: '55%',
+          top: '48%',
+          width: '100%',
+          height: '100%',
+          objectFit: 'contain',
+          objectPosition: 'center',
+          transform: 'translate(-50%, -50%) scale(' + scale + ')',
+          transformOrigin: 'center',
+          pointerEvents: 'none',
+          userSelect: 'none',
+          zIndex: 1,
+        }}
+      />
     </div>
   );
 }
