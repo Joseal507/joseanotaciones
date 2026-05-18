@@ -44,15 +44,52 @@ export default function PartnersPage() {
   const showNotif = (m: string) => { setNotif(m); setTimeout(() => setNotif(''), 3000); };
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data }) => {
-      if (!data.session) { ((window as any).__showNavLoader?.('/auth'), router.push('/auth')); return; }
-      const u = data.session.user;
-      setMiUserId(u.id); setToken(data.session.access_token);
-      const n = u.user_metadata?.nombre || u.email?.split('@')[0] || '';
-      setMiInfo({ user_id: u.id, nombre: n });
-      const { data: lb } = await supabase.from('leaderboard').select('avatar_url,carrera').eq('user_id', u.id).maybeSingle();
-      if (lb) setMiInfo(p => ({ ...p, avatar_url: lb.avatar_url || undefined, carrera: lb.carrera }));
-    });
+    const init = async () => {
+      // Check rápido con localStorage primero
+      let tokenLocal: string | null = null;
+      let userIdLocal: string | null = null;
+      try {
+        const authKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+        if (authKey) {
+          const raw = localStorage.getItem(authKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            tokenLocal = parsed?.access_token || parsed?.[0]?.access_token || null;
+            userIdLocal = parsed?.user?.id || parsed?.[0]?.user?.id || null;
+          }
+        }
+      } catch {}
+
+      try {
+        const sessionPromise = supabase.auth.getSession();
+        const timeout = new Promise<any>((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000));
+        const { data }: any = await Promise.race([sessionPromise, timeout]);
+
+        if (!data?.session) {
+          // Si tenemos token local, NO redirigir agresivamente
+          if (tokenLocal && userIdLocal) {
+            setMiUserId(userIdLocal); setToken(tokenLocal);
+            const { data: lb } = await supabase.from('leaderboard').select('avatar_url,carrera,nombre').eq('user_id', userIdLocal).maybeSingle();
+            if (lb) setMiInfo({ user_id: userIdLocal, nombre: lb.nombre || '', avatar_url: lb.avatar_url || undefined, carrera: lb.carrera });
+            return;
+          }
+          ((window as any).__showNavLoader?.('/auth'), router.push('/auth'));
+          return;
+        }
+        const u = data.session.user;
+        setMiUserId(u.id); setToken(data.session.access_token);
+        const n = u.user_metadata?.nombre || u.email?.split('@')[0] || '';
+        setMiInfo({ user_id: u.id, nombre: n });
+        const { data: lb } = await supabase.from('leaderboard').select('avatar_url,carrera').eq('user_id', u.id).maybeSingle();
+        if (lb) setMiInfo(p => ({ ...p, avatar_url: lb.avatar_url || undefined, carrera: lb.carrera }));
+      } catch {
+        // Si todo falla pero hay token local, usar ese
+        if (tokenLocal && userIdLocal) {
+          setMiUserId(userIdLocal); setToken(tokenLocal);
+        }
+      }
+    };
+    init();
   }, []);
 
   const cargarTodo = useCallback(async () => {

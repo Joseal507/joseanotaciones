@@ -54,10 +54,39 @@ export default function MateriasPage() {
           setCargando(false);
         }
 
-        let session = (await supabase.auth.getSession()).data.session;
+        // Check robusto con timeout
+        let session: any = null;
+        let tokenLocal: string | null = null;
+        let userIdLocal: string | null = null;
+        try {
+          const authKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+          if (authKey) {
+            const raw = localStorage.getItem(authKey);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              tokenLocal = parsed?.access_token || parsed?.[0]?.access_token || null;
+              userIdLocal = parsed?.user?.id || parsed?.[0]?.user?.id || null;
+            }
+          }
+        } catch {}
+
+        try {
+          const sessionPromise = supabase.auth.getSession();
+          const timeout = new Promise<any>((_, rej) => setTimeout(() => rej(new Error('t')), 3000));
+          const result: any = await Promise.race([sessionPromise, timeout]);
+          session = result?.data?.session;
+        } catch {}
+
+        if (!session && tokenLocal && userIdLocal) {
+          // Usar token local como fallback (no botear)
+          session = { user: { id: userIdLocal }, access_token: tokenLocal };
+        }
+
         if (!session) {
-          const { data } = await supabase.auth.refreshSession();
-          session = data.session;
+          try {
+            const { data } = await supabase.auth.refreshSession();
+            session = data.session;
+          } catch {}
         }
         if (!session) { ((window as any).__showNavLoader?.('/auth'), router.push('/auth')); return; }
 
