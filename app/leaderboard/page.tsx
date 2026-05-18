@@ -17,10 +17,39 @@ export default function LeaderboardPage() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) ((window as any).__showNavLoader?.('/landing'), router.push('/landing'));
-      else setChecking(false);
-    });
+    // Check rápido por localStorage (evita redirect si la sesión existe)
+    try {
+      const authKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+      if (authKey) {
+        const raw = localStorage.getItem(authKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.access_token || parsed?.[0]?.access_token) {
+            setChecking(false);
+            // Validar en background sin redirect agresivo
+            supabase.auth.getSession().then(({ data }) => {
+              if (!data.session && !parsed?.refresh_token) {
+                router.push('/landing');
+              }
+            }).catch(() => {});
+            return;
+          }
+        }
+      }
+    } catch {}
+
+    // Sin token → ir al landing con timeout
+    const sessionPromise = supabase.auth.getSession();
+    const timeout = new Promise<any>((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000));
+    Promise.race([sessionPromise, timeout])
+      .then((result: any) => {
+        if (!result?.data?.session) {
+          ((window as any).__showNavLoader?.('/landing'), router.push('/landing'));
+        } else {
+          setChecking(false);
+        }
+      })
+      .catch(() => setChecking(false)); // Si hay timeout, dejar entrar (no botear)
   }, []);
 
   if (checking) {
