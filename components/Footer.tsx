@@ -261,8 +261,8 @@ export default function Footer() {
                 margin: 0, lineHeight: 1.3, fontStyle: 'italic',
               }}>
                 {idioma === 'en'
-                  ? '~ AI-powered study platform. Notes, flashcards, Peter SauPeter & more ~'
-                  : '~ Tu plataforma de estudio definitiva. Apuntes, flashcards, AI y más ~'}
+                  ? '~ Your complete study platform. Unlock the potential within you ✨ ~'
+                  : '~ Tu plataforma de estudio completa. Despierta el potencial que llevas dentro ✨ ~'}
               </p>
               <svg width="180" height="6" style={{ display: 'block', marginTop: 8 }}>
                 <path d="M2 3 Q 90 0 178 4" stroke="var(--gold)" strokeWidth="2" fill="none" strokeLinecap="round" opacity=".6"/>

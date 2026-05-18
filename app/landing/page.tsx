@@ -255,18 +255,21 @@ export default function LandingPage() {
           fontStyle: 'italic',
           maxWidth: 700,
         }}>
-          tu plataforma de estudio definitiva
+          Tu plataforma de estudio completa
         </p>
         <p style={{
           fontFamily: HAND,
           fontSize: isMobile ? 17 : 21, fontStyle: 'italic',
           color: 'var(--text-muted)',
           margin: '0 auto 36px',
-          maxWidth: 600,
+          maxWidth: 640,
+          lineHeight: 1.4,
         }}>
-          ~ apuntes, flashcards, quizzes, AI, comunidad y más ~
+          ~ Todo lo que necesites en un solo sitio ~
           <br/>
-          ~ todo en un solo lugar 🎯 ~
+          Usa la inteligencia artificial para despertar el potencial que llevas dentro.
+          <br/>
+          Todos somos inteligentes — solo hay que explotarlo. ✨
         </p>
 
         <div style={{
