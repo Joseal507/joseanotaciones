@@ -981,8 +981,7 @@ function GraficasPanel({ materias, mob, xpTotal }: { materias: Materia[]; mob: b
         {tab==='semanal' && (
           <div>
             <p style={{ fontFamily:HAND, fontSize:17, color:'var(--text-muted)', margin:'0 0 14px', fontStyle:'italic' }}>
-              📅 XP ganado los últimos 7 días {' '}
-              <span style={{ color:'var(--gold)', fontWeight:800 }}>(dorado = hoy)</span>
+              📅 XP ganado los últimos 7 días
             </p>
             <BarrasSemanales data={xpDiario} mob={mob}/>
           </div>
