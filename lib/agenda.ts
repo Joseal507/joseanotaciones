@@ -55,7 +55,10 @@ export const getObjetivos = (): ObjetivoAgenda[] => {
   try { return JSON.parse(localStorage.getItem(KEY_OBJ) || '[]'); } catch { return []; }
 };
 export const saveObjetivos = (d: ObjetivoAgenda[]) => {
-  if (isBrowser()) localStorage.setItem(KEY_OBJ, JSON.stringify(d));
+  if (isBrowser()) {
+    localStorage.setItem(KEY_OBJ, JSON.stringify(d));
+    try { window.dispatchEvent(new CustomEvent('objetivos:changed')); } catch {}
+  }
 };
 
 // ── Crea un objetivo ligado a una asignación ──────────────────

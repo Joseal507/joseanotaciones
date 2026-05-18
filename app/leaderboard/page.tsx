@@ -17,6 +17,7 @@ export default function LeaderboardPage() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
+    console.log('🏆 [LEADERBOARD] mount, pathname:', window.location.pathname);
     // Check rápido por localStorage (evita redirect si la sesión existe)
     try {
       const authKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
@@ -29,7 +30,7 @@ export default function LeaderboardPage() {
             // Validar en background sin redirect agresivo
             supabase.auth.getSession().then(({ data }) => {
               if (!data.session && !parsed?.refresh_token) {
-                router.push('/landing');
+                console.log('🏆 [LEADERBOARD] REDIRECTING TO /landing'); router.push('/landing');
               }
             }).catch(() => {});
             return;
@@ -44,7 +45,7 @@ export default function LeaderboardPage() {
     Promise.race([sessionPromise, timeout])
       .then((result: any) => {
         if (!result?.data?.session) {
-          ((window as any).__showNavLoader?.('/landing'), router.push('/landing'));
+          (console.log('🏆 [LEADERBOARD] REDIRECTING TO /landing #2'), (window as any).__showNavLoader?.('/landing'), router.push('/landing'));
         } else {
           setChecking(false);
         }

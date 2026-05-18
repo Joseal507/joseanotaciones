@@ -123,20 +123,45 @@ function HorarioFlecha({ targetId, mob }: { targetId: string; mob: boolean }) {
 function CosasPorHacer({ onClick, mob }: { onClick: () => void; mob: boolean }) {
   const [tasks, setTasks] = useState<ObjetivoAgenda[]>([]);
   const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    try {
-      const objs = getObjetivos().filter(o => !o.completado);
-      objs.sort((a:any,b:any) => {
-        const fa = a.fechaLimite || a.fecha_limite || '';
-        const fb = b.fechaLimite || b.fecha_limite || '';
-        if (!fa && !fb) return 0;
-        if (!fa) return 1;
-        if (!fb) return -1;
-        return fa.localeCompare(fb);
-      });
-      setTasks(objs.slice(0, 5));
-    } catch {}
-    setLoading(false);
+    const cargar = () => {
+      try {
+        const objs = getObjetivos().filter(o => !o.completado);
+        objs.sort((a:any,b:any) => {
+          const fa = a.fechaLimite || a.fecha_limite || '';
+          const fb = b.fechaLimite || b.fecha_limite || '';
+          if (!fa && !fb) return 0;
+          if (!fa) return 1;
+          if (!fb) return -1;
+          return fa.localeCompare(fb);
+        });
+        setTasks(objs.slice(0, 5));
+      } catch {}
+      setLoading(false);
+    };
+
+    cargar();
+
+    // Refrescar cuando vuelva al tab o cuando cambie localStorage
+    const onFocus = () => cargar();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'josea_objetivos') cargar();
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') cargar(); };
+    const onObjsChange = () => cargar();
+
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('storage', onStorage);
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('objetivos:changed', onObjsChange);
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('storage', onStorage);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('objetivos:changed', onObjsChange);
+    };
   }, []);
   return (
     <div onClick={onClick} style={{ cursor:'pointer',transition:'all .25s' }}
