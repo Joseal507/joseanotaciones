@@ -29,8 +29,15 @@ export async function darXP(
     const data = await res.json();
     const xpGanado = data.xp_ganado ?? 0;
 
-    // Registrar en tracking diario local
-    if (xpGanado > 0) registrarXpDiario(xpGanado);
+    // Registrar en tracking diario local + emitir evento global
+    if (xpGanado > 0) {
+      registrarXpDiario(xpGanado);
+      try {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('xp:ganada', { detail: { xp: xpGanado } }));
+        }
+      } catch {}
+    }
 
     return {
       ok: data.ok ?? false,

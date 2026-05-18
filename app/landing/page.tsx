@@ -73,9 +73,7 @@ export default function LandingPage() {
             <svg viewBox="0 0 200 200" style={{ position: 'absolute', inset: -10, width: 60, height: 60, pointerEvents: 'none', overflow: 'visible' }}>
               <circle cx="100" cy="100" r="92" fill="none" stroke="var(--gold)" strokeWidth="2.5" strokeLinecap="round"
                 style={{ filter: 'drop-shadow(0 0 6px color-mix(in srgb, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in srgb, var(--gold) 30%, transparent))' }}/>
-              <circle cx="100" cy="100" r="92" fill="none" stroke="#fffbe0" strokeWidth="3.2" strokeLinecap="round" pathLength={100}
-                style={{ strokeDasharray: '18 82', animation: 'landShine 3.2s linear infinite',
-                  filter: 'drop-shadow(0 0 6px #fff8c5) drop-shadow(0 0 12px rgba(255,243,170,0.85))', opacity: 0.95 }}/>
+              {/* Destello quitado — solo círculo dorado fijo arriba */}
             </svg>
             <img src="/logo.png" alt="Logo" style={{
               position: 'absolute', left: '55%', top: '48%',
@@ -197,7 +195,7 @@ export default function LandingPage() {
                   style={{
                     strokeDasharray: '18 82',
                     strokeDashoffset: 0,
-                    animation: 'landShine 3.2s linear infinite',
+                    animation: 'landShine 3.2s linear 5 forwards',
                     filter: 'drop-shadow(0 0 6px #fff8c5) drop-shadow(0 0 12px rgba(255,243,170,0.85)) drop-shadow(0 0 22px color-mix(in srgb, var(--gold) 60%, transparent))',
                     opacity: 0.95,
                   }}
@@ -209,7 +207,7 @@ export default function LandingPage() {
                   style={{
                     strokeDasharray: '6 94',
                     strokeDashoffset: -45,
-                    animation: 'landShine 3.2s linear infinite',
+                    animation: 'landShine 3.2s linear 5 forwards',
                     filter: 'drop-shadow(0 0 4px #fff)',
                     opacity: 0.7,
                   }}

@@ -7,6 +7,8 @@ import ThemeInit from '../components/ThemeInit';
 import NavLoader from '../components/NavLoader';
 import PomodoroProvider from '../components/PomodoroProvider';
 import XPToast from '../components/XPToast';
+import NotifToast from '../components/NotifToast';
+import NotifPoller from '../components/NotifPoller';
 import RachaInit from '../components/RachaInit';
 
 const caveat = Caveat({
@@ -35,6 +37,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <NavLoader />
         <RachaInit />
         <PomodoroProvider>
+          <NotifToast/>
+          <NotifPoller/>
           {children}
         </PomodoroProvider>
         <XPToast />

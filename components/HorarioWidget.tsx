@@ -29,6 +29,20 @@ export default function HorarioWidget() {
   const [ahora, setAhora] = useState(new Date());
   const { idioma } = useIdioma();
 
+  const navHorario = () => {
+    try { (window as any).__showNavLoader?.('/horario'); } catch {}
+    try {
+      router.push('/horario');
+      setTimeout(() => {
+        try {
+          if (window.location.pathname !== '/horario') window.location.href = '/horario';
+        } catch {}
+      }, 150);
+    } catch {
+      try { window.location.href = '/horario'; } catch {}
+    }
+  };
+
   useEffect(() => {
     const cargar = async () => {
       const { data } = await supabase.auth.getUser();
@@ -41,7 +55,36 @@ export default function HorarioWidget() {
     return () => clearInterval(interval);
   }, []);
 
-  if (!horario) return null;
+  if (!horario) return (
+    <div style={{
+      background: 'var(--bg-card)',
+      border: '2.5px solid var(--text-primary)',
+      borderRadius: 16,
+      padding: '20px 24px',
+      textAlign: 'center',
+      boxShadow: '3px 3px 0 var(--text-primary)',
+    }}>
+      <div style={{ fontSize: 36, marginBottom: 8 }}>📅</div>
+      <div style={{ fontFamily: HAND, fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', marginBottom: 4 }}>
+        {idioma === 'en' ? 'No schedule yet' : 'Sin horario'}
+      </div>
+      <div style={{ fontFamily: HAND, fontSize: 15, color: 'var(--text-faint)', marginBottom: 14 }}>
+        {idioma === 'en' ? 'Set up your weekly schedule' : 'Configura tu horario semanal'}
+      </div>
+      <button
+        onClick={() => { try { (window as any).__showNavLoader?.('/horario'); } catch {} router.push('/horario'); }}
+        style={{
+          fontFamily: HAND, fontSize: 17, fontWeight: 900,
+          background: 'var(--gold)', color: '#000',
+          border: '2px solid var(--text-primary)',
+          borderRadius: 10, padding: '8px 20px',
+          cursor: 'pointer', boxShadow: '2px 2px 0 var(--text-primary)',
+        }}
+      >
+        {idioma === 'en' ? '✏️ Set up schedule' : '✏️ Hacer mi horario'}
+      </button>
+    </div>
+  );
 
   const diaSemana = ahora.getDay();
   const horaActualStr = `${String(ahora.getHours()).padStart(2, '0')}:${String(ahora.getMinutes()).padStart(2, '0')}`;
@@ -82,10 +125,7 @@ export default function HorarioWidget() {
             ~ {idioma === 'en' ? 'No classes today. Enjoy!' : 'No hay clases. ¡Descansa!'} ~
           </p>
           <button
-            onClick={() => {
-              try { (window as any).__showNavLoader?.('/horario'); } catch {}
-              try { router.push('/horario'); } catch { window.location.href = '/horario'; }
-            }}
+            onClick={navHorario}
             style={{
               fontFamily: HAND, fontSize: 17, fontWeight: 800,
               padding: '8px 18px', borderRadius: 9,
@@ -115,7 +155,7 @@ export default function HorarioWidget() {
           <p style={{ fontFamily: HAND, fontSize: 16, color: 'var(--text-faint)', fontStyle: 'italic', margin: '0 0 12px' }}>
             ~ {idioma === 'en' ? 'No classes scheduled today' : 'Sin clases programadas hoy'} ~
           </p>
-          <button onClick={() => ((window as any).__showNavLoader?.('/horario'), router.push('/horario'))}
+          <button onClick={navHorario}
             style={{
               padding: '8px 18px', borderRadius: 10,
               border: '2.5px solid var(--text-primary)',
@@ -166,7 +206,7 @@ export default function HorarioWidget() {
               {ahora.toLocaleTimeString(idioma === 'en' ? 'en-US' : 'es-ES', { hour: '2-digit', minute: '2-digit' })}
             </p>
           </div>
-          <button onClick={() => ((window as any).__showNavLoader?.('/horario'), router.push('/horario'))}
+          <button onClick={navHorario}
             style={{
               fontFamily: HAND, fontSize: 14, fontWeight: 700,
               color: 'var(--gold)',

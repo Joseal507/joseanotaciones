@@ -3,7 +3,7 @@ import StudyLoader from '../components/StudyLoader';
 
 export const dynamic = 'force-dynamic';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Materia } from '../lib/storage';
 import { supabase } from '../lib/supabase';
@@ -235,8 +235,113 @@ function StudyALCenter({ mob }: { mob: boolean }) {
   const scale = mob ? 2.05 : 2.7;
   const ringInset = mob ? 50 : 75;
 
+  // ─── Partículas que salen al terminar el destello ───
+  const [particles, setParticles] = useState<{ id: number; dx: number; dy: number; size: number; emoji: string; rot: number; delay: number }[]>([]);
+  const [exploding, setExploding] = useState(false);
+  const [finished, setFinished] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    // Duración total = 3.2s × 5 vueltas = 16s
+    const totalDuration = 3.2 * 5 * 1000;
+    const t = setTimeout(() => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+
+      // Buscar el logo real del header
+      const headerLogo = document.getElementById('header-logo-target');
+      let targetX = 60, targetY = 30;
+      if (headerLogo) {
+        const tRect = headerLogo.getBoundingClientRect();
+        targetX = tRect.left + tRect.width / 2;
+        targetY = tRect.top + tRect.height / 2;
+      }
+
+      const emojis = ['✨', '⭐', '🌟', '💫', '✦', '✧', '⚡'];
+      const newParticles = Array.from({ length: 22 }, (_, i) => ({
+        id: i,
+        dx: targetX - centerX + (Math.random() - 0.5) * 50,
+        dy: targetY - centerY + (Math.random() - 0.5) * 50,
+        size: 16 + Math.random() * 20,
+        emoji: emojis[Math.floor(Math.random() * emojis.length)],
+        rot: Math.random() * 720 - 360,
+        delay: Math.random() * 200,
+      }));
+      setExploding(true);
+      setParticles(newParticles);
+      setFinished(true); // oculta los destellos giratorios
+      setTimeout(() => { setParticles([]); setExploding(false); }, 2200);
+    }, totalDuration);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
-    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, overflow:'visible', marginTop: mob ? 40 : 70 }}>
+    <div ref={containerRef} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, overflow:'visible', marginTop: mob ? 40 : 70, position:'relative' }}>
+      {/* ─── Partículas explosivas que vuelan hacia arriba-izquierda ─── */}
+      {particles.map(p => {
+        const rect = containerRef.current?.getBoundingClientRect();
+        const cx = (rect?.left || 0) + box/2;
+        const cy = (rect?.top || 0) + box/2;
+        return (
+          <span key={p.id} style={{
+            position: 'fixed',
+            left: cx + 'px',
+            top: cy + 'px',
+            fontSize: p.size,
+            pointerEvents: 'none',
+            zIndex: 9999,
+            animation: 'particleFly 2s cubic-bezier(.4,1.2,.5,1) forwards',
+            animationDelay: p.delay + 'ms',
+            ['--dx' as any]: p.dx + 'px',
+            ['--dy' as any]: p.dy + 'px',
+            ['--rot' as any]: p.rot + 'deg',
+            filter: 'drop-shadow(0 0 6px #fff8c5) drop-shadow(0 0 14px var(--gold))',
+            opacity: 0,
+          }}>
+            {p.emoji}
+          </span>
+        );
+      })}
+
+      {/* ─── Pulso de explosión en el centro ─── */}
+      {exploding && (
+        <div style={{
+          position: 'absolute',
+          top: '50%', left: '50%',
+          width: 80, height: 80,
+          marginLeft: -40, marginTop: -40,
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, var(--gold) 0%, transparent 70%)',
+          animation: 'centerPulse 1s ease-out forwards',
+          pointerEvents: 'none',
+          zIndex: 5,
+        }}/>
+      )}
+
+      <style>{`
+        @keyframes particleFly {
+          0% {
+            transform: translate(-50%, -50%) scale(0.4) rotate(0deg);
+            opacity: 0;
+          }
+          15% {
+            transform: translate(-50%, -50%) scale(1.4) rotate(calc(var(--rot) * 0.2));
+            opacity: 1;
+          }
+          100% {
+            transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.3) rotate(var(--rot));
+            opacity: 0;
+          }
+        }
+        @keyframes centerPulse {
+          0% { transform: scale(0.2); opacity: 0; }
+          30% { transform: scale(2.5); opacity: 0.85; }
+          100% { transform: scale(5); opacity: 0; }
+        }
+      `}</style>
+
       <div style={{
         position:'relative',
         width: box + 'px',
@@ -282,7 +387,7 @@ function StudyALCenter({ mob }: { mob: boolean }) {
           />
 
           {/* Destello brillante que recorre el círculo */}
-          <circle
+          {!finished && <circle
             cx="100"
             cy="100"
             r="92"
@@ -294,14 +399,15 @@ function StudyALCenter({ mob }: { mob: boolean }) {
             style={{
               strokeDasharray: '18 82',
               strokeDashoffset: 0,
-              animation: 'nbShine 3.2s linear infinite',
+              animation: 'nbShine 3.2s linear 5 forwards',
               filter:'drop-shadow(0 0 6px #fff8c5) drop-shadow(0 0 12px rgba(255,243,170,0.85)) drop-shadow(0 0 22px color-mix(in srgb, var(--gold) 60%, transparent))',
               opacity: 0.95,
+              transition: 'opacity .5s ease-out',
             }}
-          />
+          />}
 
           {/* Segundo destello más sutil, desfasado */}
-          <circle
+          {!finished && <circle
             cx="100"
             cy="100"
             r="92"
@@ -313,11 +419,11 @@ function StudyALCenter({ mob }: { mob: boolean }) {
             style={{
               strokeDasharray: '6 94',
               strokeDashoffset: -45,
-              animation: 'nbShine 3.2s linear infinite',
+              animation: 'nbShine 3.2s linear 5 forwards',
               filter:'drop-shadow(0 0 4px #fff)',
               opacity: 0.7,
             }}
-          />
+          />}
         </svg>
 
         <img
@@ -1694,14 +1800,7 @@ export default function Home() {
         padding:'10px 36px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,
       }}>
         <div style={{ display:'flex',alignItems:'center',gap:10,cursor:'pointer' }} onClick={()=>window.scrollTo({top:0,behavior:'smooth'})}>
-          <div style={{ position: 'relative', width: 40, height: 40, flexShrink: 0 }}>
-            <svg viewBox="0 0 200 200" style={{ position: 'absolute', inset: -10, width: 60, height: 60, pointerEvents: 'none', overflow: 'visible' }}>
-              <circle cx="100" cy="100" r="92" fill="none" stroke="var(--gold)" strokeWidth="2.5" strokeLinecap="round"
-                style={{ filter: 'drop-shadow(0 0 6px color-mix(in srgb, var(--gold) 55%, transparent)) drop-shadow(0 0 14px color-mix(in srgb, var(--gold) 30%, transparent))' }}/>
-              <circle cx="100" cy="100" r="92" fill="none" stroke="#fffbe0" strokeWidth="3.2" strokeLinecap="round" pathLength={100}
-                style={{ strokeDasharray: '18 82', animation: 'homeHeaderShine 3.2s linear infinite',
-                  filter: 'drop-shadow(0 0 6px #fff8c5) drop-shadow(0 0 12px rgba(255,243,170,0.85))', opacity: 0.95 }}/>
-            </svg>
+          <div id="header-logo-target" style={{ position: 'relative', width: 40, height: 40, flexShrink: 0 }}>
             <img src="/logo.png" alt="StudyAL" style={{
               position: 'absolute', left: '55%', top: '48%',
               width: '100%', height: '100%',
@@ -1709,7 +1808,6 @@ export default function Home() {
               transform: 'translate(-50%, -50%) scale(2.2)',
               pointerEvents: 'none', zIndex: 1,
             }}/>
-            <style>{`@keyframes homeHeaderShine { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }`}</style>
           </div>
           <h1 style={{ margin: 0, fontFamily: HAND, fontSize: 28, fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1, transform: 'rotate(-1deg)', display: 'inline-block' }}>
             Study<span style={{ color: 'var(--red)' }}>A</span>L

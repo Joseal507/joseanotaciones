@@ -44,24 +44,31 @@ export default function NotificacionesPanel() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setNotifs([]); setLoading(false); return; }
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
-
-      // ── 1) Daily reward ──
+      // Obtener token con timeout (evita locks colgados)
+      let token: string | null = null;
       try {
-        const hoy = new Date().toDateString();
-        const last = localStorage.getItem(DAILY_KEY);
-        if (last !== hoy) {
-          const id = 'daily-' + hoy;
-          out.push({
-            id, tipo: 'daily',
-            titulo: '🎁 Recompensa diaria lista',
-            desc: '¡Reclama tus puntos y XP de hoy!',
-            emoji: '🎁', color: 'var(--gold)',
-            href: '/', fecha: new Date().toISOString(),
-            leida: leidas.has(id),
-          });
-        }
-      } catch {}
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise<any>((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), 3000)
+        );
+        const result: any = await Promise.race([sessionPromise, timeoutPromise]);
+        token = result?.data?.session?.access_token || null;
+      } catch (e) {
+        // Si getSession se cuelga, intentar leer del localStorage
+        try {
+          const keys = Object.keys(localStorage);
+          const authKey = keys.find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+          if (authKey) {
+            const raw = localStorage.getItem(authKey);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              token = parsed?.access_token || parsed?.[0] || null;
+            }
+          }
+        } catch {}
+      }
+
+      // (daily reward removido del buzón)
 
       // ── 2) Partners via API (/api/partners) ──
       let partnersApi: any = null;
@@ -132,37 +139,30 @@ export default function NotificacionesPanel() {
         }
       } catch {}
 
-      // ── 3) Mensajes no leídos via API ──
+      // ── 3) Mensajes no leídos via API dedicada ──
       try {
         if (token) {
-          const res = await fetch('/api/partner-chats', {
+          const res = await fetch('/api/notif-unread', {
             headers: { 'Authorization': 'Bearer ' + token },
           });
-
           if (res.ok) {
             const payload = await res.json();
-            const chats = Array.isArray(payload)
-              ? payload
-              : (Array.isArray(payload?.chats) ? payload.chats : []);
-
-            chats.forEach((chat: any) => {
-              if ((chat.unread || 0) > 0) {
-                const nombre = chat.partner?.nombre || 'Partner';
-                const id = 'chat-' + chat.id;
-                out.push({
-                  id,
-                  tipo: 'chat',
-                  titulo: '💬 ' + nombre,
-                  desc: chat.unread === 1
-                    ? '1 mensaje nuevo'
-                    : chat.unread + ' mensajes nuevos',
-                  emoji: '💬',
-                  color: 'var(--blue)',
-                  href: '/partners',
-                  fecha: chat.last_message_at || chat.created_at || new Date().toISOString(),
-                  leida: leidas.has(id),
-                });
-              }
+            const unread = Array.isArray(payload?.unread) ? payload.unread : [];
+            unread.forEach((u: any) => {
+              const id = 'chat-' + u.chat_id + '-' + u.last_at;
+              out.push({
+                id,
+                tipo: 'chat',
+                titulo: '💬 ' + u.sender_nombre,
+                desc: u.count === 1
+                  ? (u.last_content || '').substring(0, 60)
+                  : u.count + ' mensajes nuevos',
+                emoji: '💬',
+                color: 'var(--blue)',
+                href: '/partners',
+                fecha: u.last_at,
+                leida: leidas.has(id),
+              });
             });
           }
         }
@@ -277,7 +277,27 @@ export default function NotificacionesPanel() {
     } catch {}
 
     out.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-    setNotifs(out.slice(0, 20));
+    const top20 = out.slice(0, 20);
+
+    // Detectar notifs nuevas (no leídas, no vistas antes) y emitir toast
+    try {
+      const vistasKey = 'studyal_notif_vistas';
+      const vistasRaw = localStorage.getItem(vistasKey);
+      const vistas = new Set<string>(vistasRaw ? JSON.parse(vistasRaw) : []);
+      const nuevas = top20.filter(n => !n.leida && !vistas.has(n.id));
+
+      if (nuevas.length > 0) {
+        // emitir evento global con la primera nueva
+        const evt = new CustomEvent('studyal:newNotif', { detail: nuevas[0] });
+        window.dispatchEvent(evt);
+      }
+
+      // marcar todas como vistas (para no disparar de nuevo)
+      top20.forEach(n => vistas.add(n.id));
+      localStorage.setItem(vistasKey, JSON.stringify([...vistas].slice(-200)));
+    } catch {}
+
+    setNotifs(top20);
     setLoading(false);
   };
 
@@ -313,7 +333,7 @@ export default function NotificacionesPanel() {
     return Math.floor(h / 24) + 'd';
   };
 
-  const TIPO: Record<string, string> = { chat:'Chat', partner:'Partners', comunidad:'Comunidad', news:'News', daily:'Daily' };
+  const TIPO: Record<string, string> = { chat:'Chat', partner:'Partners', comunidad:'Comunidad', news:'News' };
 
   return (
     <div ref={panelRef} style={{ position: 'relative' }}>
