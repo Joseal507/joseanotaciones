@@ -13,7 +13,6 @@ import { getObjetivos, ObjetivoAgenda } from '../lib/agenda';
 import UserMenu from '../components/UserMenu';
 import NotificacionesPanel from '../components/NotificacionesPanel';
 import Buscador from '../components/Buscador';
-import NavbarMobile from '../components/NavbarMobile';
 import RachaWidget from '../components/RachaWidget';
 import NotasRapidas from '../components/NotasRapidas';
 import GraficasEstudio from '../components/GraficasEstudio';
@@ -101,15 +100,16 @@ function HorarioFlecha({ targetId, mob }: { targetId: string; mob: boolean }) {
     <button onClick={click} className="hover3d" style={{
       background:'color-mix(in srgb,var(--gold) 22%,var(--bg-card))',
       border:'3px solid var(--gold)',
-      borderRadius:14,padding:mob?'12px 20px':'14px 24px',
+      borderRadius:14,padding:mob?'12px 20px':'clamp(8px,1.2vw,14px) clamp(10px,1.4vw,22px)',
       cursor:'pointer',display:'flex',alignItems:'center',gap:14,
       boxShadow:'5px 5px 0 var(--gold), 0 10px 24px color-mix(in srgb, var(--gold) 35%, transparent)',
       transform:'rotate(-2deg)',
       marginTop: mob ? 40 : 60,
+      maxWidth:'100%',
     }}>
       <div style={{ display:'flex',flexDirection:'column',alignItems:'flex-start',gap:0 }}>
-        <span style={{ fontFamily:HAND,fontSize:mob?16:18,fontWeight:700,color:'var(--text-muted)',fontStyle:'italic',lineHeight:1 }}>ir a</span>
-        <span style={{ fontFamily:HAND,fontSize:mob?28:34,fontWeight:900,color:'var(--text-primary)',lineHeight:1.1 }}>📅 horario</span>
+        <span style={{ fontFamily:HAND,fontSize:mob?16:'clamp(12px,1.2vw,18px)',fontWeight:700,color:'var(--text-muted)',fontStyle:'italic',lineHeight:1 }}>ir a</span>
+        <span style={{ fontFamily:HAND,fontSize:mob?28:'clamp(20px,2.2vw,32px)',fontWeight:900,color:'var(--text-primary)',lineHeight:1.1,whiteSpace:'nowrap' }}>📅 horario</span>
       </div>
       <svg width="32" height="50" viewBox="0 0 32 50">
         <path d="M16 4 L 16 38" stroke="var(--gold)" strokeWidth="4" fill="none" strokeLinecap="round"/>
@@ -256,10 +256,10 @@ function TimerButton({ onClick, mob }: { onClick: () => void; mob: boolean }) {
 /* ─── Logo central con trazos suaves animados (NO gira) ─── */
 /* ─── Logo central con trazo dorado que se dibuja (NO gira) ─── */
 /* ─── Logo central con círculo dorado fijo + destello brillante ─── */
-function StudyALCenter({ mob }: { mob: boolean }) {
-  const box = mob ? 220 : 340;
-  const scale = mob ? 2.05 : 2.7;
-  const ringInset = mob ? 50 : 75;
+function StudyALCenter({ mob, tablet = false }: { mob: boolean; tablet?: boolean }) {
+  const box = mob ? 220 : (tablet ? 280 : 340);
+  const scale = mob ? 2.75 : (tablet ? 2.7 : 2.7);
+  const ringInset = mob ? 50 : (tablet ? 62 : 75);
 
   // ─── Partículas que salen al terminar el destello ───
   const [particles, setParticles] = useState<{ id: number; dx: number; dy: number; size: number; emoji: string; rot: number; delay: number }[]>([]);
@@ -304,7 +304,7 @@ function StudyALCenter({ mob }: { mob: boolean }) {
   }, []);
 
   return (
-    <div ref={containerRef} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, overflow:'visible', marginTop: mob ? 40 : 70, position:'relative' }}>
+    <div ref={containerRef} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, overflow:'visible', marginTop: mob ? 40 : (tablet ? 44 : 70), position:'relative' }}>
       {/* ─── Partículas explosivas que vuelan hacia arriba-izquierda ─── */}
       {particles.map(p => {
         const rect = containerRef.current?.getBoundingClientRect();
@@ -491,7 +491,7 @@ function StudyALCenter({ mob }: { mob: boolean }) {
   );
 }
 
-function TopPodio({ onClick, mob }: { onClick: () => void; mob: boolean }) {
+function TopPodio({ onClick, mob, tablet = false }: { onClick: () => void; mob: boolean; tablet?: boolean }) {
   const [top, setTop] = useState<LeaderEntry[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -506,7 +506,7 @@ function TopPodio({ onClick, mob }: { onClick: () => void; mob: boolean }) {
   }, []);
 
   const order   = [3, 1, 0, 2, 4];
-  const heights = mob ? [44, 64, 86, 56, 38] : [56, 80, 105, 70, 48];
+  const heights = mob ? [44, 64, 86, 56, 38] : (tablet ? [52, 76, 102, 66, 44] : [56, 80, 105, 70, 48]);
   const colors  = ['var(--gold)','#cbd5e1','#cd7f32','#94a3b8','#94a3b8'];
   const medals  = ['🥇','🥈','🥉','',''];
 
@@ -514,10 +514,13 @@ function TopPodio({ onClick, mob }: { onClick: () => void; mob: boolean }) {
     <div onClick={onClick} style={{
       position:'relative',cursor:'pointer',
       border:'2px solid var(--text-primary)',borderRadius:6,
-      padding:mob?'14px 12px 10px':'18px 16px 12px',
+      padding:mob?'14px 12px 10px':(tablet?'10px 8px 6px':'18px 16px 12px'),
       boxShadow:'5px 6px 0 rgba(0,0,0,.25), 0 12px 28px rgba(0,0,0,.18)',
       transform:'rotate(2.5deg)',transition:'all .25s',
-      minWidth:mob?210:255,
+      minWidth:mob?210:(tablet?170:255),
+      width:tablet?170:'auto',
+      maxWidth:tablet?170:'none',
+      position:'relative',zIndex:10,
     }}
       onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0deg) translate(-2px,-3px)';e.currentTarget.style.boxShadow='7px 8px 0 rgba(0,0,0,.3),0 14px 32px rgba(0,0,0,.22)';}}
       onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(2.5deg)';e.currentTarget.style.boxShadow='5px 6px 0 rgba(0,0,0,.25),0 12px 28px rgba(0,0,0,.18)';}}
@@ -528,7 +531,7 @@ function TopPodio({ onClick, mob }: { onClick: () => void; mob: boolean }) {
 
       <div style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:6,marginBottom:8 }}>
         <span style={{ fontSize:18 }}>🏆</span>
-        <span style={{ fontFamily:HAND,fontSize:mob?20:24,fontWeight:900,color:'var(--text-primary)' }}>Top 5</span>
+        <span style={{ fontFamily:HAND,fontSize:mob?20:(tablet?16:24),fontWeight:900,color:'var(--text-primary)' }}>Top 5</span>
       </div>
 
       {loading ? (
@@ -536,7 +539,7 @@ function TopPodio({ onClick, mob }: { onClick: () => void; mob: boolean }) {
       ) : top.length===0 ? (
         <div style={{ height:120,display:'flex',alignItems:'center',justifyContent:'center',color:'#666',fontSize:13,fontStyle:'italic',fontFamily:HAND,textAlign:'center' }}>sin datos aún<br/>¡a estudiar!</div>
       ) : (
-        <div style={{ display:'flex',justifyContent:'center',alignItems:'flex-end',gap:mob?3:5,height:mob?150:170,padding:'0 2px' }}>
+        <div style={{ display:'flex',justifyContent:'center',alignItems:'flex-end',gap:mob?3:(tablet?1:5),height:mob?150:(tablet?165:170),padding:'0 2px' }}>
           {order.map((idx, vi) => {
             const u = top[idx];
             if (!u) return <div key={vi} style={{ flex:1 }}/>;
@@ -545,10 +548,10 @@ function TopPodio({ onClick, mob }: { onClick: () => void; mob: boolean }) {
             const ini = (u.nombre || '?').charAt(0).toUpperCase();
             return (
               <div key={vi} style={{ flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2 }}>
-                <div style={{ width:mob?22:26,height:mob?22:26,borderRadius:'50%',background:c,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:10,fontWeight:800,overflow:'hidden',border:'1.5px solid var(--text-primary)' }}>
+                <div style={{ width:mob?22:(tablet?22:26),height:mob?22:(tablet?22:26),borderRadius:'50%',background:c,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:10,fontWeight:800,overflow:'hidden',border:'1.5px solid var(--text-primary)' }}>
                   {u.avatar_url ? <img src={u.avatar_url} alt="" style={{ width:'100%',height:'100%',objectFit:'cover' }}/> : ini}
                 </div>
-                <span style={{ fontSize:9,fontWeight:700,color:'var(--text-primary)',maxWidth:mob?40:50,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',textAlign:'center',lineHeight:1 }}>{u.nombre}</span>
+                <span style={{ fontSize:9,fontWeight:700,color:'var(--text-primary)',maxWidth:mob?40:(tablet?32:50),overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',textAlign:'center',lineHeight:1 }}>{u.nombre}</span>
                 <span style={{ fontSize:8,color:'#666',fontFamily:HAND,lineHeight:1 }}>{u.xp_total}xp</span>
                 <div style={{
                   width:'100%',height:h,
@@ -556,7 +559,7 @@ function TopPodio({ onClick, mob }: { onClick: () => void; mob: boolean }) {
                   display:'flex',alignItems:'flex-start',justifyContent:'center',paddingTop:5,
                   position:'relative',
                 }}>
-                  <span style={{ fontFamily:HAND,fontSize:mob?18:22,fontWeight:900,color:'#fff',textShadow:'0 1px 2px rgba(0,0,0,.4)',lineHeight:1 }}>{idx+1}</span>
+                  <span style={{ fontFamily:HAND,fontSize:mob?18:(tablet?16:22),fontWeight:900,color:'#fff',textShadow:'0 1px 2px rgba(0,0,0,.4)',lineHeight:1 }}>{idx+1}</span>
                   {medals[idx] && <div style={{ position:'absolute',top:-13,fontSize:14 }}>{medals[idx]}</div>}
                 </div>
               </div>
@@ -1569,6 +1572,14 @@ export default function Home() {
   const [userName, setUserName]     = useState('');
 
   const mob = useIsMobile();
+  const [isTablet, setIsTablet] = useState(false);
+
+  useEffect(() => {
+    const checkTablet = () => setIsTablet(window.innerWidth >= 768 && window.innerWidth < 1180);
+    checkTablet();
+    window.addEventListener('resize', checkTablet);
+    return () => window.removeEventListener('resize', checkTablet);
+  }, []);
   const { idioma } = useIdioma();
   const lang = idioma || 'es';
   const router = useRouter();
@@ -1750,37 +1761,123 @@ export default function Home() {
       <OnboardingCheck/>
       {showDailyReward && <DailyReward onClose={() => setShowDailyReward(false)} onClaim={async () => { await darXP('daily_reward', 15); setShowDailyReward(false); }}/>}
       <BuscadorModal open={buscadorOpen} onClose={() => setBuscadorOpen(false)}/>
-      <NavbarMobile/>
 
       {/* fondo cuaderno */}
       
 
       <div style={{ position:'relative',zIndex:1,padding:'14px 14px',display:'flex',flexDirection:'column',gap:18 }}>
 
-        {/* HEADER mobile: día/welcome arriba, logo center */}
-        <div style={{ display:'flex',flexDirection:'column',gap:2 }}>
-          <div style={{ display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8 }}>
-            <DiaFecha lang={lang}/>
-            <button onClick={() => setBuscadorOpen(true)} style={{ padding:'6px 12px',background:'var(--bg-card)',border:'2px solid var(--text-primary)',borderRadius:8,cursor:'pointer',fontFamily:HAND,fontSize:14,fontWeight:700,color:'var(--text-primary)' }}>🔍</button>
+        {/* HEADER mobile sticky — igual que desktop */}
+        <div style={{
+          position:'sticky',top:0,zIndex:100,
+          background:'color-mix(in srgb,var(--bg-primary) 92%,transparent)',
+          backdropFilter:'blur(14px)',
+          borderBottom:'2.5px solid var(--text-primary)',
+          margin:'0 -14px',
+          padding:'10px 14px',
+          display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,
+        }}>
+          {/* Logo + StudyAL */}
+          <div style={{ display:'flex',alignItems:'center',gap:8,cursor:'pointer',flexShrink:0 }} onClick={()=>window.scrollTo({top:0,behavior:'smooth'})}>
+            <div id="header-logo-target" style={{ position:'relative',width:34,height:34,flexShrink:0 }}>
+              <img src="/logo.png" alt="StudyAL" style={{
+                position:'absolute',left:'55%',top:'48%',
+                width:'100%',height:'100%',
+                objectFit:'contain',objectPosition:'center',
+                transform:'translate(-50%,-50%) scale(2.2)',
+                pointerEvents:'none',zIndex:1,
+              }}/>
+            </div>
+            <span style={{ margin:0,fontFamily:HAND,fontSize:22,fontWeight:900,color:'var(--text-primary)',lineHeight:1,transform:'rotate(-1deg)',display:'inline-block' }}>
+              Study<span style={{ color:'var(--red)' }}>A</span>L
+            </span>
           </div>
+
+          {/* Buscador compacto */}
+          <button onClick={() => setBuscadorOpen(true)} style={{
+            flex:1,minWidth:0,padding:'7px 10px',
+            background:'var(--bg-card)',
+            border:'2px solid var(--text-primary)',borderRadius:10,cursor:'pointer',
+            textAlign:'left',color:'var(--text-faint)',
+            fontFamily:HAND,fontSize:14,display:'flex',alignItems:'center',gap:6,
+            boxShadow:'2px 2px 0 var(--text-primary)',
+          }}>
+            <span>🔍</span>
+            <span style={{ overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>
+              {lang==='en'?'Search…':'Buscar…'}
+            </span>
+          </button>
+
+          {/* Botones derecha */}
+          <div style={{ display:'flex',alignItems:'center',gap:6,flexShrink:0 }}>
+            {/* News */}
+            <button
+              onClick={()=>((window as any).__showNavLoader?.('/news'), router.push('/news'))}
+              title="News"
+              style={{
+                width:36,height:36,borderRadius:8,
+                background:'var(--bg-card)',
+                border:'2px solid var(--text-primary)',
+                boxShadow:'2px 2px 0 var(--text-primary)',
+                cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',
+                fontSize:17,flexShrink:0,
+              }}
+            >📰</button>
+
+            {/* Dark/Light */}
+            <button
+              onClick={()=>{
+                const isLight = document.documentElement.classList.contains('light');
+                if (isLight) {
+                  document.documentElement.classList.remove('light');
+                  try { localStorage.setItem('studyal_darkmode','dark'); } catch {}
+                } else {
+                  document.documentElement.classList.add('light');
+                  try { localStorage.setItem('studyal_darkmode','light'); } catch {}
+                }
+                setThemeKey(k=>k+1);
+              }}
+              title="Tema"
+              style={{
+                width:36,height:36,borderRadius:8,
+                background:'var(--bg-card)',
+                border:'2px solid var(--text-primary)',
+                boxShadow:'2px 2px 0 var(--gold)',
+                cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',
+                fontSize:17,flexShrink:0,
+              }}
+            >
+              <span suppressHydrationWarning key={themeKey}>
+                {typeof window !== 'undefined' && document.documentElement.classList.contains('light') ? '☀️' : '🌙'}
+              </span>
+            </button>
+
+            {/* Notificaciones + Avatar */}
+            <NotificacionesPanel/>
+            <UserMenu/>
+          </div>
+        </div>
+
+        {/* Día/Welcome debajo del header */}
+        <div style={{ display:'flex',flexDirection:'column',gap:2,paddingTop:4 }}>
+          <DiaFecha lang={lang}/>
           <WelcomeUser name={userName}/>
         </div>
 
-        <HorarioFlecha targetId="horario-section" mob={true}/>
 
         {/* StudyAL center + logo */}
         <div style={{ display:'flex',justifyContent:'center',padding:'10px 0' }}>
           <StudyALCenter mob={true}/>
         </div>
 
-        {/* Top podio (debajo del logo en mobile) */}
-        <div style={{ display:'flex',justifyContent:'center',marginTop:-6 }}>
-          <TopPodio onClick={() => nav('/leaderboard','Leaderboard','var(--gold)','🏆')} mob={true}/>
-        </div>
-
         {/* Materias */}
         <div style={{ display:'flex',justifyContent:'center',marginTop:6 }}>
           <MateriasHoja materias={materias} onOpen={(id) => navMateria(id)} onCreate={() => navMateria()} mob={true} lang={lang}/>
+        </div>
+
+        {/* Leaderboard debajo de materias en mobile */}
+        <div style={{ display:'flex',justifyContent:'center',marginTop:10 }}>
+          <TopPodio onClick={() => nav('/leaderboard','Leaderboard','var(--gold)','🏆')} mob={true}/>
         </div>
 
         {/* Cosas por hacer + Frase Chap lado a lado */}
@@ -1853,9 +1950,9 @@ export default function Home() {
         position:'sticky',top:0,zIndex:100,
         background:'color-mix(in srgb,var(--bg-primary) 92%,transparent)',
         backdropFilter:'blur(14px)',borderBottom:'2.5px solid var(--text-primary)',
-        padding:'10px 36px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,
+        padding:'10px clamp(14px,3vw,36px)',display:'flex',alignItems:'center',justifyContent:'space-between',gap:'clamp(10px,2vw,16px)',flexWrap:'wrap',
       }}>
-        <div style={{ display:'flex',alignItems:'center',gap:10,cursor:'pointer' }} onClick={()=>window.scrollTo({top:0,behavior:'smooth'})}>
+        <div style={{ display:'flex',alignItems:'center',gap:10,cursor:'pointer',minWidth:0,flexShrink:0 }} onClick={()=>window.scrollTo({top:0,behavior:'smooth'})}>
           <div id="header-logo-target" style={{ position: 'relative', width: 40, height: 40, flexShrink: 0 }}>
             <img src="/logo.png" alt="StudyAL" style={{
               position: 'absolute', left: '55%', top: '48%',
@@ -1865,13 +1962,13 @@ export default function Home() {
               pointerEvents: 'none', zIndex: 1,
             }}/>
           </div>
-          <h1 style={{ margin: 0, fontFamily: HAND, fontSize: 28, fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1, transform: 'rotate(-1deg)', display: 'inline-block' }}>
+          <h1 style={{ margin: 0, fontFamily: HAND, fontSize: 'clamp(22px,2.4vw,28px)', fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1, transform: 'rotate(-1deg)', display: 'inline-block' }}>
             Study<span style={{ color: 'var(--red)' }}>A</span>L
           </h1>
           <BetaBadge/>
         </div>
         <button onClick={() => setBuscadorOpen(true)} style={{
-          flex:1,maxWidth:440,padding:'9px 16px',background:'var(--bg-card)',
+          flex:'1 1 280px',minWidth:220,maxWidth:'min(440px, 100%)',padding:'9px 16px',background:'var(--bg-card)',
           border:'2px solid var(--text-primary)',borderRadius:10,cursor:'pointer',
           textAlign:'left',color:'var(--text-faint)',
           fontFamily:HAND,fontSize:17,display:'flex',alignItems:'center',gap:8,
@@ -1880,7 +1977,7 @@ export default function Home() {
           <span>🔍</span><span>{lang==='en'?'Search anything…':'Buscar materias, apuntes…'}</span>
           <span style={{ marginLeft:'auto',fontSize:11,opacity:.6 }}>⌘K</span>
         </button>
-        <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0,marginLeft:'auto'}}>
           {/* Botón News */}
           <button
             onClick={()=>((window as any).__showNavLoader?.('/news'), router.push('/news'))}
@@ -1939,10 +2036,10 @@ export default function Home() {
         </div>
       </header>
 
-      <main style={{ position:'relative',zIndex:1,maxWidth:1240,margin:'0 auto',padding:'28px 40px 60px' }}>
+      <main style={{ position:'relative',zIndex:1,maxWidth:1240,margin:'0 auto',padding:'28px clamp(14px,3vw,40px) 60px' }}>
 
         {/* ═══ ZONA 1: Hero — día/welcome | StudyAL+logo | top podio ═══ */}
-        <div style={{ display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:32,alignItems:'flex-start',marginBottom:32 }}>
+        <div style={{ display:'grid',gridTemplateColumns:isTablet ? '115px 1fr 185px' : 'minmax(0,1fr) auto minmax(0,1fr)',gap:isTablet ? 12 : 32,alignItems:'flex-start',justifyItems:isTablet?'center':'stretch',marginBottom:32,width:'100%',overflow:'visible' }}>
 
           {/* IZQ */}
           <div style={{ display:'flex',flexDirection:'column',gap:18,alignItems:'flex-start' }}>
@@ -1955,13 +2052,13 @@ export default function Home() {
 
           {/* CENTRO */}
           <div style={{ display:'flex',justifyContent:'center' }}>
-            <StudyALCenter mob={false}/>
+            <div style={{ display:'flex', justifyContent:'center', alignItems:'flex-start', width:'100%' }}><StudyALCenter mob={false} tablet={isTablet}/></div>
           </div>
 
           {/* DER — Top podio */}
-          <div style={{ display:'flex',flexDirection:'column',alignItems:'flex-end',gap:8 }}>
-            <span style={{ fontFamily:HAND,fontSize:18,color:'var(--text-muted)',fontStyle:'italic',transform:'rotate(-3deg)',display:'inline-block',marginRight:30 }}>→ improve</span>
-            <TopPodio onClick={() => nav('/leaderboard','Leaderboard','var(--gold)','🏆')} mob={false}/>
+          <div style={{ display:'flex',flexDirection:'column',alignItems:'flex-end',gap:8,minWidth:0,maxWidth:'100%',overflow:'visible',position:'relative',zIndex:5 }}>
+            <span style={{ fontFamily:HAND,fontSize:'clamp(14px,1.4vw,18px)',color:'var(--text-muted)',fontStyle:'italic',transform:'rotate(-3deg)',display:'inline-block',marginRight:isTablet?14:30 }}>→ improve</span>
+            <TopPodio onClick={() => nav('/leaderboard','Leaderboard','var(--gold)','🏆')} mob={false} tablet={isTablet}/>
           </div>
         </div>
 
@@ -1971,7 +2068,7 @@ export default function Home() {
         </div>
 
         {/* ═══ ZONA 3: Cosas por hacer (izq) | Racha (centro) | Frase+Chap+Timer (der) ═══ */}
-        <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:32,alignItems:'flex-start',marginBottom:40 }}>
+        <div style={{ display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)',gap:isTablet?16:32,alignItems:'flex-start',marginBottom:40 }}>
           {/* IZQ */}
           <div style={{ background:'var(--bg-card)',border:'2px dashed var(--border-color)',borderRadius:14,padding:'16px 20px' }}>
             <CosasPorHacer onClick={() => nav('/agenda','Agenda','#f472b6','📋')} mob={false}/>
@@ -2013,7 +2110,7 @@ export default function Home() {
         </div>
 
         {/* ═══ ZONA 6: Notas + Gráficas ═══ */}
-        <div style={{ display:'grid',gridTemplateColumns:'1fr 2fr',gap:28,alignItems:'flex-start',marginBottom:36 }}>
+        <div style={{ display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,2fr)',gap:isTablet?18:28,alignItems:'flex-start',marginBottom:36 }}>
           <NotasRapidas/>
           <div>
             <h2 style={{ fontFamily:HAND,fontSize:32,fontWeight:900,color:'var(--text-primary)',margin:'0 0 12px',transform:'rotate(-1deg)',display:'inline-block' }}>📊 Gráficas</h2>
