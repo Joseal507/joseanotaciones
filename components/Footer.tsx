@@ -298,7 +298,7 @@ export default function Footer() {
                   {[
                     { label: idioma === 'en' ? 'Terms of Service' : 'Términos de uso', href: '/terminos' },
                     { label: idioma === 'en' ? 'Privacy Policy' : 'Política de privacidad', href: '/terminos#sec-9' },
-                    { label: idioma === 'en' ? 'Cookie Policy' : 'Política de cookies', href: '/terminos#sec-9' },
+                    { label: idioma === 'en' ? 'Cookie Policy' : 'Política de cookies', href: '/terminos#sec-10' },
                   ].map(link => (
                     <Link key={link.href} href={link.href} className="nb-footer-link">
                       {link.label}
