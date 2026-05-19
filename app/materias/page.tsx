@@ -568,6 +568,7 @@ const eliminarDocumento = async (id: string) => {
             tema={temaActual}
             onBack={() => setVista('materias')}
             onBackMateria={() => setVista('materia')}
+            onGoHome={() => ((window as any).__showNavLoader?.('/'), router.push('/'))}
             onAbrirApunte={a => { setApunteActual(a); setVista('apunte'); }}
             onAbrirDocumento={d => { setDocumentoActual(d); setVista('documento'); }}
             onEliminarApunte={eliminarApunte}

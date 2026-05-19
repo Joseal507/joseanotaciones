@@ -37,7 +37,14 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   const [flashcards, setFlashcards] = useState(documento.flashcards || []);
   const [currentCard, setCurrentCard] = useState(0);
   const [flipped, setFlipped] = useState(false);
-  const [tab, setTab] = useState<'leer' | 'analisis' | 'flashcards' | 'quiz'>('leer');
+  const [tab, setTab] = useState<'leer' | 'analisis' | 'flashcards' | 'quiz'>(() => {
+    if (typeof window === 'undefined') return 'leer';
+    const saved = localStorage.getItem('josea_doc_open_tab');
+    if (saved === 'leer' || saved === 'analisis' || saved === 'flashcards' || saved === 'quiz') {
+      return saved;
+    }
+    return 'leer';
+  });
   const [addCount, setAddCount] = useState(10);
   const [addingMore, setAddingMore] = useState(false);
   const [showChat, setShowChat] = useState(false);
@@ -54,6 +61,12 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
   const [recommendedReason, setRecommendedReason] = useState('');
   const [flashcardsMessage, setFlashcardsMessage] = useState('');
   const [analisisLocal, setAnalisisLocal] = useState(documento.analisis);
+
+  useEffect(() => {
+    try {
+      localStorage.removeItem('josea_doc_open_tab');
+    } catch {}
+  }, []);
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
 

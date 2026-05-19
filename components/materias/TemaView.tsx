@@ -1,685 +1,1649 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Materia, Tema, Apunte, Documento } from '../../lib/storage';
-import { useIdioma } from '../../hooks/useIdioma';
-import { useIsMobile } from '../../hooks/useIsMobile';
+import TeoricoWorkspace from './TeoricoWorkspace';
 
-const HAND = "'Caveat',cursive";
+const HAND = "'Caveat', cursive";
+const HAND_BOLD = "'Caveat', cursive";
 
-interface Vec2 { x: number; y: number; }
-
-interface TemaNode {
-  id: string;
-  x: number;
-  y: number;
-  emoji: string;
-  label: string;
-  sublabel: string;
-  color: string;
-  type: 'apunte' | 'documento' | 'action' | 'info';
-  data?: any;
-  size?: 'sm' | 'md' | 'lg';
-  rot?: number;
+function getDocEmoji(doc: Documento) {
+  if (doc.tipo === 'pdf') return '📄';
+  if (doc.tipo === 'imagen') return '🖼️';
+  if (doc.tipo === 'word') return '📃';
+  if (doc.tipo === 'ppt') return '📊';
+  if (doc.tipo === 'youtube') return '▶️';
+  return '📁';
 }
 
-interface Props {
-  materia: Materia;
-  tema: Tema;
-  onBack: () => void;
-  onBackMateria: () => void;
-  onAbrirApunte: (a: Apunte) => void;
-  onAbrirDocumento: (d: Documento) => void;
-  onEliminarApunte: (id: string) => void;
-  onEliminarDocumento: (id: string) => void;
-  onNuevoApunte: () => void;
-  onSubirDocumento: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  subiendoDoc: boolean;
-  onAgregarYoutube?: (doc: Documento) => void;
+function toRgba(color: string, alpha: number): string {
+  if (color.startsWith('#')) {
+    let hex = color.slice(1);
+    if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+    if (hex.length !== 6) return `rgba(255,255,255,${alpha})`;
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  return `rgba(245,200,66,${alpha})`;
 }
 
-const NODE_SIZE = { lg: 160, md: 130, sm: 110 };
+// ═══ PALETA + VARIANTES DE PAPELITO POR ROL ═══
+type PaperVariant = 'libreta-abierta'|'tag-grande'|'cuaderno-libro'|'carpeta-folder'|'postit-arrugado'|'hoja-papel'|'ticket-rojo'|'sticker-clip'|'papelito-simple';
 
-// Rotación pseudo-aleatoria estable por id
-function rotForId(id: string) {
+function paperPalette(nodeId: string, nodeType: string): {
+  paper: string; ink: string; inkSoft: string; shadow: string;
+  variant: PaperVariant;
+} {
+  const id = (nodeId || '').toLowerCase();
+  const type = (nodeType || '').toLowerCase();
+
+  // Decisión: variante + color por id/type
+  if (type === 'root') {
+    return { paper: '#fef3c7', ink: '#451a03', inkSoft: '#92400e', shadow: 'rgba(252,211,77,0.6)', variant: 'libreta-abierta' };
+  }
+  if (id === 'cuaderno') {
+    return { paper: '#fde047', ink: '#422006', inkSoft: '#78350f', shadow: 'rgba(250,204,21,0.5)', variant: 'cuaderno-libro' };
+  }
+  if (id === 'material') {
+    return { paper: '#67e8f9', ink: '#083344', inkSoft: '#0e7490', shadow: 'rgba(34,211,238,0.5)', variant: 'carpeta-folder' };
+  }
+  if (id === 'rama-apuntes') {
+    return { paper: '#fef08a', ink: '#422006', inkSoft: '#854d0e', shadow: 'rgba(250,204,21,0.4)', variant: 'postit-arrugado' };
+  }
+  if (id === 'rama-subir') {
+    return { paper: '#f9a8d4', ink: '#500724', inkSoft: '#9d174d', shadow: 'rgba(244,114,182,0.45)', variant: 'sticker-clip' };
+  }
+  if (id === 'rama-yt') {
+    return { paper: '#fca5a5', ink: '#450a0a', inkSoft: '#991b1b', shadow: 'rgba(248,113,113,0.5)', variant: 'ticket-rojo' };
+  }
+  if (id === 'rama-pres') {
+    return { paper: '#c4b5fd', ink: '#1e1b4b', inkSoft: '#4338ca', shadow: 'rgba(167,139,250,0.45)', variant: 'papelito-simple' };
+  }
+  if (id === 'rama-ensayo' || id === 'rama-grupal') {
+    return { paper: '#fdba74', ink: '#431407', inkSoft: '#7c2d12', shadow: 'rgba(251,146,60,0.45)', variant: 'papelito-simple' };
+  }
+  if (id.startsWith('a-')) {
+    return { paper: '#fef08a', ink: '#422006', inkSoft: '#854d0e', shadow: 'rgba(250,204,21,0.4)', variant: 'postit-arrugado' };
+  }
+  if (type === 'doc' || id.startsWith('d-')) {
+    return { paper: '#f8fafc', ink: '#0f172a', inkSoft: '#475569', shadow: 'rgba(148,163,184,0.4)', variant: 'hoja-papel' };
+  }
+  return { paper: '#fde047', ink: '#422006', inkSoft: '#78350f', shadow: 'rgba(250,204,21,0.4)', variant: 'papelito-simple' };
+}
+
+function paperRot(id: string) {
   let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return ((h % 11) - 5) * 0.7; // -3.5 a +3.5 grados
+  for (let i = 0; i < (id || '').length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0;
+  return ((Math.abs(h) % 7) - 3);
 }
 
-export default function TemaView({
-  materia, tema,
-  onBack, onBackMateria,
-  onAbrirApunte, onAbrirDocumento,
-  onEliminarApunte, onEliminarDocumento,
-  onNuevoApunte, onSubirDocumento, subiendoDoc,
-  onAgregarYoutube,
-}: Props) {
-  const { tr, idioma } = useIdioma();
-  const isMobile = useIsMobile();
-  const fileRef = useRef<HTMLInputElement>(null);
 
-  const [pan, setPan] = useState<Vec2>({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(0.9);
-  const isDragging = useRef(false);
-  const lastPos = useRef<Vec2>({ x: 0, y: 0 });
-  const targetPan = useRef<Vec2>({ x: 0, y: 0 });
-  const targetZoom = useRef(0.9);
-  const currentPan = useRef<Vec2>({ x: 0, y: 0 });
-  const currentZoom = useRef(0.9);
-  const animRef = useRef<number>();
-  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ node: TemaNode; x: number; y: number } | null>(null);
 
-  const buildTemaNodes = (): TemaNode[] => {
-    const nodes: TemaNode[] = [];
 
-    nodes.push({
-      id: 'tema-center',
-      x: 0, y: 0,
-      emoji: '🗂️',
-      label: tema.nombre,
-      sublabel: `${tema.apuntes.length} apuntes · ${tema.documentos.length} docs`,
-      color: tema.color || materia.color,
-      type: 'info',
-      size: 'lg',
-      rot: -2,
-    });
-
-    nodes.push({
-      id: 'new-apunte',
-      x: -280, y: -160,
-      emoji: '✏️',
-      label: idioma === 'en' ? 'New Note' : 'Nuevo Apunte',
-      sublabel: idioma === 'en' ? 'write freely' : 'escribe libremente',
-      color: 'var(--gold)',
-      type: 'action',
-      size: 'sm',
-      rot: -4,
-    });
-
-    nodes.push({
-      id: 'upload-doc',
-      x: 280, y: -160,
-      emoji: '📎',
-      label: idioma === 'en' ? 'Upload' : 'Subir',
-      sublabel: 'PDF, PPT, img...',
-      color: 'var(--blue)',
-      type: 'action',
-      size: 'sm',
-      rot: 4,
-    });
-
-    const apuntesCount = tema.apuntes.length;
-    tema.apuntes.forEach((apunte, i) => {
-      const baseX = -340;
-      const offsetY = apuntesCount === 1 ? 60 : (i - (apuntesCount - 1) / 2) * (apuntesCount > 3 ? 100 : 120);
-      nodes.push({
-        id: `apunte-${apunte.id}`,
-        x: baseX,
-        y: offsetY + 60,
-        emoji: '📝',
-        label: apunte.titulo.length > 18 ? apunte.titulo.slice(0, 18) + '…' : apunte.titulo,
-        sublabel: apunte.fechaModificacion,
-        color: 'var(--gold)',
-        type: 'apunte',
-        data: apunte,
-        size: 'sm',
-        rot: rotForId(apunte.id),
-      });
-    });
-
-    const docsCount = tema.documentos.length;
-    tema.documentos.forEach((doc, i) => {
-      const docEmoji = doc.tipo === 'pdf' ? '📄'
-        : doc.tipo === 'imagen' ? '🖼️'
-        : doc.tipo === 'word' ? '📃'
-        : doc.tipo === 'ppt' ? '📊'
-        : doc.tipo === 'youtube' ? '▶️'
-        : '📁';
-      const offsetY = docsCount === 1 ? 60 : (i - (docsCount - 1) / 2) * (docsCount > 3 ? 100 : 120);
-      nodes.push({
-        id: `doc-${doc.id}`,
-        x: 340,
-        y: offsetY + 60,
-        emoji: docEmoji,
-        label: doc.nombre.length > 16 ? doc.nombre.slice(0, 16) + '…' : doc.nombre,
-        sublabel: doc.fechaSubida,
-        color: 'var(--blue)',
-        type: 'documento',
-        data: doc,
-        size: 'sm',
-        rot: rotForId(doc.id),
-      });
-    });
-
-    return nodes;
-  };
-
-  const [nodes, setNodes] = useState<TemaNode[]>(buildTemaNodes());
+// ═══════════════════════════════════════════════════════════════
+// RUEDA DE ENFOQUES — EXPERIENCIA CINEMÁTICA
+// ═══════════════════════════════════════════════════════════════
+function EnfoqueWheel({ onClose, onSelect, color, materialesCount }: any) {
+  const [hov, setHov] = useState<string | null>(null);
+  const [phase, setPhase] = useState<'enter' | 'idle'>('enter');
 
   useEffect(() => {
-    setNodes(buildTemaNodes());
-  }, [tema]);
-
-  useEffect(() => {
-    const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-    const tick = () => {
-      currentPan.current.x = lerp(currentPan.current.x, targetPan.current.x, 0.1);
-      currentPan.current.y = lerp(currentPan.current.y, targetPan.current.y, 0.1);
-      currentZoom.current = lerp(currentZoom.current, targetZoom.current, 0.1);
-      const dx = Math.abs(currentPan.current.x - targetPan.current.x);
-      const dy = Math.abs(currentPan.current.y - targetPan.current.y);
-      const dz = Math.abs(currentZoom.current - targetZoom.current);
-      if (dx > 0.1 || dy > 0.1 || dz > 0.001) {
-        setPan({ x: currentPan.current.x, y: currentPan.current.y });
-        setZoom(currentZoom.current);
-      }
-      animRef.current = requestAnimationFrame(tick);
-    };
-    animRef.current = requestAnimationFrame(tick);
-    return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
+    const t = setTimeout(() => setPhase('idle'), 50);
+    return () => clearTimeout(t);
   }, []);
 
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('[data-node]')) return;
-    isDragging.current = true;
-    lastPos.current = { x: e.clientX, y: e.clientY };
-  }, []);
-
-  const onMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDragging.current) return;
-    const dx = e.clientX - lastPos.current.x;
-    const dy = e.clientY - lastPos.current.y;
-    lastPos.current = { x: e.clientX, y: e.clientY };
-    targetPan.current = { x: targetPan.current.x + dx, y: targetPan.current.y + dy };
-  }, []);
-
-  const onMouseUp = useCallback(() => { isDragging.current = false; }, []);
-
-  const onWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    targetZoom.current = Math.min(Math.max(targetZoom.current * delta, 0.25), 3);
-  }, []);
-
-  const handleNodeClick = (node: TemaNode) => {
-    if (node.id === 'tema-center') return;
-    if (node.id === 'new-apunte') { onNuevoApunte(); return; }
-    if (node.id === 'upload-doc') { fileRef.current?.click(); return; }
-    if (node.type === 'apunte') { onAbrirApunte(node.data); return; }
-    if (node.type === 'documento') { onAbrirDocumento(node.data); return; }
-  };
-
-  const handleNodeRightClick = (e: React.MouseEvent, node: TemaNode) => {
-    if (node.type !== 'apunte' && node.type !== 'documento') return;
-    e.preventDefault();
-    setContextMenu({ node, x: e.clientX, y: e.clientY });
-  };
-
-  const resetView = () => {
-    targetPan.current = { x: 0, y: 0 };
-    targetZoom.current = 0.9;
-  };
-
-  const connections = [
-    { from: 'tema-center', to: 'new-apunte' },
-    { from: 'tema-center', to: 'upload-doc' },
-    ...tema.apuntes.map(a => ({ from: 'new-apunte', to: `apunte-${a.id}` })),
-    ...tema.documentos.map(d => ({ from: 'upload-doc', to: `doc-${d.id}` })),
+  const items = [
+    {
+      id: 'teorico',
+      label: 'Teórico',
+      sub: 'Lectura · Flashcards · Quiz',
+      emoji: '📖',
+      color: '#5eead4',
+      enabled: true,
+      desc: 'Comprende conceptos, memoriza y autoevalúate',
+    },
+    {
+      id: 'matematico',
+      label: 'Matemático',
+      sub: 'Fórmulas · Ejercicios · Pasos',
+      emoji: '📐',
+      color: '#a78bfa',
+      enabled: false,
+      desc: 'Resuelve problemas paso a paso',
+    },
+    {
+      id: 'teorico-mat',
+      label: 'Teórico-Mat.',
+      sub: 'Combinación completa',
+      emoji: '🧮',
+      color: '#fbbf24',
+      enabled: false,
+      desc: 'Lo mejor de los dos mundos',
+    },
   ];
 
-  // ─── MOBILE ──
-  if (isMobile) {
-    return (
-      <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', padding: '0 0 80px' }}>
-        <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onSubirDocumento}
-          accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.webp,.mp3,.wav,.m4a" />
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0,
+      background: 'radial-gradient(ellipse at center, rgba(15,15,20,0.85), rgba(0,0,0,0.97))',
+      backdropFilter: 'blur(20px)',
+      zIndex: 9999,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: HAND,
+      animation: 'fadeIn 0.4s ease-out',
+    }}>
+      {/* Líneas de cuaderno de fondo */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        backgroundImage: `linear-gradient(to bottom, transparent 0, transparent 47px, rgba(255,255,255,0.03) 47px, rgba(255,255,255,0.03) 48px, transparent 48px)`,
+        backgroundSize: '100% 48px',
+        pointerEvents: 'none',
+      }} />
+      <div style={{
+        position: 'absolute', left: '8%', top: 0, bottom: 0,
+        width: 1,
+        background: 'rgba(239,68,68,0.3)',
+        pointerEvents: 'none',
+      }} />
 
-        {/* Header mobile */}
-        <div style={{
-          padding: 16,
-          background: 'var(--bg-card)',
-          borderBottom: '2.5px solid var(--text-primary)',
-        }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        position: 'relative',
+        textAlign: 'center',
+        transform: phase === 'enter' ? 'scale(0.85)' : 'scale(1)',
+        opacity: phase === 'enter' ? 0 : 1,
+        transition: 'all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
+      }}>
+        {/* Header */}
+        <div style={{ marginBottom: 40 }}>
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            marginBottom: 12, flexWrap: 'wrap',
-            fontFamily: HAND,
-          }}>
-            <button onClick={onBack} style={mobileBreadBtn}>← {tr('inicio')}</button>
-            <span style={{ color: 'var(--text-faint)', fontWeight: 800 }}>›</span>
-            <button onClick={onBackMateria} style={mobileBreadBtn}>{materia.emoji} {materia.nombre}</button>
-            <span style={{ color: 'var(--text-faint)', fontWeight: 800 }}>›</span>
-            <span style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)', fontStyle: 'italic' }}>{tema.nombre}</span>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={onNuevoApunte}
-              style={{
-                flex: 1, padding: '12px',
-                borderRadius: 12,
-                border: '2.5px solid var(--text-primary)',
-                background: 'var(--gold)', color: '#000',
-                fontFamily: HAND, fontSize: 19, fontWeight: 800,
-                cursor: 'pointer',
-                boxShadow: '3px 4px 0 var(--text-primary)',
-                transform: 'rotate(-1.5deg)',
-              }}>
-              ✏️ {idioma === 'en' ? 'New Note' : 'Nuevo Apunte'}
-            </button>
-            <button onClick={() => fileRef.current?.click()} disabled={subiendoDoc}
-              style={{
-                flex: 1, padding: '12px',
-                borderRadius: 12,
-                border: '2.5px solid var(--text-primary)',
-                background: 'var(--blue)', color: '#000',
-                fontFamily: HAND, fontSize: 19, fontWeight: 800,
-                cursor: 'pointer',
-                boxShadow: '3px 4px 0 var(--text-primary)',
-                transform: 'rotate(1.5deg)',
-              }}>
-              {subiendoDoc ? '⏳' : '📎'} {idioma === 'en' ? 'Upload' : 'Subir'}
-            </button>
-          </div>
+            fontSize: 18, color: 'rgba(255,255,255,0.5)',
+            fontFamily: HAND, letterSpacing: 1,
+            marginBottom: 8,
+          }}>~ {materialesCount} {materialesCount === 1 ? 'material seleccionado' : 'materiales seleccionados'} ~</div>
+          <h1 style={{
+            fontSize: 56, color: '#fff',
+            fontFamily: HAND, fontWeight: 700,
+            margin: 0, lineHeight: 1,
+            textShadow: '0 4px 30px rgba(255,255,255,0.2)',
+          }}>¿cómo querés estudiar?</h1>
+          <div style={{
+            fontSize: 20, color: 'rgba(255,255,255,0.6)',
+            fontFamily: HAND, marginTop: 8,
+            fontStyle: 'italic',
+          }}>elegí tu enfoque ↓</div>
         </div>
 
-        {/* Apuntes */}
-        {tema.apuntes.length > 0 && (
-          <div style={{ padding: 16 }}>
-            <h3 style={{
-              fontFamily: HAND, fontSize: 22, fontWeight: 900,
-              color: 'var(--gold)', margin: '0 0 10px',
-              transform: 'rotate(-1deg)', display: 'inline-block',
-            }}>
-              ✏️ {idioma === 'en' ? 'Notes' : 'Apuntes'} ({tema.apuntes.length})
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {tema.apuntes.map((apunte, i) => (
-                <div key={apunte.id} style={{
-                  background: 'var(--bg-card)',
-                  border: '2.5px solid var(--text-primary)',
-                  borderRadius: 12,
-                  boxShadow: '3px 4px 0 var(--gold)',
-                  display: 'flex', alignItems: 'center',
+        {/* Cards horizontales */}
+        <div style={{
+          display: 'flex', gap: 20,
+          justifyContent: 'center', alignItems: 'stretch',
+          flexWrap: 'wrap',
+          maxWidth: 1100,
+        }}>
+          {items.map((item, i) => {
+            const isH = hov === item.id;
+            const c = item.color;
+            return (
+              <button key={item.id}
+                onClick={() => item.enabled && onSelect(item.id)}
+                onMouseEnter={() => setHov(item.id)}
+                onMouseLeave={() => setHov(null)}
+                disabled={!item.enabled}
+                style={{
+                  position: 'relative',
+                  width: 280, minHeight: 340,
+                  background: isH && item.enabled
+                    ? `linear-gradient(160deg, ${c}22, ${c}05)`
+                    : 'linear-gradient(160deg, #16161a, #0a0a0c)',
+                  border: `1.5px solid ${item.enabled ? (isH ? c : `${c}66`) : '#333'}`,
+                  borderRadius: 20,
+                  padding: '28px 22px',
+                  cursor: item.enabled ? 'pointer' : 'not-allowed',
+                  opacity: item.enabled ? 1 : 0.5,
+                  transform: isH && item.enabled ? 'translateY(-12px) scale(1.03)' : 'translateY(0)',
+                  transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                  boxShadow: isH && item.enabled
+                    ? `0 20px 60px ${c}55, 0 0 80px ${c}33, inset 0 0 30px ${c}11`
+                    : `0 10px 30px rgba(0,0,0,0.4), inset 0 0 0 ${c}00`,
+                  display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', textAlign: 'center',
+                  fontFamily: HAND,
                   overflow: 'hidden',
-                  transform: `rotate(${rotForId(apunte.id) * 0.5}deg)`,
+                  animation: `slideUp 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) ${0.1 + i * 0.08}s both`,
                 }}>
-                  <div style={{ width: 5, alignSelf: 'stretch', background: 'var(--gold)', flexShrink: 0 }} />
-                  <div onClick={() => onAbrirApunte(apunte)}
-                    style={{ flex: 1, padding: '12px 14px', cursor: 'pointer' }}>
-                    <div style={{
-                      fontFamily: HAND, fontSize: 19, fontWeight: 800,
-                      color: 'var(--text-primary)', marginBottom: 2, lineHeight: 1.1,
-                    }}>📝 {apunte.titulo}</div>
-                    <div style={{
-                      fontFamily: HAND, fontSize: 13, fontStyle: 'italic',
-                      color: 'var(--text-faint)',
-                    }}>{apunte.fechaModificacion}</div>
-                  </div>
-                  <button onClick={() => onEliminarApunte(apunte.id)}
-                    style={{
-                      padding: '14px 16px', background: 'transparent',
-                      border: 'none', color: 'var(--red)',
-                      cursor: 'pointer', fontSize: 16,
-                    }}>🗑</button>
+                {/* Pestañita post-it */}
+                <div style={{
+                  position: 'absolute',
+                  top: -2, left: '50%', transform: 'translateX(-50%)',
+                  width: 60, height: 12,
+                  background: c,
+                  borderRadius: '0 0 8px 8px',
+                  boxShadow: `0 4px 12px ${c}88`,
+                  opacity: item.enabled ? 1 : 0.3,
+                }} />
+
+                {/* Brillo de fondo cuando hover */}
+                {isH && item.enabled && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '-30%', right: '-30%',
+                    width: 200, height: 200,
+                    background: `radial-gradient(circle, ${c}44, transparent 70%)`,
+                    pointerEvents: 'none',
+                  }} />
+                )}
+
+                <div style={{
+                  fontSize: 70,
+                  marginTop: 10,
+                  marginBottom: 12,
+                  filter: isH && item.enabled ? `drop-shadow(0 0 20px ${c}aa)` : 'none',
+                  transition: 'filter 0.4s',
+                }}>{item.emoji}</div>
+
+                <div style={{
+                  fontSize: 36, fontWeight: 700,
+                  color: isH && item.enabled ? c : '#fff',
+                  fontFamily: HAND,
+                  lineHeight: 1, marginBottom: 6,
+                  transition: 'color 0.3s',
+                }}>{item.label}</div>
+
+                <div style={{
+                  fontSize: 16, color: 'rgba(255,255,255,0.55)',
+                  fontFamily: HAND, fontStyle: 'italic',
+                  marginBottom: 16,
+                }}>{item.sub}</div>
+
+                <div style={{
+                  fontSize: 17, color: 'rgba(255,255,255,0.8)',
+                  fontFamily: HAND,
+                  lineHeight: 1.3,
+                  flex: 1, display: 'flex',
+                  alignItems: 'center',
+                  padding: '0 8px',
+                }}>{item.desc}</div>
+
+                {/* CTA */}
+                <div style={{
+                  marginTop: 16,
+                  padding: '8px 20px',
+                  borderRadius: 30,
+                  background: item.enabled
+                    ? (isH ? c : `${c}22`)
+                    : 'rgba(255,255,255,0.05)',
+                  color: item.enabled ? (isH ? '#000' : c) : 'rgba(255,255,255,0.4)',
+                  fontFamily: HAND, fontSize: 18, fontWeight: 700,
+                  border: `1.5px solid ${item.enabled ? c : '#444'}`,
+                  transition: 'all 0.3s',
+                }}>
+                  {item.enabled ? (isH ? 'empezar →' : 'seleccionar') : 'próximamente'}
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+              </button>
+            );
+          })}
+        </div>
 
-        {/* Documentos */}
-        {tema.documentos.length > 0 && (
-          <div style={{ padding: '0 16px 16px' }}>
-            <h3 style={{
-              fontFamily: HAND, fontSize: 22, fontWeight: 900,
-              color: 'var(--blue)', margin: '0 0 10px',
-              transform: 'rotate(-1deg)', display: 'inline-block',
-            }}>
-              📎 {idioma === 'en' ? 'Documents' : 'Documentos'} ({tema.documentos.length})
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {tema.documentos.map((doc, i) => {
-                const emoji = doc.tipo === 'pdf' ? '📄' : doc.tipo === 'imagen' ? '🖼️' : doc.tipo === 'youtube' ? '▶️' : '📁';
-                return (
-                  <div key={doc.id} style={{
-                    background: 'var(--bg-card)',
-                    border: '2.5px solid var(--text-primary)',
-                    borderRadius: 12,
-                    boxShadow: '3px 4px 0 var(--blue)',
-                    display: 'flex', alignItems: 'center',
-                    overflow: 'hidden',
-                    transform: `rotate(${rotForId(doc.id) * 0.5}deg)`,
-                  }}>
-                    <div style={{ width: 5, alignSelf: 'stretch', background: 'var(--blue)', flexShrink: 0 }} />
-                    <div onClick={() => onAbrirDocumento(doc)}
-                      style={{ flex: 1, padding: '12px 14px', cursor: 'pointer' }}>
-                      <div style={{
-                        fontFamily: HAND, fontSize: 19, fontWeight: 800,
-                        color: 'var(--text-primary)', marginBottom: 2, lineHeight: 1.1,
-                      }}>{emoji} {doc.nombre}</div>
-                      <div style={{
-                        fontFamily: HAND, fontSize: 13, fontStyle: 'italic',
-                        color: 'var(--text-faint)',
-                      }}>{doc.fechaSubida}</div>
-                    </div>
-                    <button onClick={() => onEliminarDocumento(doc.id)}
-                      style={{
-                        padding: '14px 16px', background: 'transparent',
-                        border: 'none', color: 'var(--red)',
-                        cursor: 'pointer', fontSize: 16,
-                      }}>🗑</button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Empty */}
-        {tema.apuntes.length === 0 && tema.documentos.length === 0 && (
-          <div style={{
-            textAlign: 'center', padding: '60px 20px',
-            margin: 16,
-            background: 'var(--bg-card)',
-            border: '2.5px dashed var(--border-color)',
-            borderRadius: 14,
-            transform: 'rotate(-0.5deg)',
-          }}>
-            <div style={{ fontSize: 56, marginBottom: 10 }}>🗺️</div>
-            <p style={{
-              fontFamily: HAND, fontSize: 20, fontWeight: 700,
-              color: 'var(--text-muted)', fontStyle: 'italic', margin: 0,
-            }}>
-              ~ {idioma === 'en' ? 'this topic is empty' : 'tema vacío'} ~
-            </p>
-          </div>
-        )}
+        {/* Cerrar */}
+        <button onClick={onClose} style={{
+          marginTop: 32,
+          background: 'transparent',
+          border: '1.5px solid rgba(255,255,255,0.3)',
+          padding: '10px 28px',
+          borderRadius: 30,
+          color: 'rgba(255,255,255,0.8)',
+          fontFamily: HAND, fontSize: 20, fontWeight: 600,
+          cursor: 'pointer',
+          transition: 'all 0.3s',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+          e.currentTarget.style.borderColor = '#fff';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'transparent';
+          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)';
+        }}>
+          ← volver
+        </button>
       </div>
-    );
-  }
 
-  // ─── DESKTOP CANVAS ──
+      <style>{`
+        @keyframes studyBtnIn {
+          from { opacity: 0; transform: translateX(-50%) translateY(40px) scale(0.85); }
+          to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+        }
+        @keyframes sparkle {
+          0%, 100% { transform: scale(1) rotate(0deg); filter: drop-shadow(0 0 6px rgba(245,200,66,0.7)); }
+          50%      { transform: scale(1.2) rotate(15deg); filter: drop-shadow(0 0 14px rgba(245,200,66,1)); }
+        }
+        @keyframes arrowSlide {
+          0%, 100% { transform: translateX(0); }
+          50%      { transform: translateX(6px); }
+        }
+        .study-btn-neon:hover {
+          transform: translateY(-3px) scale(1.04);
+          box-shadow:
+            0 0 0 1px rgba(239,68,68,0.5),
+            0 0 30px rgba(239,68,68,0.8),
+            0 0 60px rgba(239,68,68,0.4),
+            inset 0 1px 0 rgba(255,255,255,0.15) !important;
+          border-color: #ff5555 !important;
+        }
+        .study-btn-neon:active {
+          transform: translateY(1px) scale(0.98);
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes slideUp {
+          from { opacity: 0; transform: translateY(40px) scale(0.9); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ENERGÍA EN CURVAS
+// ═══════════════════════════════════════════════════════════════
+type CurveLine = {
+  key: string;
+  fromX: number; fromY: number;
+  ctrlX: number; ctrlY: number;
+  toX: number; toY: number;
+  color: string;
+  active: boolean;
+};
+
+function bezierPoint(t: number, p0: { x: number; y: number }, p1: { x: number; y: number }, p2: { x: number; y: number }) {
+  const u = 1 - t;
+  return {
+    x: u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
+    y: u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y,
+  };
+}
+
+function useEnergyEngine(
+  canvasRef: React.RefObject<HTMLCanvasElement | null>,
+  chargeState: React.MutableRefObject<Map<string, number>>,
+  lines: CurveLine[],
+  transform: { offsetX: number; offsetY: number; scale: number }
+) {
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    let raf = 0;
+
+    const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+    window.addEventListener('resize', resize); resize();
+
+    const toScreen = (x: number, y: number) => ({
+      x: transform.offsetX + x * transform.scale,
+      y: transform.offsetY + y * transform.scale,
+    });
+
+    const loop = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      lines.forEach(line => {
+        const current = chargeState.current.get(line.key) || 0;
+        let next = current;
+        if (line.active) next = Math.min(1, current + 0.025);
+        else next = Math.max(0, current - 0.015);
+        chargeState.current.set(line.key, next);
+        if (next <= 0.001) return;
+
+        const p0 = { x: line.fromX, y: line.fromY };
+        const p1 = { x: line.ctrlX, y: line.ctrlY };
+        const p2 = { x: line.toX, y: line.toY };
+
+        const totalSteps = 40;
+        const chargedSteps = Math.floor(totalSteps * next);
+        if (chargedSteps < 1) return;
+
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        const drawPath = () => {
+          ctx.beginPath();
+          const first = toScreen(p0.x, p0.y);
+          ctx.moveTo(first.x, first.y);
+          for (let i = 1; i <= chargedSteps; i++) {
+            const t = i / totalSteps;
+            const pt = bezierPoint(t, p0, p1, p2);
+            const sp = toScreen(pt.x, pt.y);
+            ctx.lineTo(sp.x, sp.y);
+          }
+        };
+
+        drawPath();
+        ctx.strokeStyle = toRgba(line.color, 0.3);
+        ctx.lineWidth = 7;
+        ctx.shadowBlur = 18;
+        ctx.shadowColor = line.color;
+        ctx.stroke();
+
+        drawPath();
+        ctx.strokeStyle = toRgba(line.color, 0.85);
+        ctx.lineWidth = 2.5;
+        ctx.shadowBlur = 10;
+        ctx.stroke();
+
+        drawPath();
+        ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+        ctx.lineWidth = 1;
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = '#fff';
+        ctx.stroke();
+
+        if (next < 1) {
+          const head = bezierPoint(next, p0, p1, p2);
+          const hs = toScreen(head.x, head.y);
+          const grad = ctx.createRadialGradient(hs.x, hs.y, 0, hs.x, hs.y, 14);
+          grad.addColorStop(0, 'rgba(255,255,255,1)');
+          grad.addColorStop(0.3, toRgba(line.color, 0.9));
+          grad.addColorStop(1, toRgba(line.color, 0));
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(hs.x, hs.y, 14, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.restore();
+      });
+
+      raf = requestAnimationFrame(loop);
+    };
+
+    loop();
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
+  }, [lines, transform]);
+}
+
+export default function TemaView({ materia, tema, onBack, onBackMateria, onGoHome, onAbrirApunte, onAbrirDocumento, onEliminarApunte, onEliminarDocumento, onNuevoApunte, onSubirDocumento, subiendoDoc }: any) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const chargeState = useRef<Map<string, number>>(new Map());
+
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(0.8);
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // ═══ BLOQUEO ZOOM NAVEGADOR + PINCH→ZOOM MAPA ═══
+  // - Pinch trackpad / Cmd+scroll → zoomea el MAPA (no la página)
+  // - Cmd/Ctrl + (+/-/0) teclado → bloqueado
+  // - Pinch nativo Safari → bloqueado
+  useEffect(() => {
+    // 1. Wheel: si trae ctrl/meta (= pinch o cmd+scroll) → zoom del mapa
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        // Convertir delta a factor de zoom (más suave que el scroll normal)
+        // deltaY negativo = pinch out (zoom in), positivo = pinch in (zoom out)
+        const factor = Math.exp(-e.deltaY * 0.01);
+        setZoom(z => Math.min(Math.max(z * factor, 0.5), 1.4));
+      }
+    };
+
+    // 2. Gesture events (Safari macOS pinch nativo)
+    let gestureStartZoom = 1;
+    const onGestureStart = (e: any) => {
+      e.preventDefault();
+      gestureStartZoom = zoom;
+    };
+    const onGestureChange = (e: any) => {
+      e.preventDefault();
+      // e.scale: 1 = sin cambio, >1 pinch out, <1 pinch in
+      const next = Math.min(Math.max(gestureStartZoom * e.scale, 0.5), 1.4);
+      setZoom(next);
+    };
+    const onGestureEnd = (e: any) => {
+      e.preventDefault();
+    };
+
+    // 3. Bloquear atajos teclado Cmd/Ctrl + (+, -, 0, =)
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '0'].includes(e.key)) {
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    document.addEventListener('gesturestart', onGestureStart, { passive: false });
+    document.addEventListener('gesturechange', onGestureChange, { passive: false });
+    document.addEventListener('gestureend', onGestureEnd, { passive: false });
+    document.addEventListener('keydown', onKey, { capture: true });
+
+    // 4. Meta viewport (mobile/tablet pinch nativo)
+    const meta = document.querySelector('meta[name="viewport"]');
+    const prevViewport = meta?.getAttribute('content') || '';
+    if (meta) {
+      meta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+    }
+
+    return () => {
+      document.removeEventListener('wheel', onWheel, { capture: true } as any);
+      document.removeEventListener('gesturestart', onGestureStart as any);
+      document.removeEventListener('gesturechange', onGestureChange as any);
+      document.removeEventListener('gestureend', onGestureEnd as any);
+      document.removeEventListener('keydown', onKey, { capture: true } as any);
+      if (meta && prevViewport) {
+        meta.setAttribute('content', prevViewport);
+      }
+    };
+  }, [zoom]);
+
+  const [showEnfoque, setShowEnfoque] = useState(false);
+  const [openTeorico, setOpenTeorico] = useState(false);
+  const [contextMenu, setContextMenu] = useState<any>(null);
+  const [vp, setVp] = useState({ w: 1400, h: 900 });
+
+  const dragState = useRef<{ active: boolean; startX: number; startY: number; startPan: { x: number; y: number } }>({
+    active: false, startX: 0, startY: 0, startPan: { x: 0, y: 0 },
+  });
+
+  useEffect(() => {
+    const update = () => setVp({ w: window.innerWidth, h: window.innerHeight });
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      if (!dragState.current.active) return;
+      const dx = e.clientX - dragState.current.startX;
+      const dy = e.clientY - dragState.current.startY;
+      setPan({
+        x: dragState.current.startPan.x + dx,
+        y: dragState.current.startPan.y + dy,
+      });
+    };
+    const handleUp = () => { dragState.current.active = false; document.body.style.cursor = ''; };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, []);
+
+  const themeColor = tema.color || materia.color || '#5eead4';
+  const cuadernoColor = '#5eead4';
+  const materialColor = '#a78bfa';
+
+  const nodes = useMemo(() => {
+    const list: any[] = [];
+    const cOpen = expanded.includes('cuaderno');
+    const mOpen = expanded.includes('material');
+
+    list.push({
+      id: 'center', x: 0, y: 0,
+      emoji: '📖', label: tema.nombre,
+      sublabel: `~ ${tema.apuntes.length} apuntes · ${tema.documentos.length} docs ~`,
+      color: themeColor, size: 140, type: 'root',
+    });
+
+    list.push({
+      id: 'cuaderno', x: -300, y: 0,
+      emoji: '📓', label: 'Cuaderno',
+      sublabel: cOpen ? '~ click para cerrar ~' : '~ click para abrir ~',
+      color: cuadernoColor, size: 120, type: 'hub',
+    });
+
+    if (cOpen) {
+      const cuadernoItems = [
+        { id: 'rama-apuntes', emoji: '📝', label: 'Apuntes', enabled: true },
+        { id: 'rama-pres', emoji: '📊', label: 'Presentación', enabled: false },
+        { id: 'rama-ensayo', emoji: '📜', label: 'Ensayo', enabled: false },
+        { id: 'rama-grupal', emoji: '🤝', label: 'Doc. Grupal', enabled: false },
+      ];
+      const ramaCuadernoDist = 220;
+      cuadernoItems.forEach((item, i) => {
+        const angleDeg = 180 + (i - 1.5) * 35;
+        const angle = angleDeg * (Math.PI / 180);
+        list.push({
+          id: item.id,
+          x: -300 + Math.cos(angle) * ramaCuadernoDist,
+          y: Math.sin(angle) * ramaCuadernoDist,
+          emoji: item.emoji,
+          label: item.label,
+          color: item.enabled ? cuadernoColor : '#555',
+          size: 100,
+          type: 'rama',
+          disabled: !item.enabled,
+          action: item.id === 'rama-apuntes' ? onNuevoApunte : undefined,
+        });
+      });
+
+      if (tema.apuntes.length > 0) {
+        const apunteRama = {
+          x: -300 + Math.cos((180 - 0.5 * 35) * Math.PI / 180) * ramaCuadernoDist,
+          y: Math.sin((180 - 0.5 * 35) * Math.PI / 180) * ramaCuadernoDist,
+        };
+        const n = tema.apuntes.length;
+        const arcSpread = Math.min(120, 30 + n * 15);
+        const startAngle = 180 - arcSpread / 2;
+        const dist = 180;
+        tema.apuntes.forEach((a: any, i: number) => {
+          const t = n === 1 ? 0.5 : i / (n - 1);
+          const angleDeg = startAngle + t * arcSpread;
+          const angle = angleDeg * (Math.PI / 180);
+          list.push({
+            id: `a-${a.id}`,
+            x: apunteRama.x + Math.cos(angle) * dist,
+            y: apunteRama.y + Math.sin(angle) * dist,
+            emoji: '📝',
+            label: a.titulo,
+            color: cuadernoColor,
+            size: 95,
+            type: 'apunte',
+            data: a,
+          });
+        });
+      }
+    }
+
+    list.push({
+      id: 'material', x: 300, y: 0,
+      emoji: '📂', label: 'Material',
+      sublabel: mOpen ? '~ click para cerrar ~' : '~ click para abrir ~',
+      color: materialColor, size: 120, type: 'hub',
+    });
+
+    if (mOpen) {
+      const materialItems = [
+        { id: 'rama-subir', emoji: '📎', label: 'Subir Archivo', enabled: true, action: () => fileRef.current?.click() },
+        { id: 'rama-yt', emoji: '▶️', label: 'YouTube', enabled: false },
+      ];
+      const ramaMaterialDist = 220;
+      materialItems.forEach((item, i) => {
+        const angleDeg = (i - 0.5) * 50;
+        const angle = angleDeg * (Math.PI / 180);
+        list.push({
+          id: item.id,
+          x: 300 + Math.cos(angle) * ramaMaterialDist,
+          y: Math.sin(angle) * ramaMaterialDist,
+          emoji: item.emoji,
+          label: item.label,
+          color: item.enabled ? materialColor : '#555',
+          size: 100,
+          type: 'rama',
+          disabled: !item.enabled,
+          action: item.action,
+        });
+      });
+
+      if (tema.documentos.length > 0) {
+        const subirRama = {
+          x: 300 + Math.cos((-0.5 * 50) * Math.PI / 180) * ramaMaterialDist,
+          y: Math.sin((-0.5 * 50) * Math.PI / 180) * ramaMaterialDist,
+        };
+        const n = tema.documentos.length;
+        const arcSpread = Math.min(130, 40 + n * 18);
+        const startAngle = -arcSpread / 2;
+        const dist = 180;
+        tema.documentos.forEach((d: any, i: number) => {
+          const t = n === 1 ? 0.5 : i / (n - 1);
+          const angleDeg = startAngle + t * arcSpread;
+          const angle = angleDeg * (Math.PI / 180);
+          const sel = selectedIds.includes(d.id);
+          list.push({
+            id: `d-${d.id}`,
+            x: subirRama.x + Math.cos(angle) * dist,
+            y: subirRama.y + Math.sin(angle) * dist,
+            emoji: getDocEmoji(d),
+            label: d.nombre,
+            color: materialColor,
+            size: 95,
+            type: 'doc',
+            data: d,
+            selected: sel,
+          });
+        });
+      }
+    }
+
+    return list;
+  }, [tema, expanded, selectedIds, themeColor]);
+
+  const rawConns = useMemo(() => {
+    const c: { f: string; t: string }[] = [
+      { f: 'center', t: 'cuaderno' },
+      { f: 'center', t: 'material' },
+    ];
+    if (expanded.includes('cuaderno')) {
+      ['rama-apuntes', 'rama-pres', 'rama-ensayo', 'rama-grupal'].forEach(id => c.push({ f: 'cuaderno', t: id }));
+      tema.apuntes.forEach((a: any) => c.push({ f: 'rama-apuntes', t: `a-${a.id}` }));
+    }
+    if (expanded.includes('material')) {
+      ['rama-subir', 'rama-yt'].forEach(id => c.push({ f: 'material', t: id }));
+      tema.documentos.forEach((d: any) => c.push({ f: 'rama-subir', t: `d-${d.id}` }));
+    }
+    return c;
+  }, [tema, expanded]);
+
+  const curves = useMemo(() => {
+    return rawConns.map(c => {
+      const f = nodes.find((n: any) => n.id === c.f);
+      const t = nodes.find((n: any) => n.id === c.t);
+      if (!f || !t) return null;
+      const midX = (f.x + t.x) / 2;
+      const midY = (f.y + t.y) / 2;
+      const dx = t.x - f.x;
+      const dy = t.y - f.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      const offsetMag = len * 0.2;
+      const px = len > 0 ? -dy / len : 0;
+      const py = len > 0 ? dx / len : 0;
+      const ctrlX = midX + px * offsetMag;
+      const ctrlY = midY + py * offsetMag;
+      return {
+        connKey: `${c.f}-${c.t}`,
+        f, t,
+        fromX: f.x, fromY: f.y,
+        ctrlX, ctrlY,
+        toX: t.x, toY: t.y,
+        color: t.color || f.color,
+        pathD: `M ${f.x} ${f.y} Q ${ctrlX} ${ctrlY} ${t.x} ${t.y}`,
+      };
+    }).filter(Boolean) as any[];
+  }, [rawConns, nodes]);
+
+  const transform = useMemo(() => ({
+    offsetX: vp.w / 2 + pan.x,
+    offsetY: vp.h / 2 + pan.y,
+    scale: zoom,
+  }), [vp, pan, zoom]);
+
+  const energyLines: CurveLine[] = useMemo(() => {
+    return curves.map(c => {
+      const isActive = hoveredNode === c.t.id || hoveredNode === c.f.id || !!c.t.selected || expanded.includes(c.t.id);
+      return {
+        key: c.connKey,
+        fromX: c.fromX, fromY: c.fromY,
+        ctrlX: c.ctrlX, ctrlY: c.ctrlY,
+        toX: c.toX, toY: c.toY,
+        color: c.color,
+        active: isActive,
+      };
+    });
+  }, [curves, hoveredNode, expanded]);
+
+  useEnergyEngine(canvasRef, chargeState, energyLines, transform);
+
+  const fitToView = () => {
+    if (nodes.length === 0) return;
+    const padding = 100;
+    const minX = Math.min(...nodes.map((n: any) => n.x - n.size / 2));
+    const maxX = Math.max(...nodes.map((n: any) => n.x + n.size / 2));
+    const minY = Math.min(...nodes.map((n: any) => n.y - n.size / 2));
+    const maxY = Math.max(...nodes.map((n: any) => n.y + n.size / 2));
+    const w = maxX - minX + padding * 2;
+    const h = maxY - minY + padding * 2;
+    const availableW = vp.w - 100;
+    const availableH = vp.h - 200;
+    const scaleX = availableW / w;
+    const scaleY = availableH / h;
+    const newZoom = Math.min(scaleX, scaleY, 1);
+    setZoom(Math.max(newZoom, 0.3));
+    setPan({
+      x: -(minX + maxX) / 2 * newZoom,
+      y: -(minY + maxY) / 2 * newZoom,
+    });
+  };
+
+  useEffect(() => {
+    fitToView();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded.join(','), tema.apuntes.length, tema.documentos.length]);
+
+  const handleNodeClick = (n: any) => {
+    if (n.id === 'cuaderno' || n.id === 'material') {
+      setExpanded(prev => prev.includes(n.id) ? prev.filter(x => x !== n.id) : [...prev, n.id]);
+      return;
+    }
+    if (n.disabled) return;
+    if (n.action) { n.action(); return; }
+    if (n.type === 'apunte') { onAbrirApunte(n.data); return; }
+    if (n.type === 'doc') {
+      setSelectedIds(prev =>
+        prev.includes(n.data.id)
+          ? prev.filter(x => x !== n.data.id)
+          : prev.length < 5 ? [...prev, n.data.id] : prev
+      );
+    }
+  };
+
+  if (openTeorico) return (
+    <TeoricoWorkspace
+      materiales={tema.documentos.filter((d: any) => selectedIds.includes(d.id))}
+      onClose={() => setOpenTeorico(false)}
+      onOpenFlashcards={() => { const d = tema.documentos.find((x: any) => x.id === selectedIds[0]); if (d) onAbrirDocumento(d); }}
+      onOpenQuiz={() => { const d = tema.documentos.find((x: any) => x.id === selectedIds[0]); if (d) onAbrirDocumento(d); }}
+      onComingSoon={() => {}}
+    />
+  );
+
   return (
     <div style={{
-      width: '100%', height: 'calc(100vh - 80px)',
-      position: 'relative', overflow: 'hidden',
-      background: 'var(--bg-primary)',
+      position: 'fixed', inset: 0,
+      background: '#0a0a0c',
+      overflow: 'hidden',
+      color: '#fff',
+      fontFamily: HAND,
     }}>
+      {/* Fondo cuaderno */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        backgroundImage: `linear-gradient(to bottom, transparent 0, transparent 47px, rgba(255,255,255,0.04) 47px, rgba(255,255,255,0.04) 48px, transparent 48px)`,
+        backgroundSize: '100% 48px',
+        pointerEvents: 'none', zIndex: 0,
+      }} />
+      <div style={{
+        position: 'absolute', left: 80, top: 0, bottom: 0,
+        width: 1.5,
+        background: 'rgba(239,68,68,0.5)',
+        boxShadow: '0 0 8px rgba(239,68,68,0.3)',
+        pointerEvents: 'none', zIndex: 0,
+      }} />
 
-      <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onSubirDocumento}
-        accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.webp,.mp3,.wav,.m4a" />
+      <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1 }} />
+      <input ref={fileRef} type="file" hidden multiple onChange={onSubirDocumento} />
 
-      {/* Context menu vibra cuaderno */}
-      {contextMenu && (
-        <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 199 }} onClick={() => setContextMenu(null)} />
-          <div style={{
-            position: 'fixed', left: contextMenu.x, top: contextMenu.y, zIndex: 200,
-            background: 'var(--bg-card)',
-            border: '2.5px solid var(--text-primary)',
-            borderRadius: 12,
-            boxShadow: '4px 5px 0 var(--text-primary), 0 8px 32px rgba(0,0,0,0.4)',
-            padding: 6, minWidth: 170,
-            transform: 'rotate(-1.5deg)',
-            animation: 'fadeInCm 0.2s cubic-bezier(.34,1.4,.64,1)',
-          }}>
-            <button
-              onClick={() => { handleNodeClick(contextMenu.node); setContextMenu(null); }}
-              style={cmBtn('var(--text-primary)')}
-              onMouseEnter={(e: any) => e.currentTarget.style.background = 'var(--bg-secondary)'}
-              onMouseLeave={(e: any) => e.currentTarget.style.background = 'transparent'}>
-              👁️ {idioma === 'en' ? 'Open' : 'Abrir'}
-            </button>
-            <button
-              onClick={() => {
-                if (contextMenu.node.type === 'apunte') onEliminarApunte(contextMenu.node.data.id);
-                else onEliminarDocumento(contextMenu.node.data.id);
-                setContextMenu(null);
-              }}
-              style={cmBtn('var(--red)')}
-              onMouseEnter={(e: any) => e.currentTarget.style.background = 'var(--red-dim)'}
-              onMouseLeave={(e: any) => e.currentTarget.style.background = 'transparent'}>
-              🗑️ {idioma === 'en' ? 'Delete' : 'Eliminar'}
-            </button>
-          </div>
-        </>
+      {subiendoDoc && (
+        <div style={{
+          position: 'fixed', top: 90, left: '50%',
+          transform: 'translateX(-50%)', zIndex: 10000,
+          background: 'rgba(245,200,66,0.1)',
+          border: '1px solid rgba(245,200,66,0.4)',
+          padding: '10px 26px', borderRadius: 40,
+          backdropFilter: 'blur(10px)',
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <div style={{ width: 16, height: 16, border: '2.5px solid #f5c842', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+          <span style={{ fontWeight: 700, color: '#f5c842', fontSize: 18 }}>cargando...</span>
+        </div>
       )}
+
+      {/* TOP BAR */}
+      <div style={{
+        position: 'fixed', top: 12, left: 0, right: 0,
+        display: 'flex', justifyContent: 'center', alignItems: 'center',
+        gap: 12, zIndex: 1000, pointerEvents: 'none',
+      }}>
+        <button onClick={() => onGoHome && onGoHome()} style={{
+          background: '#0d0d10',
+          border: `1.5px solid ${cuadernoColor}`,
+          padding: '6px 20px', borderRadius: 12,
+          color: cuadernoColor, cursor: 'pointer',
+          fontFamily: HAND, fontSize: 18, fontWeight: 600,
+          boxShadow: `0 0 10px ${cuadernoColor}33`,
+          pointerEvents: 'auto',
+          transition: 'transform 0.2s, box-shadow 0.2s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 0 18px ${cuadernoColor}88`; }}
+        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = `0 0 10px ${cuadernoColor}33`; }}
+        >← inicio</button>
+      </div>
 
       {/* BREADCRUMB */}
       <div style={{
-        position: 'absolute', top: 14, left: 14, zIndex: 100,
+        position: 'fixed', top: 56, left: 16, zIndex: 1000,
+        background: '#0d0d10',
+        border: '1.5px solid rgba(255,255,255,0.12)',
+        padding: '6px 16px', borderRadius: 30,
         display: 'flex', alignItems: 'center', gap: 8,
-        background: 'color-mix(in srgb, var(--bg-card) 92%, transparent)',
-        backdropFilter: 'blur(14px)',
-        border: '2.5px solid var(--text-primary)',
-        borderRadius: 12,
-        padding: '7px 14px',
-        boxShadow: '3px 3px 0 var(--text-primary)',
-        transform: 'rotate(-1.5deg)',
-        fontFamily: HAND,
+        fontSize: 17, boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+        maxWidth: 'calc(50vw - 220px)',
+        overflow: 'hidden',
       }}>
-        <button onClick={onBack} style={breadBtn} title="Inicio">🏠</button>
-        <span style={{ color: 'var(--text-faint)', fontSize: 16, fontWeight: 800 }}>›</span>
-        <button onClick={onBackMateria} style={breadBtn}
-          onMouseEnter={(e: any) => { e.currentTarget.style.color = materia.color; }}
-          onMouseLeave={(e: any) => { e.currentTarget.style.color = 'var(--text-faint)'; }}>
-          {materia.emoji} {materia.nombre}
-        </button>
-        <span style={{ color: 'var(--text-faint)', fontSize: 16, fontWeight: 800 }}>›</span>
+        {/* 🏠 → mis materias */}
+        <button
+          onClick={() => onBack && onBack()}
+          title="Mis materias"
+          style={{
+            background: 'transparent', border: 'none', padding: 0, margin: 0,
+            cursor: 'pointer', fontSize: 18, lineHeight: 1,
+            transition: 'transform 0.2s, filter 0.2s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.18)'; e.currentTarget.style.filter = 'drop-shadow(0 0 6px rgba(245,200,66,0.8))'; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.filter = 'none'; }}
+        >🏠</button>
+        <span style={{ opacity: 0.4 }}>›</span>
+        {/* Nombre materia → vista materia (lista de temas) */}
+        <button
+          onClick={() => onBackMateria && onBackMateria()}
+          title={`Volver a ${materia.nombre}`}
+          style={{
+            background: 'transparent', border: 'none', padding: 0, margin: 0,
+            cursor: 'pointer', color: '#fff',
+            fontFamily: HAND, fontSize: 17, fontWeight: 600,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            maxWidth: 200,
+            transition: 'color 0.2s, text-shadow 0.2s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.color = '#f5c842'; e.currentTarget.style.textShadow = '0 0 8px rgba(245,200,66,0.6)'; }}
+          onMouseLeave={e => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.textShadow = 'none'; }}
+        >{materia.emoji} {materia.nombre}</button>
+        <span style={{ opacity: 0.4 }}>›</span>
         <span style={{
-          fontSize: 17, fontWeight: 900, color: 'var(--text-primary)',
-          fontStyle: 'italic',
+          color: themeColor, fontWeight: 700,
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          maxWidth: 180,
         }}>
           {tema.nombre}
         </span>
       </div>
 
-      {/* HINT */}
+      {/* TIPS */}
       <div style={{
-        position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%) rotate(-0.5deg)',
-        zIndex: 100, display: 'flex', gap: 6, flexWrap: 'wrap',
+        position: 'fixed', top: 56, left: '50%',
+        transform: 'translateX(-50%)', zIndex: 1000,
+        display: 'flex', gap: 6, fontSize: 13,
+        flexWrap: 'wrap', justifyContent: 'center',
+        maxWidth: 'calc(100vw - 500px)',
       }}>
         {[
-          { txt: '🖱️ scroll → zoom', rot: -2 },
-          { txt: '✋ drag → mover', rot: 1.5 },
-          { txt: '👆 click → abrir', rot: -1.5 },
-          { txt: '🔧 click derecho → opciones', rot: 2 },
-        ].map((h, i) => (
-          <span key={i} style={{
-            padding: '3px 10px',
-            borderRadius: 8,
-            background: 'color-mix(in srgb, var(--bg-card) 90%, transparent)',
-            backdropFilter: 'blur(12px)',
-            border: '1.5px dashed var(--border-color)',
-            fontFamily: HAND, fontSize: 13,
-            color: 'var(--text-muted)', fontStyle: 'italic',
-            transform: `rotate(${h.rot}deg)`,
-          }}>{h.txt}</span>
+          { ico: '🖱️', t: 'scroll → zoom' },
+          { ico: '✋', t: 'drag → mover' },
+          { ico: '👆', t: 'click → expandir' },
+        ].map((tip, i) => (
+          <div key={i} style={{
+            background: '#0d0d10',
+            border: '1px solid rgba(255,255,255,0.1)',
+            padding: '4px 10px', borderRadius: 20,
+            display: 'flex', alignItems: 'center', gap: 5,
+            color: 'rgba(255,255,255,0.7)',
+            whiteSpace: 'nowrap',
+          }}>
+            <span>{tip.ico}</span><span>{tip.t}</span>
+          </div>
         ))}
       </div>
 
-      {/* CANVAS */}
+      {/* SYNC */}
+      <div style={{
+        position: 'fixed', top: 20, right: 16, zIndex: 1000,
+        display: 'flex', alignItems: 'center', gap: 8,
+        fontSize: 16, color: 'rgba(255,255,255,0.7)',
+        background: '#0d0d10',
+        border: '1px solid rgba(255,255,255,0.1)',
+        padding: '4px 12px', borderRadius: 20,
+      }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
+        Sincronizado
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════ */}
+      {/* BOTÓN ESTUDIAR — REDISEÑO ÉPICO                        */}
+      {/* ═══════════════════════════════════════════════════════ */}
+      {selectedIds.length > 0 && (
+  <div style={{
+    position: 'fixed', bottom: 32, left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: 1000,
+    animation: 'studyBtnIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
+    display: 'flex', flexDirection: 'column',
+    alignItems: 'center', gap: 8,
+  }}>
+    {/* Texto guía arriba */}
+    <div style={{
+      fontFamily: HAND,
+      fontSize: 15,
+      color: 'var(--red)',
+      fontStyle: 'italic',
+      opacity: 0.85,
+      textShadow: '0 0 8px var(--red)',
+      letterSpacing: 0.5,
+    }}>
+      ↓ dale al play ↓
+    </div>
+
+    <button
+      onClick={() => setShowEnfoque(true)}
+      className="study-btn-neon"
+      style={{
+        position: 'relative',
+        background: 'linear-gradient(135deg, rgba(20,20,25,0.95), rgba(40,15,20,0.95))',
+        color: '#fff',
+        border: '2px solid var(--red)',
+        padding: '16px 32px',
+        borderRadius: 16,
+        fontFamily: HAND,
+        fontSize: 28,
+        fontWeight: 800,
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+        boxShadow: '0 0 0 1px rgba(239,68,68,0.3), 0 0 20px rgba(239,68,68,0.5), 0 0 40px rgba(239,68,68,0.25), inset 0 1px 0 rgba(255,255,255,0.1)',
+        transition: 'all 0.3s cubic-bezier(.2,.8,.2,1)',
+        whiteSpace: 'nowrap',
+        backdropFilter: 'blur(8px)',
+      }}
+    >
+      <span style={{
+        fontSize: 26,
+        filter: 'drop-shadow(0 0 6px rgba(245,200,66,0.7))',
+        animation: 'sparkle 2s ease-in-out infinite',
+        display: 'inline-block',
+      }}>✨</span>
+
+      <span style={{
+        letterSpacing: 0.3,
+        textShadow: '0 0 10px rgba(239,68,68,0.6), 0 1px 2px rgba(0,0,0,0.5)',
+        background: 'linear-gradient(135deg, #fff, #ffd6d6)',
+        WebkitBackgroundClip: 'text',
+        WebkitTextFillColor: 'transparent',
+        backgroundClip: 'text',
+      }}>empezar a estudiar</span>
+
+      <span style={{
+        background: 'rgba(239,68,68,0.15)',
+        color: 'var(--red)',
+        padding: '4px 12px',
+        borderRadius: 20,
+        fontSize: 18,
+        fontWeight: 800,
+        fontFamily: HAND,
+        border: '1.5px solid var(--red)',
+        boxShadow: '0 0 12px rgba(239,68,68,0.4), inset 0 0 8px rgba(239,68,68,0.2)',
+        minWidth: 42,
+        textAlign: 'center',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textShadow: '0 0 6px rgba(239,68,68,0.8)',
+      }}>{selectedIds.length}/5</span>
+
+      <span style={{
+        fontSize: 22,
+        color: 'var(--red)',
+        filter: 'drop-shadow(0 0 6px var(--red))',
+        animation: 'arrowSlide 1.5s ease-in-out infinite',
+        display: 'inline-block',
+      }}>→</span>
+    </button>
+  </div>
+)}
+
+      {/* ZOOM CONTROLS */}
+      <div style={{
+        position: 'fixed', bottom: 16, right: 16, zIndex: 200,
+        display: 'flex', alignItems: 'center', gap: 4,
+        background: '#0d0d10',
+        border: '1px solid rgba(255,255,255,0.2)',
+        padding: 4, borderRadius: 10,
+        boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+      }}>
+        <button onClick={() => setZoom(z => Math.max(z * 0.85, 0.5))} style={zoomBtn} title="Zoom out">−</button>
+        <div style={{
+          minWidth: 44, textAlign: 'center',
+          fontSize: 14, color: '#fff', fontWeight: 600,
+          fontFamily: HAND,
+        }}>{Math.round(zoom * 100)}%</div>
+        <button onClick={() => setZoom(z => Math.min(z * 1.18, 1.4))} style={zoomBtn} title="Zoom in">+</button>
+        <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.15)', margin: '0 2px' }} />
+        <button onClick={fitToView} style={zoomBtn} title="Ajustar a pantalla">⊡</button>
+      </div>
+
+      {/* ZOOM LABEL */}
+      <div style={{
+        position: 'fixed', bottom: 16, left: 16, zIndex: 200,
+        background: '#0d0d10',
+        border: '1px solid rgba(255,255,255,0.15)',
+        padding: '6px 14px', borderRadius: 10,
+        fontSize: 14, fontFamily: HAND,
+        display: 'flex', alignItems: 'center', gap: 6,
+        color: 'rgba(255,255,255,0.7)',
+      }}>
+        🔍 {Math.round(zoom * 100)}%
+      </div>
+
+      {/* ÁREA INTERACTIVA */}
       <div
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onMouseLeave={onMouseUp}
-        onWheel={onWheel}
+        onMouseDown={e => {
+          if ((e.target as HTMLElement).closest('.node')) return;
+          if ((e.target as HTMLElement).closest('button')) return;
+          dragState.current = {
+            active: true,
+            startX: e.clientX,
+            startY: e.clientY,
+            startPan: { ...pan },
+          };
+          document.body.style.cursor = 'grabbing';
+        }}
+        onWheel={e => {
+          e.preventDefault();
+          const delta = e.deltaY > 0 ? 0.92 : 1.08;
+          setZoom(z => Math.min(Math.max(z * delta, 0.5), 1.4));
+        }}
         style={{
-          width: '100%', height: '100%',
-          cursor: isDragging.current ? 'grabbing' : 'grab',
-          userSelect: 'none',
+          position: 'absolute',
+          inset: 0,
+          cursor: 'grab',
+          zIndex: 2,
         }}
       >
-        {/* Fondo rayado tipo cuaderno */}
-        <svg style={{
-          position: 'absolute', inset: 0,
-          width: '100%', height: '100%', pointerEvents: 'none',
-        }}>
-          <defs>
-            <pattern id="tema-lines"
-              x={0}
-              y={((pan.y % (32 * zoom)) + 32 * zoom) % (32 * zoom)}
-              width={1} height={32 * zoom} patternUnits="userSpaceOnUse">
-              <line x1="0" y1={32 * zoom - 0.5} x2="100%" y2={32 * zoom - 0.5}
-                stroke="var(--border-color2)" strokeWidth="0.5" opacity="0.45"/>
-            </pattern>
-            <pattern id="tema-margin"
-              x={((pan.x % 1) + 1) % 1}
-              y={0}
-              width={1} height={1} patternUnits="userSpaceOnUse">
-              <line x1="0" y1="0" x2="0" y2="100%"
-                stroke="#ef4444" strokeWidth="1.5" opacity="0.18"/>
-            </pattern>
-          </defs>
-          <rect width="100%" height="100%" fill="url(#tema-lines)" />
+        <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+          <g transform={`translate(${transform.offsetX}, ${transform.offsetY}) scale(${transform.scale})`}>
+            {curves.map((c, i) => (
+              <path key={i} d={c.pathD}
+                stroke="rgba(255,255,255,0.35)"
+                strokeWidth={1.6}
+                strokeDasharray="3 5"
+                fill="none"
+              />
+            ))}
+          </g>
         </svg>
 
-        {/* Margen rojo cuaderno fijo */}
         <div style={{
-          position: 'absolute',
-          left: 80, top: 0, bottom: 0,
-          width: 1.5, background: '#ef4444', opacity: 0.18,
+          position: 'absolute', top: '50%', left: '50%',
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           pointerEvents: 'none',
-        }}/>
-
-        {/* Transform layer */}
-        <div style={{
-          position: 'absolute', left: '50%', top: '50%',
-          transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${zoom})`,
-          transformOrigin: '0 0',
-          willChange: 'transform',
         }}>
-          {/* Conexiones tipo trazos a lápiz */}
-          <svg style={{ position: 'absolute', overflow: 'visible', pointerEvents: 'none', top: 0, left: 0 }}>
-            {connections.map((conn, i) => {
-              const fromNode = nodes.find(n => n.id === conn.from);
-              const toNode = nodes.find(n => n.id === conn.to);
-              if (!fromNode || !toNode) return null;
-              const isHovered = hoveredNode === conn.from || hoveredNode === conn.to;
-              const angle = Math.atan2(toNode.y - fromNode.y, toNode.x - fromNode.x);
-              const mx = (fromNode.x + toNode.x) / 2;
-              const my = (fromNode.y + toNode.y) / 2;
-              const curve = 50;
-              const cx = mx - Math.sin(angle) * curve;
-              const cy = my + Math.cos(angle) * curve;
-              return (
-                <path key={i}
-                  d={`M ${fromNode.x} ${fromNode.y} Q ${cx} ${cy} ${toNode.x} ${toNode.y}`}
-                  fill="none"
-                  stroke={isHovered ? (fromNode.color !== 'var(--text-faint)' ? fromNode.color : toNode.color) : 'var(--text-faint)'}
-                  strokeWidth={isHovered ? 2.5 : 1.8}
-                  strokeDasharray={isHovered ? 'none' : '6 5'}
-                  strokeLinecap="round"
-                  opacity={isHovered ? 0.85 : 0.4}
-                  style={{ transition: 'all 0.25s ease' }}
-                />
-              );
-            })}
-          </svg>
+          {nodes.map((n: any) => {
+            const isH = hoveredNode === n.id;
+            const isRoot = n.type === 'root';
+            const isHub = n.type === 'hub';
+            const isExpanded = expanded.includes(n.id);
+            const pal = paperPalette(n.id, n.type);
+            const variant = pal.variant;
+            const rotBase = paperRot(n.id);
+            const rot = n.selected ? 0 : (isH ? rotBase * 0.25 : rotBase);
+            const scale = isH ? 1.07 : 1;
+            const lift = (isH || n.selected) ? -3 : 0;
 
-          {/* Nodes como post-its rotados */}
-          {nodes.map((node) => {
-            const size = NODE_SIZE[node.size || 'md'];
-            const isHovered = hoveredNode === node.id;
-            const isCenter = node.id === 'tema-center';
-            const isAction = node.type === 'action';
-            const baseRot = node.rot ?? 0;
+            // Dimensiones por variante (rompemos uniformidad)
+            let cardW = n.size, cardH = (isRoot || isHub) ? n.size + 20 : n.size;
+            let borderRad = 6;
+            if (variant === 'libreta-abierta')      { cardW = n.size * 1.75; cardH = n.size * 1.05; borderRad = 8; }
+            else if (variant === 'tag-grande')        { cardW = n.size * 1.6; cardH = n.size * 0.9; borderRad = 8; }
+            else if (variant === 'cuaderno-libro') { cardW = n.size * 0.92; cardH = n.size * 1.1; borderRad = 4; }
+            else if (variant === 'carpeta-folder') { cardW = n.size * 1.1; cardH = n.size * 0.95; borderRad = 4; }
+            else if (variant === 'ticket-rojo')   { cardW = n.size * 1.15; cardH = n.size * 0.7; borderRad = 2; }
+            else if (variant === 'sticker-clip')  { cardW = n.size; cardH = n.size; borderRad = 50; }
+            else if (variant === 'postit-arrugado') { cardW = n.size; cardH = n.size * 0.95; borderRad = 3; }
+            else if (variant === 'hoja-papel')    { cardW = n.size * 0.9; cardH = n.size * 1.15; borderRad = 2; }
+
+            const emojiSize = isRoot ? 40 : isHub ? 36 : 28;
+            const labelSize = isRoot ? 24 : isHub ? 21 : 16;
+
+            // Sombra común
+            const baseShadow = n.selected
+              ? `0 0 0 3px ${pal.ink}, 0 14px 32px ${pal.shadow}, 0 6px 12px rgba(0,0,0,0.5)`
+              : isH
+                ? `0 18px 38px rgba(0,0,0,0.55), 0 8px 16px ${pal.shadow}`
+                : `0 8px 20px rgba(0,0,0,0.5), 0 3px 6px rgba(0,0,0,0.3)`;
 
             return (
-              <div
-                key={node.id}
-                data-node="true"
-                onClick={() => handleNodeClick(node)}
-                onContextMenu={(e: any) => handleNodeRightClick(e, node)}
-                onMouseEnter={() => setHoveredNode(node.id)}
+              <div key={n.id} className={`node paper-card variant-${variant}`}
+                onClick={(e) => { e.stopPropagation(); handleNodeClick(n); }}
+                onMouseDown={e => e.stopPropagation()}
+                onContextMenu={e => {
+                  if (n.type === 'apunte' || n.type === 'doc') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setContextMenu({ node: n, x: e.clientX, y: e.clientY });
+                  }
+                }}
+                onMouseEnter={() => setHoveredNode(n.id)}
                 onMouseLeave={() => setHoveredNode(null)}
                 style={{
                   position: 'absolute',
-                  left: node.x - size / 2,
-                  top: node.y - size / 2,
-                  width: size,
-                  height: size,
-                  borderRadius: isCenter ? 16 : 12,
-                  background: isHovered
-                    ? `color-mix(in srgb, ${node.color} 22%, var(--bg-card))`
-                    : isAction
-                      ? `color-mix(in srgb, ${node.color} 12%, var(--bg-card))`
-                      : 'var(--bg-card)',
-                  border: `2.5px solid var(--text-primary)`,
-                  boxShadow: isHovered
-                    ? `5px 6px 0 ${node.color}, 0 8px 24px ${node.color}25`
-                    : `4px 5px 0 ${node.color}`,
-                  cursor: node.id === 'tema-center' ? 'default' : 'pointer',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 5,
-                  padding: '12px 10px',
-                  transition: 'all 0.3s cubic-bezier(0.34, 1.4, 0.64, 1)',
-                  transform: isHovered && !isCenter
-                    ? `rotate(0deg) translateY(-4px) scale(1.05)`
-                    : `rotate(${baseRot}deg)`,
-                  zIndex: isHovered ? 10 : isCenter ? 5 : 1,
-                  overflow: 'hidden',
+                  left: n.x, top: n.y,
+                  width: cardW,
+                  minHeight: cardH,
+                  transform: `translate(-50%, calc(-50% + ${lift}px)) scale(${scale}) rotate(${rot}deg)`,
+                  background: variant === 'libreta-abierta'
+                    ? `linear-gradient(90deg, color-mix(in srgb, ${pal.paper} 92%, #000) 0%, ${pal.paper} 3%, ${pal.paper} 48%, color-mix(in srgb, ${pal.ink} 18%, transparent) 49.5%, color-mix(in srgb, ${pal.ink} 28%, transparent) 50%, color-mix(in srgb, ${pal.ink} 18%, transparent) 50.5%, ${pal.paper} 52%, ${pal.paper} 97%, color-mix(in srgb, ${pal.paper} 92%, #000) 100%)`
+                    : variant === 'sticker-clip'
+                    ? `radial-gradient(circle at 30% 30%, color-mix(in srgb, ${pal.paper} 100%, #fff 8%) 0%, ${pal.paper} 50%, color-mix(in srgb, ${pal.paper} 85%, #000) 100%)`
+                    : variant === 'cuaderno-libro'
+                      ? `linear-gradient(90deg, color-mix(in srgb, ${pal.paper} 70%, #000) 0%, color-mix(in srgb, ${pal.paper} 70%, #000) 16%, ${pal.paper} 16%, ${pal.paper} 100%)`
+                      : variant === 'carpeta-folder'
+                        ? `linear-gradient(180deg, ${pal.paper} 0%, color-mix(in srgb, ${pal.paper} 92%, #000) 100%)`
+                        : variant === 'ticket-rojo'
+                          ? `linear-gradient(180deg, ${pal.paper} 0%, color-mix(in srgb, ${pal.paper} 88%, #000) 100%)`
+                          : variant === 'hoja-papel'
+                            ? `linear-gradient(180deg, ${pal.paper} 0%, color-mix(in srgb, ${pal.paper} 96%, #000) 100%)`
+                            : variant === 'postit-arrugado'
+                              ? `linear-gradient(135deg, ${pal.paper} 0%, color-mix(in srgb, ${pal.paper} 92%, #fff) 50%, color-mix(in srgb, ${pal.paper} 90%, #000) 100%)`
+                              : variant === 'tag-grande'
+                                ? `linear-gradient(180deg, ${pal.paper} 0%, color-mix(in srgb, ${pal.paper} 90%, #000) 100%)`
+                                : pal.paper,
+                  border: variant === 'sticker-clip'
+                    ? `2px solid color-mix(in srgb, ${pal.ink} 25%, transparent)`
+                    : `1px solid color-mix(in srgb, ${pal.ink} 30%, transparent)`,
+                  borderRadius: borderRad,
+                  padding: variant === 'cuaderno-libro' ? '12px 10px 12px 22px' : variant === 'hoja-papel' ? '14px 12px 12px' : '14px 10px 12px',
+                  display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center',
+                  textAlign: 'center',
+                  cursor: n.disabled ? 'not-allowed' : 'pointer',
+                  opacity: n.disabled ? 0.55 : 1,
+                  boxShadow: baseShadow,
+                  transition: 'transform 0.28s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.25s, border-color 0.25s',
+                  zIndex: n.selected ? 30 : (isH ? 20 : 10),
+                  overflow: 'visible',
+                  pointerEvents: 'auto',
                 }}
               >
-                {/* Cinta scotch arriba */}
-                <div style={{
-                  position: 'absolute',
-                  top: -6, left: '50%',
-                  transform: 'translateX(-50%) rotate(-3deg)',
-                  width: isCenter ? 60 : 40, height: 14,
-                  background: `color-mix(in srgb, ${node.color} 50%, transparent)`,
-                  border: `1px solid color-mix(in srgb, ${node.color} 30%, transparent)`,
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.18)',
-                  zIndex: 5,
-                }}/>
+                {/* ════════ ELEMENTOS POR VARIANTE ════════ */}
 
-                {/* Loading overlay */}
-                {node.id === 'upload-doc' && subiendoDoc && (
+                {/* LIBRETA-ABIERTA (root): dos páginas con líneas, lomo fino, marcador */}
+                {variant === 'libreta-abierta' && (
+                  <>
+                    {/* Líneas horizontales SUTILES solo en zonas laterales (no cruzan el lomo) */}
+                    <div style={{
+                      position: 'absolute',
+                      top: 38, bottom: 28, left: '7%', width: '38%',
+                      backgroundImage: `repeating-linear-gradient(180deg, transparent 0 13px, color-mix(in srgb, ${pal.ink} 11%, transparent) 13px 14px)`,
+                      pointerEvents: 'none', zIndex: 1,
+                      opacity: 0.6,
+                    }} />
+                    <div style={{
+                      position: 'absolute',
+                      top: 38, bottom: 28, right: '7%', width: '38%',
+                      backgroundImage: `repeating-linear-gradient(180deg, transparent 0 13px, color-mix(in srgb, ${pal.ink} 11%, transparent) 13px 14px)`,
+                      pointerEvents: 'none', zIndex: 1,
+                      opacity: 0.6,
+                    }} />
+
+                    {/* Estrellitas decorativas en las dos esquinas superiores */}
+                    <div style={{
+                      position: 'absolute', top: 6, left: 12,
+                      fontSize: 13, color: pal.ink, opacity: 0.4,
+                      pointerEvents: 'none', zIndex: 2,
+                      transform: 'rotate(-15deg)',
+                      fontFamily: HAND,
+                    }}>✦</div>
+                    <div style={{
+                      position: 'absolute', top: 6, right: 12,
+                      fontSize: 13, color: pal.ink, opacity: 0.4,
+                      pointerEvents: 'none', zIndex: 2,
+                      transform: 'rotate(15deg)',
+                      fontFamily: HAND,
+                    }}>✦</div>
+
+                    {/* Marcador de lectura — pequeña cinta de tela que cuelga del lomo */}
+                    <div style={{
+                      position: 'absolute',
+                      top: -2, left: '50%',
+                      width: 8, height: 22,
+                      transform: 'translateX(-50%)',
+                      background: 'linear-gradient(180deg, #c2410c 0%, #9a3412 100%)',
+                      borderRadius: '0 0 2px 2px',
+                      boxShadow: '0 2px 3px rgba(0,0,0,0.35), inset -1px 0 0 rgba(0,0,0,0.2)',
+                      pointerEvents: 'none', zIndex: 3,
+                    }} />
+                    {/* Punta del marcador */}
+                    <div style={{
+                      position: 'absolute',
+                      top: 18, left: '50%',
+                      width: 0, height: 0,
+                      transform: 'translateX(-50%)',
+                      borderLeft: '4px solid transparent',
+                      borderRight: '4px solid transparent',
+                      borderTop: '5px solid #9a3412',
+                      pointerEvents: 'none', zIndex: 3,
+                    }} />
+
+                    {/* Etiqueta "tema" arriba como sello */}
+                    <div style={{
+                      position: 'absolute',
+                      top: -11, left: 18,
+                      transform: 'rotate(-4deg)',
+                      background: '#fef9c3',
+                      color: pal.ink,
+                      fontSize: 10,
+                      fontWeight: 800,
+                      fontFamily: HAND,
+                      padding: '2px 9px',
+                      border: `1.2px solid color-mix(in srgb, ${pal.ink} 30%, transparent)`,
+                      borderRadius: 2,
+                      letterSpacing: 1,
+                      textTransform: 'uppercase',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.25)',
+                      pointerEvents: 'none', zIndex: 4,
+                      fontStyle: 'italic',
+                    }}>~ tema ~</div>
+                  </>
+                )}
+
+                {/* TAG-GRANDE (root): doble cinta arriba + agujero izquierda tipo etiqueta */}{/* TAG-GRANDE (root): doble cinta arriba + agujero izquierda tipo etiqueta */}
+                {variant === 'tag-grande' && (
+                  <>
+                    <div style={{
+                      position: 'absolute', top: -10, left: '25%',
+                      width: 50, height: 16,
+                      transform: `translateX(-50%) rotate(-6deg)`,
+                      background: 'linear-gradient(180deg, rgba(245,245,240,0.7) 0%, rgba(220,220,210,0.55) 100%)',
+                      border: '1px solid rgba(0,0,0,0.12)',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.25)',
+                      pointerEvents: 'none', zIndex: 3,
+                    }} />
+                    <div style={{
+                      position: 'absolute', top: -10, left: '75%',
+                      width: 50, height: 16,
+                      transform: `translateX(-50%) rotate(5deg)`,
+                      background: 'linear-gradient(180deg, rgba(245,245,240,0.7) 0%, rgba(220,220,210,0.55) 100%)',
+                      border: '1px solid rgba(0,0,0,0.12)',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.25)',
+                      pointerEvents: 'none', zIndex: 3,
+                    }} />
+                    {/* Agujero refuerzo izquierda */}
+                    <div style={{
+                      position: 'absolute', left: 8, top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: 14, height: 14,
+                      borderRadius: '50%',
+                      background: 'rgba(0,0,0,0.15)',
+                      border: `1.5px solid color-mix(in srgb, ${pal.ink} 35%, transparent)`,
+                      pointerEvents: 'none', zIndex: 2,
+                    }} />
+                  </>
+                )}
+
+                {/* CUADERNO-LIBRO: espiral metálica izquierda */}
+                {variant === 'cuaderno-libro' && (
                   <div style={{
-                    position: 'absolute', inset: 0,
-                    background: 'color-mix(in srgb, var(--blue) 18%, var(--bg-card))',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    borderRadius: 12,
+                    position: 'absolute', left: 6, top: 8, bottom: 8,
+                    width: 4,
+                    display: 'flex', flexDirection: 'column',
+                    justifyContent: 'space-around', alignItems: 'center',
+                    pointerEvents: 'none', zIndex: 3,
                   }}>
-                    <span style={{ fontSize: 26 }}>⏳</span>
+                    {[0,1,2,3,4,5].map(k => (
+                      <div key={k} style={{
+                        width: 8, height: 4,
+                        background: 'linear-gradient(180deg, #d4d4d8, #71717a)',
+                        borderRadius: 2,
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.4)',
+                      }} />
+                    ))}
                   </div>
                 )}
 
-                <span style={{
-                  fontSize: isCenter ? 38 : node.size === 'sm' ? 26 : 30,
-                  lineHeight: 1,
-                  filter: isHovered ? `drop-shadow(0 0 6px ${node.color}88)` : 'none',
-                  transition: 'filter 0.2s',
-                }}>
-                  {node.emoji}
-                </span>
-                <span style={{
-                  fontFamily: HAND,
-                  fontSize: isCenter ? 22 : node.size === 'sm' ? 16 : 19,
-                  fontWeight: 900,
-                  color: isHovered ? node.color : 'var(--text-primary)',
-                  textAlign: 'center',
-                  lineHeight: 1.1,
-                  padding: '0 4px',
-                  transition: 'color 0.2s',
-                }}>
-                  {node.label}
-                </span>
-                {(isHovered || isCenter) && (
-                  <span style={{
-                    fontFamily: HAND,
-                    fontSize: 13, color: 'var(--text-faint)',
-                    fontStyle: 'italic',
-                    textAlign: 'center', lineHeight: 1.2, padding: '0 4px',
-                    animation: 'fadeInTv 0.25s ease',
+                {/* CARPETA-FOLDER: pestaña tab arriba-izquierda */}
+                {variant === 'carpeta-folder' && (
+                  <div style={{
+                    position: 'absolute', top: -12, left: 8,
+                    width: cardW * 0.35,
+                    height: 14,
+                    background: `linear-gradient(180deg, ${pal.paper} 0%, color-mix(in srgb, ${pal.paper} 90%, #000) 100%)`,
+                    border: `1px solid color-mix(in srgb, ${pal.ink} 30%, transparent)`,
+                    borderBottom: 'none',
+                    borderTopLeftRadius: 4,
+                    borderTopRightRadius: 8,
+                    pointerEvents: 'none', zIndex: 1,
+                  }} />
+                )}
+
+                {/* TICKET-ROJO: bordes dentados + línea perforada */}
+                {variant === 'ticket-rojo' && (
+                  <>
+                    <div style={{
+                      position: 'absolute', left: -5, top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: 10, height: 10,
+                      borderRadius: '50%',
+                      background: '#000',
+                      pointerEvents: 'none', zIndex: 2,
+                    }} />
+                    <div style={{
+                      position: 'absolute', right: -5, top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: 10, height: 10,
+                      borderRadius: '50%',
+                      background: '#000',
+                      pointerEvents: 'none', zIndex: 2,
+                    }} />
+                  </>
+                )}
+
+                {/* STICKER-CLIP: clip metálico arriba */}
+                {variant === 'sticker-clip' && (
+                  <div style={{
+                    position: 'absolute', top: -16, left: '50%',
+                    transform: 'translateX(-50%)',
+                    width: 22, height: 32,
+                    pointerEvents: 'none', zIndex: 3,
                   }}>
-                    ~ {node.sublabel} ~
-                  </span>
+                    <svg width="22" height="32" viewBox="0 0 22 32">
+                      <path d="M 6 4 Q 6 0 11 0 Q 16 0 16 4 L 16 22 Q 16 28 11 28 Q 6 28 6 22 L 6 8"
+                        stroke="#9ca3af" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+                      <path d="M 6 4 Q 6 0 11 0 Q 16 0 16 4 L 16 22 Q 16 28 11 28 Q 6 28 6 22 L 6 8"
+                        stroke="#e5e7eb" strokeWidth="1" fill="none" strokeLinecap="round" />
+                    </svg>
+                  </div>
+                )}
+
+                {/* POSTIT-ARRUGADO: cinta + textura de arruga */}
+                {variant === 'postit-arrugado' && (
+                  <>
+                    <div style={{
+                      position: 'absolute', top: -8, left: '50%',
+                      width: cardW * 0.45, height: 14,
+                      transform: `translateX(-50%) rotate(${rotBase * 2}deg)`,
+                      background: 'linear-gradient(180deg, rgba(245,245,240,0.6) 0%, rgba(220,220,210,0.5) 100%)',
+                      border: '1px solid rgba(0,0,0,0.1)',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                      pointerEvents: 'none', zIndex: 3,
+                    }} />
+                    <div style={{
+                      position: 'absolute', inset: 0,
+                      background: 'repeating-linear-gradient(45deg, transparent 0 8px, rgba(0,0,0,0.03) 8px 9px)',
+                      borderRadius: borderRad, pointerEvents: 'none', zIndex: 1,
+                    }} />
+                  </>
+                )}
+
+                {/* HOJA-PAPEL: líneas de cuaderno horizontales + margen rojo izq */}
+                {variant === 'hoja-papel' && (
+                  <>
+                    <div style={{
+                      position: 'absolute', inset: 0,
+                      backgroundImage: 'repeating-linear-gradient(180deg, transparent 0 14px, rgba(56,189,248,0.18) 14px 15px)',
+                      borderRadius: borderRad, pointerEvents: 'none', zIndex: 1,
+                    }} />
+                    <div style={{
+                      position: 'absolute', top: 6, bottom: 6, left: 10,
+                      width: 1.5, background: 'rgba(239,68,68,0.5)',
+                      pointerEvents: 'none', zIndex: 1,
+                    }} />
+                  </>
+                )}
+
+                {/* PAPELITO-SIMPLE: cinta básica */}
+                {variant === 'papelito-simple' && (
+                  <div style={{
+                    position: 'absolute', top: -8, left: '50%',
+                    width: cardW * 0.4, height: 13,
+                    transform: `translateX(-50%) rotate(${rotBase * 2}deg)`,
+                    background: 'linear-gradient(180deg, rgba(245,245,240,0.6) 0%, rgba(220,220,210,0.5) 100%)',
+                    border: '1px solid rgba(0,0,0,0.1)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    pointerEvents: 'none', zIndex: 3,
+                  }} />
+                )}
+
+                {/* ESQUINA DOBLADA (no en sticker ni ticket ni cuaderno-libro) */}
+                {variant !== 'sticker-clip' && variant !== 'ticket-rojo' && variant !== 'cuaderno-libro' && (
+                  <div style={{
+                    position: 'absolute', bottom: 0, right: 0,
+                    width: 16, height: 16,
+                    background: `linear-gradient(135deg, transparent 50%, color-mix(in srgb, ${pal.ink} 22%, transparent) 50%)`,
+                    borderBottomRightRadius: borderRad,
+                    pointerEvents: 'none', zIndex: 2,
+                  }} />
+                )}
+
+                {/* ════════ CONTENIDO COMÚN ════════ */}
+
+                {/* LIBRETA-ABIERTA: layout especial 2 columnas (emoji izq, texto der) */}
+                {variant === 'libreta-abierta' ? (
+                  <div style={{
+                    position: 'relative', zIndex: 2,
+                    width: '100%', height: '100%',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    alignItems: 'center',
+                    pointerEvents: 'none',
+                  }}>
+                    {/* Página izquierda: emoji grande */}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                      paddingRight: 8,
+                    }}>
+                      <div style={{
+                        fontSize: 52,
+                        filter: 'drop-shadow(0 3px 4px rgba(0,0,0,0.3))',
+                        lineHeight: 1,
+                      }}>{n.emoji}</div>
+                    </div>
+                    {/* Página derecha: nombre + sublabel + subrayado */}
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center',
+                      paddingLeft: 8, paddingRight: 6,
+                      textAlign: 'center',
+                    }}>
+                      <div style={{
+                        fontFamily: HAND,
+                        fontSize: 26,
+                        fontWeight: 800,
+                        color: pal.ink,
+                        lineHeight: 1.05,
+                        letterSpacing: 0.3,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        maxWidth: '100%',
+                        textShadow: '0 1px 0 rgba(255,255,255,0.4)',
+                      }}>{n.label}</div>
+                      {n.sublabel && (
+                        <div style={{
+                          fontFamily: HAND,
+                          fontSize: 13,
+                          color: pal.inkSoft,
+                          marginTop: 3,
+                          fontStyle: 'italic',
+                          fontWeight: 600,
+                          opacity: 0.85,
+                        }}>{n.sublabel}</div>
+                      )}
+                      <svg width="60" height="5" style={{ marginTop: 4, opacity: 0.55 }}>
+                        <path d="M3 3 Q 30 0 57 3.5"
+                          stroke={pal.ink} strokeWidth="1.8"
+                          fill="none" strokeLinecap="round" />
+                      </svg>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+
+                {/* EMOJI */}
+                <div style={{
+                  fontSize: emojiSize,
+                  marginBottom: 4,
+                  filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.3))',
+                  pointerEvents: 'none',
+                  position: 'relative', zIndex: 2,
+                  lineHeight: 1,
+                }}>{n.emoji}</div>
+
+                {/* LABEL */}
+                <div style={{
+                  fontFamily: HAND,
+                  fontSize: labelSize,
+                  fontWeight: 800,
+                  color: pal.ink,
+                  lineHeight: 1.05,
+                  padding: '0 4px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  maxWidth: '100%',
+                  letterSpacing: 0.2,
+                  textShadow: '0 1px 0 rgba(255,255,255,0.35)',
+                  pointerEvents: 'none',
+                  position: 'relative', zIndex: 2,
+                }}>{n.label}</div>
+
+                {/* SUBLABEL */}
+                {n.sublabel && (
+                  <div style={{
+                    fontFamily: HAND,
+                    fontSize: 12,
+                    color: pal.inkSoft,
+                    marginTop: 2,
+                    fontStyle: 'italic',
+                    fontWeight: 600,
+                    opacity: 0.9,
+                    pointerEvents: 'none',
+                    position: 'relative', zIndex: 2,
+                  }}>{n.sublabel}</div>
+                )}
+
+                {/* Subrayado handwritten en hubs/root */}
+                {(isRoot || isHub) && (
+                  <svg width={Math.min(70, cardW * 0.5)} height="5"
+                    style={{ marginTop: 4, opacity: 0.6, pointerEvents: 'none', position: 'relative', zIndex: 2 }}>
+                    <path d={`M3 3 Q ${Math.min(70, cardW*0.5)/2} 0 ${Math.min(70, cardW*0.5)-3} 3.5`}
+                      stroke={pal.ink} strokeWidth="1.8" fill="none" strokeLinecap="round" />
+                  </svg>
+                )}
+                  </>
+                )}
+
+                {/* CHECK seleccionado — sello rojo */}
+                {n.selected && (
+                  <div style={{
+                    position: 'absolute', top: -8, right: -8,
+                    width: 28, height: 28, borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #ef4444, #b91c1c)',
+                    border: '2.5px solid #fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 15, fontWeight: 900, color: '#fff',
+                    boxShadow: '0 4px 10px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.3)',
+                    pointerEvents: 'none', zIndex: 5,
+                    transform: 'rotate(8deg)',
+                  }}>✓</div>
+                )}
+
+                {/* Etiqueta "pronto" para disabled */}
+                {n.disabled && (
+                  <div style={{
+                    position: 'absolute', bottom: -12, left: '50%',
+                    transform: 'translateX(-50%) rotate(-2deg)',
+                    background: 'rgba(60,60,60,0.88)',
+                    color: '#fff', fontSize: 10, fontWeight: 700,
+                    fontFamily: HAND, padding: '2px 10px',
+                    borderRadius: 10, fontStyle: 'italic',
+                    pointerEvents: 'none', zIndex: 5,
+                    boxShadow: '0 2px 5px rgba(0,0,0,0.4)',
+                  }}>pronto</div>
                 )}
               </div>
             );
@@ -687,158 +1651,78 @@ export default function TemaView({
         </div>
       </div>
 
-      {/* CONTROLES */}
-      <div style={{
-        position: 'absolute', bottom: 24, right: 24, zIndex: 100,
-        display: 'flex', flexDirection: 'column', gap: 6,
-      }}>
-        {[
-          { label: '+', action: () => { targetZoom.current = Math.min(targetZoom.current * 1.2, 3); }, rot: -3 },
-          { label: '−', action: () => { targetZoom.current = Math.max(targetZoom.current * 0.8, 0.25); }, rot: 3 },
-          { label: '⌖', action: resetView, rot: -2 },
-        ].map((btn, i) => (
-          <button key={i} onClick={btn.action}
-            style={{
-              width: 40, height: 40, borderRadius: 10,
-              border: '2.5px solid var(--text-primary)',
-              background: 'var(--bg-card)',
-              color: 'var(--text-primary)',
-              fontFamily: HAND, fontSize: 22, fontWeight: 800,
-              cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '3px 3px 0 var(--text-primary)',
-              transform: `rotate(${btn.rot}deg)`,
-              transition: 'all 0.2s cubic-bezier(.25,.8,.25,1)',
-            }}
-            onMouseEnter={(e: any) => {
-              e.currentTarget.style.transform = 'rotate(0deg) scale(1.08)';
-              e.currentTarget.style.borderColor = tema.color || materia.color;
-            }}
-            onMouseLeave={(e: any) => {
-              e.currentTarget.style.transform = `rotate(${btn.rot}deg)`;
-              e.currentTarget.style.borderColor = 'var(--text-primary)';
-            }}>
-            {btn.label}
-          </button>
-        ))}
-      </div>
+      {contextMenu && (
+        <div onClick={() => setContextMenu(null)} style={{ position: 'fixed', inset: 0, zIndex: 9000 }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            position: 'absolute', left: contextMenu.x, top: contextMenu.y,
+            background: '#1a1a1e', border: '1px solid #333',
+            borderRadius: 14, padding: 6, minWidth: 160,
+            boxShadow: '0 10px 40px rgba(0,0,0,0.8)',
+          }}>
+            <button onClick={() => {
+              contextMenu.node.type === 'apunte' ? onAbrirApunte(contextMenu.node.data) : onAbrirDocumento(contextMenu.node.data);
+              setContextMenu(null);
+            }} style={ctxBtn}>📖 Abrir</button>
+            <button onClick={() => {
+              contextMenu.node.type === 'apunte' ? onEliminarApunte(contextMenu.node.data.id) : onEliminarDocumento(contextMenu.node.data.id);
+              setContextMenu(null);
+            }} style={{ ...ctxBtn, color: '#ff4444' }}>🗑️ Eliminar</button>
+          </div>
+        </div>
+      )}
 
-      {/* Acciones rápidas */}
-      <div style={{
-        position: 'absolute', bottom: 24, left: 16, zIndex: 100,
-        display: 'flex', gap: 10,
-      }}>
-        <button onClick={onNuevoApunte}
-          style={{
-            padding: '10px 18px',
-            borderRadius: 12,
-            border: '2.5px solid var(--text-primary)',
-            background: 'var(--gold)', color: '#000',
-            fontFamily: HAND, fontSize: 18, fontWeight: 800,
-            cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: 6,
-            boxShadow: '3px 4px 0 var(--text-primary)',
-            transform: 'rotate(-1.5deg)',
-            transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
+      {showEnfoque && (
+        <EnfoqueWheel
+          color={themeColor}
+          materialesCount={selectedIds.length}
+          onClose={() => setShowEnfoque(false)}
+          onSelect={(id: string) => {
+            if (id === 'teorico') setOpenTeorico(true);
+            setShowEnfoque(false);
           }}
-          onMouseEnter={(e:any)=>{
-            e.currentTarget.style.transform = 'rotate(0deg) translateY(-2px)';
-            e.currentTarget.style.boxShadow = '4px 6px 0 var(--text-primary)';
-          }}
-          onMouseLeave={(e:any)=>{
-            e.currentTarget.style.transform = 'rotate(-1.5deg)';
-            e.currentTarget.style.boxShadow = '3px 4px 0 var(--text-primary)';
-          }}
-        >
-          ✏️ {idioma === 'en' ? 'New Note' : 'Nuevo Apunte'}
-        </button>
-        <button onClick={() => fileRef.current?.click()} disabled={subiendoDoc}
-          style={{
-            padding: '10px 18px',
-            borderRadius: 12,
-            border: '2.5px solid var(--text-primary)',
-            background: 'var(--blue)', color: '#000',
-            fontFamily: HAND, fontSize: 18, fontWeight: 800,
-            cursor: subiendoDoc ? 'not-allowed' : 'pointer',
-            opacity: subiendoDoc ? 0.6 : 1,
-            display: 'flex', alignItems: 'center', gap: 6,
-            boxShadow: '3px 4px 0 var(--text-primary)',
-            transform: 'rotate(1.5deg)',
-            transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
-          }}
-          onMouseEnter={(e:any)=>{
-            if (!subiendoDoc) {
-              e.currentTarget.style.transform = 'rotate(0deg) translateY(-2px)';
-              e.currentTarget.style.boxShadow = '4px 6px 0 var(--text-primary)';
-            }
-          }}
-          onMouseLeave={(e:any)=>{
-            e.currentTarget.style.transform = 'rotate(1.5deg)';
-            e.currentTarget.style.boxShadow = '3px 4px 0 var(--text-primary)';
-          }}
-        >
-          {subiendoDoc ? '⏳ subiendo...' : '📎 ' + (idioma === 'en' ? 'Upload Material' : 'Subir Material')}
-        </button>
-      </div>
+        />
+      )}
 
-      {/* ZOOM INDICATOR */}
-      <div style={{
-        position: 'absolute', bottom: 26, left: '50%',
-        transform: 'translateX(-50%) rotate(-1deg)',
-        zIndex: 100,
-        background: 'color-mix(in srgb, var(--bg-card) 90%, transparent)',
-        backdropFilter: 'blur(12px)',
-        border: '2px solid var(--text-primary)',
-        borderRadius: 10, padding: '4px 12px',
-        fontFamily: HAND, fontSize: 15, fontWeight: 800,
-        color: 'var(--text-muted)',
-        boxShadow: '2px 2px 0 var(--text-primary)',
-      }}>
-        🔍 {Math.round(zoom * 100)}%
-      </div>
-
+      <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&display=swap" rel="stylesheet" />
       <style>{`
-        @keyframes fadeInTv {
-          from { opacity: 0; transform: translateY(3px); }
-          to   { opacity: 1; transform: translateY(0); }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes shine {
+          0% { left: -100%; }
+          50%, 100% { left: 150%; }
         }
-        @keyframes fadeInCm {
-          from { opacity: 0; transform: rotate(0deg) scale(0.9); }
-          to   { opacity: 1; transform: rotate(-1.5deg) scale(1); }
+        
+        @keyframes arrowBounce {
+          0%, 100% { transform: translateX(0); }
+          50% { transform: translateX(6px); }
         }
+        @keyframes slideUpStudy {
+          from { opacity: 0; transform: translateX(-50%) translateY(40px) scale(0.8); }
+          to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+        }
+        .study-btn:hover {
+          transform: scale(1.05) translateY(-3px);
+        }
+        html, body { overflow: hidden !important; margin: 0; padding: 0; height: 100%; }
       `}</style>
     </div>
   );
 }
 
-// ── Helpers de estilos ──
-const breadBtn: React.CSSProperties = {
+const zoomBtn: React.CSSProperties = {
+  width: 28, height: 28,
   background: 'transparent',
   border: 'none',
-  color: 'var(--text-faint)',
-  fontFamily: HAND, fontSize: 17, fontWeight: 800,
-  cursor: 'pointer',
-  padding: '2px 6px', borderRadius: 6,
-  fontStyle: 'italic',
-  transition: 'all 0.2s',
+  borderRadius: 6,
+  color: '#fff', cursor: 'pointer',
+  fontSize: 16, fontWeight: 700,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  transition: 'background 0.2s',
 };
 
-const mobileBreadBtn: React.CSSProperties = {
-  padding: '6px 10px', borderRadius: 8,
-  border: '1.5px dashed var(--border-color)',
-  background: 'transparent',
-  color: 'var(--text-muted)',
-  fontFamily: HAND, fontSize: 15, fontWeight: 700,
-  cursor: 'pointer',
-  fontStyle: 'italic',
-};
-
-const cmBtn = (color: string): React.CSSProperties => ({
+const ctxBtn: React.CSSProperties = {
   width: '100%', padding: '10px 14px',
-  borderRadius: 8,
   border: 'none', background: 'transparent',
-  color, fontFamily: HAND, fontSize: 18, fontWeight: 800,
-  cursor: 'pointer', textAlign: 'left',
-  display: 'flex', alignItems: 'center', gap: 8,
-  fontStyle: 'italic',
-});
+  color: '#fff', textAlign: 'left', cursor: 'pointer',
+  fontWeight: 600, fontFamily: HAND, fontSize: 17,
+  borderRadius: 8,
+};
