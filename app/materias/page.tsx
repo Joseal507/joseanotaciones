@@ -543,7 +543,7 @@ const eliminarDocumento = async (id: string) => {
         {vista === 'materias' && (
           <MateriasList
             materias={materias}
-            onAbrir={m => { setMateriaActual(m); setVista('materia'); }}
+            onAbrir={(m: any) => { setMateriaActual(m); setVista('materia'); }}
             onEliminar={eliminarMateria}
             onNueva={() => setModalMateria(true)}
             onReordenar={reordenarMaterias}
@@ -555,7 +555,7 @@ const eliminarDocumento = async (id: string) => {
           <MateriaView
             materia={materiaActual}
             onBack={() => setVista('materias')}
-            onAbrirTema={t => { setTemaActual(t); setVista('tema'); }}
+            onAbrirTema={(t: any) => { setTemaActual(t); setVista('tema'); }}
             onEliminarTema={eliminarTema}
             onNuevoTema={() => setModalTema(true)}
             onActualizarMateria={actualizarMateria}
@@ -569,8 +569,8 @@ const eliminarDocumento = async (id: string) => {
             onBack={() => setVista('materias')}
             onBackMateria={() => setVista('materia')}
             onGoHome={() => ((window as any).__showNavLoader?.('/'), router.push('/'))}
-            onAbrirApunte={a => { setApunteActual(a); setVista('apunte'); }}
-            onAbrirDocumento={d => { setDocumentoActual(d); setVista('documento'); }}
+            onAbrirApunte={(a: any) => { setApunteActual(a); setVista('apunte'); }}
+            onAbrirDocumento={(d: any) => { setDocumentoActual(d); setVista('documento'); }}
             onEliminarApunte={eliminarApunte}
             onEliminarDocumento={eliminarDocumento}
             onNuevoApunte={() => setModalApunte(true)}

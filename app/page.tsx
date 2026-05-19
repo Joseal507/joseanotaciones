@@ -520,7 +520,7 @@ function TopPodio({ onClick, mob, tablet = false }: { onClick: () => void; mob: 
       minWidth:mob?210:(tablet?170:255),
       width:tablet?170:'auto',
       maxWidth:tablet?170:'none',
-      position:'relative',zIndex:10,
+      zIndex:10,
     }}
       onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0deg) translate(-2px,-3px)';e.currentTarget.style.boxShadow='7px 8px 0 rgba(0,0,0,.3),0 14px 32px rgba(0,0,0,.22)';}}
       onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(2.5deg)';e.currentTarget.style.boxShadow='5px 6px 0 rgba(0,0,0,.25),0 12px 28px rgba(0,0,0,.18)';}}

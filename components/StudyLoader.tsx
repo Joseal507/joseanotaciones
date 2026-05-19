@@ -72,7 +72,7 @@ function ScribbleSpinner() {
   );
 }
 
-export default function StudyLoader({ label = 'Página' }: { label?: string }) {
+export default function StudyLoader({ label = 'Página', mode }: { label?: string; mode?: string }) {
   const clean = (label || 'Página').trim();
   const messages = useMemo(() => [
     `Preparando ${clean}...`,
