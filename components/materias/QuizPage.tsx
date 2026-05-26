@@ -7,6 +7,7 @@ import confetti from 'canvas-confetti';
 import { supabase } from '../../lib/supabase';
 import { detectContentLanguage } from '../../lib/detectLanguage';
 import MathText from '../MathText';
+import { evaluateWritten } from '../../lib/quizEvaluation';
 
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 
@@ -42,6 +43,14 @@ interface HistoryEntry {
   userAnswer: any;
   correct: boolean;
   timeMs: number;
+  evaluation?: {
+    nivel: string;
+    porcentaje: number;
+    analisis: string;
+    respuestaCorrecta: string;
+    explicacion: string;
+    consejo?: string;
+  };
 }
 
 const HAND = "'Patrick Hand', cursive";
@@ -87,13 +96,16 @@ function checkAnswer(q: Question, userAnswer: any): boolean {
     return JSON.stringify(ua) === JSON.stringify(ca);
   }
   if (q.type === 'fill_blank' || q.type === 'short_answer') {
-    const targets = q.acceptedAnswers?.length
-      ? q.acceptedAnswers
-      : q.correctAnswer !== undefined
-      ? [String(q.correctAnswer)]
+    const anyQ = q as any;
+    const targets = anyQ.acceptedAnswers?.length
+      ? anyQ.acceptedAnswers
+      : anyQ.answer !== undefined
+      ? [String(anyQ.answer)]
+      : anyQ.correctAnswer !== undefined
+      ? [String(anyQ.correctAnswer)]
       : [];
-    const norm = (s: string) => String(s).toLowerCase().trim().replace(/[^a-záéíóúüñ0-9\s]/gi, '');
-    return targets.some(t => norm(t) === norm(String(userAnswer ?? '')));
+    const evaluation = evaluateWritten(targets, String(userAnswer ?? ''));
+    return evaluation.score >= 60;
   }
   if (q.type === 'matching') {
     // matching siempre correcto si se envía (validación visual)
@@ -387,19 +399,73 @@ export default function QuizPage({
     }
   }, [customCount, questionCount, difficulty, selectedTypes, seleccion, extractQuizText]);
 
-  // ── Verificar respuesta (acepta answer directo para auto-verify) ───
-  const handleVerify = useCallback((directAnswer?: any) => {
+  // ── Verificar respuesta con IA para escritas ───
+  const handleVerify = useCallback(async (directAnswer?: any) => {
     const answerToCheck = directAnswer !== undefined ? directAnswer : userAnswer;
     if (isLocked || answerToCheck === null || answerToCheck === undefined) return;
-    const q = questions[currentIndex];
-    const correct = checkAnswer(q, answerToCheck);
-    const timeMs  = Date.now() - questionStartTime;
 
-    // Actualizar userAnswer si vino directo
+    const q = questions[currentIndex];
+    const timeMs = Date.now() - questionStartTime;
+
     if (directAnswer !== undefined) setUserAnswer(directAnswer);
 
-    const entry: HistoryEntry = { question: q, userAnswer: answerToCheck, correct, timeMs };
+    let correct = checkAnswer(q, answerToCheck);
+    let evaluation: HistoryEntry['evaluation'] | undefined = undefined;
+
+    if (q.type === 'fill_blank' || q.type === 'short_answer') {
+      const anyQ = q as any;
+      const expected = anyQ.acceptedAnswers?.length
+        ? anyQ.acceptedAnswers.join(', ')
+        : anyQ.answer
+        ? String(anyQ.answer)
+        : anyQ.correctAnswer !== undefined
+        ? String(anyQ.correctAnswer)
+        : '';
+
+      try {
+        const res = await fetch('/api/evaluar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pregunta: q.question,
+            respuestaCorrecta: expected,
+            respuestaUsuario: String(answerToCheck ?? ''),
+            idioma: 'es',
+          }),
+        });
+
+        const data = await res.json();
+        const r = data?.resultado;
+
+        if (r) {
+          evaluation = {
+            nivel: String(r.nivel || 'medio_correcta'),
+            porcentaje: Number(r.porcentaje || 60),
+            analisis: String(r.analisis || ''),
+            respuestaCorrecta: String(r.respuestaCorrecta || expected),
+            explicacion: String(r.explicacion || q.explanation || ''),
+            consejo: String(r.consejo || ''),
+          };
+
+          correct = evaluation.porcentaje >= 60;
+        }
+      } catch {
+        const local = evaluateWritten([expected], String(answerToCheck ?? ''));
+        evaluation = {
+          nivel: local.status === 'correct' ? 'correcta' : local.status === 'partial' ? 'medio_correcta' : 'incorrecta',
+          porcentaje: local.score,
+          analisis: local.explanation,
+          respuestaCorrecta: expected,
+          explicacion: q.explanation || '',
+          consejo: '',
+        };
+        correct = local.score >= 60;
+      }
+    }
+
+    const entry: HistoryEntry = { question: q, userAnswer: answerToCheck, correct, timeMs, evaluation };
     const newHistory = [...history, entry];
+
     setHistory(newHistory);
     setIsLocked(true);
 
@@ -488,7 +554,7 @@ export default function QuizPage({
         position: 'fixed',
         inset: 0,
         background: '#080810',
-        color: '#fff',
+        color: '#111',
         display: 'flex',
         flexDirection: 'column',
         fontFamily: BODY,
@@ -537,7 +603,7 @@ export default function QuizPage({
           }}
         >
           Quiz
-          <span style={{ color: '#fff', opacity: 0.35, marginLeft: 8, fontSize: 18 }}>
+          <span style={{ color: '#111', opacity: 0.35, marginLeft: 8, fontSize: 18 }}>
             {tema?.nombre}
           </span>
         </div>
@@ -761,7 +827,7 @@ export default function QuizPage({
                     animation: 'spin 0.9s linear infinite',
                   }}
                 />
-                <div style={{ fontFamily: HAND, fontSize: 34, color: '#fff' }}>
+                <div style={{ fontFamily: HAND, fontSize: 34, color: '#111' }}>
                   La IA está diseñando tu examen...
                 </div>
                 <div style={{ fontSize: 14, color: '#555' }}>
@@ -899,7 +965,7 @@ function SetupScreen({
           fontSize: 52,
           margin: '0 0 6px',
           textAlign: 'center',
-          color: '#fff',
+          color: '#111',
         }}
       >
         Configura tu Quiz
@@ -1078,7 +1144,7 @@ function SetupScreen({
             border: `1.5px solid ${customCount ? themeColor : 'rgba(255,255,255,0.1)'}`,
             borderRadius: 14,
             padding: '14px 18px',
-            color: '#fff',
+            color: '#111',
             fontSize: 15,
             fontFamily: BODY,
             outline: 'none',
@@ -1387,6 +1453,7 @@ function QuestionCard({
                 question={question}
                 userAnswer={lastEntry?.userAnswer}
                 themeColor={themeColor}
+                evaluation={lastEntry?.evaluation}
               />
               <button
                 onClick={onNext}
@@ -1397,7 +1464,7 @@ function QuestionCard({
                   border: 'none',
                   cursor: 'pointer',
                   background: '#1a1a2e',
-                  color: '#fff',
+                  color: '#111',
                   fontWeight: 900,
                   fontSize: 17,
                   fontFamily: BODY,
@@ -1443,11 +1510,13 @@ function FeedbackBox({
   question,
   userAnswer,
   themeColor,
+  evaluation,
 }: {
   correct: boolean;
   question: Question;
   userAnswer: any;
   themeColor: string;
+  evaluation?: HistoryEntry['evaluation'];
 }) {
   const bg     = correct ? '#e8f5e9' : '#ffebee';
   const border = correct ? '#4caf50' : '#f44336';
@@ -1784,7 +1853,7 @@ function QuestionOptions({
         setUserAnswer={setUserAnswer}
         isLocked={isLocked}
         themeColor={themeColor}
-      />
+/>
     );
   }
 
@@ -1921,101 +1990,27 @@ function OptionButton({
 }
 
 // ─── Matching con Reorder ─────────────────────────────────────
+
 function MatchingQuestion({
-  question,
-  userAnswer,
-  setUserAnswer,
-  isLocked,
-  themeColor,
-}: {
-  question: Question;
-  userAnswer: any;
-  setUserAnswer: (v: any) => void;
-  isLocked: boolean;
-  themeColor: string;
-}) {
-  const [items, setItems] = useState<string[]>(() =>
-    question.pairs?.map(p => p.right) ?? []
-  );
+question,
+userAnswer,
+setUserAnswer,
+isLocked,
+themeColor,
+}:any){
 
-  useEffect(() => {
-    setUserAnswer(items);
-  }, [items]);
+const MatchingCanvas=require('./MatchingCanvas').default;
 
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-      {/* Columna izquierda — fija */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {question.pairs?.map((p, i) => (
-          <div
-            key={i}
-            style={{
-              height: 54,
-              padding: '0 16px',
-              background: 'rgba(0,0,0,0.06)',
-              borderRadius: 12,
-              display: 'flex',
-              alignItems: 'center',
-              fontSize: 14,
-              fontWeight: 700,
-              color: '#333',
-              fontFamily: BODY,
-            }}
-          >
-            {p.left}
-          </div>
-        ))}
-      </div>
+return (
+<MatchingCanvas
+pairs={question.pairs}
+value={userAnswer}
+onChange={setUserAnswer}
+locked={isLocked}
+themeColor={themeColor}
+/>
+);
 
-      {/* Columna derecha — draggable */}
-      <Reorder.Group
-        axis="y"
-        values={items}
-        onReorder={v => !isLocked && setItems(v)}
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-          listStyle: 'none',
-          margin: 0,
-          padding: 0,
-        }}
-      >
-        {items.map(item => (
-          <Reorder.Item
-            key={item}
-            value={item}
-            style={{ listStyle: 'none' }}
-          >
-            <div
-              style={{
-                height: 54,
-                padding: '0 16px',
-                background: isLocked ? '#f1f3f5' : '#fff',
-                border: `2px solid ${isLocked ? 'rgba(0,0,0,0.1)' : themeColor + '55'}`,
-                borderRadius: 12,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                fontSize: 14,
-                fontWeight: 700,
-                color: '#222',
-                cursor: isLocked ? 'default' : 'grab',
-                fontFamily: BODY,
-                boxShadow: isLocked ? 'none' : `0 2px 8px ${themeColor}22`,
-                userSelect: 'none',
-              }}
-            >
-              {!isLocked && (
-                <span style={{ color: '#aaa', fontSize: 18 }}>⋮⋮</span>
-              )}
-              {item}
-            </div>
-          </Reorder.Item>
-        ))}
-      </Reorder.Group>
-    </div>
-  );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2191,7 +2186,7 @@ function ResultsScreen({
               border: 'none',
               cursor: 'pointer',
               background: `linear-gradient(135deg, #f87171, #ef4444)`,
-              color: '#fff',
+              color: '#111',
               fontWeight: 900,
               fontSize: 17,
               fontFamily: BODY,
@@ -2306,7 +2301,7 @@ function ReviewScreen({
           marginBottom: 24,
         }}
       >
-        <div style={{ fontFamily: HAND, fontSize: 36, color: '#fff' }}>
+        <div style={{ fontFamily: HAND, fontSize: 36, color: '#111' }}>
           📖 Revisión de respuestas
         </div>
         <button
@@ -2358,7 +2353,8 @@ function ReviewScreen({
       {/* Lista */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {filtered.map((entry, i) => (
-          <ReviewItem key={i} entry={entry} index={i} themeColor={themeColor} />
+          <ReviewItem key={i} entry={entry} index={i} themeColor={themeColor}
+/>
         ))}
       </div>
     </motion.div>
