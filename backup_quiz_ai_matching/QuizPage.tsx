@@ -7,7 +7,6 @@ import confetti from 'canvas-confetti';
 import { supabase } from '../../lib/supabase';
 import { detectContentLanguage } from '../../lib/detectLanguage';
 import MathText from '../MathText';
-import MatchingCanvas from './MatchingCanvas';
 
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 
@@ -43,14 +42,6 @@ interface HistoryEntry {
   userAnswer: any;
   correct: boolean;
   timeMs: number;
-  evaluation?: {
-    nivel: string;
-    porcentaje: number;
-    analisis: string;
-    respuestaCorrecta: string;
-    explicacion: string;
-    consejo?: string;
-  };
 }
 
 const HAND = "'Patrick Hand', cursive";
@@ -150,7 +141,6 @@ export default function QuizPage({
   const [quizStartTime, setQuizStartTime] = useState(0);
   const [questionStartTime, setQuestionStartTime] = useState(0);
   const [showWordBank, setShowWordBank]  = useState(false);
-  const [isEvaluating, setIsEvaluating] = useState(false);
 
   // ── PDF multi-material ────────────────────────────────────
   const [pdfUrl, setPdfUrl]                   = useState<string | null>(null);
@@ -398,137 +388,27 @@ export default function QuizPage({
   }, [customCount, questionCount, difficulty, selectedTypes, seleccion, extractQuizText]);
 
   // ── Verificar respuesta (acepta answer directo para auto-verify) ───
-  const handleVerify = useCallback(async (directAnswer?: any) => {
-    const answerToCheck =
-      directAnswer !== undefined
-        ? directAnswer
-        : userAnswer;
-
-    if (
-      isLocked ||
-      isEvaluating ||
-      answerToCheck === null ||
-      answerToCheck === undefined
-    ) return;
-
+  const handleVerify = useCallback((directAnswer?: any) => {
+    const answerToCheck = directAnswer !== undefined ? directAnswer : userAnswer;
+    if (isLocked || answerToCheck === null || answerToCheck === undefined) return;
     const q = questions[currentIndex];
-    const timeMs = Date.now() - questionStartTime;
+    const correct = checkAnswer(q, answerToCheck);
+    const timeMs  = Date.now() - questionStartTime;
 
-    if (directAnswer !== undefined) {
-      setUserAnswer(directAnswer);
+    // Actualizar userAnswer si vino directo
+    if (directAnswer !== undefined) setUserAnswer(directAnswer);
+
+    const entry: HistoryEntry = { question: q, userAnswer: answerToCheck, correct, timeMs };
+    const newHistory = [...history, entry];
+    setHistory(newHistory);
+    setIsLocked(true);
+
+    if (correct && currentIndex === questions.length - 1) {
+      confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 } });
     }
+  }, [isLocked, userAnswer, questions, currentIndex, history, questionStartTime]);
 
-    setIsEvaluating(true);
-
-    let correct = checkAnswer(
-      q,
-      answerToCheck
-    );
-
-    let evaluation = undefined;
-
-    if (
-      q.type === 'fill_blank' ||
-      q.type === 'short_answer'
-    ) {
-      const expected =
-        q.acceptedAnswers?.length
-          ? q.acceptedAnswers.join(', ')
-          : q.correctAnswer !== undefined
-          ? String(q.correctAnswer)
-          : '';
-
-      try {
-        const r = await fetch(
-          '/api/evaluar',
-          {
-            method:'POST',
-            headers:{
-              'Content-Type':
-              'application/json'
-            },
-            body:JSON.stringify({
-              pregunta:q.question,
-              respuestaCorrecta:
-                expected,
-              respuestaUsuario:
-                String(
-                  answerToCheck
-                )
-            })
-          }
-        );
-
-        const data =
-          await r.json();
-
-        if (
-          data?.resultado
-        ) {
-
-          evaluation =
-            data.resultado;
-
-          correct =
-            Number(
-              data.resultado
-              .porcentaje || 0
-            ) >= 75;
-        }
-
-      } catch {}
-
-    }
-
-    const entry: HistoryEntry = {
-      question:q,
-      userAnswer:
-        answerToCheck,
-      correct,
-      timeMs,
-      evaluation
-    };
-
-    const newHistory = [
-      ...history,
-      entry
-    ];
-
-    setHistory(
-      newHistory
-    );
-
-    setIsLocked(
-      true
-    );
-
-    setIsEvaluating(
-      false
-    );
-
-    if (
-      correct &&
-      currentIndex ===
-      questions.length - 1
-    ) {
-      confetti({
-        particleCount:120,
-        spread:70,
-        origin:{ y:0.6 }
-      });
-    }
-
-  }, [
-    isLocked,
-    isEvaluating,
-    userAnswer,
-    questions,
-    currentIndex,
-    history,
-    questionStartTime
-  ]);
-
-// ── Siguiente pregunta ─────────────────────────────────────
+  // ── Siguiente pregunta ─────────────────────────────────────
   const handleNext = useCallback(() => {
     if (currentIndex < questions.length - 1) {
       setCurrentIndex(i => i + 1);
@@ -1507,7 +1387,6 @@ function QuestionCard({
                 question={question}
                 userAnswer={lastEntry?.userAnswer}
                 themeColor={themeColor}
-                evaluation={lastEntry?.evaluation}
               />
               <button
                 onClick={onNext}
@@ -1564,141 +1443,104 @@ function FeedbackBox({
   question,
   userAnswer,
   themeColor,
-  evaluation,
 }: {
   correct: boolean;
   question: Question;
   userAnswer: any;
   themeColor: string;
-  evaluation?: HistoryEntry['evaluation'];
 }) {
+  const bg     = correct ? '#e8f5e9' : '#ffebee';
+  const border = correct ? '#4caf50' : '#f44336';
+  const clr    = correct ? '#2e7d32' : '#c62828';
 
-  const pct =
-    evaluation?.porcentaje ??
-    (correct ? 100 : 0);
+  const correctLabel = (() => {
+    if (question.type === 'multiple_choice' || question.type === 'true_false') {
+      const idx = question.correctAnswer as number;
+      if (question.type === 'true_false') return question.correctAnswer ? 'Verdadero' : 'Falso';
+      return question.options?.[idx] ?? String(idx);
+    }
+    if (question.type === 'multi_select') {
+      return (question.correctAnswers ?? [])
+        .map((i: number) => question.options?.[i])
+        .filter(Boolean)
+        .join(', ');
+    }
+    if (question.type === 'fill_blank') return question.acceptedAnswers?.[0] ?? '';
+    if (question.type === 'short_answer') return question.acceptedAnswers?.[0] ?? '';
+    return '';
+  })();
 
-  const state =
-    pct >= 85
-      ? 'correct'
-      : pct >= 50
-      ? 'partial'
-      : 'wrong';
-
-  const title =
-    state === 'correct'
-      ? '🟢 CORRECTO'
-      : state === 'partial'
-      ? '🟡 MEDIO CORRECTO'
-      : '🔴 INCORRECTO';
-
-  const color =
-    state === 'correct'
-      ? '#16a34a'
-      : state === 'partial'
-      ? '#f59e0b'
-      : '#dc2626';
-
-  const bg =
-    state === 'correct'
-      ? '#ecfdf5'
-      : state === 'partial'
-      ? '#fffbeb'
-      : '#fef2f2';
+  const userLabel = (() => {
+    if (question.type === 'multiple_choice') {
+      return question.options?.[userAnswer as number] ?? String(userAnswer ?? '');
+    }
+    if (question.type === 'true_false') {
+      if (typeof userAnswer === 'number')
+        return userAnswer === 0 ? 'Verdadero' : 'Falso';
+      return userAnswer ? 'Verdadero' : 'Falso';
+    }
+    if (question.type === 'multi_select') {
+      return (Array.isArray(userAnswer) ? userAnswer : [])
+        .map((i: number) => question.options?.[i])
+        .filter(Boolean)
+        .join(', ');
+    }
+    return String(userAnswer ?? '');
+  })();
 
   return (
     <div
-      id="quiz-feedback"
       style={{
-        background:bg,
-        border:`2px solid ${color}`,
-        borderRadius:18,
-        padding:20,
-        display:'flex',
-        flexDirection:'column',
-        gap:12,
-        color:'#111',
+        padding: '20px 22px',
+        borderRadius: 18,
+        background: bg,
+        border: `2px dashed ${border}`,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
       }}
     >
-
       <div
         style={{
-          display:'flex',
-          justifyContent:'space-between',
-          alignItems:'center',
-          fontWeight:900,
-          color,
-          fontSize:18,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          color: clr,
+          fontWeight: 900,
+          fontSize: 16,
+          fontFamily: BODY,
         }}
       >
-        <span>{title}</span>
-
-        <span
-          style={{
-            padding:'4px 12px',
-            borderRadius:999,
-            background:'#fff',
-            border:`2px solid ${color}`
-          }}
-        >
-          {pct}%
-        </span>
+        {correct ? '✅ ¡CORRECTO!' : '❌ INCORRECTO'}
       </div>
 
-      <div
-        style={{
-          height:8,
-          borderRadius:999,
-          overflow:'hidden',
-          background:'rgba(0,0,0,.08)'
-        }}
-      >
+      {!correct && correctLabel && (
+        <div style={{ fontSize: 14, color: '#333', fontFamily: BODY }}>
+          <span style={{ fontWeight: 700 }}>Respuesta correcta:</span>{' '}
+          <span style={{ color: '#1b5e20', fontWeight: 700 }}>{correctLabel}</span>
+        </div>
+      )}
+
+      {!correct && userLabel && (
+        <div style={{ fontSize: 13, color: '#555', fontFamily: BODY, fontStyle: 'italic' }}>
+          Tu respuesta: "{userLabel}"
+        </div>
+      )}
+
+      {question.explanation && (
         <div
           style={{
-            width:`${pct}%`,
-            height:'100%',
-            background:color
+            fontSize: 14,
+            color: '#444',
+            fontFamily: BODY,
+            lineHeight: 1.5,
+            borderTop: '1px dashed rgba(0,0,0,0.1)',
+            paddingTop: 10,
           }}
-        />
-      </div>
-
-      <div>
-        <strong>Tu respuesta:</strong>{' '}
-        {String(userAnswer ?? '')}
-      </div>
-
-      {evaluation?.respuestaCorrecta && (
-        <div>
-          <strong>
-          Respuesta esperada:
-          </strong>{' '}
-          {evaluation.respuestaCorrecta}
+        >
+          💡 {question.explanation}
         </div>
       )}
-
-      {evaluation?.analisis && (
-        <div>
-          <strong>
-          Análisis:
-          </strong>{' '}
-          {evaluation.analisis}
-        </div>
-      )}
-
-      {evaluation?.explicacion && (
-        <div>
-          <strong>
-          Por qué:
-          </strong>{' '}
-          {evaluation.explicacion}
-        </div>
-      )}
-
-      {evaluation?.consejo && (
-        <div>
-          💡 {evaluation.consejo}
-        </div>
-      )}
-
     </div>
   );
 }
@@ -2092,14 +1934,87 @@ function MatchingQuestion({
   isLocked: boolean;
   themeColor: string;
 }) {
+  const [items, setItems] = useState<string[]>(() =>
+    question.pairs?.map(p => p.right) ?? []
+  );
+
+  useEffect(() => {
+    setUserAnswer(items);
+  }, [items]);
+
   return (
-    <MatchingCanvas
-      pairs={question.pairs || []}
-      value={userAnswer || {}}
-      onChange={setUserAnswer}
-      locked={isLocked}
-      themeColor={themeColor}
-    />
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      {/* Columna izquierda — fija */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {question.pairs?.map((p, i) => (
+          <div
+            key={i}
+            style={{
+              height: 54,
+              padding: '0 16px',
+              background: 'rgba(0,0,0,0.06)',
+              borderRadius: 12,
+              display: 'flex',
+              alignItems: 'center',
+              fontSize: 14,
+              fontWeight: 700,
+              color: '#333',
+              fontFamily: BODY,
+            }}
+          >
+            {p.left}
+          </div>
+        ))}
+      </div>
+
+      {/* Columna derecha — draggable */}
+      <Reorder.Group
+        axis="y"
+        values={items}
+        onReorder={v => !isLocked && setItems(v)}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          listStyle: 'none',
+          margin: 0,
+          padding: 0,
+        }}
+      >
+        {items.map(item => (
+          <Reorder.Item
+            key={item}
+            value={item}
+            style={{ listStyle: 'none' }}
+          >
+            <div
+              style={{
+                height: 54,
+                padding: '0 16px',
+                background: isLocked ? '#f1f3f5' : '#fff',
+                border: `2px solid ${isLocked ? 'rgba(0,0,0,0.1)' : themeColor + '55'}`,
+                borderRadius: 12,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                fontSize: 14,
+                fontWeight: 700,
+                color: '#222',
+                cursor: isLocked ? 'default' : 'grab',
+                fontFamily: BODY,
+                boxShadow: isLocked ? 'none' : `0 2px 8px ${themeColor}22`,
+                userSelect: 'none',
+              }}
+            >
+              {!isLocked && (
+                <span style={{ color: '#aaa', fontSize: 18 }}>⋮⋮</span>
+              )}
+              {item}
+            </div>
+          </Reorder.Item>
+        ))}
+      </Reorder.Group>
+    </div>
   );
 }
 
