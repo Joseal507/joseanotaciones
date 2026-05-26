@@ -198,7 +198,7 @@ function sanitizeQuestion(q: any, defaultMaterialId = '', defaultMaterialName = 
     if (wordBank.length < 4) {
       const fallbacks = ['teoría', 'proceso', 'concepto', 'estructura', 'método', 'función', 'análisis'];
       for (const f of fallbacks) {
-        if (!wordBank.map(w => w.toLowerCase()).includes(f.toLowerCase()) && wordBank.length < 4) {
+        if (!wordBank.map((w: string) => w.toLowerCase()).includes(f.toLowerCase()) && wordBank.length < 4) {
           wordBank.push(f);
         }
       }

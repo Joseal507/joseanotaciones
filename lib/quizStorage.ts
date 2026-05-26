@@ -256,3 +256,5 @@ export const cargarDecksDesdeDB = async (): Promise<FlashcardDeck[]> => {
   } catch (e) { console.warn('cargarDecks error:', e); }
   return getFlashcardDecks();
 };
+
+export type { QuizGuardado, NivelQuiz }

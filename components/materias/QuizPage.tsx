@@ -1985,7 +1985,6 @@ function MatchingQuestion({
           <Reorder.Item
             key={item}
             value={item}
-            disabled={isLocked}
             style={{ listStyle: 'none' }}
           >
             <div

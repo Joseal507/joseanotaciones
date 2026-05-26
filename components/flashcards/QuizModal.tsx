@@ -72,7 +72,7 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
   };
 
   const cargarQuizGuardado = (quiz: QuizGuardado) => {
-    setPreguntas(quiz.preguntas);
+    setPreguntas(quiz.preguntas as any);
     setIdx(0); setSeleccionada(null); setRespondida(false);
     setPuntos(0); setResultados([]); setGuardadoExito(false); setGuardadoTemporal(false);
     setFase('quiz'); setQuizSeleccionado(quiz);
@@ -126,7 +126,7 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
   const handleGuardarPermanente = () => {
     if (!nombreQuiz.trim()) return;
     setGuardando(true);
-    guardarQuiz({ nombre: nombreQuiz, preguntas, materiaNombre, materiaColor, nivel });
+    guardarQuiz({ nombre: nombreQuiz, preguntas: preguntas as any, materiaNombre, materiaColor, nivel });
     setQuizzesGuardados(getQuizzesGuardados());
     setGuardando(false); setGuardadoExito(true); setNombreQuiz('');
   };
@@ -134,7 +134,7 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
   const handleGuardarTemporal = () => {
     guardarQuizTemporal({
       nombre: materiaNombre ? `Quiz ${nivel} - ${materiaNombre}` : `Quiz ${nivel}`,
-      preguntas, materiaNombre, materiaColor, nivel,
+      preguntas: preguntas as any, materiaNombre, materiaColor, nivel,
     });
     setGuardadoTemporal(true);
   };

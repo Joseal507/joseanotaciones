@@ -2037,7 +2037,7 @@ export default function FlashcardsPage({ materiales, seleccion, tema, materia, s
 
   const selectedSel = findSelectionForMaterial(matActual, activeMaterialIndex);
   const selectedPages = getSelectionPages(selectedSel);
-  const totalSelectedPages = (seleccion || []).reduce((acc, s) => acc + getSelectionPages(s).length, 0);
+  const totalSelectedPages = (seleccion || []).reduce((acc: any, s: any) => acc + getSelectionPages(s).length, 0);
   const hasAnySelection = totalSelectedPages > 0;
 
   const selectionSequence = useMemo(() => {

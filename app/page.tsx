@@ -1152,7 +1152,7 @@ function LineChartXP({ data, mob }: { data: { fecha: string; xpAcumulado: number
   const min = 0;
   const stepX = innerW / Math.max(data.length - 1, 1);
 
-  const points = data.map((d, i) => ({
+  const points = data.map((d: any, i: number) => ({
     x: pad.left + i * stepX,
     y: pad.top + innerH - ((d.xpAcumulado - min) / (max - min || 1)) * innerH,
     ...d,
@@ -1239,7 +1239,7 @@ function LineChartXP({ data, mob }: { data: { fecha: string; xpAcumulado: number
   );
 }
 
-function BarrasSemanales({ data, mob }) {
+function BarrasSemanales({ data, mob }: { data: any; mob: any }) {
   const [themeKey, setThemeKey] = useState(0);
   useEffect(() => {
     const handler = () => setThemeKey(k => k + 1);
@@ -1252,8 +1252,8 @@ function BarrasSemanales({ data, mob }) {
     };
   }, []);
   if (!data.length) return null;
-  const max = Math.max(...data.map(d => d.xp), 50);
-  const totalSemana = data.reduce((s,d)=>s+d.xp, 0);
+  const max = Math.max(...data.map((d: any) => d.xp), 50);
+  const totalSemana = data.reduce((s: number, d: any) => s + d.xp, 0);
   const promedio = Math.round(totalSemana / data.length);
 
   return (
@@ -1285,7 +1285,7 @@ function BarrasSemanales({ data, mob }) {
         borderRadius:10,
         paddingTop:14, paddingBottom:6,
       }}>
-        {data.map((d,i)=>{
+        {data.map((d: any, i: number)=>{
           const h = (d.xp / max) * 130;
           const colorHoy = 'var(--gold)';
           const color = d.esHoy ? colorHoy : 'var(--blue)';
@@ -1332,19 +1332,19 @@ function BarrasSemanales({ data, mob }) {
   );
 }
 
-function BarrasMaterias({ materias, mob }) {
-  const stats = materias.map(m => {
-    const aps = m.temas.reduce((s,t)=>s+(t.apuntes?.length||0),0);
-    const docs = m.temas.reduce((s,t)=>s+(t.documentos?.length||0),0);
-    const fls = m.temas.reduce((s,t)=>s+((t as any).flashcards?.length||0),0);
+function BarrasMaterias({ materias, mob }: { materias: any[]; mob: any }) {
+  const stats = materias.map((m: any) => {
+    const aps = m.temas.reduce((s: number,t: any)=>s+(t.apuntes?.length||0),0);
+    const docs = m.temas.reduce((s: number,t: any)=>s+(t.documentos?.length||0),0);
+    const fls = m.temas.reduce((s: number,t: any)=>s+((t as any).flashcards?.length||0),0);
     return { ...m, aps, docs, fls, total: aps+docs+fls };
-  }).sort((a,b)=>b.total - a.total);
+  }).sort((a: any,b: any)=>b.total - a.total);
 
-  const max = Math.max(...stats.map(s=>s.total), 1);
+  const max = Math.max(...stats.map((s: any)=>s.total), 1);
 
   return (
     <ul style={{ listStyle:'none', padding:0, margin:0, display:'flex', flexDirection:'column', gap:14 }}>
-      {stats.slice(0,8).map((m,i)=>{
+      {stats.slice(0,8).map((m: any,i: number)=>{
         const pct = (m.total / max) * 100;
         return (
           <li key={m.id} style={{
@@ -1406,7 +1406,7 @@ function BarrasMaterias({ materias, mob }) {
   );
 }
 
-function RachaPanel({ racha, mejorRacha, diasEstudiados, mob }) {
+function RachaPanel({ racha, mejorRacha, diasEstudiados, mob }: { racha:any; mejorRacha:any; diasEstudiados:string[]; mob:any }) {
   const hoy = new Date();
   const dias: { fecha: string; estudiado: boolean; esHoy: boolean }[] = [];
   for (let i = 34; i >= 0; i--) {
@@ -2055,7 +2055,7 @@ export default function Home() {
             position:'relative',
           }}>
             <div style={{ position:'absolute',top:0,bottom:0,left:46,width:1.5,background:'#ef4444',opacity:.4,pointerEvents:'none' }}/>
-            <div style={{ relative:true,zIndex:1,filter:'drop-shadow(0 1px 0 rgba(0,0,0,.05))' }}>
+            <div style={{ position:'relative',zIndex:1,filter:'drop-shadow(0 1px 0 rgba(0,0,0,.05))' }}>
               <HorarioWidget/>
             </div>
           </div>
