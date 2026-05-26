@@ -157,7 +157,7 @@ function sanitizeQuestion(q: any, defaultMaterialId = '', defaultMaterialName = 
     );
     if (options.length < 2 || correctAnswers.length === 0) return null;
     
-    const correctValues = correctAnswers.map(idx => options[idx]);
+    const correctValues = correctAnswers.filter((idx): idx is number => typeof idx === "number").map(idx => options[idx]);
     const shuffledOptions = [...options].sort(() => Math.random() - 0.5);
     const shuffledCorrect = correctValues
       .map(val => shuffledOptions.indexOf(val))
