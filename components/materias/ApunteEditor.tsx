@@ -1,0 +1,834 @@
+'use client';
+
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { Apunte, Materia, Tema } from '../../lib/storage';
+import { Bloque, Herramienta, Pagina, PaperStyle, parsePaginas, genId } from '../editor/types';
+import Toolbar from '../editor/Toolbar';
+import DrawingCanvas from '../editor/DrawingCanvas';
+import ImageInserter from '../editor/ImageInserter';
+import PdfBackgroundInserter from '../editor/PdfBackgroundInserter';
+import ExportMenu from '../editor/ExportMenu';
+import PaperStyleSelector from '../editor/PaperStyleSelector';
+import PaginaEditor from './PaginaEditor';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import PeterSauPeter from '../editor/PeterSauPeter';
+import { usePinchZoom } from '../../hooks/usePinchZoom';
+import PublicarComunidad from '../PublicarComunidad';
+import { useGuardar } from '../../hooks/useGuardar';
+import { ErrorBoundary, SilentErrorBoundary } from '../ErrorBoundary';
+
+interface Props {
+  apunte: Apunte;
+  materia: Materia;
+  tema: Tema;
+  onBack: () => void;
+  onBackMateria: () => void;
+  onBackTema: () => void;
+  onGuardar: (contenido: string) => void;
+}
+
+export default function ApunteEditor({
+  apunte, materia, tema,
+  onBack, onBackMateria, onBackTema, onGuardar,
+}: Props) {
+  const [paginas, setPaginas] = useState<Pagina[]>(() => parsePaginas(apunte.contenido));
+  const [guardando, setGuardando] = useState(false);
+  const [showPublicarComunidad, setShowPublicarComunidad] = useState(false);
+  const [guardado, setGuardado] = useState(true);
+  const [herramienta, setHerramienta] = useState<Herramienta>('texto');
+  const [brushColor, setBrushColor] = useState('#000000');
+  const [brushSize, setBrushSize] = useState(3);
+  const [showDrawingCanvas, setShowDrawingCanvas] = useState(false);
+  const [showImage, setShowImage] = useState(false);
+  const [showPdfFondo, setShowPdfFondo] = useState(false);
+  const [paperStyle, setPaperStyle] = useState<PaperStyle>(() => {
+    try {
+      const parsed = JSON.parse(apunte.contenido || '{}');
+      return (parsed.paperConfig?.paperStyle as PaperStyle) || 'lined';
+    } catch {
+      return 'lined';
+    }
+  });
+  const [paperColor, setPaperColor] = useState<'white' | 'dark' | 'yellow'>(() => {
+    try {
+      const parsed = JSON.parse(apunte.contenido || '{}');
+      return parsed.paperConfig?.paperColor || 'white';
+    } catch {
+      return 'white';
+    }
+  });
+  const [paperSize, setPaperSize] = useState<string>(() => {
+    try {
+      const parsed = JSON.parse(apunte.contenido || '{}');
+      return parsed.paperConfig?.paperSize || 'normal';
+    } catch {
+      return 'normal';
+    }
+  });
+  const [scrollDirection, setScrollDirection] = useState<'vertical' | 'horizontal'>(() => {
+    try {
+      const parsed = JSON.parse(apunte.contenido || '{}');
+      return parsed.paperConfig?.scrollDirection || 'vertical';
+    } catch {
+      return 'vertical';
+    }
+  });
+  const [newBlockId, setNewBlockId] = useState<string | null>(null);
+  const [zoomState, setZoomState] = useState({ scale: 1, tx: 0, ty: 0 });
+  const [showPeterSauPeter, setShowPeterSauPeter] = useState(false);
+  const [peterImage, setPeterImage] = useState<{ base64: string; mime: string } | null>(null);
+
+  const paginasRef = useRef<Pagina[]>(paginas);
+  const zoomScaleRef = useRef(1); // Siempre 1 — el canvas maneja su propio zoom
+  const textRefs = useRef<{ [id: string]: HTMLDivElement | null }>({});
+  const htmlCache = useRef<{ [id: string]: string }>({});
+  const canvasExporters = useRef<{ [paginaId: string]: () => string | null }>({});
+  // ✅ NUEVO: exportadores de strokes JSON
+  const strokesExporters = useRef<{ [paginaId: string]: () => string | null }>({});
+  const canvasUndoRedo = useRef<{ [paginaId: string]: { undo: () => void; redo: () => void } }>({});
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const pageHistoryRef = useRef<string[]>([]);
+  const pageHistoryIndexRef = useRef(-1);
+  const isMobile = useIsMobile();
+  const isTabletTouch = typeof window !== 'undefined'
+    && navigator.maxTouchPoints > 0
+    && typeof window.matchMedia === 'function'
+    && !window.matchMedia('(any-pointer: fine)').matches;
+
+  // ✅ Actualizado con nuevas herramientas
+const isDrawing = [
+  'boligrafo',
+  'marcador',
+  'lapiz',
+  'borrador',
+  'borrador_trazo',
+  'regla',
+  'forma_rect',
+  'forma_circulo',
+  'forma_triangulo',
+].includes(herramienta);
+  const isSelecting = herramienta === 'seleccion' || herramienta === 'lasso';
+  const isDrawingMode = isDrawing || isSelecting;
+
+  const PAPER_SIZES: Record<string, { w: number; h: number }> = {
+    normal: { w: 816, h: 1056 },
+    a7: { w: 295, h: 420 },
+    a6: { w: 420, h: 595 },
+    a5: { w: 595, h: 842 },
+    a4: { w: 842, h: 1191 },
+    a3: { w: 1191, h: 1684 },
+    letter: { w: 816, h: 1056 },
+    tabloid: { w: 1056, h: 1632 },
+    board: { w: 1400, h: 1000 },
+  };
+
+  const selectedSize = PAPER_SIZES[paperSize] || PAPER_SIZES.normal;
+
+  // ✅ Tamaño real según el papel seleccionado
+const BASE_PAGE_WIDTH = isMobile ? 390 : selectedSize.w;
+const BASE_PAGE_HEIGHT = isMobile ? 600 : selectedSize.h;
+  const pageWidth = BASE_PAGE_WIDTH;
+  const pageHeight = BASE_PAGE_HEIGHT;
+
+  const pagesContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleScaleChange = useCallback((scale: number, tx: number, ty: number) => {
+    zoomScaleRef.current = scale;
+    // Aplicar transform directo al DOM sin setState — cero re-renders, zoom fluido
+    if (pagesContainerRef.current) {
+      if (scale === 1) {
+        pagesContainerRef.current.style.transform = 'none';
+      } else {
+        pagesContainerRef.current.style.transform =
+          `matrix(${scale},0,0,${scale},${tx},${ty})`;
+      }
+    }
+  }, []);
+
+  usePinchZoom(wrapperRef, handleScaleChange, {
+    enabled: true,
+    minScale: 1,
+    maxScale: 5,
+  });
+
+  const syncCache = useCallback(() => {
+    Object.keys(textRefs.current).forEach((id) => {
+      const el = textRefs.current[id];
+      if (el) htmlCache.current[id] = el.innerHTML;
+    });
+  }, []);
+
+  // ✅ ACTUALIZADO: guardar strokes JSON junto con canvasData
+  const getPaginasParaGuardar = useCallback(() => {
+    return paginasRef.current.map((pg) => ({
+      bloques: pg.bloques,
+      canvasData: canvasExporters.current[pg.id]?.() || pg.canvasData || null,
+      strokesData: strokesExporters.current[pg.id]?.() || pg.strokesData || null,
+      backgroundImage: pg.backgroundImage || undefined,
+      paperStyle: pg.paperStyle || undefined,
+      paperColor: pg.paperColor || undefined,
+      paperSize: pg.paperSize || undefined,
+    }));
+  }, []);
+
+  const construirContenidoParaComunidad = useCallback(() => {
+    try {
+      const paginasActuales = getPaginasParaGuardar();
+      const texto = (paginasActuales || [])
+        .flatMap((pg: any) =>
+          (pg?.bloques || []).map((b: any) => {
+            const html = typeof b?.html === 'string'
+              ? b.html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ')
+              : '';
+            return (b?.texto || b?.contenido || b?.text || html || '').toString().trim();
+          })
+        )
+        .filter(Boolean)
+        .join('\n\n');
+
+      // Asegurar que cada página tenga paperStyle y paperColor
+      const paginasConEstilo = paginasActuales.map((pg: any) => ({
+        ...pg,
+        paperStyle: pg.paperStyle || paperStyle,
+        paperColor: pg.paperColor || paperColor,
+        paperSize: pg.paperSize || paperSize,
+      }));
+
+      return {
+        texto,
+        contenido: JSON.stringify({
+          paginas: paginasConEstilo,
+          paperStyle,
+          paperColor,
+          paperSize,
+          paperConfig: { paperStyle, paperColor, paperSize },
+        }),
+      };
+    } catch {
+      return {
+        texto: '',
+        contenido: apunte.contenido || '',
+      };
+    }
+  }, [getPaginasParaGuardar, paperStyle, paperColor, paperSize, apunte.contenido]);
+
+  const guardarConConfig = useCallback((contenidoFinal: string) => {
+    try {
+      const parsed = JSON.parse(contenidoFinal);
+      onGuardar(JSON.stringify({
+        ...parsed,
+        paperConfig: {
+          paperStyle,
+          paperColor,
+          paperSize,
+        },
+      }));
+    } catch {
+      onGuardar(contenidoFinal);
+    }
+  }, [onGuardar, paperStyle, paperColor, paperSize]);
+
+  const { guardar, guardarAhora, triggerAutoSave, triggerCanvasAutoSave } = useGuardar({
+    getPaginas: getPaginasParaGuardar,
+    syncCache,
+    onGuardar: guardarConConfig,
+    setGuardando,
+    setGuardado,
+  });
+
+  const setPaginasSync = useCallback((updater: (prev: Pagina[]) => Pagina[]) => {
+    setPaginas((prev) => {
+      const next = updater(prev);
+      paginasRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const buildPageSnapshot = useCallback(() => {
+    return JSON.stringify({
+      paginas: paginasRef.current,
+      paperStyle,
+      paperColor,
+      paperSize,
+      scrollDirection,
+    });
+  }, [paperStyle, paperColor, paperSize, scrollDirection]);
+
+  const savePageSnapshot = useCallback(() => {
+    const snap = buildPageSnapshot();
+    pageHistoryRef.current = pageHistoryRef.current.slice(0, pageHistoryIndexRef.current + 1);
+    pageHistoryRef.current.push(snap);
+    if (pageHistoryRef.current.length > 80) pageHistoryRef.current.shift();
+    pageHistoryIndexRef.current = pageHistoryRef.current.length - 1;
+  }, [buildPageSnapshot]);
+
+  const restorePageSnapshot = useCallback((snap: string) => {
+    try {
+      const parsed = JSON.parse(snap);
+      if (Array.isArray(parsed.paginas)) {
+        setPaginas(parsed.paginas);
+        paginasRef.current = parsed.paginas;
+      }
+      if (parsed.paperStyle) setPaperStyle(parsed.paperStyle);
+      if (parsed.paperColor) setPaperColor(parsed.paperColor);
+      if (parsed.paperSize) setPaperSize(parsed.paperSize);
+      if (parsed.scrollDirection) setScrollDirection(parsed.scrollDirection);
+      triggerAutoSave();
+    } catch (err) {
+      console.error('Error restoring page snapshot:', err);
+    }
+  }, [triggerAutoSave]);
+
+  const undoPages = useCallback(() => {
+    if (pageHistoryIndexRef.current <= 0) return;
+    pageHistoryIndexRef.current--;
+    const snap = pageHistoryRef.current[pageHistoryIndexRef.current];
+    if (snap) restorePageSnapshot(snap);
+  }, [restorePageSnapshot]);
+
+  const redoPages = useCallback(() => {
+    if (pageHistoryIndexRef.current >= pageHistoryRef.current.length - 1) return;
+    pageHistoryIndexRef.current++;
+    const snap = pageHistoryRef.current[pageHistoryIndexRef.current];
+    if (snap) restorePageSnapshot(snap);
+  }, [restorePageSnapshot]);
+
+  useEffect(() => {
+    if (pageHistoryRef.current.length === 0) {
+      const initial = JSON.stringify({
+        paginas,
+        paperStyle,
+        paperColor,
+        paperSize,
+        scrollDirection,
+      });
+      pageHistoryRef.current = [initial];
+      pageHistoryIndexRef.current = 0;
+    }
+  });
+
+  const handleBloques = useCallback((paginaId: string, bloques: Bloque[]) => {
+    setPaginasSync((prev) => prev.map((pg) => pg.id === paginaId ? { ...pg, bloques } : pg));
+    triggerAutoSave();
+  }, [setPaginasSync, triggerAutoSave, savePageSnapshot]);
+
+  const handleEliminarBloque = useCallback((paginaId: string, bloqueId: string) => {
+    setPaginasSync((prev) => prev.map((pg) =>
+      pg.id === paginaId ? { ...pg, bloques: pg.bloques.filter((b) => b.id !== bloqueId) } : pg
+    ));
+    setNewBlockId(null);
+    triggerAutoSave();
+  }, [setPaginasSync, triggerAutoSave, savePageSnapshot]);
+
+  const handleAgregarPagina = useCallback((despuesDeIdx: number) => {
+    savePageSnapshot();
+    const nueva: Pagina = {
+      id: genId(),
+      bloques: [],
+      canvasData: null,
+      paperStyle,
+      paperColor,
+      paperSize,
+    };
+    setPaginasSync((prev) => {
+      const n = [...prev];
+      n.splice(despuesDeIdx + 1, 0, nueva);
+      return n;
+    });
+    triggerAutoSave();
+    setTimeout(() => {
+      const pages = document.querySelectorAll('.editor-area-principal');
+      const target = pages[despuesDeIdx + 1] as HTMLElement;
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+  }, [setPaginasSync, triggerAutoSave, paperStyle, paperColor, paperSize, savePageSnapshot]);
+
+  const handleInsertarPaginaAntes = useCallback((idx: number) => {
+    savePageSnapshot();
+    const nueva: Pagina = {
+      id: genId(),
+      bloques: [],
+      canvasData: null,
+      paperStyle,
+      paperColor,
+      paperSize,
+    };
+    setPaginasSync((prev) => {
+      const n = [...prev];
+      n.splice(idx, 0, nueva);
+      return n;
+    });
+    triggerAutoSave();
+    setTimeout(() => {
+      const pages = document.querySelectorAll('.editor-area-principal');
+      const target = pages[idx] as HTMLElement;
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+  }, [setPaginasSync, triggerAutoSave, paperStyle, paperColor, paperSize, savePageSnapshot]);
+
+  const handleDuplicarPagina = useCallback((paginaId: string, idx: number) => {
+    savePageSnapshot();
+    const pagina = paginasRef.current.find((p) => p.id === paginaId);
+    if (!pagina) return;
+
+    const cloneBloques = (pagina.bloques || []).map((b: any) => ({
+      ...JSON.parse(JSON.stringify(b)),
+      id: genId(),
+    }));
+
+    const nueva: Pagina = {
+      ...JSON.parse(JSON.stringify(pagina)),
+      id: genId(),
+      bloques: cloneBloques,
+    };
+
+    setPaginasSync((prev) => {
+      const n = [...prev];
+      n.splice(idx + 1, 0, nueva);
+      return n;
+    });
+    triggerAutoSave();
+  }, [setPaginasSync, triggerAutoSave, savePageSnapshot]);
+
+  const handleCambiarPlantillaPagina = useCallback((
+    paginaId: string,
+    data: { paperStyle?: PaperStyle; paperColor?: 'white' | 'dark' | 'yellow'; paperSize?: string }
+  ) => {
+    savePageSnapshot();
+    setPaginasSync((prev) =>
+      prev.map((pg) =>
+        pg.id === paginaId
+          ? {
+              ...pg,
+              paperStyle: data.paperStyle ?? pg.paperStyle ?? paperStyle,
+              paperColor: data.paperColor ?? pg.paperColor ?? paperColor,
+              paperSize: data.paperSize ?? pg.paperSize ?? paperSize,
+            }
+          : pg
+      )
+    );
+    triggerAutoSave();
+  }, [setPaginasSync, triggerAutoSave, paperStyle, paperColor, paperSize, savePageSnapshot]);
+
+  const handleIrAPagina = useCallback((n: number) => {
+    const nodes = document.querySelectorAll('.editor-area-principal');
+    const el = nodes[n - 1] as HTMLElement | undefined;
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, []);
+
+  const handleEliminarPagina = useCallback((paginaId: string) => {
+    if (paginasRef.current.length <= 1) return;
+    savePageSnapshot();
+    if (!confirm('¿Eliminar esta página?')) return;
+    setPaginasSync((prev) => prev.filter((pg) => pg.id !== paginaId));
+    delete canvasUndoRedo.current[paginaId];
+    delete canvasExporters.current[paginaId];
+    delete strokesExporters.current[paginaId];
+    triggerAutoSave();
+  }, [setPaginasSync, triggerAutoSave, savePageSnapshot]);
+
+  const handleClickEditor = useCallback((e: React.MouseEvent<HTMLDivElement>, paginaId: string) => {
+    // Solo en modo texto
+    if (herramienta !== 'texto') return;
+    if (isDrawingMode) return;
+
+    const target = e.target as HTMLElement;
+
+    // Si tocó un bloque existente, canvas, o botón, ignorar
+    if (
+      target.closest('[data-textblock]') ||
+      target.closest('[contenteditable="true"]') ||
+      target.closest('[data-image]') ||
+      target.closest('button') ||
+      target.closest('canvas') ||
+      target.closest('img')
+    ) return;
+
+    // Si hay un bloque nuevo pendiente, no crear otro
+    if (newBlockId) return;
+
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    // Con transform: scale() en el padre, getBoundingClientRect ya incluye el scale
+    // Así que NO dividimos por scale — las coordenadas son directas al espacio de la página
+    const scale = zoomState.scale || 1;
+    let x = (e.clientX - rect.left) / scale;
+    let y = (e.clientY - rect.top) / scale;
+
+    const MARGIN = 10;
+    const TEXT_WIDTH = isMobile ? 260 : 320;
+    const pageW = BASE_PAGE_WIDTH;
+    const pageH = BASE_PAGE_HEIGHT;
+
+    x = Math.max(MARGIN, Math.min(x, pageW - TEXT_WIDTH - MARGIN));
+    y = Math.max(MARGIN, Math.min(y, pageH - 40));
+
+    // No crear encima de un bloque existente
+    const paginaActual = paginasRef.current.find(pg => pg.id === paginaId);
+    const overlap = paginaActual?.bloques.some(b => {
+      if (b.tipo !== 'texto') return false;
+      const bw = b.width ?? TEXT_WIDTH;
+      const approxH = 50;
+      return x >= b.x - 4 && x <= b.x + bw + 4 && y >= b.y - 4 && y <= b.y + approxH;
+    });
+    if (overlap) return;
+
+    const id = genId();
+    setPaginasSync(prev => prev.map(pg =>
+      pg.id === paginaId
+        ? { ...pg, bloques: [...pg.bloques, { id, tipo: 'texto' as const, html: '', x: Math.round(x), y: Math.round(y), width: TEXT_WIDTH }] }
+        : pg
+    ));
+    setNewBlockId(id);
+    triggerAutoSave();
+  }, [herramienta, isDrawingMode, newBlockId, triggerAutoSave, setPaginasSync, isMobile, BASE_PAGE_WIDTH, BASE_PAGE_HEIGHT]);
+
+  const handleTextInsert = useCallback((text: string, canvasY: number, paginaId: string) => {
+  if (!text.trim()) return;
+  const htmlContent = text.split('\n').filter((l) => l.trim()).map((l) => `<p>${l}</p>`).join('');
+  const id = genId();
+
+  const MARGIN = 20;
+  const pageW = isMobile ? 390 : 816;
+  const TEXT_WIDTH = isMobile ? 300 : 500;
+
+  // ✅ Clampar posición
+  const x = Math.max(MARGIN, Math.min(80, pageW - TEXT_WIDTH - MARGIN));
+  const y = Math.max(MARGIN, Math.min(canvasY / zoomState.scale, (isMobile ? 600 : 1056) - 60));
+
+  setPaginasSync((prev) => prev.map((pg) =>
+    pg.id === paginaId
+      ? { ...pg, bloques: [...pg.bloques, { id, tipo: 'texto' as const, html: htmlContent, x, y, width: TEXT_WIDTH }] }
+      : pg
+  ));
+  triggerAutoSave();
+}, [setPaginasSync, triggerAutoSave, zoomState.scale, isMobile]);
+
+  const addImagen = useCallback((src: string, label?: string) => {
+    const paginaId = paginasRef.current[paginasRef.current.length - 1].id;
+    setPaginasSync((prev) => prev.map((pg) =>
+      pg.id === paginaId
+        ? { ...pg, bloques: [...pg.bloques, { id: genId(), tipo: 'imagen' as const, src, width: isMobile ? 280 : 400, x: 100, y: 100, label, align: 'center' as const, floating: false, zIndex: 2 }] }
+        : pg
+    ));
+    triggerAutoSave();
+    setShowImage(false);
+    setShowDrawingCanvas(false);
+  }, [setPaginasSync, triggerAutoSave, isMobile]);
+
+  const handleInsertPdfFondo = useCallback((pages: string[]) => {
+    setPaginasSync((prev) => {
+      const updated = [...prev];
+      pages.forEach((pageDataUrl, idx) => {
+        if (idx === 0 && updated.length > 0) {
+          const lastIdx = updated.length - 1;
+          updated[lastIdx] = { ...updated[lastIdx], backgroundImage: pageDataUrl };
+        } else {
+          updated.push({ id: genId(), bloques: [], canvasData: null, backgroundImage: pageDataUrl });
+        }
+      });
+      return updated;
+    });
+    setShowPdfFondo(false);
+    setTimeout(() => guardarAhora(), 0);
+  }, [setPaginasSync, guardarAhora]);
+
+  const exec = (cmd: string, val?: string) => { document.execCommand(cmd, false, val); triggerAutoSave(); };
+  const insertHtml = (html: string) => { document.execCommand('insertHTML', false, html); triggerAutoSave(); };
+  const handleHerramienta = (h: Herramienta) => { syncCache(); setHerramienta(h); };
+  const todosLosBloques = paginas.flatMap((pg) => pg.bloques);
+
+  return (
+    <>
+      {/* MODALS */}
+      <SilentErrorBoundary>
+      <SilentErrorBoundary>
+      {showPeterSauPeter && peterImage && (
+        <PeterSauPeter
+          imageBase64={peterImage.base64}
+          imageMime={peterImage.mime}
+          temaColor={tema.color}
+          onClose={() => { setShowPeterSauPeter(false); setPeterImage(null); }}
+          onInsertarSolucion={(html) => insertHtml(html)}
+        />
+      )}
+      {showDrawingCanvas && <DrawingCanvas color={tema.color} onSave={(d) => addImagen(d, '🎨 Dibujo')} onClose={() => setShowDrawingCanvas(false)} />}
+      {showImage && <ImageInserter color={tema.color} onInsert={(src) => addImagen(src)} onClose={() => setShowImage(false)} />}
+      {showPdfFondo && <PdfBackgroundInserter temaColor={tema.color} onInsert={handleInsertPdfFondo} onClose={() => setShowPdfFondo(false)} />}
+      </SilentErrorBoundary>
+      </SilentErrorBoundary>
+
+      {/* FULLSCREEN EDITOR */}
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 50,
+        background: '#111118',
+        display: 'flex', flexDirection: 'column',
+        fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+      }}>
+
+        {showPublicarComunidad && (
+          <PublicarComunidad
+            tipo="apunte"
+            titulo={apunte.titulo}
+            descripcionInicial={`${materia.nombre} / ${tema.nombre}`}
+            contenido={construirContenidoParaComunidad()}
+            materiaColor={materia.color}
+            materiaEmoji={materia.emoji}
+            materiaNombre={materia.nombre}
+            onClose={() => setShowPublicarComunidad(false)}
+            onPublicado={() => setShowPublicarComunidad(false)}
+          />
+        )}
+
+        {/* ═══ TOP BAR ═══ */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: isMobile ? '6px 10px' : '6px 16px',
+          background: 'rgba(17,17,24,0.95)',
+          backdropFilter: 'blur(16px)',
+          borderBottom: '1px solid rgba(255,255,255,0.05)',
+          flexShrink: 0, height: isMobile ? '40px' : '44px', zIndex: 60,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+            <button onClick={onBackTema} style={{
+              width: '32px', height: '32px', borderRadius: '8px',
+              background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)',
+              color: 'var(--gold)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '14px', flexShrink: 0,
+            }}>←</button>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <h1 style={{ fontSize: isMobile ? '13px' : '14px', fontWeight: 800, color: '#fff', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {apunte.titulo}
+              </h1>
+              {!isMobile && (
+                <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)', margin: 0 }}>
+                  {materia.emoji} {materia.nombre} / {tema.nombre}
+                </p>
+              )}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+            <button
+              onClick={() => setScrollDirection(prev => prev === 'vertical' ? 'horizontal' : 'vertical')}
+              title={scrollDirection === 'vertical' ? 'Cambiar a horizontal' : 'Cambiar a vertical'}
+              style={{
+                padding: '6px 10px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'rgba(255,255,255,0.05)',
+                color: scrollDirection === 'vertical' ? 'var(--gold)' : '#38bdf8',
+                fontSize: '12px',
+                fontWeight: 800,
+                cursor: 'pointer',
+              }}
+            >
+              {scrollDirection === 'vertical' ? '↕ Vertical' : '↔ Horizontal'}
+            </button>
+<div style={{
+              padding: '3px 8px', borderRadius: '6px',
+              background: guardando ? 'color-mix(in srgb, var(--gold) 12%, transparent)' : guardado ? 'rgba(34,197,94,0.1)' : 'color-mix(in srgb, var(--gold) 12%, transparent)',
+              display: 'flex', alignItems: 'center', gap: '4px',
+            }}>
+              {guardando
+                ? <div style={{ width: 6, height: 6, border: '1.5px solid var(--gold)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
+                : <div style={{ width: 5, height: 5, borderRadius: '50%', background: guardado ? '#22c55e' : 'var(--gold)' }} />
+              }
+              <span style={{ fontSize: '10px', color: guardando ? 'var(--gold)' : guardado ? '#22c55e' : 'var(--gold)', fontWeight: 600 }}>
+                {guardando ? '...' : guardado ? '✓' : '●'}
+              </span>
+            </div>
+            <button
+              onClick={undoPages}
+              title="Undo páginas"
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'rgba(255,255,255,0.05)',
+                color: 'var(--gold)',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: 800,
+              }}
+            >
+              ↶
+            </button>
+            <button
+              onClick={redoPages}
+              title="Redo páginas"
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'rgba(255,255,255,0.05)',
+                color: '#38bdf8',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: 800,
+              }}
+            >
+              ↷
+            </button>
+            {/* Acciones derecha */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                onClick={() => setShowPublicarComunidad(true)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '10px',
+                  border: '1px solid #34d39955',
+                  background: 'rgba(52,211,153,0.12)',
+                  color: '#34d399',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                🌍 Publicar
+              </button>
+              <ExportMenu bloques={todosLosBloques} paginas={paginas} titulo={apunte.titulo} temaColor={tema.color} paperColor={paperColor} textRefs={textRefs} htmlCache={htmlCache} canvasExporters={canvasExporters} />
+            </div>
+            <button onClick={guardar} style={{
+              padding: isMobile ? '6px 10px' : '6px 14px', borderRadius: '8px', border: 'none',
+              background: 'var(--gold)', color: '#000', fontSize: '11px', fontWeight: 800, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '4px',
+            }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/></svg>
+              {!isMobile && 'Save'}
+            </button>
+          </div>
+        </div>
+
+        {/* ═══ PAGE AREA ═══ */}
+        <div ref={wrapperRef} style={{
+          flex: 1,
+          overflow: 'auto',
+          display: 'flex',
+          justifyContent: scrollDirection === 'horizontal' ? 'flex-start' : 'center',
+          touchAction: 'pan-x pan-y',
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          paddingBottom: isMobile ? '70px' : '80px',
+        }}>
+          <div ref={pagesContainerRef} style={{
+            transform: 'none',
+            transformOrigin: '0 0',
+            willChange: 'transform',
+            display: 'flex',
+            flexDirection: scrollDirection === 'horizontal' ? 'row' : 'column',
+            alignItems: scrollDirection === 'horizontal' ? 'flex-start' : 'center',
+            gap: scrollDirection === 'horizontal' ? (isMobile ? '12px' : '24px') : '0px',
+            padding: scrollDirection === 'horizontal' ? (isMobile ? '8px' : '16px') : '0px',
+          }}>
+            {paginas.map((pagina, idx) => (
+              <PaginaEditor
+                key={pagina.id}
+                pagina={pagina}
+                paginaIdx={idx}
+                totalPaginas={paginas.length}
+                temaColor={tema.color}
+                paperStyle={paperStyle}
+                paperColor={paperColor}
+                herramienta={herramienta}
+                brushColor={brushColor}
+                brushSize={brushSize}
+                isDrawingMode={isDrawingMode}
+                isDrawing={isDrawing}
+                isSelecting={isSelecting}
+                newBlockId={newBlockId}
+                isMobile={isMobile}
+                pageWidth={pageWidth}
+                pageHeight={pageHeight}
+                externalScale={zoomScaleRef}
+                textRefs={textRefs}
+                htmlCache={htmlCache}
+                onBloques={handleBloques}
+                onCanvasChange={triggerCanvasAutoSave}
+                onEliminarBloque={handleEliminarBloque}
+                onFinishNew={() => setNewBlockId(null)}
+                onEliminarPagina={handleEliminarPagina}
+                onAgregarPagina={handleAgregarPagina}
+                onInsertarPaginaAntes={handleInsertarPaginaAntes}
+                onDuplicarPagina={handleDuplicarPagina}
+                onCambiarPlantillaPagina={handleCambiarPlantillaPagina}
+                onIrAPagina={handleIrAPagina}
+                onClickEditor={handleClickEditor}
+                onTextInsert={handleTextInsert}
+                registerCanvasExport={(paginaId, fn) => { canvasExporters.current[paginaId] = fn; }}
+                registerStrokesExport={(paginaId, fn) => { strokesExporters.current[paginaId] = fn; }}
+                registerUndoRedo={(paginaId, undo, redo) => { canvasUndoRedo.current[paginaId] = { undo, redo }; }}
+                onPeterSauPeter={(b64, mime) => {
+                  setPeterImage({ base64: b64, mime });
+                  setShowPeterSauPeter(true);
+                }}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* ═══ FLOATING TOOLBAR ═══ */}
+        <div style={{
+          position: 'fixed',
+          bottom: isMobile ? '10px' : '16px',
+          left: '50%', transform: 'translateX(-50%)',
+          zIndex: 100,
+          width: isMobile ? 'calc(100vw - 16px)' : 'auto',
+          maxWidth: '700px',
+        }}>
+          <div style={{
+            borderRadius: '16px',
+            boxShadow: '0 8px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05)',
+            overflow: 'hidden',
+          }}>
+            <Toolbar
+              temaColor={tema.color}
+              herramientaActiva={herramienta}
+              onHerramienta={handleHerramienta}
+              brushColor={brushColor}
+              onBrushColor={setBrushColor}
+              brushSize={brushSize}
+              onBrushSize={setBrushSize}
+              onExecCmd={exec}
+              onInsertHtml={insertHtml}
+              onInsertImagen={() => { syncCache(); setShowImage(true); }}
+              onInsertDibujo={() => { syncCache(); setShowDrawingCanvas(true); }}
+              onInsertPdfFondo={() => { syncCache(); setShowPdfFondo(true); }}
+              onUndo={() => Object.values(canvasUndoRedo.current).forEach(({ undo }) => { try { undo(); } catch {} })}
+              onRedo={() => Object.values(canvasUndoRedo.current).forEach(({ redo }) => { try { redo(); } catch {} })}
+            />
+          </div>
+        </div>
+      </div>
+
+      <style>{`
+        .ebloque { outline: none; }
+        .ebloque:empty:before { content: ''; }
+        .ebloque h1 { font-size: ${isMobile ? '22px' : '28px'}; font-weight: 900; color: ${tema.color}; margin: 0; }
+        .ebloque h2 { font-size: ${isMobile ? '18px' : '22px'}; font-weight: 800; color: #111827; margin: 0; }
+        .ebloque h3 { font-size: ${isMobile ? '15px' : '17px'}; font-weight: 700; color: #1f2937; margin: 0; }
+        .ebloque p { color: #1f2937; font-size: ${isMobile ? '15px' : '16px'}; margin: 0; }
+        .ebloque ul { list-style-type: disc; padding-left: 20px; margin: 0; }
+        .ebloque ol { list-style-type: decimal; padding-left: 20px; margin: 0; }
+        .ebloque li { color: #1f2937 !important; }
+        .ebloque li::marker { color: ${tema.color}; font-weight: 700; }
+        .ebloque b, .ebloque strong { color: #111827; font-weight: 800; }
+        .ebloque i, .ebloque em { color: #374151; }
+        .ebloque u { text-decoration-color: ${tema.color}; }
+        .ebloque s { color: #9ca3af; }
+        .ebloque blockquote { border-left: 3px solid ${tema.color}; padding: 4px 12px; margin: 4px 0; color: #6b7280; font-style: italic; background: ${tema.color}08; }
+        .ebloque a { color: #2563eb; text-decoration: underline; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .editor-area-principal { -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; }
+        .editor-area-principal [contenteditable="true"] { -webkit-user-select: text !important; user-select: text !important; }
+        * { -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; } canvas, [data-textblock] * { -webkit-user-select: text; user-select: text; }
+      `}</style>
+    </>
+  );
+}

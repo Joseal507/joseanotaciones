@@ -1,0 +1,11 @@
+cat > next.config.js << 'EOF'
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  webpack: (config) => {
+    config.resolve.alias['pdfjs-dist'] = false;
+    return config;
+  },
+};
+
+module.exports = nextConfig;
+EOF
