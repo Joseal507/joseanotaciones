@@ -177,82 +177,52 @@ export default function FlashcardsPDFViewer({
     }
   }, [onSelectionMenu]);
 
-  const scrollToPage = useCallback(
-    (targetPage: number, behavior: ScrollBehavior = 'smooth') => {
-      const pageEl = pageRefs.current[targetPage];
-      const scrollEl = scrollRef.current;
-
-      if (!pageEl || !scrollEl) return false;
-
-      programmaticScrollRef.current = true;
-
-      const pageRect = pageEl.getBoundingClientRect();
-      const scrollRect = scrollEl.getBoundingClientRect();
-      const diff = pageRect.top - scrollRect.top;
-      const newScrollTop = scrollEl.scrollTop + diff;
-
-      scrollEl.scrollTo({
-        top: Math.max(0, newScrollTop),
-        behavior,
-      });
-
-      window.setTimeout(() => {
-        programmaticScrollRef.current = false;
-      }, 700);
-
-      return true;
-    },
-    []
-  );
-
   const changePage = useCallback(
-    (newPage: number, behavior: ScrollBehavior = 'smooth') => {
+    (newPage: number) => {
       if (!pages.includes(newPage)) return;
 
       onSelectionMenu?.(null);
       setCurrentPage(newPage);
-      scrollToPage(newPage, behavior);
+
+      const pageEl = pageRefs.current[newPage];
+      const scrollEl = scrollRef.current;
+      if (pageEl && scrollEl) {
+        const pageRect = pageEl.getBoundingClientRect();
+        const scrollRect = scrollEl.getBoundingClientRect();
+        const diff = pageRect.top - scrollRect.top;
+        const newScrollTop = scrollEl.scrollTop + diff;
+        scrollEl.scrollTo({
+          top: Math.max(0, newScrollTop),
+          behavior: 'smooth',
+        });
+      }
     },
-    [pages, onSelectionMenu, scrollToPage]
+    [pages, onSelectionMenu]
   );
 
-  // ── Scroll robusto a forcedPage cuando cambia la pregunta/material ──
+  // ── Scroll a forcedPage cuando cambia (cambio de material) ──
   useEffect(() => {
-    if (
-      typeof forcedPage !== 'number' ||
-      !Number.isFinite(forcedPage) ||
-      forcedPage <= 0
-    ) return;
-
+    if (typeof forcedPage !== 'number' || forcedPage <= 0) return;
     if (!pages.includes(forcedPage)) return;
 
-    setCurrentPage(prev => (prev === forcedPage ? prev : forcedPage));
-
-    let cancelled = false;
-    let attempts = 0;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const tryScroll = () => {
-      if (cancelled) return;
-      attempts += 1;
-
-      const ok = scrollToPage(
-        forcedPage,
-        attempts === 1 ? 'auto' : 'smooth'
-      );
-
-      if (!ok && attempts < 20) {
-        timer = setTimeout(tryScroll, 120);
+    const timer = setTimeout(() => {
+      programmaticScrollRef.current = true;
+      const pageEl = pageRefs.current[forcedPage];
+      const scrollEl = scrollRef.current;
+      if (pageEl && scrollEl) {
+        const pageRect = pageEl.getBoundingClientRect();
+        const scrollRect = scrollEl.getBoundingClientRect();
+        const diff = pageRect.top - scrollRect.top;
+        scrollEl.scrollTo({
+          top: Math.max(0, scrollEl.scrollTop + diff),
+          behavior: 'smooth',
+        });
       }
-    };
+      setTimeout(() => { programmaticScrollRef.current = false; }, 800);
+    }, 300);
 
-    timer = setTimeout(tryScroll, 60);
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [forcedPage, pages, numPages, url, scrollToPage]);
+    return () => clearTimeout(timer);
+  }, [forcedPage, pages]);
 
   // ── Detectar qué página está visible al scrollear (scroll event, sin glitches) ──
   useEffect(() => {
@@ -284,12 +254,7 @@ export default function FlashcardsPDFViewer({
         }
 
         if (bestPage > 0) {
-          setCurrentPage(
-            prev =>
-              prev===bestPage
-                ? prev
-                : bestPage
-          );
+          setCurrentPage(prev => prev === bestPage ? prev : bestPage);
         }
       });
     };

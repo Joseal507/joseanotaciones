@@ -257,14 +257,9 @@ export default function QuizPage({
   const [isEvaluating, setIsEvaluating] = useState(false);
 
   // ── PDF multi-material ────────────────────────────────────
-  const [pdfUrl, setPdfUrl]         = useState<string | null>(null);
-  const [pdfLoading, setPdfLoading] = useState(true);
-  const [numPages, setNumPages]     = useState(0);
+  const [pdfUrl, setPdfUrl]                   = useState<string | null>(null);
+  const [numPages, setNumPages]               = useState(0);
   const [activeMaterialIndex, setActiveMaterialIndex] = useState(0);
-
-  const activeMaterial = materiales?.[activeMaterialIndex] || null;
-
-
 
   // ── Timer visible ──────────────────────────────────────────
   const [elapsed, setElapsed] = useState(0);
@@ -281,46 +276,46 @@ export default function QuizPage({
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [quizState, quizStartTime]);
 
-  // ── Carga de PDF — con materialId estable como dependencia ──
+  // ── Carga de PDF — igual que FlashcardsPage, reactivo al material activo ──
   const matActual = materiales?.[activeMaterialIndex] ?? materiales?.[0];
-  const matActualId = matActual?.materialId || matActual?.id || null;
 
   useEffect(() => {
-    if (!matActualId) {
-      setPdfUrl(null);
-      setPdfLoading(false);
-      return;
-    }
-
     let cancelled = false;
-    setPdfLoading(true);
+    let objectUrl = '';
     setPdfUrl(null);
 
     const loadUrl = async () => {
-      try {
-        const session = (await supabase.auth.getSession()).data.session;
-        const res = await fetch(`/api/materials/${matActualId}/download-url`, {
-          headers: session ? { Authorization: `Bearer ${session.access_token}` } : {},
-        });
-        const data = await res.json();
-        if (!cancelled && data?.url) {
-          setPdfUrl(data.url);
-        } else if (!cancelled) {
-          setPdfUrl(null);
-        }
-      } catch (e) {
-        console.error('[Quiz] Error cargando PDF:', e);
-        if (!cancelled) setPdfUrl(null);
-      } finally {
-        if (!cancelled) setPdfLoading(false);
+      if (!matActual) return;
+      // URL directa
+      if (matActual.url && typeof matActual.url === 'string' && matActual.url.startsWith('http')) {
+        if (!cancelled) setPdfUrl(matActual.url);
+        return;
+      }
+      // Blob local
+      if (matActual.archivo instanceof File) {
+        objectUrl = URL.createObjectURL(matActual.archivo);
+        if (!cancelled) setPdfUrl(objectUrl);
+        return;
+      }
+      // Descargar desde R2
+      const matId = matActual.materialId || matActual.id;
+      if (matId) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const res = await fetch(`/api/materials/${matId}/download-url`, {
+            headers: session ? { Authorization: `Bearer ${session.access_token}` } : {},
+          });
+          const data = await res.json();
+          if (!cancelled && data?.url) setPdfUrl(data.url);
+        } catch (e) { console.error('Error cargando PDF:', e); }
       }
     };
-
     loadUrl();
-    return () => { cancelled = true; };
-  // Usar el ID string como dependencia — no el objeto (que cambia en cada render)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matActualId]);
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [matActual]);
 
   // ── Helpers de selección (igual que FlashcardsPage) ──────
   const getSelectionPages = useCallback((item: any): number[] => {
@@ -372,84 +367,6 @@ export default function QuizPage({
     const sel = findSelectionForMaterial(matActual, activeMaterialIndex);
     return sel ? getSelectionPages(sel) ?? [] : [];
   }, [seleccion, matActual, activeMaterialIndex, findSelectionForMaterial, getSelectionPages]);
-
-
-  const totalSelectedPages = useMemo(
-    () =>
-      seleccion?.length
-        ? seleccion.reduce(
-            (acc: number, item: any) => acc + getSelectionPages(item).length,
-            0
-          )
-        : activeMaterialSelectedPages.length,
-    [seleccion, activeMaterialSelectedPages.length, getSelectionPages]
-  );
-
-
-  const selectionSequence = useMemo(() => {
-    const seq: { materialIndex: number; page: number }[] = [];
-
-    for (let i = 0; i < materiales.length; i++) {
-      const sel = findSelectionForMaterial(materiales[i], i);
-      const pages = getSelectionPages(sel);
-
-      for (const page of pages) {
-        seq.push({ materialIndex: i, page });
-      }
-    }
-
-    return seq;
-  }, [materiales, findSelectionForMaterial, getSelectionPages]);
-
-  const [globalSelectedCursor, setGlobalSelectedCursor] = useState(0);
-  const globalSelectedCursorRef = useRef(0);
-
-  useEffect(() => {
-    globalSelectedCursorRef.current = globalSelectedCursor;
-  }, [globalSelectedCursor]);
-
-  useEffect(() => {
-    if (!selectionSequence.length) {
-      if (globalSelectedCursor !== 0) setGlobalSelectedCursor(0);
-    } else {
-      if (globalSelectedCursor < 0 || globalSelectedCursor >= selectionSequence.length) {
-        setGlobalSelectedCursor(0);
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectionSequence.length]);
-
-  useEffect(() => {
-    if (!selectionSequence.length) return;
-    const entry = selectionSequence[globalSelectedCursor];
-    if (entry && entry.materialIndex !== activeMaterialIndex) {
-      setActiveMaterialIndex(entry.materialIndex);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectionSequence.length, globalSelectedCursor]);
-
-  const currentGlobalEntry = selectionSequence[globalSelectedCursor] || null;
-
-
-  const goToGlobalSelection = useCallback((nextIndex: number) => {
-    if (!selectionSequence.length) return;
-
-    const safeIndex = Math.max(
-      0,
-      Math.min(selectionSequence.length - 1, nextIndex)
-    );
-
-    setGlobalSelectedCursor(safeIndex);
-    globalSelectedCursorRef.current = safeIndex;
-  }, [selectionSequence]);
-
-  const goToNext = useCallback(() => {
-    goToGlobalSelection(globalSelectedCursorRef.current + 1);
-  }, [goToGlobalSelection]);
-
-  const goToPrev = useCallback(() => {
-    goToGlobalSelection(globalSelectedCursorRef.current - 1);
-  }, [goToGlobalSelection]);
 
   // ── Filtrar texto por páginas (igual que FlashcardsPage) ──
   const filterTextByPages = useCallback((fullText: string, pages: number[]): string => {
@@ -877,68 +794,14 @@ texto.slice(0,8000)
   const liveIncorrect = history.filter(h => !h.correct).length;
   const currentQ      = questions[currentIndex];
 
-
-  useEffect(() => {
-    if (!currentQ) return;
-
-    const matIndex = materiales.findIndex((m: any) =>
-      (m.materialId || m.id) === currentQ.sourceMaterial ||
-      (m.nombre || m.name) === currentQ.sourceMaterialName
-    );
-
-    const targetMaterialIndex = matIndex >= 0 ? matIndex : activeMaterialIndex;
-    const targetPage = Number(currentQ.sourcePage || 0);
-
-    if (matIndex >= 0 && matIndex !== activeMaterialIndex) {
-      setActiveMaterialIndex(matIndex);
-    }
-
-    if (targetPage > 0 && selectionSequence.length > 0) {
-      const targetGlobalIndex = selectionSequence.findIndex(
-        (entry) =>
-          entry.materialIndex === targetMaterialIndex &&
-          entry.page === targetPage
-      );
-
-      if (
-        targetGlobalIndex >= 0 &&
-        targetGlobalIndex !== globalSelectedCursorRef.current
-      ) {
-        setGlobalSelectedCursor(targetGlobalIndex);
-        globalSelectedCursorRef.current = targetGlobalIndex;
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIndex]);
-
-
-
   // Cuando la pregunta cambia de material, cambiar el PDF activo
   useEffect(() => {
     if (!currentQ?.sourceMaterial) return;
-    const matIndex = materiales.findIndex((m: any) =>
+    const idx = materiales.findIndex((m: any) =>
       (m.materialId || m.id) === currentQ.sourceMaterial
     );
-    if (matIndex >= 0 && matIndex !== activeMaterialIndex) {
-      setActiveMaterialIndex(matIndex);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQ?.sourceMaterial]);
-
-  const quizPdfSelectedPages = useMemo(() => {
-    const base = Array.isArray(activeMaterialSelectedPages)
-      ? activeMaterialSelectedPages
-      : [];
-
-    const srcPage = Number(currentQ?.sourcePage || 0);
-
-    return Array.from(
-      new Set([
-        ...base.map(Number).filter(n => Number.isFinite(n) && n > 0),
-        ...(srcPage > 0 ? [srcPage] : []),
-      ])
-    ).sort((a, b) => a - b);
-  }, [activeMaterialSelectedPages, currentQ?.sourcePage]);
+    if (idx >= 0 && idx !== activeMaterialIndex) setActiveMaterialIndex(idx);
+  }, [currentQ?.sourceMaterial, materiales, activeMaterialIndex]);
 
   const isLastQ       = currentIndex === questions.length - 1;
   const mot           = getMotivational(stats.pct);
@@ -1099,74 +962,78 @@ texto.slice(0,8000)
           }}
         />
 
-        {/* PDF lado izquierdo — igual que FlashcardsPage */}
-        {quizState === 'playing' && (
-          <div style={{
-            flex: '0 0 50%',
-            borderRight: '1px solid rgba(255,255,255,0.06)',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            background: '#000',
-          }}>
-            {pdfLoading ? (
-              <div style={{
-                flex: 1,
+        {/* PDF lado izquierdo — multi-material igual que FlashcardsPage */}
+        <AnimatePresence>
+          {quizState === 'playing' && pdfUrl && (
+            <motion.div
+              key="pdf"
+              initial={{ x: -280, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: -280, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 160, damping: 22 }}
+              style={{
+                flex: '0 0 42%',
+                maxWidth: 620,
+                borderRight: '1px solid rgba(255,255,255,0.06)',
+                background: '#000',
+                overflow: 'hidden',
+                position: 'relative',
+                zIndex: 2,
                 display: 'flex',
                 flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 12,
-                color: '#555',
-              }}>
+              }}
+            >
+              {/* Selector de material si hay más de uno */}
+              {materiales.length > 1 && (
                 <div style={{
-                  width: 32,
-                  height: 32,
-                  border: `3px solid ${themeColor}33`,
-                  borderTop: `3px solid ${themeColor}`,
-                  borderRadius: '50%',
-                  animation: 'spin 0.8s linear infinite',
-                }} />
-                <div style={{ fontSize: 14, fontFamily: BODY, fontStyle: 'italic' }}>
-                  Cargando PDF...
+                  display: 'flex',
+                  gap: 6,
+                  padding: '8px 12px',
+                  background: 'rgba(0,0,0,0.6)',
+                  borderBottom: '1px solid rgba(255,255,255,0.08)',
+                  flexWrap: 'wrap',
+                }}>
+                  {materiales.map((mat: any, idx: number) => (
+                    <button
+                      key={mat.materialId || mat.id || idx}
+                      onClick={() => setActiveMaterialIndex(idx)}
+                      style={{
+                        padding: '4px 12px',
+                        borderRadius: 8,
+                        border: `1.5px solid ${activeMaterialIndex === idx ? themeColor : 'rgba(255,255,255,0.15)'}`,
+                        background: activeMaterialIndex === idx ? `${themeColor}22` : 'transparent',
+                        color: activeMaterialIndex === idx ? themeColor : '#888',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        fontFamily: "'Inter', sans-serif",
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        maxWidth: 160,
+                      }}
+                    >
+                      {idx + 1}. {mat.nombre || mat.name || `Material ${idx + 1}`}
+                    </button>
+                  ))}
                 </div>
+              )}
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                <PDFViewer
+                  key={`${activeMaterialIndex}-${pdfUrl}`}
+                  url={pdfUrl}
+                  themeColor={themeColor}
+                  selectedPages={activeMaterialSelectedPages}
+                  onTotalPages={setNumPages}
+                  activeMaterialIndex={activeMaterialIndex}
+                  forcedPage={currentQ?.sourcePage}
+                />
               </div>
-            ) : pdfUrl ? (
-              <PDFViewer
-                key={`${activeMaterialIndex}-${matActual?.materialId || matActual?.id || 'material'}-${pdfUrl || ''}`}
-                url={pdfUrl}
-                selectedPages={quizPdfSelectedPages}
-                themeColor={themeColor}
-                onTotalPages={setNumPages}
-                totalSelectedPages={totalSelectedPages}
-                activeMaterialIndex={activeMaterialIndex}
-                materialesCount={materiales.length}
-                forcedPage={currentQ?.sourcePage || currentGlobalEntry?.page || undefined}
-                globalSelectedIndex={selectionSequence.length > 0 ? globalSelectedCursor : undefined}
-                globalSelectedTotal={selectionSequence.length > 0 ? totalSelectedPages : undefined}
-                onRequestPrev={selectionSequence.length > 0 ? goToPrev : undefined}
-                onRequestNext={selectionSequence.length > 0 ? goToNext : undefined}
-              />
-            ) : (
-              <div style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 12,
-                color: '#555',
-              }}>
-                <div style={{ fontSize: 36 }}>📄</div>
-                <div style={{ fontSize: 14, fontFamily: BODY, fontStyle: 'italic' }}>
-                  No se pudo cargar el material
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-{/* Panel derecho */}
+        {/* Panel derecho */}
         <div
           style={{
             flex: 1,
@@ -2011,14 +1878,7 @@ function FeedbackBox({
 
       <div>
         <strong>Tu respuesta:</strong>{' '}
-        {question.type === 'matching'
-          ? (question.pairs || []).map((p: any, i: number) => {
-              const chosen = (question.pairs || [])[userAnswer?.[i]]?.right || 'sin conectar';
-              return `${p.left} → ${chosen}`;
-            }).join(' | ')
-          : Array.isArray(userAnswer)
-          ? userAnswer.map((i: number) => `${String.fromCharCode(65 + i)}. ${question.options?.[i] ?? i}`).join(', ')
-          : String(userAnswer ?? '')}
+        {String(userAnswer ?? '')}
       </div>
 
       {evaluation?.respuestaCorrecta && (

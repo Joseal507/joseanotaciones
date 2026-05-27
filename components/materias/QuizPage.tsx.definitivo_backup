@@ -281,46 +281,52 @@ export default function QuizPage({
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [quizState, quizStartTime]);
 
-  // ── Carga de PDF — con materialId estable como dependencia ──
+  // ── Carga de PDF — exactamente igual a FlashcardsPage ───
   const matActual = materiales?.[activeMaterialIndex] ?? materiales?.[0];
-  const matActualId = matActual?.materialId || matActual?.id || null;
 
   useEffect(() => {
-    if (!matActualId) {
-      setPdfUrl(null);
-      setPdfLoading(false);
-      return;
-    }
-
     let cancelled = false;
+    let objectUrl = '';
     setPdfLoading(true);
     setPdfUrl(null);
 
     const loadUrl = async () => {
-      try {
-        const session = (await supabase.auth.getSession()).data.session;
-        const res = await fetch(`/api/materials/${matActualId}/download-url`, {
-          headers: session ? { Authorization: `Bearer ${session.access_token}` } : {},
-        });
-        const data = await res.json();
-        if (!cancelled && data?.url) {
-          setPdfUrl(data.url);
-        } else if (!cancelled) {
-          setPdfUrl(null);
-        }
-      } catch (e) {
-        console.error('[Quiz] Error cargando PDF:', e);
-        if (!cancelled) setPdfUrl(null);
-      } finally {
-        if (!cancelled) setPdfLoading(false);
+      if (!matActual) { setPdfLoading(false); return; }
+
+      if (matActual.url && typeof matActual.url === 'string' && matActual.url.startsWith('http')) {
+        if (!cancelled) { setPdfUrl(matActual.url); setPdfLoading(false); }
+        return;
       }
+
+      if (matActual.archivo instanceof File) {
+        objectUrl = URL.createObjectURL(matActual.archivo);
+        if (!cancelled) { setPdfUrl(objectUrl); setPdfLoading(false); }
+        return;
+      }
+
+      const matId = matActual.materialId || matActual.id;
+      if (matId) {
+        try {
+          const session = (await supabase.auth.getSession()).data.session;
+          const res = await fetch(`/api/materials/${matId}/download-url`, {
+            headers: session ? { Authorization: `Bearer ${session.access_token}` } : {},
+          });
+          const data = await res.json();
+          if (!cancelled && data?.url) setPdfUrl(data.url);
+        } catch (e) {
+          console.error('[Quiz] Error cargando PDF:', e);
+        } finally {
+          if (!cancelled) setPdfLoading(false);
+        }
+      } else if (!cancelled) setPdfLoading(false);
     };
 
     loadUrl();
-    return () => { cancelled = true; };
-  // Usar el ID string como dependencia — no el objeto (que cambia en cada render)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matActualId]);
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [matActual]);
 
   // ── Helpers de selección (igual que FlashcardsPage) ──────
   const getSelectionPages = useCallback((item: any): number[] => {
@@ -421,12 +427,13 @@ export default function QuizPage({
 
   useEffect(() => {
     if (!selectionSequence.length) return;
+
     const entry = selectionSequence[globalSelectedCursor];
+
     if (entry && entry.materialIndex !== activeMaterialIndex) {
       setActiveMaterialIndex(entry.materialIndex);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectionSequence.length, globalSelectedCursor]);
+  }, [selectionSequence, globalSelectedCursor, activeMaterialIndex]);
 
   const currentGlobalEntry = selectionSequence[globalSelectedCursor] || null;
 
@@ -880,33 +887,12 @@ texto.slice(0,8000)
 
   useEffect(() => {
     if (!currentQ) return;
-
     const matIndex = materiales.findIndex((m: any) =>
       (m.materialId || m.id) === currentQ.sourceMaterial ||
       (m.nombre || m.name) === currentQ.sourceMaterialName
     );
-
-    const targetMaterialIndex = matIndex >= 0 ? matIndex : activeMaterialIndex;
-    const targetPage = Number(currentQ.sourcePage || 0);
-
     if (matIndex >= 0 && matIndex !== activeMaterialIndex) {
       setActiveMaterialIndex(matIndex);
-    }
-
-    if (targetPage > 0 && selectionSequence.length > 0) {
-      const targetGlobalIndex = selectionSequence.findIndex(
-        (entry) =>
-          entry.materialIndex === targetMaterialIndex &&
-          entry.page === targetPage
-      );
-
-      if (
-        targetGlobalIndex >= 0 &&
-        targetGlobalIndex !== globalSelectedCursorRef.current
-      ) {
-        setGlobalSelectedCursor(targetGlobalIndex);
-        globalSelectedCursorRef.current = targetGlobalIndex;
-      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex]);
@@ -916,14 +902,11 @@ texto.slice(0,8000)
   // Cuando la pregunta cambia de material, cambiar el PDF activo
   useEffect(() => {
     if (!currentQ?.sourceMaterial) return;
-    const matIndex = materiales.findIndex((m: any) =>
+    const idx = materiales.findIndex((m: any) =>
       (m.materialId || m.id) === currentQ.sourceMaterial
     );
-    if (matIndex >= 0 && matIndex !== activeMaterialIndex) {
-      setActiveMaterialIndex(matIndex);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQ?.sourceMaterial]);
+    if (idx >= 0 && idx !== activeMaterialIndex) setActiveMaterialIndex(idx);
+  }, [currentQ?.sourceMaterial, materiales, activeMaterialIndex]);
 
   const quizPdfSelectedPages = useMemo(() => {
     const base = Array.isArray(activeMaterialSelectedPages)
@@ -1141,7 +1124,7 @@ texto.slice(0,8000)
                 totalSelectedPages={totalSelectedPages}
                 activeMaterialIndex={activeMaterialIndex}
                 materialesCount={materiales.length}
-                forcedPage={currentQ?.sourcePage || currentGlobalEntry?.page || undefined}
+                forcedPage={currentGlobalEntry?.materialIndex === activeMaterialIndex ? currentGlobalEntry.page : (currentQ?.sourcePage || undefined)}
                 globalSelectedIndex={selectionSequence.length > 0 ? globalSelectedCursor : undefined}
                 globalSelectedTotal={selectionSequence.length > 0 ? totalSelectedPages : undefined}
                 onRequestPrev={selectionSequence.length > 0 ? goToPrev : undefined}

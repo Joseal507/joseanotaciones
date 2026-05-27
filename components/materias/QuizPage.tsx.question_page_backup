@@ -880,33 +880,12 @@ texto.slice(0,8000)
 
   useEffect(() => {
     if (!currentQ) return;
-
     const matIndex = materiales.findIndex((m: any) =>
       (m.materialId || m.id) === currentQ.sourceMaterial ||
       (m.nombre || m.name) === currentQ.sourceMaterialName
     );
-
-    const targetMaterialIndex = matIndex >= 0 ? matIndex : activeMaterialIndex;
-    const targetPage = Number(currentQ.sourcePage || 0);
-
     if (matIndex >= 0 && matIndex !== activeMaterialIndex) {
       setActiveMaterialIndex(matIndex);
-    }
-
-    if (targetPage > 0 && selectionSequence.length > 0) {
-      const targetGlobalIndex = selectionSequence.findIndex(
-        (entry) =>
-          entry.materialIndex === targetMaterialIndex &&
-          entry.page === targetPage
-      );
-
-      if (
-        targetGlobalIndex >= 0 &&
-        targetGlobalIndex !== globalSelectedCursorRef.current
-      ) {
-        setGlobalSelectedCursor(targetGlobalIndex);
-        globalSelectedCursorRef.current = targetGlobalIndex;
-      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex]);
@@ -1141,7 +1120,7 @@ texto.slice(0,8000)
                 totalSelectedPages={totalSelectedPages}
                 activeMaterialIndex={activeMaterialIndex}
                 materialesCount={materiales.length}
-                forcedPage={currentQ?.sourcePage || currentGlobalEntry?.page || undefined}
+                forcedPage={currentGlobalEntry?.materialIndex === activeMaterialIndex ? currentGlobalEntry.page : (currentQ?.sourcePage || undefined)}
                 globalSelectedIndex={selectionSequence.length > 0 ? globalSelectedCursor : undefined}
                 globalSelectedTotal={selectionSequence.length > 0 ? totalSelectedPages : undefined}
                 onRequestPrev={selectionSequence.length > 0 ? goToPrev : undefined}

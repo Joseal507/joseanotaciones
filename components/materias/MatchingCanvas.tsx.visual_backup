@@ -1,13 +1,11 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import MathText from '../MathText';
 
 type Pair = { left: string; right: string };
 
-function stableShuffle<T extends { originalIndex?: number }>(items: T[], seed: string): T[] {
+function stableShuffle<T>(items: T[], seed: string): T[] {
   let h = 2166136261;
-
   for (let i = 0; i < seed.length; i++) {
     h ^= seed.charCodeAt(i);
     h = Math.imul(h, 16777619);
@@ -19,12 +17,11 @@ function stableShuffle<T extends { originalIndex?: number }>(items: T[], seed: s
     h ^= h << 13;
     h ^= h >>> 17;
     h ^= h << 5;
-
     const j = Math.abs(h) % (i + 1);
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
 
-  const sameOrder = arr.every((item, idx) => item.originalIndex === idx);
+  const sameOrder = arr.every((item: any, idx) => item.originalIndex === idx);
 
   if (sameOrder && arr.length > 1) {
     arr.push(arr.shift() as T);
@@ -47,7 +44,6 @@ export default function MatchingCanvas({
   themeColor?: string;
 }) {
   const [selectedLeft, setSelectedLeft] = useState<number | null>(null);
-
   const connections = value || {};
   const colors = ['#0ea5e9', '#8b5cf6', '#f43f5e', '#10b981', '#f59e0b', '#ec4899'];
 
@@ -88,11 +84,8 @@ export default function MatchingCanvas({
     0
   );
 
-  const rowH = 112;
+  const rowH = 104;
   const height = Math.max(1, pairs.length) * rowH;
-
-  const leftX = 252;
-  const rightX = 468;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -117,10 +110,9 @@ export default function MatchingCanvas({
         style={{
           position: 'relative',
           display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) 120px minmax(0, 1fr)',
-          gap: 16,
+          gridTemplateColumns: 'minmax(0, 1fr) 130px minmax(0, 1fr)',
+          gap: 14,
           minHeight: height,
-          overflow: 'visible',
         }}
       >
         <svg
@@ -149,18 +141,15 @@ export default function MatchingCanvas({
             const ok = leftIndex === rightOriginal;
             const color = locked ? (ok ? '#16a34a' : '#ef4444') : colors[n % colors.length];
 
-            const bend = 42 + (Math.abs(leftIndex - rightVisibleIndex) * 16);
-            const wave = ((leftIndex + rightVisibleIndex + n) % 2 === 0 ? 1 : -1) * 18;
-
             return (
               <path
                 key={`${leftIndex}-${rightOriginal}`}
-                d={`M ${leftX} ${y1} C ${leftX + bend} ${y1 + wave}, ${rightX - bend} ${y2 - wave}, ${rightX} ${y2}`}
+                d={`M 245 ${y1} C 335 ${y1 - 28}, 385 ${y2 + 28}, 475 ${y2}`}
                 fill="none"
                 stroke={color}
                 strokeWidth={5}
                 strokeLinecap="round"
-                opacity={0.95}
+                opacity={0.96}
               />
             );
           })}
@@ -177,11 +166,11 @@ export default function MatchingCanvas({
                 key={i}
                 onClick={() => !locked && setSelectedLeft(i)}
                 style={{
-                  minHeight: 96,
-                  padding: '14px 16px',
+                  minHeight: 90,
+                  padding: '14px',
                   whiteSpace: 'normal',
                   wordBreak: 'break-word',
-                  lineHeight: 1.28,
+                  lineHeight: 1.25,
                   borderRadius: 16,
                   border: isSelected
                     ? `3px solid ${themeColor}`
@@ -195,12 +184,9 @@ export default function MatchingCanvas({
                     ? `0 6px 18px ${color}44`
                     : '0 2px 8px rgba(0,0,0,.08)',
                   fontFamily: "'Inter', system-ui, sans-serif",
-                  textAlign: 'left',
-                  width: '100%',
                 }}
               >
-                <span style={{ color, marginRight: 6 }}>●</span>
-                <MathText text={p.left} />
+                ● {p.left}
               </button>
             );
           })}
@@ -223,11 +209,11 @@ export default function MatchingCanvas({
                 key={item.originalIndex}
                 onClick={() => selectedLeft !== null && connect(selectedLeft, visibleIndex)}
                 style={{
-                  minHeight: 96,
-                  padding: '14px 16px',
+                  minHeight: 90,
+                  padding: '14px',
                   whiteSpace: 'normal',
                   wordBreak: 'break-word',
-                  lineHeight: 1.28,
+                  lineHeight: 1.25,
                   borderRadius: 16,
                   border: `2px solid ${color}`,
                   background: selectedLeft !== null && !locked ? '#eff6ff' : '#fff',
@@ -244,12 +230,9 @@ export default function MatchingCanvas({
                     ? `0 6px 18px ${color}44`
                     : '0 2px 8px rgba(0,0,0,.08)',
                   fontFamily: "'Inter', system-ui, sans-serif",
-                  textAlign: 'right',
-                  width: '100%',
                 }}
               >
-                <MathText text={item.text} />
-                <span style={{ color, marginLeft: 6 }}>●</span>
+                {item.text} ●
               </button>
             );
           })}
@@ -284,10 +267,10 @@ export default function MatchingCanvas({
                   lineHeight: 1.35,
                 }}
               >
-                {ok ? '✓' : '✗'} <MathText text={`${p.left} → ${chosen}`} />
+                {ok ? '✓' : '✗'} {p.left} → {chosen}
                 {!ok && (
                   <span style={{ color: '#333' }}>
-                    {' '}· Correcta: <MathText text={p.right} />
+                    {' '}· Correcta: {p.right}
                   </span>
                 )}
               </div>

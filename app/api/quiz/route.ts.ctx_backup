@@ -155,10 +155,7 @@ function sanitizeQuestion(q: any, defaultMaterialId = '', defaultMaterialName = 
           .filter((v: number | null): v is number => v !== null && v >= 0 && v < options.length)
       )
     );
-    if (
-      options.length < 2 ||
-      correctAnswers.length < 2
-    ) return null;
+    if (options.length < 2 || correctAnswers.length === 0) return null;
     
     const correctValues = correctAnswers.filter((idx): idx is number => typeof idx === "number").map(idx => options[idx]);
     const shuffledOptions = [...options].sort(() => Math.random() - 0.5);

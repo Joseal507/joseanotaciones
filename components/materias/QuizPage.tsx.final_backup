@@ -257,10 +257,15 @@ export default function QuizPage({
   const [isEvaluating, setIsEvaluating] = useState(false);
 
   // ── PDF multi-material ────────────────────────────────────
-  const [pdfUrl, setPdfUrl]         = useState<string | null>(null);
-  const [pdfLoading, setPdfLoading] = useState(true);
-  const [numPages, setNumPages]     = useState(0);
+  const [pdfUrl, setPdfUrl]             = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading]     = useState(false);
+  const [numPages, setNumPages]         = useState(0);
   const [activeMaterialIndex, setActiveMaterialIndex] = useState(0);
+
+  const materialUrlCacheRef  = useRef<Record<string, string>>({});
+  const loadingMaterialRef   = useRef<Set<string>>(new Set());
+  const failedMaterialUrlRef = useRef<Set<string>>(new Set());
+  const currentPdfUrlRef     = useRef<string | null>(null);
 
   const activeMaterial = materiales?.[activeMaterialIndex] || null;
 
@@ -281,46 +286,90 @@ export default function QuizPage({
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [quizState, quizStartTime]);
 
-  // ── Carga de PDF — con materialId estable como dependencia ──
+  // ── Carga de PDF — igual que FlashcardsPage ──────────────
   const matActual = materiales?.[activeMaterialIndex] ?? materiales?.[0];
-  const matActualId = matActual?.materialId || matActual?.id || null;
+
+  // Derivar el materialId actual de forma estable
+  const activeMaterialId = matActual?.materialId || matActual?.id || null;
 
   useEffect(() => {
-    if (!matActualId) {
+    if (!activeMaterialId) {
       setPdfUrl(null);
       setPdfLoading(false);
       return;
     }
 
+    // Si ya tenemos la URL cacheada para este material, usarla directo
+    const cached = materialUrlCacheRef.current[activeMaterialId];
+    if (cached) {
+      if (currentPdfUrlRef.current !== cached) {
+        currentPdfUrlRef.current = cached;
+        setPdfUrl(cached);
+      }
+      setPdfLoading(false);
+      return;
+    }
+
+    // Si ya falló antes, no reintentar
+    if (failedMaterialUrlRef.current.has(activeMaterialId)) {
+      setPdfUrl(null);
+      setPdfLoading(false);
+      return;
+    }
+
+    // Si ya hay una carga en progreso para este material, no duplicar
+    if (loadingMaterialRef.current.has(activeMaterialId)) return;
+
     let cancelled = false;
+    loadingMaterialRef.current.add(activeMaterialId);
     setPdfLoading(true);
-    setPdfUrl(null);
 
     const loadUrl = async () => {
       try {
         const session = (await supabase.auth.getSession()).data.session;
-        const res = await fetch(`/api/materials/${matActualId}/download-url`, {
-          headers: session ? { Authorization: `Bearer ${session.access_token}` } : {},
+        if (!session || cancelled) {
+          failedMaterialUrlRef.current.add(activeMaterialId);
+          return;
+        }
+
+        const r = await fetch(`/api/materials/${activeMaterialId}/download-url`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
         });
-        const data = await res.json();
-        if (!cancelled && data?.url) {
+
+        if (!r.ok || cancelled) {
+          failedMaterialUrlRef.current.add(activeMaterialId);
+          return;
+        }
+
+        const data = await r.json();
+        if (cancelled) return;
+
+        if (data?.url) {
+          // Guardar en caché
+          materialUrlCacheRef.current[activeMaterialId] = data.url;
+          currentPdfUrlRef.current = data.url;
           setPdfUrl(data.url);
-        } else if (!cancelled) {
+        } else {
+          failedMaterialUrlRef.current.add(activeMaterialId);
           setPdfUrl(null);
         }
       } catch (e) {
-        console.error('[Quiz] Error cargando PDF:', e);
-        if (!cancelled) setPdfUrl(null);
+        if (!cancelled) {
+          failedMaterialUrlRef.current.add(activeMaterialId);
+          console.error('[Quiz] PDF load error', e);
+          setPdfUrl(null);
+        }
       } finally {
+        loadingMaterialRef.current.delete(activeMaterialId);
         if (!cancelled) setPdfLoading(false);
       }
     };
 
     loadUrl();
     return () => { cancelled = true; };
-  // Usar el ID string como dependencia — no el objeto (que cambia en cada render)
+  // Solo re-ejecutar cuando cambia el material activo
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matActualId]);
+  }, [activeMaterialId]);
 
   // ── Helpers de selección (igual que FlashcardsPage) ──────
   const getSelectionPages = useCallback((item: any): number[] => {
@@ -421,12 +470,13 @@ export default function QuizPage({
 
   useEffect(() => {
     if (!selectionSequence.length) return;
+
     const entry = selectionSequence[globalSelectedCursor];
+
     if (entry && entry.materialIndex !== activeMaterialIndex) {
       setActiveMaterialIndex(entry.materialIndex);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectionSequence.length, globalSelectedCursor]);
+  }, [selectionSequence, globalSelectedCursor, activeMaterialIndex]);
 
   const currentGlobalEntry = selectionSequence[globalSelectedCursor] || null;
 
@@ -880,33 +930,12 @@ texto.slice(0,8000)
 
   useEffect(() => {
     if (!currentQ) return;
-
     const matIndex = materiales.findIndex((m: any) =>
       (m.materialId || m.id) === currentQ.sourceMaterial ||
       (m.nombre || m.name) === currentQ.sourceMaterialName
     );
-
-    const targetMaterialIndex = matIndex >= 0 ? matIndex : activeMaterialIndex;
-    const targetPage = Number(currentQ.sourcePage || 0);
-
     if (matIndex >= 0 && matIndex !== activeMaterialIndex) {
       setActiveMaterialIndex(matIndex);
-    }
-
-    if (targetPage > 0 && selectionSequence.length > 0) {
-      const targetGlobalIndex = selectionSequence.findIndex(
-        (entry) =>
-          entry.materialIndex === targetMaterialIndex &&
-          entry.page === targetPage
-      );
-
-      if (
-        targetGlobalIndex >= 0 &&
-        targetGlobalIndex !== globalSelectedCursorRef.current
-      ) {
-        setGlobalSelectedCursor(targetGlobalIndex);
-        globalSelectedCursorRef.current = targetGlobalIndex;
-      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex]);
@@ -916,14 +945,11 @@ texto.slice(0,8000)
   // Cuando la pregunta cambia de material, cambiar el PDF activo
   useEffect(() => {
     if (!currentQ?.sourceMaterial) return;
-    const matIndex = materiales.findIndex((m: any) =>
+    const idx = materiales.findIndex((m: any) =>
       (m.materialId || m.id) === currentQ.sourceMaterial
     );
-    if (matIndex >= 0 && matIndex !== activeMaterialIndex) {
-      setActiveMaterialIndex(matIndex);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQ?.sourceMaterial]);
+    if (idx >= 0 && idx !== activeMaterialIndex) setActiveMaterialIndex(idx);
+  }, [currentQ?.sourceMaterial, materiales, activeMaterialIndex]);
 
   const quizPdfSelectedPages = useMemo(() => {
     const base = Array.isArray(activeMaterialSelectedPages)
@@ -1133,7 +1159,7 @@ texto.slice(0,8000)
               </div>
             ) : pdfUrl ? (
               <PDFViewer
-                key={`${activeMaterialIndex}-${matActual?.materialId || matActual?.id || 'material'}-${pdfUrl || ''}`}
+                key={`${activeMaterialId || 'material'}-${pdfUrl}`}
                 url={pdfUrl}
                 selectedPages={quizPdfSelectedPages}
                 themeColor={themeColor}
@@ -1141,7 +1167,7 @@ texto.slice(0,8000)
                 totalSelectedPages={totalSelectedPages}
                 activeMaterialIndex={activeMaterialIndex}
                 materialesCount={materiales.length}
-                forcedPage={currentQ?.sourcePage || currentGlobalEntry?.page || undefined}
+                forcedPage={currentGlobalEntry?.materialIndex === activeMaterialIndex ? currentGlobalEntry.page : (currentQ?.sourcePage || undefined)}
                 globalSelectedIndex={selectionSequence.length > 0 ? globalSelectedCursor : undefined}
                 globalSelectedTotal={selectionSequence.length > 0 ? totalSelectedPages : undefined}
                 onRequestPrev={selectionSequence.length > 0 ? goToPrev : undefined}
