@@ -1146,6 +1146,8 @@ texto.slice(0,8000)
                 globalSelectedTotal={selectionSequence.length > 0 ? totalSelectedPages : undefined}
                 onRequestPrev={selectionSequence.length > 0 ? goToPrev : undefined}
                 onRequestNext={selectionSequence.length > 0 ? goToNext : undefined}
+                currentQuestionPage={Number(currentQ?.sourcePage) || undefined}
+                scrollTrigger={currentIndex}
               />
             ) : (
               <div style={{

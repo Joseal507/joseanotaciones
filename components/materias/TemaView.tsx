@@ -172,12 +172,12 @@ function EnfoqueWheel({ onClose, onSelect, color, materialesCount }: any) {
             fontFamily: HAND, fontWeight: 700,
             margin: 0, lineHeight: 1,
             textShadow: '0 4px 30px rgba(255,255,255,0.2)',
-          }}>¿cómo querés estudiar?</h1>
+          }}>¿cómo quieres estudiar?</h1>
           <div style={{
             fontSize: 20, color: 'rgba(255,255,255,0.6)',
             fontFamily: HAND, marginTop: 8,
             fontStyle: 'italic',
-          }}>elegí tu enfoque ↓</div>
+          }}>elige tu enfoque ↓</div>
         </div>
 
         {/* Cards horizontales */}

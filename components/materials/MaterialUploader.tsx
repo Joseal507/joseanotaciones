@@ -173,7 +173,7 @@ export default function MaterialUploader({
             {dragOver ? '⬇️' : '📂'}
           </div>
           <p style={{ color: '#fff', fontSize: 18, fontWeight: 700, margin: '0 0 6px' }}>
-            {dragOver ? 'Suelta aquí' : 'Arrastrá o hacé clic'}
+            {dragOver ? 'Suelta aquí' : 'Arrastra o haz clic'}
           </p>
           <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, margin: 0 }}>
             PDF (30MB) · Word/PPT (20MB) · Imagen (10MB) · TXT (5MB)

@@ -385,3 +385,90 @@ html[data-theme="playa"] body {
     );
   }
 }
+
+/* ═══ FIX: AdminEditImageButton SIEMPRE visible y clickeable ═══ */
+.admin-float-edit {
+  z-index: 999 !important;
+  pointer-events: auto !important;
+}
+.admin-edit-wrapper {
+  position: relative !important;
+}
+.about-teaser-visual {
+  overflow: visible !important;
+  position: relative !important;
+}
+.about-teaser-visual > img,
+.about-teaser-visual > .about-teaser-quote {
+  border-radius: var(--r-lg);
+}
+
+/* ═══ FIX MODO OSCURO: TODAS las letras de productos legibles ═══ */
+[data-theme="dark"] .product-card-tag {
+  background: rgba(245, 242, 236, 0.95) !important;
+  color: #1A1A1A !important;
+  font-weight: 700;
+}
+[data-theme="dark"] .product-card-meta { color: var(--sage) !important; }
+[data-theme="dark"] .product-card-title { color: var(--ink) !important; }
+[data-theme="dark"] .product-card-desc { color: var(--muted) !important; }
+[data-theme="dark"] .product-card-link { color: var(--sage) !important; }
+[data-theme="dark"] .leader-card-name { color: var(--sage) !important; }
+[data-theme="dark"] .leader-card-desc { color: var(--muted) !important; }
+[data-theme="dark"] .leader-card-sizes-label { color: var(--muted-soft) !important; }
+[data-theme="dark"] .leader-card-sizes-list,
+[data-theme="dark"] .leader-card-sizes-list--visible { color: var(--ink-soft) !important; opacity: 1 !important; }
+[data-theme="dark"] .leader-card-link { color: var(--sage) !important; }
+[data-theme="dark"] .leader-card-number { background: var(--bg-elev) !important; color: var(--sage) !important; }
+
+[data-theme="dark"] .product-detail-badge {
+  background: rgba(245, 242, 236, 0.95) !important;
+  color: #1A1A1A !important;
+}
+[data-theme="dark"] .product-detail-size-chip { background: var(--bg-soft) !important; color: var(--ink-soft) !important; }
+[data-theme="dark"] .product-detail-size-chip strong { color: var(--sage) !important; }
+[data-theme="dark"] .product-detail-uses { background: var(--bg-soft) !important; }
+[data-theme="dark"] .product-detail-uses-title { color: var(--sage) !important; }
+[data-theme="dark"] .product-detail-uses-list li { color: var(--ink-soft) !important; }
+[data-theme="dark"] .product-detail-uses-list li svg { color: var(--sage) !important; }
+
+[data-theme="dark"] .article-card-date { color: var(--muted) !important; }
+[data-theme="dark"] .article-card-title { color: var(--ink) !important; }
+[data-theme="dark"] .article-card-excerpt { color: var(--muted) !important; }
+
+[data-theme="dark"] .product-nav-card { background: var(--bg-elev) !important; }
+[data-theme="dark"] .product-nav-dir { color: var(--muted) !important; }
+[data-theme="dark"] .product-nav-name { color: var(--ink) !important; }
+[data-theme="dark"] .product-nav-label { color: var(--muted-soft) !important; }
+
+[data-theme="dark"] .article-sidebar-title { color: var(--ink) !important; }
+[data-theme="dark"] .article-sidebar-desc { color: var(--muted) !important; }
+
+[data-theme="dark"] .cb-render-title { color: var(--ink) !important; }
+[data-theme="dark"] .cb-render-body { color: var(--ink-soft) !important; }
+[data-theme="dark"] .cb-render-quote { background: var(--bg-soft) !important; }
+[data-theme="dark"] .cb-render-quote-text { color: var(--ink) !important; }
+[data-theme="dark"] .cb-render-quote-author { color: var(--sage) !important; }
+
+/* ═══ FIX FINAL: botones admin SIEMPRE visibles ═══ */
+.admin-float-edit {
+  position: absolute !important;
+  z-index: 9999 !important;
+  pointer-events: auto !important;
+  display: inline-flex !important;
+}
+.admin-edit-wrapper {
+  position: relative !important;
+}
+/* Permitir botones encima de elementos con overflow */
+.about-teaser-visual,
+.product-detail-visual,
+.article-detail-hero-img,
+.leader-card-img-wrap,
+.article-card-img,
+.hero-banner,
+.page-hero {
+  overflow: visible !important;
+}
+.about-teaser-visual { border-radius: var(--r-lg); }
+.about-teaser-visual > img { border-radius: var(--r-lg); }
