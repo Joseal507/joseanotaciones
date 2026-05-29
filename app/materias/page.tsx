@@ -3,29 +3,33 @@ export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import dynamicImport from 'next/dynamic';
 import { getMaterias, saveMaterias, generateId, Materia, Tema, Apunte, Documento } from '../../lib/storage';
 import { supabase } from '../../lib/supabase';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
-import MateriasList from '../../components/materias/MateriasList';
-import MateriaView from '../../components/materias/MateriaView';
-import TemaView from '../../components/materias/TemaView';
-import ApunteEditor from '../../components/materias/ApunteEditor';
-import DocumentoView from '../../components/materias/DocumentoView';
-import FlashcardsPage from '../../components/materias/FlashcardsPage';
-import QuizPage from '../../components/materias/QuizPage';
-import { ModalMateria, ModalTema, ModalApunte } from '../../components/materias/Modales';
+const MateriasList = dynamicImport(() => import('../../components/materias/MateriasList'));
+const MateriaView = dynamicImport(() => import('../../components/materias/MateriaView'));
+const TemaView = dynamicImport(() => import('../../components/materias/TemaView'));
+const ApunteEditor = dynamicImport(() => import('../../components/materias/ApunteEditor'));
+const DocumentoView = dynamicImport(() => import('../../components/materias/DocumentoView'));
+const FlashcardsPage = dynamicImport(() => import('../../components/materias/FlashcardsPage'), { ssr: false });
+const QuizPage = dynamicImport(() => import('../../components/materias/QuizPage'), { ssr: false });
+const RepasarWorkspace = dynamicImport(() => import('../../components/materias/RepasarWorkspace'), { ssr: false });
+const ModalMateria = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalMateria));
+const ModalTema = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalTema));
+const ModalApunte = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalApunte));
 import Buscador from '../../components/Buscador';
 import MaterialUploader from '../../components/materials/MaterialUploader';
 import type { MaterialUI } from '../../lib/materials/types';
 
-type Vista = 'materias' | 'materia' | 'tema' | 'apunte' | 'documento' | 'flashcards' | 'quiz';
+type Vista = 'materias' | 'materia' | 'tema' | 'apunte' | 'documento' | 'flashcards' | 'quiz' | 'repasar';
 
 export default function MateriasPage() {
   const router = useRouter();
   const [materias, setMaterias] = useState<Materia[]>([]);
-  const [vista, setVista] = useState<'lista' | 'materia' | 'materias' | 'apunte' | 'tema' | 'documento' | 'flashcards' | 'quiz'>(() => {
+  const [vista, setVista] = useState<'lista' | 'materia' | 'materias' | 'apunte' | 'tema' | 'documento' | 'flashcards' | 'quiz' | 'repasar'>(() => {
     if (typeof window !== 'undefined') {
       const sp = new URLSearchParams(window.location.search);
       if (sp.get('open')) return 'materia';
@@ -39,6 +43,8 @@ export default function MateriasPage() {
   const [flashcardsSessionId, setFlashcardsSessionId] = useState<string | null>(null);
   const [quizMateriales, setQuizMateriales]   = useState<any[]>([]);
   const [quizSeleccion,  setQuizSeleccion]    = useState<any[] | undefined>(undefined);
+  const [repasarMateriales, setRepasarMateriales] = useState<any[]>([]);
+  const [repasarSeleccion, setRepasarSeleccion] = useState<any[] | null>(null);
   const [returnToEnfoque, setReturnToEnfoque] = useState(false);
 
   const normalizePages = (value: any): number[] => {
@@ -719,6 +725,12 @@ const eliminarDocumento = async (id: string) => {
               setQuizSeleccion(sel);
               setVista('quiz');
             }}
+            onOpenRepasar={(mats?: any[], sel?: any[]) => {
+              const matsToUse = mats || temaActual?.documentos || [];
+              setRepasarMateriales(matsToUse);
+              setRepasarSeleccion(Array.isArray(sel) && sel.length ? sel : null);
+              setVista('repasar');
+            }}
             onAgregarYoutube={agregarYoutube}
           />
         )}
@@ -756,6 +768,19 @@ const eliminarDocumento = async (id: string) => {
             tema={temaActual}
             materia={materiaActual}
             onBack={() => { setVista('tema'); setQuizMateriales([]); setQuizSeleccion(undefined); }}
+          />
+        )}
+
+        {vista === 'repasar' && temaActual && materiaActual && (
+          <RepasarWorkspace
+            materiales={repasarMateriales.length > 0 ? repasarMateriales : temaActual.documentos}
+            seleccion={repasarSeleccion}
+            tema={temaActual}
+            materia={materiaActual}
+            onBack={() => {
+              setReturnToEnfoque(true);
+              setVista('tema');
+            }}
           />
         )}
 

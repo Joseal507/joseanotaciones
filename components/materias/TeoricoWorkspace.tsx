@@ -141,10 +141,11 @@ interface Props {
   onClose: () => void;
   onOpenFlashcards: () => void;
   onOpenQuiz: () => void;
+  onOpenRepasar?: () => void;
   onComingSoon: (label: string) => void;
 }
 
-export default function TeoricoWorkspace({ materiales, onClose, onOpenFlashcards, onOpenQuiz, onComingSoon }: Props) {
+export default function TeoricoWorkspace({ materiales, onClose, onOpenFlashcards, onOpenQuiz, onOpenRepasar, onComingSoon }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chargeState = useRef<Map<string, number>>(new Map());
 
@@ -183,19 +184,17 @@ export default function TeoricoWorkspace({ materiales, onClose, onOpenFlashcards
 
   // ═══ 12 HERRAMIENTAS ═══
   const tools = useMemo(() => [
+    { id: 'repasar',      emoji: '🧠', label: 'Repasar',      desc: 'lectura activa',    colorRaw: '#22c55e', enabled: true,  action: () => onOpenRepasar?.() },
     { id: 'analisis',     emoji: '🔬', label: 'Análisis',     desc: 'desglose IA',       colorRaw: '#38bdf8', enabled: false, action: () => onComingSoon('Análisis Teórico') },
     { id: 'flashcards',   emoji: '🎴', label: 'Flashcards',   desc: 'memoriza',          colorRaw: '#f5c842', enabled: true,  action: () => onOpenFlashcards() },
     { id: 'quiz',         emoji: '🎯', label: 'Quiz',         desc: 'opción múltiple',   colorRaw: '#ef4444', enabled: true,  action: () => onOpenQuiz() },
-    { id: 'vf',           emoji: '✅', label: 'V o F',        desc: 'verdadero/falso',   colorRaw: '#34d399', enabled: false, action: () => onComingSoon('Verdadero / Falso') },
-    { id: 'rellenar',     emoji: '✏️', label: 'Rellenar',     desc: 'completa palabra',  colorRaw: '#a78bfa', enabled: false, action: () => onComingSoon('Rellenar palabra') },
-    { id: 'relacionar',   emoji: '🔗', label: 'Relacionar',   desc: 'conecta',           colorRaw: '#fb923c', enabled: false, action: () => onComingSoon('Relacionar conceptos') },
     { id: 'chapbot',      emoji: '🤖', label: 'ChapBot',      desc: 'pregunta al doc',   colorRaw: '#f472b6', enabled: false, action: () => onComingSoon('ChapBot del documento') },
     { id: 'ejemplos',     emoji: '💡', label: 'Ejemplos',     desc: 'casos prácticos',   colorRaw: '#fbbf24', enabled: false, action: () => onComingSoon('Ejemplos') },
     { id: 'examen',       emoji: '📋', label: 'Examen',       desc: 'simulacro real',    colorRaw: '#dc2626', enabled: false, action: () => onComingSoon('Modo Examen') },
     { id: 'presentacion', emoji: '🎤', label: 'Presentación', desc: 'expón el tema',     colorRaw: '#8b5cf6', enabled: false, action: () => onComingSoon('Presentación') },
     { id: 'studymap',     emoji: '🗺️', label: 'Study Map',    desc: 'mapa mental',       colorRaw: '#06b6d4', enabled: false, action: () => onComingSoon('Study Map') },
     { id: 'truquitos',    emoji: '✨', label: 'Truquitos',    desc: 'mnemotecnia',       colorRaw: '#ec4899', enabled: false, action: () => onComingSoon('Truquitos') },
-  ], [onOpenFlashcards, onOpenQuiz, onComingSoon]);
+  ], [onOpenFlashcards, onOpenQuiz, onOpenRepasar, onComingSoon]);
 
   // Posiciones en órbita elíptica
   const orbitNodes = useMemo(() => {

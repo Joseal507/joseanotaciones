@@ -474,7 +474,7 @@ function useEnergyEngine(
   }, [lines, transform]);
 }
 
-export default function TemaView({ materia, tema, onBack, onBackMateria, onGoHome, onAbrirApunte, onAbrirDocumento, onEliminarApunte, onEliminarDocumento, onNuevoApunte, onSubirDocumento, subiendoDoc, onAbrirUploader, onOpenFlashcards, onOpenQuiz, returnToEnfoque, onClearReturnToEnfoque }: any) {
+export default function TemaView({ materia, tema, onBack, onBackMateria, onGoHome, onAbrirApunte, onAbrirDocumento, onEliminarApunte, onEliminarDocumento, onNuevoApunte, onSubirDocumento, subiendoDoc, onAbrirUploader, onOpenFlashcards, onOpenQuiz, onOpenRepasar, returnToEnfoque, onClearReturnToEnfoque }: any) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [modalArchivo, setModalArchivo] = useState<{ nombre: string; tipo: 'pptx' | 'otro' } | null>(null);
@@ -1147,6 +1147,53 @@ export default function TemaView({ materia, tema, onBack, onBackMateria, onGoHom
                 .filter(Boolean);
 
               onOpenQuiz?.(matsSeleccionados, normalizedSel.length ? normalizedSel : undefined);
+            }}
+      onOpenRepasar={() => {
+              const matsSeleccionados = tema.documentos.filter((d: any) => selectedIds.includes(d.id));
+              const rawSel = Array.isArray(seleccionResult) ? seleccionResult : [];
+
+              const normalizePages = (value: any): number[] => {
+                if (Array.isArray(value)) {
+                  return Array.from(new Set(
+                    value.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n) && n > 0)
+                  )).sort((a: number, b: number) => a - b);
+                }
+                if (value && typeof value === 'object') {
+                  const start = Number(value.start ?? value.from ?? value.startPage ?? value.paginaInicial);
+                  const end   = Number(value.end   ?? value.to   ?? value.endPage   ?? value.paginaFinal);
+                  if (Number.isFinite(start) && Number.isFinite(end) && start > 0 && end >= start) {
+                    return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+                  }
+                }
+                return [];
+              };
+
+              const normalizedSel = matsSeleccionados
+                .map((mat: any, idx: number) => {
+                  const matMaterialId = String(mat?.materialId || mat?.material_id || mat?.id || '');
+                  const matDocumentId = String(mat?.id || '');
+                  const rawByIndex = rawSel.find((c: any) => Number(c?.materialIndex) === idx) || null;
+                  const rawById = rawSel.find((c: any) => {
+                    const ids = [c?.materialId, c?.material_id, c?.documentId, c?.id]
+                      .filter(Boolean)
+                      .map((v: any) => String(v));
+                    return ids.includes(matMaterialId) || ids.includes(matDocumentId);
+                  }) || null;
+                  const item: any = rawByIndex ?? rawById ?? rawSel[idx] ?? null;
+                  if (!item) return null;
+
+                  const pages = [item?.pages, item?.selectedPages, item?.paginas, item?.range]
+                    .map(normalizePages)
+                    .find((arr: any) => Array.isArray(arr) && arr.length > 0) || [];
+
+                  const text = item?.text || item?.texto || item?.content || item?.contenido || item?.selectedText || undefined;
+                  if (!pages.length && !text) return null;
+
+                  return { materialId: matMaterialId, documentId: matDocumentId, materialIndex: idx, pages, text };
+                })
+                .filter(Boolean);
+
+              onOpenRepasar?.(matsSeleccionados, normalizedSel.length ? normalizedSel : undefined);
             }}
       onComingSoon={() => {}}
     />
