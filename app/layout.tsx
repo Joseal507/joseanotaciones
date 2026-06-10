@@ -10,6 +10,7 @@ import XPToast from '../components/XPToast';
 import NotifToast from '../components/NotifToast';
 import NotifPoller from '../components/NotifPoller';
 import RachaInit from '../components/RachaInit';
+import AuthSessionProvider from '../components/auth/AuthSessionProvider';
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ['latin'],
@@ -36,11 +37,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeInit />
         <NavLoader />
         <RachaInit />
-        <PomodoroProvider>
-          <NotifToast/>
-          <NotifPoller/>
-          {children}
-        </PomodoroProvider>
+        <AuthSessionProvider>
+          <PomodoroProvider>
+            <NotifToast/>
+            <NotifPoller/>
+            {children}
+          </PomodoroProvider>
+        </AuthSessionProvider>
         <XPToast />
         <Analytics />
         <RangoWatcher />

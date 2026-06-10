@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
+import { signOut, useSession } from 'next-auth/react';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useDarkMode } from '../../hooks/useDarkMode';
 import { useIdioma } from '../../hooks/useIdioma';
@@ -27,6 +28,7 @@ const TEMAS: { id: AppSettings['tema']; labelEs: string; labelEn: string; descEs
 
 export default function SettingsPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [seccion, setSeccion] = useState<Seccion>('perfil');
   const [visibleLeaderboard, setVisibleLeaderboard] = useState(true);
   const [usuario, setUsuario] = useState<any>(null);
@@ -71,11 +73,28 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const cargar = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (!data.user) { try { (window as any).__hideNavLoader?.(); } catch {} window.location.href = '/auth'; return; }
+      if (status === 'loading') return;
+
+      const nextUser = session?.user as any;
+      if (!nextUser) {
+        router.replace('/landing');
+        return;
+      }
+
+      const data = {
+        user: {
+          id: nextUser.id,
+          email: nextUser.email,
+          user_metadata: {
+            nombre: nextUser.name,
+            avatar_url: nextUser.image,
+          },
+        },
+      };
+
       setUsuario(data.user);
       setUserId(data.user.id);
-      setNombre(data.user.user_metadata?.nombre || '');
+      setNombre(data.user.user_metadata?.nombre || data.user.email?.split('@')[0] || '');
 
       try {
         const { data: lb } = await supabase
@@ -137,7 +156,7 @@ export default function SettingsPage() {
       setCargando(false);
     };
     cargar();
-  }, []);
+  }, [session, status, router]);
 
   const updateSettings = async (changes: Partial<AppSettings>) => {
     const nuevas = { ...settings, ...changes };
@@ -256,9 +275,7 @@ export default function SettingsPage() {
     if (pNueva !== pConfirm) { setErrorPassword(tr('noCoinciden')); return; }
     setGuardandoPassword(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password: pNueva });
-      if (error) throw error;
-      setMensajePassword(tr('contrasenaCambiada'));
+      setMensajePassword('El cambio de contraseña por email se activará en la siguiente fase. Por ahora tu acceso principal es Google.');
       setPasswordNueva(''); setPasswordConfirm('');
       if (passwordNuevaRef.current) passwordNuevaRef.current.value = '';
       if (passwordConfirmRef.current) passwordConfirmRef.current.value = '';
@@ -273,11 +290,7 @@ export default function SettingsPage() {
     if (!usuario?.email) return;
     setEnviandoReset(true); setMensajeReset('');
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(usuario.email, {
-        redirectTo: `${window.location.origin}/settings`,
-      });
-      if (error) throw error;
-      setMensajeReset(tr('emailEnviado'));
+      setMensajeReset('La recuperación por email se activará en la siguiente fase. Por ahora entra con Google.');
     } catch (err: any) {
       setMensajeReset('❌ Error: ' + err.message);
     } finally {
@@ -295,8 +308,8 @@ export default function SettingsPage() {
   };
 
   const cerrarSesion = async () => {
-    await supabase.auth.signOut();
-    ((window as any).__showNavLoader?.('/auth'), router.push('/auth'));
+    try { localStorage.clear(); sessionStorage.clear(); } catch {}
+    await signOut({ callbackUrl: '/auth' });
   };
 
   if (cargando) {

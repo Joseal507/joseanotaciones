@@ -2,14 +2,15 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '../lib/supabase';
 import { useIdioma } from '../hooks/useIdioma';
+import { signOut, useSession } from 'next-auth/react';
 
 const HAND = "'Caveat',cursive";
 const BODY = "'Inter', system-ui, sans-serif";
 const ADMIN_EMAIL = 'jose.alberto.deobaldia@gmail.com';
 
 export default function UserMenu() {
+  const { data: session, status } = useSession();
   const [usuario, setUsuario] = useState<any>(null);
   const [abierto, setAbierto] = useState(false);
   const [perfil, setPerfil] = useState<any>(null);
@@ -21,10 +22,24 @@ export default function UserMenu() {
   useEffect(() => {
     const cargar = async () => {
       try {
-        const { data } = await supabase.auth.getUser();
-        if (!data.user) return;
-        setUsuario(data.user);
-        // Cargar del localStorage como cache temporal
+        const nextUser = session?.user as any;
+        if (!nextUser) {
+          setUsuario(null);
+          setPerfil(null);
+          return;
+        }
+
+        const normalizedUser = {
+          id: nextUser.id,
+          email: nextUser.email,
+          user_metadata: {
+            nombre: nextUser.name,
+            avatar_url: nextUser.image,
+          },
+        };
+
+        setUsuario(normalizedUser);
+
         try {
           const stored = localStorage.getItem('josea_perfil');
           if (stored) {
@@ -33,31 +48,19 @@ export default function UserMenu() {
           }
         } catch {}
 
-        // SIEMPRE refrescar del servidor (para tener avatar actualizado)
         try {
-          const res = await fetch(`/api/user-profile?userId=${data.user.id}`);
+          const res = await fetch(`/api/user-profile?userId=${normalizedUser.id}`);
           const json = await res.json();
           if (json.success && json.data) {
             setPerfil(json.data);
             localStorage.setItem('josea_perfil', JSON.stringify(json.data));
           }
         } catch {}
-
-        // Fallback: si no hay perfil pero hay avatar en leaderboard
-        try {
-          const { data: lb } = await supabase
-            .from('leaderboard')
-            .select('avatar_url, nombre')
-            .eq('user_id', data.user.id)
-            .single();
-          if (lb?.avatar_url) {
-            setPerfil((prev: any) => ({ ...(prev || {}), avatar_url: lb.avatar_url, nombre: prev?.nombre || lb.nombre }));
-          }
-        } catch {}
       } catch {}
     };
-    cargar();
-  }, []);
+
+    if (status !== 'loading') cargar();
+  }, [session, status]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -70,9 +73,9 @@ export default function UserMenu() {
   }, []);
 
   const cerrarSesion = async () => {
-    try { await supabase.auth.signOut(); } catch {}
     try { localStorage.clear(); sessionStorage.clear(); } catch {}
-    ((window as any).__showNavLoader?.('/auth'), window.location.replace('/auth'));
+    try { (window as any).__showNavLoader?.('/auth'); } catch {}
+    await signOut({ callbackUrl: '/auth' });
   };
 
   const nombre = perfil?.nombre || usuario?.user_metadata?.nombre || usuario?.email?.split('@')[0] || '?';
@@ -81,7 +84,7 @@ export default function UserMenu() {
   const isAdmin = usuario?.email?.toLowerCase() === ADMIN_EMAIL;
 
   // Mostrar placeholder mientras carga
-  if (!usuario) {
+  if (status === 'loading' || !usuario) {
     return (
       <div style={{
         width: 42, height: 42, borderRadius: 10,

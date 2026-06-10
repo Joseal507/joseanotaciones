@@ -1,12 +1,10 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-
-import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { useSession } from 'next-auth/react';
 
 const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
 
 interface Props {
   children: React.ReactNode;
@@ -14,29 +12,16 @@ interface Props {
 
 export default function AuthGuard({ children }: Props) {
   const router = useRouter();
-  const [checking, setChecking] = useState(true);
-  const [logueado, setLogueado] = useState(false);
+  const { status } = useSession();
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) {
-        setLogueado(true);
-      } else {
-        ((window as any).__showNavLoader?.('/landing'), router.push('/landing'));
-      }
-      setChecking(false);
-    });
+    if (status === 'unauthenticated') {
+      try { (window as any).__showNavLoader?.('/landing'); } catch {}
+      router.push('/landing');
+    }
+  }, [status, router]);
 
-    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') {
-        ((window as any).__showNavLoader?.('/landing'), router.push('/landing'));
-      }
-    });
-
-    return () => listener.subscription.unsubscribe();
-  }, []);
-
-  if (checking) {
+  if (status === 'loading') {
     return (
       <div style={{
         minHeight: '100vh',
@@ -66,7 +51,7 @@ export default function AuthGuard({ children }: Props) {
     );
   }
 
-  if (!logueado) return null;
+  if (status === 'unauthenticated') return null;
 
   return <>{children}</>;
 }

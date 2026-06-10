@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '../../lib/supabase';
+import { useSession } from 'next-auth/react';
 import Footer from '../../components/Footer';
 import { useIsMobile } from '../../hooks/useIsMobile';
 
@@ -12,17 +12,19 @@ const BODY = "'Inter', system-ui, sans-serif";
 export default function LandingPage() {
   const router = useRouter();
   const isMobile = useIsMobile();
+  const { status } = useSession();
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) {
-        ((window as any).__showNavLoader?.('/'), router.replace('/'));
-      } else {
-        setChecking(false);
-      }
-    });
-  }, [router]);
+    if (status === 'authenticated') {
+      router.replace('/');
+      return;
+    }
+
+    if (status === 'unauthenticated') {
+      setChecking(false);
+    }
+  }, [status, router]);
 
   if (checking) {
     return (

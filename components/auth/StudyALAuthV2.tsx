@@ -22,7 +22,10 @@ export default function StudyALAuthV2() {
             <div style={tape} />
             <h2 style={cardTitle}>Sesión iniciada</h2>
             <p style={muted}>{session.user.name || session.user.email}</p>
-            <button style={goldButton} onClick={() => signOut({ callbackUrl: "/auth-v2" })}>
+            <button style={goldButton} onClick={() => { window.location.href = "/" }}>
+              Entrar a StudyAL
+            </button>
+            <button style={forgot} onClick={() => signOut({ callbackUrl: "/auth" })}>
               Cerrar sesión
             </button>
           </div>

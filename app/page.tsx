@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { Materia } from '../lib/storage';
 import { supabase } from '../lib/supabase';
@@ -1545,6 +1546,7 @@ export default function Home() {
   const { idioma } = useIdioma();
   const lang = idioma || 'es';
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [authChecked, setAuthChecked] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
@@ -1571,48 +1573,15 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    let alive = true;
+    if (status === 'loading') return;
 
-    try {
-      const authKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
-      if (authKey) {
-        const raw = localStorage.getItem(authKey);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed?.access_token || parsed?.[0]?.access_token) {
-            setAuthChecked(true);
-            supabase.auth.getSession().then(({ data }) => {
-              if (!alive) return;
-              if (!data.session && !parsed?.refresh_token) {
-                try { router.replace('/landing'); } catch { window.location.href = '/landing'; }
-              }
-            }).catch(() => {});
-            return () => { alive = false; };
-          }
-        }
-      }
-    } catch {}
+    if (status === 'unauthenticated') {
+      router.replace('/landing');
+      return;
+    }
 
-    (async () => {
-      try {
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise<any>((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000));
-        const result: any = await Promise.race([sessionPromise, timeoutPromise]);
-        if (!alive) return;
-
-        if (!result?.data?.session) {
-          try { (window as any).__showNavLoader?.('/landing'); } catch {}
-          try { router.replace('/landing'); } catch { window.location.href = '/landing'; }
-          return;
-        }
-        setAuthChecked(true);
-      } catch {
-        if (alive) setAuthChecked(true);
-      }
-    })();
-
-    return () => { alive = false; };
-  }, [router]);
+    setAuthChecked(true);
+  }, [router, status]);
 
   const nav = (href: string, _label: string, _color: string, _emoji: string) => {
     try { (window as any).__showNavLoader?.(href); } catch {}
@@ -1664,9 +1633,9 @@ export default function Home() {
 
     (async () => {
       try {
-        const { data:{ user } } = await supabase.auth.getUser();
+        const user = session?.user as any;
         if (user) {
-          const nombre = user.user_metadata?.nombre || user.email?.split('@')[0] || '';
+          const nombre = user.name || user.email?.split('@')[0] || '';
           setUserName(nombre);
 
           try {
