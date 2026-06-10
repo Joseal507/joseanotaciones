@@ -1,0 +1,11 @@
+name = "studyal-api-dev"
+main = "src/index.ts"
+compatibility_date = "2026-06-10"
+
+[vars]
+APP_ENV = "development"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "studyal-dev-db"
+database_id = "18bdfbc0-8ff1-4444-be88-c0f75202373f"

@@ -79,3 +79,15 @@ tsconfig.tsbuildinfo
 *.save
 .env.local.backup
 .env.local.save
+
+# Cloudflare worker local deps/cache
+cloudflare/**/node_modules/
+cloudflare/**/.wrangler/
+cloudflare/**/.dev.vars
+cloudflare/**/dist/
+cloudflare/**/.cache/
+
+# Env files
+.env.local
+.env.local.backup
+.env.local.save
