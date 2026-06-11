@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../lib/auth/options';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const API = process.env.STUDYAL_API_URL || '';
 
 const limpiarMaterias = (materias: any[]) => {
   if (!Array.isArray(materias)) return [];
@@ -20,72 +18,63 @@ const limpiarMaterias = (materias: any[]) => {
   }));
 };
 
-export async function GET(request: NextRequest) {
+async function getUserId() {
+  const session = await getServerSession(authOptions);
+  const user = session?.user as any;
+  return user?.id || null;
+}
+
+export async function GET() {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
+    const userId = await getUserId();
+
+    if (!userId) {
       return NextResponse.json({ success: false, error: 'No auth' }, { status: 401 });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-
-    if (authError || !user) {
-      return NextResponse.json({ success: false, error: 'Invalid token' }, { status: 401 });
-    }
-
-    const { data, error } = await supabase
-      .from('materias')
-      .select('datos')
-      .eq('user_id', user.id)
-      .single();
-
-    if (error || !data) {
+    if (!API) {
       return NextResponse.json({ success: true, materias: [] });
     }
 
-    return NextResponse.json({ success: true, materias: data.datos || [] });
+    const res = await fetch(`${API}/materias/by-user?userId=${encodeURIComponent(userId)}`, {
+      cache: 'no-store',
+    });
+
+    const json = await res.json();
+
+    return NextResponse.json({
+      success: true,
+      materias: json.materias || [],
+    });
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: err?.message || 'Error interno' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
+    const userId = await getUserId();
+
+    if (!userId) {
       return NextResponse.json({ success: false, error: 'No auth' }, { status: 401 });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-
-    if (authError || !user) {
-      return NextResponse.json({ success: false, error: 'Invalid token' }, { status: 401 });
     }
 
     const { materias } = await request.json();
     const materiasLimpias = limpiarMaterias(materias);
 
-    const { data: existing } = await supabase
-      .from('materias')
-      .select('id')
-      .eq('user_id', user.id)
-      .single();
-
-    if (existing) {
-      await supabase
-        .from('materias')
-        .update({ datos: materiasLimpias, updated_at: new Date().toISOString() })
-        .eq('user_id', user.id);
-    } else {
-      await supabase
-        .from('materias')
-        .insert({ user_id: user.id, datos: materiasLimpias });
+    if (API) {
+      await fetch(`${API}/materias/upsert`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          materias: materiasLimpias,
+        }),
+      });
     }
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: err?.message || 'Error interno' }, { status: 500 });
   }
 }

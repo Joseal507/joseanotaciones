@@ -1,4 +1,3 @@
-import { supabase } from './supabase';
 import { Materia, PerfilEstudio } from './storage';
 import { Asignacion, ObjetivoAgenda } from './agenda';
 
@@ -24,7 +23,22 @@ const HORARIO_VACIO: Horario = {
   lunes: [], martes: [], miercoles: [], jueves: [], viernes: [],
 };
 
-// ✅ Limpiar base64 e imágenes pesadas antes de guardar
+async function apiGet(path: string) {
+  const res = await fetch(path, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`GET ${path} failed`);
+  return res.json();
+}
+
+async function apiPost(path: string, body: any) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`POST ${path} failed`);
+  return res.json();
+}
+
 const limpiarMaterias = (materias: Materia[]): any[] => {
   return materias.map(m => ({
     ...m,
@@ -32,7 +46,6 @@ const limpiarMaterias = (materias: Materia[]): any[] => {
       ...t,
       apuntes: t.apuntes.map(a => ({
         ...a,
-        // ✅ Limpiar canvasData base64 de los apuntes (se guarda por separado)
         contenido: limpiarContenidoApunte(a.contenido),
       })),
       documentos: t.documentos.map(d => {
@@ -43,7 +56,6 @@ const limpiarMaterias = (materias: Materia[]): any[] => {
   }));
 };
 
-// ✅ Limpiar base64 de canvas y fondos PDF del contenido JSON de apuntes
 const limpiarContenidoApunte = (contenido: string): string => {
   if (!contenido) return contenido;
   try {
@@ -51,12 +63,8 @@ const limpiarContenidoApunte = (contenido: string): string => {
     if (parsed?.paginas) {
       parsed.paginas = parsed.paginas.map((pg: any) => ({
         ...pg,
-        // ✅ Eliminar canvasData base64 pesado
         canvasData: pg.canvasData ? '[canvas]' : null,
-        // ✅ Eliminar backgroundImage base64 pesado
-        backgroundImage: pg.backgroundImage?.startsWith('data:')
-          ? '[image]'
-          : pg.backgroundImage,
+        backgroundImage: pg.backgroundImage?.startsWith('data:') ? '[image]' : pg.backgroundImage,
       }));
       return JSON.stringify(parsed);
     }
@@ -64,79 +72,83 @@ const limpiarContenidoApunte = (contenido: string): string => {
   return contenido;
 };
 
-// ✅ Helper UPSERT genérico - 1 sola query en vez de 2
-async function upsertDB(
-  tabla: string,
-  userId: string,
-  datos: Record<string, any>,
-): Promise<void> {
-  await supabase.from(tabla).upsert(
-    { user_id: userId, ...datos, updated_at: new Date().toISOString() },
-    { onConflict: 'user_id' },
-  );
-}
-
 // ===== MATERIAS =====
-export async function getMateriasDB(userId: string): Promise<Materia[]> {
+export async function getMateriasDB(_userId: string): Promise<Materia[]> {
   try {
-    const { data } = await supabase
-      .from('materias')
-      .select('datos')
-      .eq('user_id', userId)
-      .single();
-    return data?.datos || [];
-  } catch { return []; }
+    const data = await apiGet('/api/materias');
+    return data?.materias || [];
+  } catch {
+    return [];
+  }
 }
 
-export async function saveMateriasDB(userId: string, materias: Materia[]): Promise<void> {
+export async function saveMateriasDB(_userId: string, materias: Materia[]): Promise<void> {
   try {
-    const materiasLimpias = limpiarMaterias(materias);
-    await upsertDB('materias', userId, { datos: materiasLimpias });
-  } catch (err) { console.error('Error guardando materias:', err); }
+    await apiPost('/api/materias', { materias: limpiarMaterias(materias) });
+  } catch (err) {
+    console.error('Error guardando materias D1:', err);
+  }
 }
 
-// ===== PERFIL =====
+// ===== PERFIL ESTUDIO =====
+const PERFIL_EMPTY: PerfilEstudio = {
+  flashcardsFalladas: {},
+  flashcardsAcertadas: {},
+  materiasStats: {},
+  sesiones: [],
+};
+
 export async function getPerfilDB(userId: string): Promise<PerfilEstudio> {
-  const empty: PerfilEstudio = {
-    flashcardsFalladas: {},
-    flashcardsAcertadas: {},
-    materiasStats: {},
-    sesiones: [],
-  };
   try {
-    const { data } = await supabase
-      .from('perfil_estudio')
-      .select('datos')
-      .eq('user_id', userId)
-      .single();
-    return data?.datos || empty;
-  } catch { return empty; }
+    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
+    if (!api) return PERFIL_EMPTY;
+
+    const res = await fetch(`${api}/study-profiles/by-user?userId=${encodeURIComponent(userId)}`, { cache: 'no-store' });
+    if (!res.ok) return PERFIL_EMPTY;
+    const data = await res.json();
+    return data?.profile || PERFIL_EMPTY;
+  } catch {
+    return PERFIL_EMPTY;
+  }
 }
 
 export async function savePerfilDB(userId: string, perfil: PerfilEstudio): Promise<void> {
   try {
-    // ✅ Limitar sesiones a las últimas 100 para no crecer infinito
+    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
+    if (!api) return;
+
     const perfilLimpio = {
       ...perfil,
-      sesiones: (perfil.sesiones || []).slice(-100),
+      sesiones: (perfil.sesiones || []).slice(-500),
     };
-    await upsertDB('perfil_estudio', userId, { datos: perfilLimpio });
-  } catch (err) { console.error('Error guardando perfil:', err); }
+
+    await fetch(`${api}/study-profiles/upsert`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, profile: perfilLimpio }),
+    });
+  } catch (err) {
+    console.error('Error guardando perfil D1:', err);
+  }
 }
 
 // ===== AGENDA =====
 export async function getAgendaDB(userId: string): Promise<{ asignaciones: Asignacion[]; objetivos: ObjetivoAgenda[] }> {
   try {
-    const { data } = await supabase
-      .from('agenda')
-      .select('asignaciones, objetivos')
-      .eq('user_id', userId)
-      .single();
+    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
+    if (!api) return { asignaciones: [], objetivos: [] };
+
+    const res = await fetch(`${api}/agenda/by-user?userId=${encodeURIComponent(userId)}`, { cache: 'no-store' });
+    if (!res.ok) return { asignaciones: [], objetivos: [] };
+    const data = await res.json();
+
     return {
       asignaciones: data?.asignaciones || [],
       objetivos: data?.objetivos || [],
     };
-  } catch { return { asignaciones: [], objetivos: [] }; }
+  } catch {
+    return { asignaciones: [], objetivos: [] };
+  }
 }
 
 export async function saveAgendaDB(
@@ -145,93 +157,93 @@ export async function saveAgendaDB(
   objetivos: ObjetivoAgenda[],
 ): Promise<void> {
   try {
-    await upsertDB('agenda', userId, { asignaciones, objetivos });
-  } catch (err) { console.error('Error guardando agenda:', err); }
+    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
+    if (!api) return;
+
+    await fetch(`${api}/agenda/upsert`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, asignaciones, objetivos }),
+    });
+  } catch (err) {
+    console.error('Error guardando agenda D1:', err);
+  }
 }
 
 // ===== HORARIO =====
 export async function getHorarioDB(userId: string): Promise<Horario> {
   try {
-    const { data } = await supabase
-      .from('horario')
-      .select('datos')
-      .eq('user_id', userId)
-      .single();
-    return data?.datos || HORARIO_VACIO;
-  } catch { return HORARIO_VACIO; }
+    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
+    if (!api) return HORARIO_VACIO;
+
+    const res = await fetch(`${api}/horario/by-user?userId=${encodeURIComponent(userId)}`, { cache: 'no-store' });
+    if (!res.ok) return HORARIO_VACIO;
+    const data = await res.json();
+
+    return data?.horario || HORARIO_VACIO;
+  } catch {
+    return HORARIO_VACIO;
+  }
 }
 
 export async function saveHorarioDB(userId: string, horario: Horario): Promise<void> {
   try {
-    await upsertDB('horario', userId, { datos: horario });
-  } catch (err) { console.error('Error guardando horario:', err); }
+    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
+    if (!api) return;
+
+    await fetch(`${api}/horario/upsert`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, horario }),
+    });
+  } catch (err) {
+    console.error('Error guardando horario D1:', err);
+  }
 }
 
 // ===== SETTINGS =====
 export async function getSettingsDB(userId: string): Promise<any> {
   try {
-    const { data } = await supabase
-      .from('user_settings')
-      .select('datos')
-      .eq('user_id', userId)
-      .single();
-    return data?.datos || null;
-  } catch { return null; }
-}
+    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
+    if (!api) return null;
 
-export async function saveSettingsDB(userId: string, settings: any): Promise<void> {
-  try {
-    // ✅ No guardar fotoPerfil base64 si es muy pesada
-    const settingsLimpios = {
-      ...settings,
-      fotoPerfil: settings.fotoPerfil?.startsWith('data:')
-        && settings.fotoPerfil.length > 500_000
-        ? '' // si pesa más de 500KB no guardar
-        : settings.fotoPerfil,
-    };
-    await upsertDB('user_settings', userId, { datos: settingsLimpios });
-  } catch (err) { console.error('Error guardando settings:', err); }
-}
+    const res = await fetch(`${api}/settings/by-user?userId=${encodeURIComponent(userId)}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = await res.json();
 
-// ===== STORAGE - Subir archivos pesados =====
-export async function subirArchivoStorage(
-  userId: string,
-  base64: string,
-  nombre: string,
-  tipo: 'canvas' | 'fondo' | 'imagen' = 'imagen',
-): Promise<string | null> {
-  try {
-    // Convertir base64 a blob
-    const response = await fetch(base64);
-    const blob = await response.blob();
-
-    const extension = blob.type.includes('png') ? 'png' : 'jpg';
-    const filePath = `${userId}/${tipo}_${nombre}_${Date.now()}.${extension}`;
-
-    const { error } = await supabase.storage
-      .from('archivos_estudio')
-      .upload(filePath, blob, {
-        contentType: blob.type,
-        upsert: true,
-      });
-
-    if (error) throw error;
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('archivos_estudio')
-      .getPublicUrl(filePath);
-
-    return publicUrl;
-  } catch (err) {
-    console.error('Error subiendo archivo:', err);
+    return data?.settings || null;
+  } catch {
     return null;
   }
 }
 
-export async function borrarArchivoStorage(url: string): Promise<void> {
+export async function saveSettingsDB(userId: string, settings: any): Promise<void> {
   try {
-    const path = url.split('/archivos_estudio/')[1];
-    if (!path) return;
-    await supabase.storage.from('archivos_estudio').remove([path]);
-  } catch {}
+    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
+    if (!api) return;
+
+    const settingsLimpios = {
+      ...settings,
+      fotoPerfil: settings.fotoPerfil?.startsWith('data:') && settings.fotoPerfil.length > 500_000 ? '' : settings.fotoPerfil,
+    };
+
+    await fetch(`${api}/settings/upsert`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, settings: settingsLimpios }),
+    });
+  } catch (err) {
+    console.error('Error guardando settings D1:', err);
+  }
+}
+
+// ===== STORAGE TEMPORAL =====
+// Los archivos físicos se migran a R2 en otra fase.
+export async function subirArchivoStorage(): Promise<string | null> {
+  console.warn('subirArchivoStorage pendiente de migrar a R2');
+  return null;
+}
+
+export async function borrarArchivoStorage(): Promise<void> {
+  console.warn('borrarArchivoStorage pendiente de migrar a R2');
 }

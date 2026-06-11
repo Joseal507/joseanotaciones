@@ -54,8 +54,20 @@ export default function UserMenu() {
           if (json.success && json.data) {
             setPerfil(json.data);
             localStorage.setItem('josea_perfil', JSON.stringify(json.data));
+          } else {
+            const fallbackProfile = {
+              nombre: nextUser.name || nextUser.email?.split('@')[0],
+              avatar_url: nextUser.image,
+            };
+            setPerfil(fallbackProfile);
           }
-        } catch {}
+        } catch {
+          const fallbackProfile = {
+            nombre: nextUser.name || nextUser.email?.split('@')[0],
+            avatar_url: nextUser.image,
+          };
+          setPerfil(fallbackProfile);
+        }
       } catch {}
     };
 

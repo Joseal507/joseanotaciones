@@ -1532,7 +1532,16 @@ export default function Home() {
   const [myRank, setMyRank]         = useState(0);
   const [totalUsers, setTotalUsers] = useState(0);
   const [buscadorOpen, setBuscadorOpen] = useState(false);
-  const [userName, setUserName]     = useState('');
+  const getStoredUserName = () => {
+    if (typeof window === 'undefined') return '';
+    try {
+      return localStorage.getItem('studyal_user_name') || '';
+    } catch {
+      return '';
+    }
+  };
+
+  const [userName, setUserName] = useState(getStoredUserName);
 
   const mob = useIsMobile();
   const [isTablet, setIsTablet] = useState(false);
@@ -1547,6 +1556,15 @@ export default function Home() {
   const lang = idioma || 'es';
   const router = useRouter();
   const { data: session, status } = useSession();
+  useEffect(() => {
+    const u = session?.user as any;
+    const name = u?.name || (u?.email ? u.email.split('@')[0] : '');
+    if (name) {
+      setUserName(name);
+      try { localStorage.setItem('studyal_user_name', name); } catch {}
+    }
+  }, [session]);
+
   const [authChecked, setAuthChecked] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
@@ -1624,6 +1642,16 @@ export default function Home() {
   };
 
   useEffect(() => {
+    try {
+      const local = localStorage.getItem('studyal_materias');
+      const parsed = local ? JSON.parse(local) : [];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        setMaterias(parsed);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
     const labels = [
       { label:'Cargando materias…',     color:'var(--gold)', emoji:'📚' },
       { label:'Preparando tu espacio…', color:'#f472b6', emoji:'✨' },
@@ -1639,7 +1667,15 @@ export default function Home() {
           setUserName(nombre);
 
           try {
-            const ms = await getMateriasDB(user.id);
+            let ms = await getMateriasDB(user.id);
+            if (!ms || ms.length === 0) {
+              try {
+                const local = localStorage.getItem('studyal_materias');
+                ms = local ? JSON.parse(local) : [];
+              } catch {
+                ms = [];
+              }
+            }
             console.log('🔍 [HOME] Materias cargadas:', ms?.length || 0);
             setMaterias(ms || []);
           } catch (e) {
@@ -1810,7 +1846,7 @@ export default function Home() {
 
         <div style={{ display:'flex',flexDirection:'column',gap:2,paddingTop:4 }}>
           <DiaFecha lang={lang}/>
-          <WelcomeUser name={userName}/>
+          <WelcomeUser name={userName || (session?.user as any)?.name || (session?.user as any)?.email?.split('@')[0] || 'Jose'}/>
         </div>
 
         <div style={{ display:'flex',justifyContent:'center',padding:'10px 0' }}>
@@ -1977,7 +2013,7 @@ export default function Home() {
           <div style={{ display:'flex',flexDirection:'column',gap:18,alignItems:'flex-start' }}>
             <div style={{ display:'flex',flexDirection:'column',gap:2,alignItems:'flex-start' }}>
               <DiaFecha lang={lang}/>
-              <WelcomeUser name={userName}/>
+              <WelcomeUser name={userName || (session?.user as any)?.name || (session?.user as any)?.email?.split('@')[0] || 'Jose'}/>
             </div>
             <HorarioFlecha targetId="horario-section" mob={false}/>
           </div>

@@ -119,57 +119,32 @@ export const saveMaterias = (materias: Materia[]) => {
 
 export const syncMateriasToSupabase = async (materias: Materia[]) => {
   try {
-    const { supabase } = await import('./supabase');
-    let session = (await supabase.auth.getSession()).data.session;
-    if (!session) {
-      const { data } = await supabase.auth.refreshSession();
-      session = data.session;
-    }
-    if (!session) return;
-
-    const token = session.access_token;
-    const res = await fetch('/api/sync', {
+    const res = await fetch('/api/materias', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify({ tipo: 'materias', datos: materias }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ materias }),
     });
 
     if (res.ok) {
       localStorage.setItem(KEY_LAST_SYNC, new Date().toISOString());
     }
   } catch (err) {
-    console.error('Sync materias error (non-blocking):', err);
+    console.error('Sync materias D1 error (non-blocking):', err);
   }
 };
 
 export const cargarMateriasDesdeDB = async (): Promise<Materia[] | null> => {
   try {
-    const { supabase } = await import('./supabase');
-    let session = (await supabase.auth.getSession()).data.session;
-    if (!session) {
-      const { data } = await supabase.auth.refreshSession();
-      session = data.session;
-    }
-    if (!session) return null;
-
-    const token = session.access_token;
-    const res = await fetch('/api/sync', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-
+    const res = await fetch('/api/materias', { cache: 'no-store' });
     if (!res.ok) return null;
-    const data = await res.json();
-    const materias: Materia[] = data.data?.materias || [];
 
-    if (materias.length > 0) {
-      localStorage.setItem(KEY, JSON.stringify(materias));
-      localStorage.setItem(KEY_LAST_SYNC, new Date().toISOString());
-      return materias;
-    }
-    return null;
+    const data = await res.json();
+    const materias: Materia[] = data.materias || [];
+
+    localStorage.setItem(KEY, JSON.stringify(materias));
+    localStorage.setItem(KEY_LAST_SYNC, new Date().toISOString());
+
+    return materias;
   } catch {
     return null;
   }
@@ -253,40 +228,40 @@ export const savePerfil = (perfil: PerfilEstudio) => {
 
 const syncPerfilToSupabase = async (perfil: PerfilEstudio) => {
   try {
-    const { supabase } = await import('./supabase');
+    const res = await fetch('/api/auth/session', { cache: 'no-store' });
+    const session = await res.json();
+    const userId = session?.user?.id;
+    if (!userId) return;
+
     const { savePerfilDB } = await import('./db');
-    let session = (await supabase.auth.getSession()).data.session;
-    if (!session) {
-      const { data } = await supabase.auth.refreshSession();
-      session = data.session;
-    }
-    if (!session) return;
-    await savePerfilDB(session.user.id, perfil);
+    await savePerfilDB(userId, perfil);
   } catch (err) {
-    console.error('Perfil sync error:', err);
+    console.error('Perfil sync D1 error:', err);
   }
 };
 
 export const cargarPerfilDesdeDB = async (): Promise<PerfilEstudio | null> => {
   try {
-    const { supabase } = await import('./supabase');
+    const res = await fetch('/api/auth/session', { cache: 'no-store' });
+    const session = await res.json();
+    const userId = session?.user?.id;
+    if (!userId) return null;
+
     const { getPerfilDB } = await import('./db');
-    let session = (await supabase.auth.getSession()).data.session;
-    if (!session) {
-      const { data } = await supabase.auth.refreshSession();
-      session = data.session;
-    }
-    if (!session) return null;
-    const perfilDB = await getPerfilDB(session.user.id);
+    const perfilDB = await getPerfilDB(userId);
     const tieneData = Object.keys(perfilDB.flashcardsAcertadas || {}).length > 0
       || Object.keys(perfilDB.flashcardsFalladas || {}).length > 0
       || Object.keys(perfilDB.materiasStats || {}).length > 0;
+
     if (tieneData) {
       localStorage.setItem(KEY_PERFIL, JSON.stringify(perfilDB));
       return perfilDB;
     }
+
     return null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 };
 
 // ─── UTILS ───────────────────────────────────────────────

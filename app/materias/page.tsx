@@ -3,9 +3,9 @@ export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import dynamicImport from 'next/dynamic';
 import { getMaterias, saveMaterias, generateId, Materia, Tema, Apunte, Documento } from '../../lib/storage';
-import { supabase } from '../../lib/supabase';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
@@ -28,6 +28,7 @@ type Vista = 'materias' | 'materia' | 'tema' | 'apunte' | 'documento' | 'flashca
 
 export default function MateriasPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [materias, setMaterias] = useState<Materia[]>([]);
   const [vista, setVista] = useState<'lista' | 'materia' | 'materias' | 'apunte' | 'tema' | 'documento' | 'flashcards' | 'quiz' | 'repasar'>(() => {
     if (typeof window !== 'undefined') {
@@ -173,47 +174,33 @@ export default function MateriasPage() {
         const materiasLocal = getMaterias();
         if (materiasLocal.length > 0) {
           setMaterias(materiasLocal);
+
+          const openIdLocal = openParam || localStorage.getItem('josea_open_materia');
+          if (openIdLocal) {
+            const matLocal = materiasLocal.find((m: any) => String(m.id) === String(openIdLocal));
+            if (matLocal) {
+              setMateriaActual(matLocal);
+              setVista('materia');
+              localStorage.removeItem('josea_open_materia');
+            } else {
+              setVista('materias');
+            }
+          } else {
+            setVista('materias');
+          }
+
           setCargando(false);
         }
 
-        // Check robusto con timeout
-        let session: any = null;
-        let tokenLocal: string | null = null;
-        let userIdLocal: string | null = null;
-        try {
-          const authKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
-          if (authKey) {
-            const raw = localStorage.getItem(authKey);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              tokenLocal = parsed?.access_token || parsed?.[0]?.access_token || null;
-              userIdLocal = parsed?.user?.id || parsed?.[0]?.user?.id || null;
-            }
-          }
-        } catch {}
+        if (status === 'loading') return;
 
-        try {
-          const sessionPromise = supabase.auth.getSession();
-          const timeout = new Promise<any>((_, rej) => setTimeout(() => rej(new Error('t')), 3000));
-          const result: any = await Promise.race([sessionPromise, timeout]);
-          session = result?.data?.session;
-        } catch {}
-
-        if (!session && tokenLocal && userIdLocal) {
-          // Usar token local como fallback (no botear)
-          session = { user: { id: userIdLocal }, access_token: tokenLocal };
+        const nextUser = session?.user as any;
+        if (!nextUser?.id) {
+          router.push('/auth');
+          return;
         }
 
-        if (!session) {
-          try {
-            const { data } = await supabase.auth.refreshSession();
-            session = data.session;
-          } catch {}
-        }
-        if (!session) { ((window as any).__showNavLoader?.('/auth'), router.push('/auth')); return; }
-
-        const uid = session.user.id;
-        const token = session.access_token;
+        const uid = nextUser.id;
         setUserId(uid);
 
         const lastUserId = localStorage.getItem('josea_last_user');
@@ -225,7 +212,7 @@ export default function MateriasPage() {
         }
 
         const res = await fetch('/api/materias', {
-          headers: { 'Authorization': `Bearer ${token}` },
+
         });
         const data = await res.json();
 
@@ -236,10 +223,13 @@ export default function MateriasPage() {
           try {
             const openId = openParam || localStorage.getItem('josea_open_materia');
             if (openId) {
-              const mat = data.materias.find((m: any) => m.id === openId);
+              const allMaterias = data.materias?.length ? data.materias : materiasLocal;
+              const mat = allMaterias.find((m: any) => m.id === openId);
               if (mat) {
                 setMateriaActual(mat);
                 setVista('materia');
+              } else {
+                setVista('materias');
               }
               localStorage.removeItem('josea_open_materia');
             }
@@ -248,7 +238,6 @@ export default function MateriasPage() {
           await fetch('/api/materias', {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({ materias: materiasLocal }),
@@ -256,7 +245,7 @@ export default function MateriasPage() {
         } else {
           await new Promise(r => setTimeout(r, 2000));
           const res2 = await fetch('/api/materias', {
-            headers: { 'Authorization': `Bearer ${token}` },
+
           });
           const data2 = await res2.json();
           if (data2.success && data2.materias.length > 0) {
@@ -273,7 +262,7 @@ export default function MateriasPage() {
       }
     };
     cargar();
-  }, []);
+  }, [status, session, router]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -562,7 +551,14 @@ const eliminarDocumento = async (id: string) => {
     if (materiaActual?.id === materiaEditada.id) setMateriaActual(materiaEditada);
   };
 
-  if (cargando || (openParam && vista === 'lista')) {
+  if (!cargando && vista === 'materia' && !materiaActual) {
+    setTimeout(() => {
+      try { window.history.replaceState(null, '', '/materias'); } catch {}
+      setVista('materias');
+    }, 0);
+  }
+
+  if (cargando) {
     return (
       <div style={{
         minHeight: '100vh',
@@ -669,7 +665,7 @@ const eliminarDocumento = async (id: string) => {
 
       <div style={{ padding: isMobile ? '16px' : '0 40px 40px' }}>
 
-        {vista === 'materias' && (
+        {(vista === 'lista' || vista === 'materias') && (
           <MateriasList
             materias={materias}
             onAbrir={(m: any) => { setMateriaActual(m); setVista('materia'); }}
