@@ -302,6 +302,425 @@ export default {
         return json({ ok: true, entry })
       }
 
+
+      // ===== MATERIALS =====
+      if (url.pathname === "/materials/by-user" && request.method === "GET") {
+        const userId = url.searchParams.get("userId")
+        const temaId = url.searchParams.get("temaId")
+        const id = url.searchParams.get("id")
+        if (!userId) return json({ ok: false, error: "userId_required" }, 400)
+
+        if (id) {
+          const material = await env.DB.prepare("SELECT * FROM materials WHERE id = ? AND user_id = ?")
+            .bind(id, userId).first()
+          return json({ ok: true, material: material || null })
+        }
+
+        let rows
+        if (temaId) {
+          rows = await env.DB.prepare(`
+            SELECT * FROM materials
+            WHERE user_id = ? AND tema_id = ? AND upload_status != 'deleted'
+            ORDER BY created_at DESC
+          `).bind(userId, temaId).all()
+        } else {
+          rows = await env.DB.prepare(`
+            SELECT * FROM materials
+            WHERE user_id = ? AND upload_status != 'deleted'
+            ORDER BY created_at DESC
+          `).bind(userId).all()
+        }
+
+        return json({ ok: true, materials: rows.results || [] })
+      }
+
+      if (url.pathname === "/materials/upsert" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.id || !body.user_id) return json({ ok: false, error: "id_user_id_required" }, 400)
+
+        await env.DB.prepare(`
+          INSERT INTO materials (
+            id,user_id,tema_id,materia_id,nombre,extension,mime_type,size_bytes,storage_key,kind,
+            upload_status,text_status,extracted_chars,pages_count,content_hash,last_error,created_at,updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+          ON CONFLICT(id) DO UPDATE SET
+            user_id=excluded.user_id,
+            tema_id=excluded.tema_id,
+            materia_id=excluded.materia_id,
+            nombre=excluded.nombre,
+            extension=excluded.extension,
+            mime_type=excluded.mime_type,
+            size_bytes=excluded.size_bytes,
+            storage_key=excluded.storage_key,
+            kind=excluded.kind,
+            upload_status=excluded.upload_status,
+            text_status=excluded.text_status,
+            extracted_chars=excluded.extracted_chars,
+            pages_count=excluded.pages_count,
+            content_hash=excluded.content_hash,
+            last_error=excluded.last_error,
+            updated_at=datetime('now')
+        `).bind(
+          body.id,
+          body.user_id,
+          body.tema_id || "",
+          body.materia_id || "",
+          body.nombre || "",
+          body.extension || "",
+          body.mime_type || "",
+          Number(body.size_bytes || 0),
+          body.storage_key || "",
+          body.kind || "file",
+          body.upload_status || "uploaded",
+          body.text_status || "pending",
+          body.extracted_chars ?? null,
+          body.pages_count ?? null,
+          body.content_hash ?? null,
+          body.last_error ?? null,
+          body.created_at ?? null
+        ).run()
+
+        const material = await env.DB.prepare("SELECT * FROM materials WHERE id = ?").bind(body.id).first()
+        return json({ ok: true, material })
+      }
+
+      if (url.pathname === "/materials/update" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.id) return json({ ok: false, error: "id_required" }, 400)
+
+        await env.DB.prepare(`
+          UPDATE materials SET
+            upload_status = COALESCE(?, upload_status),
+            text_status = COALESCE(?, text_status),
+            extracted_chars = COALESCE(?, extracted_chars),
+            pages_count = COALESCE(?, pages_count),
+            last_error = COALESCE(?, last_error),
+            updated_at = datetime('now')
+          WHERE id = ?
+        `).bind(
+          body.upload_status ?? null,
+          body.text_status ?? null,
+          body.extracted_chars ?? null,
+          body.pages_count ?? null,
+          body.last_error ?? null,
+          body.id
+        ).run()
+
+        return json({ ok: true })
+      }
+
+      if (url.pathname === "/materials/delete" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.id || !body.user_id) return json({ ok: false, error: "id_user_id_required" }, 400)
+        await env.DB.prepare("UPDATE materials SET upload_status='deleted', updated_at=datetime('now') WHERE id=? AND user_id=?")
+          .bind(body.id, body.user_id).run()
+        return json({ ok: true })
+      }
+
+      if (url.pathname === "/material-texts/by-material" && request.method === "GET") {
+        const materialId = url.searchParams.get("materialId")
+        if (!materialId) return json({ ok: false, error: "materialId_required" }, 400)
+        const row = await env.DB.prepare("SELECT * FROM material_texts WHERE material_id = ?").bind(materialId).first()
+        return json({ ok: true, text: row || null })
+      }
+
+      if (url.pathname === "/material-texts/upsert" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.material_id) return json({ ok: false, error: "material_id_required" }, 400)
+        await env.DB.prepare(`
+          INSERT INTO material_texts (material_id, text, chunks, created_at, updated_at)
+          VALUES (?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+          ON CONFLICT(material_id) DO UPDATE SET
+            text=excluded.text,
+            chunks=excluded.chunks,
+            updated_at=datetime('now')
+        `).bind(
+          body.material_id,
+          body.text ?? body.raw_text ?? null,
+          typeof body.chunks === "string" ? body.chunks : JSON.stringify(body.chunks ?? null),
+          body.created_at ?? null
+        ).run()
+        return json({ ok: true })
+      }
+
+      // ===== MATERIAL RESULTS / JOBS =====
+      if (url.pathname === "/material-results/by-material" && request.method === "GET") {
+        const materialId = url.searchParams.get("materialId")
+        const enfoque = url.searchParams.get("enfoque")
+        const resultType = url.searchParams.get("resultType")
+        if (!materialId) return json({ ok: false, error: "materialId_required" }, 400)
+        const row = await env.DB.prepare(`
+          SELECT * FROM material_results
+          WHERE material_id = ?
+            AND (? IS NULL OR enfoque = ?)
+            AND (? IS NULL OR result_type = ?)
+          ORDER BY created_at DESC
+          LIMIT 1
+        `).bind(materialId, enfoque, enfoque, resultType, resultType).first()
+        return json({ ok: true, result: row || null })
+      }
+
+      if (url.pathname === "/material-results/upsert" && request.method === "POST") {
+        const body = await readBody(request)
+        const id = body.id || ("res_" + crypto.randomUUID())
+        if (!body.material_id || !body.enfoque || !body.result_type) {
+          return json({ ok: false, error: "missing_fields" }, 400)
+        }
+        await env.DB.prepare(`
+          INSERT INTO material_results (id, material_id, enfoque, result_type, payload, content_hash, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+          ON CONFLICT(id) DO UPDATE SET
+            payload=excluded.payload,
+            content_hash=excluded.content_hash
+        `).bind(
+          id,
+          body.material_id,
+          body.enfoque,
+          body.result_type,
+          typeof body.payload === "string" ? body.payload : JSON.stringify(body.payload ?? {}),
+          body.content_hash ?? null,
+          body.created_at ?? null
+        ).run()
+        const result = await env.DB.prepare("SELECT * FROM material_results WHERE id = ?").bind(id).first()
+        return json({ ok: true, result })
+      }
+
+      if (url.pathname === "/material-jobs/upsert" && request.method === "POST") {
+        const body = await readBody(request)
+        const id = body.id || ("job_" + crypto.randomUUID())
+        if (!body.material_id || !body.type) return json({ ok: false, error: "missing_fields" }, 400)
+        await env.DB.prepare(`
+          INSERT INTO material_jobs (id, material_id, type, status, error, attempts, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+          ON CONFLICT(id) DO UPDATE SET
+            status=excluded.status,
+            error=excluded.error,
+            attempts=excluded.attempts,
+            updated_at=datetime('now')
+        `).bind(
+          id,
+          body.material_id,
+          body.type,
+          body.status || "pending",
+          body.error ?? null,
+          Number(body.attempts || 0),
+          body.created_at ?? null
+        ).run()
+        const job = await env.DB.prepare("SELECT * FROM material_jobs WHERE id = ?").bind(id).first()
+        return json({ ok: true, job })
+      }
+
+      // ===== FLASHCARD DECKS =====
+      if (url.pathname === "/flashcard-decks/upsert" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.id || !body.user_id) return json({ ok: false, error: "id_user_id_required" }, 400)
+        await env.DB.prepare(`
+          INSERT INTO flashcard_decks (
+            id,user_id,nombre,fecha_creacion,flashcards,materia_nombre,materia_color,tema_color,created_at,updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+          ON CONFLICT(id) DO UPDATE SET
+            nombre=excluded.nombre,
+            flashcards=excluded.flashcards,
+            materia_nombre=excluded.materia_nombre,
+            materia_color=excluded.materia_color,
+            tema_color=excluded.tema_color,
+            updated_at=datetime('now')
+        `).bind(
+          body.id,
+          body.user_id,
+          body.nombre || "",
+          body.fecha_creacion || null,
+          typeof body.flashcards === "string" ? body.flashcards : JSON.stringify(body.flashcards || []),
+          body.materia_nombre || null,
+          body.materia_color || null,
+          body.tema_color || null,
+          body.created_at || null
+        ).run()
+        return json({ ok: true })
+      }
+
+      // ===== COMUNIDAD =====
+      if (url.pathname === "/comunidad-posts/upsert" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.id) return json({ ok: false, error: "id_required" }, 400)
+        await env.DB.prepare(`
+          INSERT INTO comunidad_posts (
+            id,user_id,tipo,titulo,descripcion,contenido,created_at,updated_at,views,comments_activos,
+            es_partner,estudiados,materia_nombre,materia_color,materia_emoji,portada_url,user_avatar,user_nombre,video_url
+          )
+          VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            titulo=excluded.titulo,
+            descripcion=excluded.descripcion,
+            contenido=excluded.contenido,
+            views=excluded.views,
+            comments_activos=excluded.comments_activos,
+            es_partner=excluded.es_partner,
+            estudiados=excluded.estudiados,
+            updated_at=datetime('now')
+        `).bind(
+          body.id,
+          body.user_id || null,
+          body.tipo || "post",
+          body.titulo || "",
+          body.descripcion || null,
+          body.contenido || "",
+          body.created_at || null,
+          Number(body.views || 0),
+          body.comments_activos === false ? 0 : 1,
+          body.es_partner ? 1 : 0,
+          Number(body.estudiados || 0),
+          body.materia_nombre || null,
+          body.materia_color || null,
+          body.materia_emoji || null,
+          body.portada_url || null,
+          body.user_avatar || null,
+          body.user_nombre || null,
+          body.video_url || null
+        ).run()
+        return json({ ok: true })
+      }
+
+      // ===== PARTNERS =====
+      if (url.pathname === "/partners/by-user" && request.method === "GET") {
+        const userId = url.searchParams.get("userId")
+        if (!userId) return json({ ok: false, error: "userId_required" }, 400)
+        const rows = await env.DB.prepare(`
+          SELECT * FROM partners
+          WHERE sender_id = ? OR receiver_id = ?
+          ORDER BY created_at DESC
+        `).bind(userId, userId).all()
+        return json({ ok: true, partners: rows.results || [] })
+      }
+
+      if (url.pathname === "/partners/upsert" && request.method === "POST") {
+        const body = await readBody(request)
+        const id = body.id || crypto.randomUUID()
+        if (!body.sender_id || !body.receiver_id) return json({ ok: false, error: "sender_receiver_required" }, 400)
+        await env.DB.prepare(`
+          INSERT INTO partners (id,sender_id,receiver_id,status,created_at,updated_at)
+          VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+          ON CONFLICT(id) DO UPDATE SET
+            sender_id=excluded.sender_id,
+            receiver_id=excluded.receiver_id,
+            status=excluded.status,
+            updated_at=datetime('now')
+        `).bind(id, body.sender_id, body.receiver_id, body.status || "pending", body.created_at || null).run()
+        const partner = await env.DB.prepare("SELECT * FROM partners WHERE id = ?").bind(id).first()
+        return json({ ok: true, partner })
+      }
+
+      if (url.pathname === "/partners/update" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.id) return json({ ok: false, error: "id_required" }, 400)
+        await env.DB.prepare("UPDATE partners SET status=?, updated_at=datetime('now') WHERE id=?")
+          .bind(body.status || "pending", body.id).run()
+        const partner = await env.DB.prepare("SELECT * FROM partners WHERE id = ?").bind(body.id).first()
+        return json({ ok: true, partner })
+      }
+
+      if (url.pathname === "/partners/delete-between" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.user_id || !body.other_id) return json({ ok: false, error: "missing_fields" }, 400)
+        await env.DB.prepare(`
+          DELETE FROM partners
+          WHERE (sender_id=? AND receiver_id=?) OR (sender_id=? AND receiver_id=?)
+        `).bind(body.user_id, body.other_id, body.other_id, body.user_id).run()
+        return json({ ok: true })
+      }
+
+      if (url.pathname === "/partner-blocks/upsert" && request.method === "POST") {
+        const body = await readBody(request)
+        const id = body.id || crypto.randomUUID()
+        if (!body.blocker_id || !body.blocked_id) return json({ ok: false, error: "missing_fields" }, 400)
+        await env.DB.prepare(`
+          INSERT OR IGNORE INTO partner_blocks (id, blocker_id, blocked_id, created_at)
+          VALUES (?, ?, ?, datetime('now'))
+        `).bind(id, body.blocker_id, body.blocked_id).run()
+        return json({ ok: true })
+      }
+
+      if (url.pathname === "/partner-blocks/check" && request.method === "GET") {
+        const blockerId = url.searchParams.get("blockerId")
+        const blockedId = url.searchParams.get("blockedId")
+        if (!blockerId || !blockedId) return json({ ok: false, error: "missing_fields" }, 400)
+        const row = await env.DB.prepare("SELECT id FROM partner_blocks WHERE blocker_id=? AND blocked_id=?")
+          .bind(blockerId, blockedId).first()
+        return json({ ok: true, blocked: !!row })
+      }
+
+      if (url.pathname === "/partner-reports/upsert" && request.method === "POST") {
+        const body = await readBody(request)
+        const id = body.id || crypto.randomUUID()
+        if (!body.reporter_id || !body.reported_id || !body.motivo) return json({ ok: false, error: "missing_fields" }, 400)
+        await env.DB.prepare(`
+          INSERT INTO partner_reports (id, reporter_id, reported_id, motivo, detalles, created_at)
+          VALUES (?, ?, ?, ?, ?, datetime('now'))
+        `).bind(id, body.reporter_id, body.reported_id, body.motivo, body.detalles || null).run()
+        return json({ ok: true })
+      }
+
+      if (url.pathname === "/partner-chats/upsert" && request.method === "POST") {
+        const body = await readBody(request)
+        const id = body.id || crypto.randomUUID()
+        if (!body.user1_id || !body.user2_id) return json({ ok: false, error: "missing_fields" }, 400)
+        await env.DB.prepare(`
+          INSERT INTO partner_chats (
+            id,user1_id,user2_id,last_message,last_message_at,created_at,user1_deleted_at,user2_deleted_at,wallpaper_url,wallpaper_set_by
+          )
+          VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            last_message=excluded.last_message,
+            last_message_at=excluded.last_message_at,
+            user1_deleted_at=excluded.user1_deleted_at,
+            user2_deleted_at=excluded.user2_deleted_at,
+            wallpaper_url=excluded.wallpaper_url,
+            wallpaper_set_by=excluded.wallpaper_set_by
+        `).bind(
+          id,
+          body.user1_id,
+          body.user2_id,
+          body.last_message || null,
+          body.last_message_at || null,
+          body.created_at || null,
+          body.user1_deleted_at || null,
+          body.user2_deleted_at || null,
+          body.wallpaper_url || null,
+          body.wallpaper_set_by || null
+        ).run()
+        return json({ ok: true })
+      }
+
+      if (url.pathname === "/partner-messages/upsert" && request.method === "POST") {
+        const body = await readBody(request)
+        const id = body.id || crypto.randomUUID()
+        if (!body.chat_id || !body.sender_id) return json({ ok: false, error: "missing_fields" }, 400)
+        await env.DB.prepare(`
+          INSERT INTO partner_messages (id,chat_id,sender_id,content,type,metadata,created_at,duration,expires_at)
+          VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            content=excluded.content,
+            type=excluded.type,
+            metadata=excluded.metadata,
+            duration=excluded.duration,
+            expires_at=excluded.expires_at
+        `).bind(
+          id,
+          body.chat_id,
+          body.sender_id,
+          body.content || "",
+          body.type || null,
+          typeof body.metadata === "string" ? body.metadata : JSON.stringify(body.metadata ?? null),
+          body.created_at || null,
+          body.duration ?? null,
+          body.expires_at || null
+        ).run()
+        return json({ ok: true })
+      }
+
+
       return json({ ok: false, error: "not_found" }, 404)
     } catch (error) {
       return json({
