@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { useSession } from 'next-auth/react';
 import OnboardingModal from './OnboardingModal';
 
 export default function OnboardingCheck() {
@@ -9,26 +9,23 @@ export default function OnboardingCheck() {
   const [showAgreement, setShowAgreement] = useState(false);
   const [nombre, setNombre] = useState('');
   const [checked, setChecked] = useState(false);
+  const { data: session, status } = useSession();
 
   useEffect(() => {
     const check = async () => {
       try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const session = sessionData.session;
-        if (!session) { setChecked(true); return; }
+        if (status === 'loading') return;
+        const user: any = session?.user;
+        if (!user?.id) { setChecked(true); return; }
 
-        const userId = session.user.id;
-        const userName = session.user.user_metadata?.nombre || session.user.email?.split('@')[0] || '';
+        const userId = user.id;
+        const userName = user.name || user.email?.split('@')[0] || '';
 
-        // ── 1. Verificar leaderboard (fuente principal) ──
-        const { data: entry } = await supabase
-          .from('leaderboard')
-          .select('genero, tipo_estudiante, user_agreement, onboarding_completo')
-          .eq('user_id', userId)
-          .single();
+        const res = await fetch('/api/leaderboard', { cache: 'no-store', credentials: 'same-origin' });
+        const json = await res.json().catch(() => ({}));
+        const entry = (json.data || []).find((x: any) => x.user_id === userId);
 
         if (entry?.genero && entry?.tipo_estudiante) {
-          // Onboarding completo — verificar solo el agreement
           if (!entry.user_agreement) {
             setNombre(userName);
             setShowAgreement(true);
@@ -37,43 +34,16 @@ export default function OnboardingCheck() {
           return;
         }
 
-        // ── 2. Verificar user_profiles como segunda fuente ──
-        const { data: profile } = await supabase
-          .from('user_profiles')
-          .select('onboarding_completo, genero, tipo_estudiante')
-          .eq('id', userId)
-          .single();
-
-        if (profile?.onboarding_completo || (profile?.genero && profile?.tipo_estudiante)) {
-          // Ya completó el onboarding — sincronizar al leaderboard silenciosamente
-          if (profile.genero && profile.tipo_estudiante) {
-            await supabase
-              .from('leaderboard')
-              .upsert({
-                user_id: userId,
-                genero: profile.genero,
-                tipo_estudiante: profile.tipo_estudiante,
-                onboarding_completo: true,
-              }, { onConflict: 'user_id' });
-          }
-          setChecked(true);
-          return;
-        }
-
-        // ── 3. Verificar localStorage como tercera fuente ──
         const localDone = localStorage.getItem(`josea_onboarding_done_${userId}`);
         if (localDone === 'true') {
           setChecked(true);
           return;
         }
 
-        // ── 4. Sin ninguna fuente → mostrar onboarding ──
         setNombre(userName);
         setShowOnboarding(true);
-
       } catch (err) {
         console.error('OnboardingCheck error:', err);
-        // En caso de error de red → NO mostrar onboarding, asumir que ya lo hizo
         setChecked(true);
       } finally {
         setChecked(true);
@@ -81,7 +51,7 @@ export default function OnboardingCheck() {
     };
 
     check();
-  }, []);
+  }, [session, status]);
 
   if (!checked) return null;
 
@@ -134,14 +104,16 @@ export default function OnboardingCheck() {
             <button
               onClick={async () => {
                 try {
-                  const { data } = await supabase.auth.getSession();
-                  if (data.session) {
-                    await supabase.from('leaderboard').update({
+                  await fetch('/api/leaderboard', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
                       user_agreement: true,
                       user_agreement_date: new Date().toISOString(),
                       visible_leaderboard: true,
-                    }).eq('user_id', data.session.user.id);
-                  }
+                    }),
+                  });
                 } catch {}
                 setShowAgreement(false);
               }}
@@ -157,14 +129,16 @@ export default function OnboardingCheck() {
             <button
               onClick={async () => {
                 try {
-                  const { data } = await supabase.auth.getSession();
-                  if (data.session) {
-                    await supabase.from('leaderboard').update({
+                  await fetch('/api/leaderboard', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
                       user_agreement: false,
                       user_agreement_date: new Date().toISOString(),
                       visible_leaderboard: false,
-                    }).eq('user_id', data.session.user.id);
-                  }
+                    }),
+                  });
                 } catch {}
                 setShowAgreement(false);
               }}

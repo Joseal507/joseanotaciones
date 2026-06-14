@@ -3,7 +3,6 @@
 import { useRouter } from 'next/navigation';
 
 import { useState, useEffect, useRef } from 'react';
-import { supabase } from '../../lib/supabase';
 import { signOut, useSession } from 'next-auth/react';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useDarkMode } from '../../hooks/useDarkMode';
@@ -97,15 +96,14 @@ export default function SettingsPage() {
       setNombre(data.user.user_metadata?.nombre || data.user.email?.split('@')[0] || '');
 
       try {
-        const { data: lb } = await supabase
-          .from('leaderboard')
-          .select('descripcion, genero, tipo_estudiante, universidad, carrera')
-          .eq('user_id', data.user.id)
-          .single();
+        const res = await fetch('/api/leaderboard', { cache: 'no-store', credentials: 'same-origin' });
+        const json = await res.json();
+        const lb = (json.data || []).find((x: any) => x.user_id === data.user.id);
         if (lb) {
           setDescripcion(lb.descripcion || '');
           setGenero(lb.genero || '');
           setTipoEstudiante(lb.tipo_estudiante || '');
+          setVisibleLeaderboard(lb.visible_leaderboard !== false && lb.visible_leaderboard !== 0);
           if (lb.tipo_estudiante === 'universitario') {
             setUniversidad(lb.universidad || '');
             setCarrera(lb.carrera || '');
@@ -115,14 +113,6 @@ export default function SettingsPage() {
         }
       } catch {}
 
-      try {
-        const { data: lb } = await supabase
-          .from('leaderboard')
-          .select('visible_leaderboard')
-          .eq('user_id', data.user.id)
-          .single();
-        if (lb !== null) setVisibleLeaderboard(lb?.visible_leaderboard !== false);
-      } catch {}
 
       const localSettings = getSettings();
       try {
@@ -143,11 +133,9 @@ export default function SettingsPage() {
       }
 
       try {
-        const { data: lb } = await supabase
-          .from('leaderboard')
-          .select('avatar_url')
-          .eq('user_id', data.user.id)
-          .single();
+        const res = await fetch('/api/leaderboard', { cache: 'no-store', credentials: 'same-origin' });
+        const json = await res.json();
+        const lb = (json.data || []).find((x: any) => x.user_id === data.user.id);
         if (lb?.avatar_url) {
           setSettings(prev => ({ ...prev, fotoPerfil: lb.avatar_url }));
           saveSettings({ ...localSettings, fotoPerfil: lb.avatar_url });
@@ -172,12 +160,8 @@ export default function SettingsPage() {
     setGuardandoPerfil(true);
     setMensajePerfil('');
     try {
-      const { error } = await supabase.auth.updateUser({ data: { nombre } });
-      if (error) throw error;
+      {
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-      if (token) {
         const universidadFinal = tipoEstudiante === 'universitario'
           ? (universidad === 'Otra universidad' ? uniCustom : universidad)
           : tipoEstudiante === 'escuela'
@@ -187,7 +171,7 @@ export default function SettingsPage() {
 
         await fetch('/api/perfil-publico', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          headers: { 'Content-Type': 'application/json',  },
           body: JSON.stringify({
             nombre, descripcion, genero,
             tipo_estudiante: tipoEstudiante,
@@ -236,18 +220,17 @@ export default function SettingsPage() {
       setMensajePerfil('⏳ Subiendo foto...');
 
       try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const session = sessionData.session;
-        if (session) {
+        {
+
           const [r1, r2] = await Promise.all([
             fetch('/api/leaderboard', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ avatar_url: comprimida }),
             }),
             fetch('/api/perfil-publico', {
               method: 'PATCH',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ avatar_url: comprimida }),
             }),
           ]);
@@ -553,11 +536,11 @@ export default function SettingsPage() {
                       <MiniBtn onClick={async () => {
                         await updateSettings({ fotoPerfil: '' });
                         try {
-                          const { data: s } = await supabase.auth.getSession();
-                          if (s.session) {
+                          {
+
                             await Promise.all([
-                              fetch('/api/leaderboard', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${s.session.access_token}` }, body: JSON.stringify({ avatar_url: null }) }),
-                              fetch('/api/perfil-publico', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${s.session.access_token}` }, body: JSON.stringify({ avatar_url: null }) }),
+                              fetch('/api/leaderboard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ avatar_url: null }) }),
+                              fetch('/api/perfil-publico', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ avatar_url: null }) }),
                             ]);
                           }
                         } catch {}
@@ -675,8 +658,7 @@ export default function SettingsPage() {
                   {guardandoPerfil ? '⏳ ' + tr('cargando') : '💾 ' + tr('guardarCambios')}
                 </PrimaryBtn>
                 <SecondaryBtn onClick={async () => {
-                  const { data } = await supabase.auth.getUser();
-                  if (data.user?.id) { const uid = data.user.id; (window as any).__showNavLoader?.(`/u/${uid}`); router.push(`/u/${uid}`); }
+                  if (userId) { const uid = userId; (window as any).__showNavLoader?.(`/u/${uid}`); router.push(`/u/${uid}`); }
                 }} color="var(--blue)">
                   🌐 {tr('verPerfilPublico')}
                 </SecondaryBtn>
@@ -981,11 +963,14 @@ export default function SettingsPage() {
                 <Toggle label={tr('visibleLeaderboard')} desc={tr('puedesCambiar')} value={visibleLeaderboard} onChange={async () => {
                   const newVal = !visibleLeaderboard;
                   setVisibleLeaderboard(newVal);
-                  if (userId) {
-                    try {
-                      await supabase.from('leaderboard').update({ visible_leaderboard: newVal }).eq('user_id', userId);
-                    } catch {}
-                  }
+                  try {
+                    await fetch('/api/leaderboard', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      credentials: 'same-origin',
+                      body: JSON.stringify({ visible_leaderboard: newVal }),
+                    });
+                  } catch {}
                 }} color="var(--gold)" />
               </NotebookCard>
 
@@ -1047,10 +1032,10 @@ export default function SettingsPage() {
               <NotebookCard color="var(--blue)" emoji="💾" title={tr('almacenamiento')} rot={-0.4}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {[
-                    { label: '☁️ ' + tr('materias'), desc: 'Supabase (cloud) ✅' },
-                    { label: '📸 ' + tr('fotoPerfil'), desc: 'Supabase (cloud) ✅' },
-                    { label: '🎨 ' + tr('temaColores'), desc: 'Supabase (cloud) ✅' },
-                    { label: '📊 Stats', desc: 'Supabase (cloud) ✅' },
+                    { label: '☁️ ' + tr('materias'), desc: 'Cloudflare D1 ✅' },
+                    { label: '📸 ' + tr('fotoPerfil'), desc: 'Cloudflare D1 ✅' },
+                    { label: '🎨 ' + tr('temaColores'), desc: 'Cloudflare D1 ✅' },
+                    { label: '📊 Stats', desc: 'Cloudflare D1 ✅' },
                     { label: '🔥 Streak', desc: 'localStorage' },
                     { label: '🎓 Quizzes & decks', desc: 'localStorage' },
                   ].map((item, i) => (

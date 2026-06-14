@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { getSession } from 'next-auth/react';
 import { useIdioma } from '../hooks/useIdioma';
 
 const CARRERAS = [
@@ -75,9 +75,8 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
   const handleGuardar = async () => {
     setGuardando(true);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const session = sessionData.session;
-      if (!session) { onComplete(); return; }
+      const session: any = await getSession();
+      if (!session?.user?.id) { onComplete(); return; }
 
       const userId = session.user.id;
       localStorage.setItem(`josea_onboarding_done_${userId}`, 'true');
@@ -94,27 +93,10 @@ export default function OnboardingModal({ nombre, onComplete }: Props) {
 
       await fetch('/api/leaderboard', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        headers: { 'Content-Type': 'application/json',  },
         body: JSON.stringify(datosPerfil),
       });
 
-      const { error: updateErr } = await supabase.from('leaderboard').update({
-        genero: datosPerfil.genero,
-        tipo_estudiante: datosPerfil.tipo_estudiante,
-        universidad: datosPerfil.universidad,
-        carrera: datosPerfil.carrera,
-        que_quieres_estudiar: datosPerfil.que_quieres_estudiar,
-        onboarding_completo: true,
-      }).eq('user_id', userId);
-
-      if (updateErr) {
-        await supabase.from('leaderboard').insert({
-          user_id: userId, email: session.user.email,
-          xp_total: 0, flashcards_estudiadas: 0,
-          racha_actual: 0, mejor_racha: 0, precision_global: 0,
-          ...datosPerfil,
-        });
-      }
 
       fetch('/api/notify-new-user', {
         method: 'POST',

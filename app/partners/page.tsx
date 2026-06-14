@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 export const dynamic = 'force-dynamic';
 
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../../lib/supabase';
+import { useSession } from 'next-auth/react';
 import { useIdioma } from '../../hooks/useIdioma';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import NavbarMobile from '../../components/NavbarMobile';
@@ -20,9 +20,10 @@ export default function PartnersPage() {
   const router = useRouter();
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
+  const { data: session, status } = useSession();
   const [miUserId, setMiUserId] = useState('');
   const [miInfo, setMiInfo] = useState<PartnerInfo>({ user_id: '', nombre: '' });
-  const [token, setToken] = useState('');
+  const [token, setToken] = useState('nextauth');
   const [vista, setVista] = useState<'chats' | 'partners' | 'solicitudes' | 'buscar'>('chats');
   const [partners, setPartners] = useState<Partner[]>([]);
   const [solicitudes, setSolicitudes] = useState<Partner[]>([]);
@@ -45,59 +46,41 @@ export default function PartnersPage() {
   const showNotif = (m: string) => { setNotif(m); setTimeout(() => setNotif(''), 3000); };
 
   useEffect(() => {
-    const init = async () => {
-      // Check rápido con localStorage primero
-      let tokenLocal: string | null = null;
-      let userIdLocal: string | null = null;
-      try {
-        const authKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
-        if (authKey) {
-          const raw = localStorage.getItem(authKey);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            tokenLocal = parsed?.access_token || parsed?.[0]?.access_token || null;
-            userIdLocal = parsed?.user?.id || parsed?.[0]?.user?.id || null;
-          }
-        }
-      } catch {}
+    if (status === 'loading') return;
+    const u: any = session?.user;
+    if (!u?.id) {
+      try { (window as any).__showNavLoader?.('/landing'); } catch {}
+      router.push('/landing');
+      return;
+    }
 
-      try {
-        const sessionPromise = supabase.auth.getSession();
-        const timeout = new Promise<any>((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000));
-        const { data }: any = await Promise.race([sessionPromise, timeout]);
+    setMiUserId(u.id);
+    setToken('nextauth');
+    setMiInfo({
+      user_id: u.id,
+      nombre: u.name || u.email?.split('@')[0] || '',
+      avatar_url: u.image || undefined,
+    });
 
-        if (!data?.session) {
-          // Si tenemos token local, NO redirigir agresivamente
-          if (tokenLocal && userIdLocal) {
-            setMiUserId(userIdLocal); setToken(tokenLocal);
-            const { data: lb } = await supabase.from('leaderboard').select('avatar_url,carrera,nombre').eq('user_id', userIdLocal).maybeSingle();
-            if (lb) setMiInfo({ user_id: userIdLocal, nombre: lb.nombre || '', avatar_url: lb.avatar_url || undefined, carrera: lb.carrera });
-            return;
-          }
-          ((window as any).__showNavLoader?.('/auth'), router.push('/auth'));
-          return;
-        }
-        const u = data.session.user;
-        setMiUserId(u.id); setToken(data.session.access_token);
-        const n = u.user_metadata?.nombre || u.email?.split('@')[0] || '';
-        setMiInfo({ user_id: u.id, nombre: n });
-        const { data: lb } = await supabase.from('leaderboard').select('avatar_url,carrera').eq('user_id', u.id).maybeSingle();
-        if (lb) setMiInfo(p => ({ ...p, avatar_url: lb.avatar_url || undefined, carrera: lb.carrera }));
-      } catch {
-        // Si todo falla pero hay token local, usar ese
-        if (tokenLocal && userIdLocal) {
-          setMiUserId(userIdLocal); setToken(tokenLocal);
-        }
-      }
-    };
-    init();
-  }, []);
+    fetch('/api/leaderboard', { cache: 'no-store', credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(d => {
+        const lb = (d.data || []).find((x: any) => x.user_id === u.id);
+        if (lb) setMiInfo(p => ({
+          ...p,
+          nombre: lb.nombre || p.nombre,
+          avatar_url: lb.avatar_url || p.avatar_url,
+          carrera: lb.carrera || p.carrera,
+        }));
+      })
+      .catch(() => {});
+  }, [session, status, router]);
 
   const cargarTodo = useCallback(async () => {
     if (!token) return;
     const [rP, rC] = await Promise.all([
-      fetch('/api/partners', { headers: { Authorization: `Bearer ${token}` } }),
-      fetch('/api/partner-chats', { headers: { Authorization: `Bearer ${token}` } }),
+      fetch('/api/partners', { credentials: 'same-origin' }),
+      fetch('/api/partner-chats', { credentials: 'same-origin' }),
     ]);
     const dP = await rP.json(); const dC = await rC.json();
     if (dP.success) { setPartners(dP.partners || []); setSolicitudes(dP.solicitudes || []); setEnviadas(dP.enviadas || []); }
@@ -113,24 +96,45 @@ export default function PartnersPage() {
 
   useEffect(() => {
     if (!miUserId) return;
-    supabase.from('leaderboard').select('user_id,nombre,avatar_url,carrera,xp_total,racha_actual,flashcards_estudiadas')
-      .eq('visible_leaderboard', true).neq('user_id', miUserId).order('xp_total', { ascending: false }).limit(50)
-      .then(({ data }) => { if (data) setTodosUsers(data); });
+    fetch('/api/leaderboard', { cache: 'no-store', credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(d => {
+        const users = (d.data || [])
+          .filter((u: any) => u.visible_leaderboard !== false && u.visible_leaderboard !== 0 && u.user_id !== miUserId)
+          .sort((a: any, b: any) => Number(b.xp_total || 0) - Number(a.xp_total || 0))
+          .slice(0, 50);
+        setTodosUsers(users);
+      })
+      .catch(() => {});
   }, [miUserId]);
 
   const buscar = useCallback(async (q: string) => {
     if (!q.trim()) { setResultados([]); return; }
     setBuscando(true);
-    const { data } = await supabase.from('leaderboard').select('user_id,nombre,avatar_url,carrera,xp_total,racha_actual,flashcards_estudiadas')
-      .ilike('nombre', `%${q.trim()}%`).eq('visible_leaderboard', true).neq('user_id', miUserId).limit(20);
-    setResultados(data || []); setBuscando(false);
+    try {
+      const res = await fetch('/api/leaderboard', { cache: 'no-store', credentials: 'same-origin' });
+      const d = await res.json();
+      const term = q.trim().toLowerCase();
+      const users = (d.data || [])
+        .filter((u: any) =>
+          u.visible_leaderboard !== false &&
+          u.visible_leaderboard !== 0 &&
+          u.user_id !== miUserId &&
+          String(u.nombre || '').toLowerCase().includes(term)
+        )
+        .slice(0, 20);
+      setResultados(users);
+    } catch {
+      setResultados([]);
+    }
+    setBuscando(false);
   }, [miUserId]);
 
   useEffect(() => { const t = setTimeout(() => buscar(busqueda), 350); return () => clearTimeout(t); }, [busqueda, buscar]);
 
   const enviarSolicitud = async (id: string) => {
     setAccionando(id);
-    const r = await fetch('/api/partners', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ receiver_id: id }) });
+    const r = await fetch('/api/partners', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ receiver_id: id }) });
     const d = await r.json();
     showNotif(d.success ? '✅ ' + tr('solicitudEnviadaLabel') : '❌ ' + d.error);
     if (d.success) await cargarTodo();
@@ -139,7 +143,7 @@ export default function PartnersPage() {
 
   const responder = async (id: string, a: 'accept' | 'reject') => {
     setAccionando(id);
-    await fetch('/api/partners', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ partner_id: id, action: a }) });
+    await fetch('/api/partners', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ partner_id: id, action: a }) });
     showNotif(a === 'accept' ? '✅ ' + tr('partnersLabel') : '✕ ' + tr('rechazadoLabel'));
     await cargarTodo();
     if (a === 'accept') setVista('chats');
@@ -149,7 +153,7 @@ export default function PartnersPage() {
   const eliminar = async (id: string) => {
     if (!confirm(tr('eliminarConfirm'))) return;
     setAccionando(id);
-    await fetch('/api/partners', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ partner_id: id, action: 'remove' }) });
+    await fetch('/api/partners', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ partner_id: id, action: 'remove' }) });
     showNotif('🗑️ ' + tr('eliminadoLabel'));
     await cargarTodo();
     setAccionando(null);
@@ -157,7 +161,7 @@ export default function PartnersPage() {
 
   const bloquear = async (p: Partner) => {
     setAccionando(p.id);
-    await fetch('/api/partners', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ action: 'block', blocked_id: p.partner.user_id }) });
+    await fetch('/api/partners', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'block', blocked_id: p.partner.user_id }) });
     showNotif('🚫 ' + tr('bloqueadoLabel'));
     setBlockConfirm(null);
     await cargarTodo();
@@ -520,7 +524,7 @@ export default function PartnersPage() {
                     <button onClick={(e: any) => {
                       e.stopPropagation();
                       if (confirm(idioma === 'en' ? 'Delete?' : '¿Borrar?')) {
-                        fetch(`/api/partner-chat?chatId=${chat.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+                        fetch(`/api/partner-chat?chatId=${chat.id}`, { method: 'DELETE', credentials: 'same-origin' })
                           .then(() => { cargarTodo(); if (chatActivo?.id === chat.id) setChatActivo(null); });
                       }
                     }}
