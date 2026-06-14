@@ -1,45 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { r2Client } from '../../../lib/r2';
 import { DeleteObjectCommand } from '@aws-sdk/client-s3';
-import { createClient } from '@supabase/supabase-js';
+import { r2 } from '../../../lib/materials/storage';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const BUCKET = process.env.R2_BUCKET ?? 'studyal';
+
+function keyFromUrlOrPath(value: string) {
+  try {
+    if (!value.startsWith('http')) return value.replace(/^\/+/, '');
+    const url = new URL(value);
+    const parts = url.pathname.split('/').filter(Boolean);
+    if (parts[0] === BUCKET) parts.shift();
+    return parts.join('/');
+  } catch {
+    return value.replace(/^\/+/, '');
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
     const { archivoUrl } = await request.json();
     if (!archivoUrl) return NextResponse.json({ success: true });
 
-    // ── Borrar de R2 ──
-    if (archivoUrl.includes('r2.cloudflarestorage.com')) {
+    const key = keyFromUrlOrPath(archivoUrl);
+    if (key) {
       try {
-        const url = new URL(archivoUrl);
-        const key = url.pathname.replace(/^\/[^/]+\//, '');
-        await r2Client.send(new DeleteObjectCommand({
-          Bucket: process.env.R2_BUCKET || 'studyal',
-          Key: key,
-        }));
+        await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
         console.log(`🗑️ Borrado de R2: ${key}`);
       } catch (e: any) {
         console.warn(`⚠️ Error borrando de R2: ${e.message}`);
-      }
-    }
-
-    // ── Borrar de Supabase Storage ──
-    if (archivoUrl.includes('supabase.co')) {
-      try {
-        const url = new URL(archivoUrl);
-        const path = url.pathname.split('/storage/v1/object/public/')[1];
-        if (path) {
-          const [bucket, ...rest] = path.split('/');
-          await supabase.storage.from(bucket).remove([rest.join('/')]);
-          console.log(`🗑️ Borrado de Supabase Storage: ${path}`);
-        }
-      } catch (e: any) {
-        console.warn(`⚠️ Error borrando de Supabase: ${e.message}`);
       }
     }
 
@@ -48,3 +36,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
+

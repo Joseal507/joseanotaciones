@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useIdioma } from '../../../hooks/useIdioma';
-import { supabase } from '../../../lib/supabase';
+import { getSession } from 'next-auth/react';
 import { getRango, getProgresoRango, LOGROS, getLogrosObtenidos, LogroStats, getLevelFromXp, getXpInCurrentLevel, getXpNeededForNextLevel } from '../../../lib/xpSystem';
 import MarcoAvatar from '../../../components/MarcoAvatar';
 import RangoDisplay from '../../../components/RangoDisplay';
@@ -515,8 +515,8 @@ export default function PerfilPublicoPage() {
   const [cargandoPosts, setCargandoPosts] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) setMiUserId(data.user.id);
+    getSession().then((session: any) => {
+      setMiUserId(session?.user?.id || '');
     });
   }, []);
 
@@ -558,10 +558,7 @@ export default function PerfilPublicoPage() {
   useEffect(() => {
     const checkPartner = async () => {
       if (!miUserId || !perfil || miUserId === perfil.user_id) return;
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      if (!token) return;
-      const res = await fetch('/api/partners', { headers: { Authorization: 'Bearer ' + token } });
+      const res = await fetch('/api/partners', { credentials: 'same-origin' });
       const data = await res.json();
       if (!data.success) return;
       if (data.partners?.find((p: any) => p.partner.user_id === perfil.user_id)) setPartnerStatus('partner');
@@ -573,12 +570,12 @@ export default function PerfilPublicoPage() {
   }, [miUserId, perfil]);
 
   const handleSave = async (cambios: Partial<PerfilPublico>) => {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData.session?.access_token;
-    if (!token) throw new Error('No autenticado');
+    const session: any = await getSession();
+    if (!session?.user?.id) throw new Error('No autenticado');
     const res = await fetch('/api/perfil-publico', {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify(cambios),
     });
     const data = await res.json();
@@ -592,7 +589,7 @@ export default function PerfilPublicoPage() {
       } catch {}
     }
     if (cambios.nombre) {
-      await supabase.auth.updateUser({ data: { nombre: cambios.nombre } }).catch(() => {});
+      // NextAuth toma el nombre desde el perfil D1 en esta migración.
     }
   };
 
@@ -743,10 +740,8 @@ export default function PerfilPublicoPage() {
               {partnerStatus === 'ninguno' && (
                 <button onClick={async () => {
                   setEnviandoSolicitud(true);
-                  const { data: s } = await supabase.auth.getSession();
-                  const token = s.session?.access_token;
-                  if (!token || !perfil) return;
-                  await fetch('/api/partners', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ receiver_id: perfil.user_id }) });
+                  if (!perfil) return;
+                  await fetch('/api/partners', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ receiver_id: perfil.user_id }) });
                   setPartnerStatus('enviada');
                   setEnviandoSolicitud(false);
                 }} disabled={enviandoSolicitud}
@@ -783,13 +778,11 @@ export default function PerfilPublicoPage() {
               )}
               {partnerStatus === 'recibida' && (
                 <button onClick={async () => {
-                  const { data: s } = await supabase.auth.getSession();
-                  const token = s.session?.access_token;
-                  const res = await fetch('/api/partners', { headers: { Authorization: 'Bearer ' + token } });
+                  const res = await fetch('/api/partners', { credentials: 'same-origin' });
                   const data = await res.json();
                   const sol = data.solicitudes?.find((p: any) => p.partner.user_id === perfil?.user_id);
-                  if (sol && token) {
-                    await fetch('/api/partners', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ partner_id: sol.id, action: 'accept' }) });
+                  if (sol) {
+                    await fetch('/api/partners', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ partner_id: sol.id, action: 'accept' }) });
                     setPartnerStatus('partner');
                   }
                 }} style={{

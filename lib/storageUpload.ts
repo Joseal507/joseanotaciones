@@ -1,5 +1,3 @@
-import { supabase } from './supabase';
-
 export async function subirBase64AlStorage(
   base64: string,
   nombre: string,
@@ -9,9 +7,6 @@ export async function subirBase64AlStorage(
     if (!base64.startsWith('data:')) return base64;
     if (base64.length < 13000) return base64;
 
-    const session = (await supabase.auth.getSession()).data.session;
-    if (!session) return base64;
-
     const response = await fetch(base64);
     const blob = await response.blob();
 
@@ -20,22 +15,22 @@ export async function subirBase64AlStorage(
       : blob.type.includes('pdf') ? 'pdf'
       : 'png';
 
-    const filePath = `${session.user.id}/${tipo}_${nombre}_${Date.now()}.${ext}`;
+    const file = new File([blob], `${tipo}_${nombre}_${Date.now()}.${ext}`, {
+      type: blob.type || 'application/octet-stream',
+    });
 
-    const { error } = await supabase.storage
-      .from('archivos')
-      .upload(filePath, blob, { contentType: blob.type, upsert: true });
+    const form = new FormData();
+    form.append('file', file);
+    form.append('folder', 'archivos');
 
-    if (error) {
-      console.error('Storage upload error:', error);
-      return base64;
-    }
+    const res = await fetch('/api/partner-upload', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: form,
+    });
 
-    const { data: { publicUrl } } = supabase.storage
-      .from('archivos')
-      .getPublicUrl(filePath);
-
-    return publicUrl;
+    const data = await res.json().catch(() => ({}));
+    return data.url || base64;
   } catch (err) {
     console.error('Error subiendo al storage:', err);
     return base64;
@@ -47,25 +42,21 @@ export async function subirFileAlStorage(
   tipo: 'doc' | 'imagen' = 'doc',
 ): Promise<string | null> {
   try {
-    const session = (await supabase.auth.getSession()).data.session;
-    if (!session) return null;
+    const form = new FormData();
+    form.append('file', file);
+    form.append('folder', tipo === 'doc' ? 'archivos/docs' : 'archivos/imagenes');
 
-    const ext = file.name.split('.').pop() || 'bin';
-    const filePath = `${session.user.id}/${tipo}_${Date.now()}.${ext}`;
+    const res = await fetch('/api/partner-upload', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: form,
+    });
 
-    const { error } = await supabase.storage
-      .from('archivos')
-      .upload(filePath, file, { contentType: file.type, upsert: true });
-
-    if (error) throw error;
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('archivos')
-      .getPublicUrl(filePath);
-
-    return publicUrl;
+    const data = await res.json().catch(() => ({}));
+    return data.url || null;
   } catch (err) {
     console.error('Error subiendo archivo:', err);
     return null;
   }
 }
+

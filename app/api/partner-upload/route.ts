@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../lib/auth/options';
+import { r2 } from '../../../lib/materials/storage';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+const BUCKET = process.env.R2_BUCKET ?? 'studyal';
+const PUBLIC_BASE =
+  process.env.R2_PUBLIC_URL ||
+  process.env.NEXT_PUBLIC_R2_PUBLIC_URL ||
+  '';
 
-const getUser = async (req: NextRequest) => {
-  const token = req.headers.get('authorization')?.replace('Bearer ', '');
-  if (!token) return null;
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data.user) return null;
-  return data.user;
-};
+async function getUser() {
+  const session = await getServerSession(authOptions);
+  return (session?.user as any) || null;
+}
 
 function safeName(name: string) {
   return name
@@ -21,45 +22,38 @@ function safeName(name: string) {
     .replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
+function publicUrl(key: string) {
+  if (!PUBLIC_BASE) return key;
+  return PUBLIC_BASE.replace(/\/$/, '') + '/' + key;
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const user = await getUser(req);
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    }
+    const user = await getUser();
+    if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
     const form = await req.formData();
     const file = form.get('file') as File | null;
     const folder = String(form.get('folder') || 'partner-files');
 
-    if (!file) {
-      return NextResponse.json({ error: 'Archivo requerido' }, { status: 400 });
-    }
+    if (!file) return NextResponse.json({ error: 'Archivo requerido' }, { status: 400 });
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    const ext = file.name.split('.').pop() || 'bin';
     const clean = safeName(file.name);
     const path = `${folder}/${user.id}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${clean}`;
 
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from('uploads')
-      .upload(path, buffer, {
-        contentType: file.type || 'application/octet-stream',
-        upsert: false,
-      });
-
-    if (uploadError) {
-      console.error('partner-upload storage error:', uploadError);
-      return NextResponse.json({ error: uploadError.message }, { status: 500 });
-    }
-
-    const { data: publicData } = supabaseAdmin.storage.from('uploads').getPublicUrl(path);
+    await r2.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: path,
+      Body: buffer,
+      ContentType: file.type || 'application/octet-stream',
+    }));
 
     return NextResponse.json({
       success: true,
-      url: publicData.publicUrl,
+      url: publicUrl(path),
       path,
       name: file.name,
       size: file.size,
@@ -70,3 +64,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message || 'Error interno' }, { status: 500 });
   }
 }
+
