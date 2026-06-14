@@ -1,111 +1,108 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../lib/auth/options';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+const API = process.env.STUDYAL_API_URL || '';
 
-const getUser = async (req: NextRequest) => {
-  const token = req.headers.get('authorization')?.replace('Bearer ', '');
-  if (!token) return null;
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data.user) return null;
-  return data.user;
-};
+async function getUser() {
+  const session = await getServerSession(authOptions);
+  return (session?.user as any) || null;
+}
 
-const verifyChat = async (chatId: string, userId: string) => {
-  const { data } = await supabaseAdmin.from('partner_chats').select('*').eq('id', chatId).single();
-  if (!data || (data.user1_id !== userId && data.user2_id !== userId)) return null;
-  return data;
-};
+async function apiGet(path: string) {
+  if (!API) throw new Error('STUDYAL_API_URL no configurado');
+  const res = await fetch(`${API}${path}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function apiPost(path: string, body: any) {
+  if (!API) throw new Error('STUDYAL_API_URL no configurado');
+  const res = await fetch(`${API}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
 
 const plus24h = () => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
-// GET — mensajes
+function canAccessChat(chat: any, userId: string) {
+  return chat && (chat.user1_id === userId || chat.user2_id === userId);
+}
+
+async function resolveChat(userId: string, chatId?: string | null, partnerId?: string | null) {
+  if (chatId) {
+    const res = await apiGet(`/partner-chats/by-id?chatId=${encodeURIComponent(chatId)}`);
+    return res.chat || null;
+  }
+
+  if (partnerId) {
+    const existing = await apiGet(`/partner-chats/by-users?user1=${encodeURIComponent(userId)}&user2=${encodeURIComponent(partnerId)}`);
+    if (existing.chat) return existing.chat;
+
+    const created = await apiPost('/partner-chats/create-between', {
+      user1_id: userId,
+      user2_id: partnerId,
+    });
+    return created.chat || null;
+  }
+
+  return null;
+}
+
 export async function GET(req: NextRequest) {
   try {
-    const user = await getUser(req);
-    if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    const user = await getUser();
+    if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
     const chatId = searchParams.get('chatId');
     const partnerId = searchParams.get('partnerId');
     const getSaved = searchParams.get('saved') === 'true';
 
-    let resolvedChatId = chatId;
-    if (!resolvedChatId && partnerId) {
-      const [u1, u2] = [user.id, partnerId].sort();
-      const { data: chat } = await supabaseAdmin
-        .from('partner_chats')
-        .select('id')
-        .eq('user1_id', u1)
-        .eq('user2_id', u2)
-        .maybeSingle();
-      resolvedChatId = chat?.id || null;
-    }
+    await apiPost('/partner-messages/expire', {});
 
-    if (!resolvedChatId) {
+    const chat = await resolveChat(user.id, chatId, partnerId);
+    if (!chat) {
       return NextResponse.json({ success: true, messages: [], chatId: null, saved: [], chat: null });
     }
 
-    const chat = await verifyChat(resolvedChatId, user.id);
-    if (!chat) return NextResponse.json({ error: 'Sin acceso' }, { status: 403 });
+    if (!canAccessChat(chat, user.id)) {
+      return NextResponse.json({ error: 'Sin acceso' }, { status: 403 });
+    }
 
-    // Expirar mensajes no guardados después de 24h
-    await supabaseAdmin
-      .from('partner_messages')
-      .update({
-        deleted_at: new Date().toISOString(),
-        content: 'Mensaje expirado',
-      })
-      .eq('chat_id', resolvedChatId)
-      .lt('expires_at', new Date().toISOString())
-      .is('deleted_at', null);
+    const messagesRes = await apiGet(`/partner-messages/by-chat?chatId=${encodeURIComponent(chat.id)}`);
 
-    const { data: messages } = await supabaseAdmin
-      .from('partner_messages')
-      .select('*')
-      .eq('chat_id', resolvedChatId)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: true })
-      .limit(200);
-
-    await supabaseAdmin
-      .from('partner_messages')
-      .update({ read_at: new Date().toISOString() })
-      .eq('chat_id', resolvedChatId)
-      .neq('sender_id', user.id)
-      .is('read_at', null)
-      .is('deleted_at', null);
+    await apiPost('/partner-messages/mark-read', {
+      chat_id: chat.id,
+      user_id: user.id,
+    });
 
     let saved: string[] = [];
     if (getSaved) {
-      const { data: savedData } = await supabaseAdmin
-        .from('partner_saved_messages')
-        .select('message_id')
-        .eq('user_id', user.id)
-        .eq('chat_id', resolvedChatId);
-      saved = (savedData || []).map(s => s.message_id);
+      const savedRes = await apiGet(`/partner-saved-messages/by-chat?chatId=${encodeURIComponent(chat.id)}&userId=${encodeURIComponent(user.id)}`);
+      saved = savedRes.saved || [];
     }
 
     return NextResponse.json({
       success: true,
-      messages: messages || [],
-      chatId: resolvedChatId,
+      messages: messagesRes.messages || [],
+      chatId: chat.id,
       saved,
       chat,
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err?.message || 'Error interno' }, { status: 500 });
   }
 }
 
-// POST — enviar mensaje
 export async function POST(req: NextRequest) {
   try {
-    const user = await getUser(req);
-    if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    const user = await getUser();
+    if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
     const {
       chatId,
@@ -123,236 +120,188 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Mensaje vacío' }, { status: 400 });
     }
 
-    let resolvedChatId = chatId;
-    if (!resolvedChatId && partnerId) {
-      const [u1, u2] = [user.id, partnerId].sort();
+    const chat = await resolveChat(user.id, chatId, partnerId);
+    if (!chat) return NextResponse.json({ error: 'Chat no encontrado' }, { status: 404 });
 
-      const { data: existing } = await supabaseAdmin
-        .from('partner_chats')
-        .select('id')
-        .eq('user1_id', u1)
-        .eq('user2_id', u2)
-        .maybeSingle();
-
-      if (existing) {
-        resolvedChatId = existing.id;
-      } else {
-        const { data: newChat } = await supabaseAdmin
-          .from('partner_chats')
-          .insert({ user1_id: u1, user2_id: u2 })
-          .select('id')
-          .single();
-
-        resolvedChatId = newChat?.id;
-      }
+    if (!canAccessChat(chat, user.id)) {
+      return NextResponse.json({ error: 'Sin acceso' }, { status: 403 });
     }
-
-    if (!resolvedChatId) {
-      return NextResponse.json({ error: 'Chat no encontrado' }, { status: 404 });
-    }
-
-    const chat = await verifyChat(resolvedChatId, user.id);
-    if (!chat) return NextResponse.json({ error: 'Sin acceso' }, { status: 403 });
 
     const isUser1 = chat.user1_id === user.id;
     if (isUser1 && chat.user1_deleted_at) {
-      await supabaseAdmin.from('partner_chats').update({ user1_deleted_at: null }).eq('id', resolvedChatId);
-    }
-    if (!isUser1 && chat.user2_deleted_at) {
-      await supabaseAdmin.from('partner_chats').update({ user2_deleted_at: null }).eq('id', resolvedChatId);
+      await apiPost('/partner-chats/update', {
+        id: chat.id,
+        set_user1_deleted_at: true,
+        user1_deleted_at: null,
+      });
     }
 
-    const msgData: any = {
-      chat_id: resolvedChatId,
+    if (!isUser1 && chat.user2_deleted_at) {
+      await apiPost('/partner-chats/update', {
+        id: chat.id,
+        set_user2_deleted_at: true,
+        user2_deleted_at: null,
+      });
+    }
+
+    const msgContent = content?.trim() || file_name || 'Archivo';
+
+    const msgRes = await apiPost('/partner-messages/upsert', {
+      chat_id: chat.id,
       sender_id: user.id,
-      content: content?.trim() || file_name || 'Archivo',
+      content: msgContent,
       type,
       metadata: metadata || null,
       file_url: file_url || null,
       file_name: file_name || null,
       file_size: file_size || null,
       duration: duration || null,
-
-      // TODOS los no guardados expiran en 24h
       expires_at: plus24h(),
-    };
+    });
 
-    console.log('INSERT msgData:', JSON.stringify(msgData).slice(0, 500));
+    await apiPost('/partner-chats/update', {
+      id: chat.id,
+      last_message: msgContent.slice(0, 100),
+      last_message_at: new Date().toISOString(),
+    });
 
-    const { data: msg, error } = await supabaseAdmin
-      .from('partner_messages')
-      .insert(msgData)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('INSERT ERROR:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    await supabaseAdmin
-      .from('partner_chats')
-      .update({
-        last_message: (content?.trim() || file_name || 'Archivo').slice(0, 100),
-        last_message_at: new Date().toISOString(),
-      })
-      .eq('id', resolvedChatId);
-
-    return NextResponse.json({ success: true, message: msg });
+    return NextResponse.json({ success: true, message: msgRes.message || msgRes });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err?.message || 'Error interno' }, { status: 500 });
   }
 }
 
-// PATCH — editar, borrar, guardar, wallpaper
 export async function PATCH(req: NextRequest) {
   try {
-    const user = await getUser(req);
-    if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    const user = await getUser();
+    if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
     const body = await req.json();
 
-    // Guardar / quitar guardado
     if (body.action === 'save') {
       const { message_id, chat_id } = body;
       if (!message_id || !chat_id) {
         return NextResponse.json({ error: 'Faltan campos' }, { status: 400 });
       }
 
-      const { data: existing } = await supabaseAdmin
-        .from('partner_saved_messages')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('message_id', message_id)
-        .maybeSingle();
-
-      if (existing) {
-        await supabaseAdmin.from('partner_saved_messages').delete().eq('id', existing.id);
-
-        // Si lo desguardas, vuelve a expirar en 24h desde ahora
-        await supabaseAdmin
-          .from('partner_messages')
-          .update({ expires_at: plus24h() })
-          .eq('id', message_id)
-          .is('deleted_at', null);
-
-        return NextResponse.json({ success: true, saved: false });
+      const chatRes = await apiGet(`/partner-chats/by-id?chatId=${encodeURIComponent(chat_id)}`);
+      if (!canAccessChat(chatRes.chat, user.id)) {
+        return NextResponse.json({ error: 'Sin acceso' }, { status: 403 });
       }
 
-      await supabaseAdmin
-        .from('partner_saved_messages')
-        .insert({ user_id: user.id, message_id, chat_id });
+      const toggle = await apiPost('/partner-saved-messages/toggle', {
+        user_id: user.id,
+        message_id,
+        chat_id,
+      });
 
-      // Si está guardado, ya no expira
-      await supabaseAdmin
-        .from('partner_messages')
-        .update({ expires_at: null })
-        .eq('id', message_id);
+      await apiPost('/partner-messages/update', {
+        id: message_id,
+        set_expires_at: true,
+        expires_at: toggle.saved ? null : plus24h(),
+      });
 
-      return NextResponse.json({ success: true, saved: true });
+      return NextResponse.json({ success: true, saved: !!toggle.saved });
     }
 
-    // Wallpaper
     if (body.action === 'set_wallpaper') {
       const { chat_id, wallpaper_url } = body;
       if (!chat_id) return NextResponse.json({ error: 'chat_id requerido' }, { status: 400 });
 
-      const chat = await verifyChat(chat_id, user.id);
-      if (!chat) return NextResponse.json({ error: 'Sin acceso' }, { status: 403 });
+      const chatRes = await apiGet(`/partner-chats/by-id?chatId=${encodeURIComponent(chat_id)}`);
+      if (!canAccessChat(chatRes.chat, user.id)) {
+        return NextResponse.json({ error: 'Sin acceso' }, { status: 403 });
+      }
 
       const clearWallpaper = !wallpaper_url || wallpaper_url === '';
-      await supabaseAdmin
-        .from('partner_chats')
-        .update({
-          wallpaper_url: clearWallpaper ? null : wallpaper_url,
-          wallpaper_set_by: clearWallpaper ? null : user.id,
-        })
-        .eq('id', chat_id);
+      await apiPost('/partner-chats/update', {
+        id: chat_id,
+        set_wallpaper_url: true,
+        wallpaper_url: clearWallpaper ? null : wallpaper_url,
+        set_wallpaper_set_by: true,
+        wallpaper_set_by: clearWallpaper ? null : user.id,
+      });
 
       return NextResponse.json({ success: true });
     }
 
-    // Editar
     if (body.action === 'edit') {
       const { message_id, content } = body;
       if (!message_id || !content?.trim()) {
         return NextResponse.json({ error: 'Faltan campos' }, { status: 400 });
       }
 
-      const { data: msg } = await supabaseAdmin
-        .from('partner_messages')
-        .select('*')
-        .eq('id', message_id)
-        .eq('sender_id', user.id)
-        .single();
-
-      if (!msg) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
+      const msgRes = await apiGet(`/partner-messages/by-id?id=${encodeURIComponent(message_id)}`);
+      const msg = msgRes.message;
+      if (!msg || msg.sender_id !== user.id) {
+        return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
+      }
 
       const diff = Date.now() - new Date(msg.created_at).getTime();
       if (diff > 15 * 60 * 1000) {
         return NextResponse.json({ error: 'Solo puedes editar mensajes recientes (15 min)' }, { status: 400 });
       }
 
-      await supabaseAdmin
-        .from('partner_messages')
-        .update({
-          content: content.trim(),
-          edited_at: new Date().toISOString(),
-        })
-        .eq('id', message_id);
+      await apiPost('/partner-messages/update', {
+        id: message_id,
+        content: content.trim(),
+        set_edited_at: true,
+      });
 
       return NextResponse.json({ success: true });
     }
 
-    // Borrar
     if (body.action === 'delete') {
       const { message_id } = body;
       if (!message_id) return NextResponse.json({ error: 'Falta message_id' }, { status: 400 });
 
-      const { data: msg } = await supabaseAdmin
-        .from('partner_messages')
-        .select('*')
-        .eq('id', message_id)
-        .eq('sender_id', user.id)
-        .single();
+      const msgRes = await apiGet(`/partner-messages/by-id?id=${encodeURIComponent(message_id)}`);
+      const msg = msgRes.message;
+      if (!msg || msg.sender_id !== user.id) {
+        return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
+      }
 
-      if (!msg) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
-
-      await supabaseAdmin
-        .from('partner_messages')
-        .update({
-          deleted_at: new Date().toISOString(),
-          content: 'Mensaje eliminado',
-        })
-        .eq('id', message_id);
+      await apiPost('/partner-messages/update', {
+        id: message_id,
+        content: 'Mensaje eliminado',
+        set_deleted_at: true,
+      });
 
       return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: 'Acción inválida' }, { status: 400 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err?.message || 'Error interno' }, { status: 500 });
   }
 }
 
-// DELETE — borrar chat completo
 export async function DELETE(req: NextRequest) {
   try {
-    const user = await getUser(req);
-    if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    const user = await getUser();
+    if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
     const chatId = searchParams.get('chatId');
     if (!chatId) return NextResponse.json({ error: 'chatId requerido' }, { status: 400 });
 
-    const chat = await verifyChat(chatId, user.id);
-    if (!chat) return NextResponse.json({ error: 'Sin acceso' }, { status: 403 });
+    const chatRes = await apiGet(`/partner-chats/by-id?chatId=${encodeURIComponent(chatId)}`);
+    const chat = chatRes.chat;
+    if (!canAccessChat(chat, user.id)) {
+      return NextResponse.json({ error: 'Sin acceso' }, { status: 403 });
+    }
 
-    const field = chat.user1_id === user.id ? 'user1_deleted_at' : 'user2_deleted_at';
-    await supabaseAdmin.from('partner_chats').update({ [field]: new Date().toISOString() }).eq('id', chatId);
+    const isUser1 = chat.user1_id === user.id;
+    await apiPost('/partner-chats/update', {
+      id: chatId,
+      set_user1_deleted_at: isUser1,
+      user1_deleted_at: isUser1 ? new Date().toISOString() : undefined,
+      set_user2_deleted_at: !isUser1,
+      user2_deleted_at: !isUser1 ? new Date().toISOString() : undefined,
+    });
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err?.message || 'Error interno' }, { status: 500 });
   }
 }

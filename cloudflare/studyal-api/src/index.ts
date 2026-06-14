@@ -721,6 +721,193 @@ export default {
       }
 
 
+
+      if (url.pathname === "/partner-chats/by-user" && request.method === "GET") {
+        const userId = url.searchParams.get("userId")
+        if (!userId) return json({ ok: false, error: "userId_required" }, 400)
+        const rows = await env.DB.prepare(`
+          SELECT * FROM partner_chats
+          WHERE user1_id = ? OR user2_id = ?
+          ORDER BY COALESCE(last_message_at, created_at) DESC
+        `).bind(userId, userId).all()
+        return json({ ok: true, chats: rows.results || [] })
+      }
+
+      if (url.pathname === "/partner-chats/by-id" && request.method === "GET") {
+        const chatId = url.searchParams.get("chatId")
+        if (!chatId) return json({ ok: false, error: "chatId_required" }, 400)
+        const chat = await env.DB.prepare("SELECT * FROM partner_chats WHERE id = ?").bind(chatId).first()
+        return json({ ok: true, chat: chat || null })
+      }
+
+      if (url.pathname === "/partner-chats/by-users" && request.method === "GET") {
+        const user1 = url.searchParams.get("user1")
+        const user2 = url.searchParams.get("user2")
+        if (!user1 || !user2) return json({ ok: false, error: "users_required" }, 400)
+        const a = user1 < user2 ? user1 : user2
+        const b = user1 < user2 ? user2 : user1
+        const chat = await env.DB.prepare("SELECT * FROM partner_chats WHERE user1_id = ? AND user2_id = ?")
+          .bind(a, b).first()
+        return json({ ok: true, chat: chat || null })
+      }
+
+      if (url.pathname === "/partner-chats/create-between" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.user1_id || !body.user2_id) return json({ ok: false, error: "users_required" }, 400)
+        const a = body.user1_id < body.user2_id ? body.user1_id : body.user2_id
+        const b = body.user1_id < body.user2_id ? body.user2_id : body.user1_id
+        const existing = await env.DB.prepare("SELECT * FROM partner_chats WHERE user1_id = ? AND user2_id = ?").bind(a, b).first()
+        if (existing) return json({ ok: true, chat: existing })
+
+        const id = crypto.randomUUID()
+        await env.DB.prepare(`
+          INSERT INTO partner_chats (id,user1_id,user2_id,created_at)
+          VALUES (?, ?, ?, datetime('now'))
+        `).bind(id, a, b).run()
+        const chat = await env.DB.prepare("SELECT * FROM partner_chats WHERE id = ?").bind(id).first()
+        return json({ ok: true, chat })
+      }
+
+      if (url.pathname === "/partner-chats/update" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.id) return json({ ok: false, error: "id_required" }, 400)
+
+        await env.DB.prepare(`
+          UPDATE partner_chats SET
+            last_message = COALESCE(?, last_message),
+            last_message_at = COALESCE(?, last_message_at),
+            user1_deleted_at = CASE WHEN ? = 1 THEN ? ELSE user1_deleted_at END,
+            user2_deleted_at = CASE WHEN ? = 1 THEN ? ELSE user2_deleted_at END,
+            wallpaper_url = CASE WHEN ? = 1 THEN ? ELSE wallpaper_url END,
+            wallpaper_set_by = CASE WHEN ? = 1 THEN ? ELSE wallpaper_set_by END
+          WHERE id = ?
+        `).bind(
+          body.last_message ?? null,
+          body.last_message_at ?? null,
+          body.set_user1_deleted_at ? 1 : 0,
+          body.user1_deleted_at ?? null,
+          body.set_user2_deleted_at ? 1 : 0,
+          body.user2_deleted_at ?? null,
+          body.set_wallpaper_url ? 1 : 0,
+          body.wallpaper_url ?? null,
+          body.set_wallpaper_set_by ? 1 : 0,
+          body.wallpaper_set_by ?? null,
+          body.id
+        ).run()
+
+        return json({ ok: true })
+      }
+
+      if (url.pathname === "/partner-messages/by-chat" && request.method === "GET") {
+        const chatId = url.searchParams.get("chatId")
+        if (!chatId) return json({ ok: false, error: "chatId_required" }, 400)
+        const rows = await env.DB.prepare(`
+          SELECT * FROM partner_messages
+          WHERE chat_id = ? AND deleted_at IS NULL
+          ORDER BY created_at ASC
+          LIMIT 200
+        `).bind(chatId).all()
+        return json({ ok: true, messages: rows.results || [] })
+      }
+
+      if (url.pathname === "/partner-messages/expire" && request.method === "POST") {
+        await env.DB.prepare(`
+          UPDATE partner_messages
+          SET deleted_at=datetime('now'), content='Mensaje expirado'
+          WHERE expires_at IS NOT NULL AND expires_at < datetime('now') AND deleted_at IS NULL
+        `).run()
+        return json({ ok: true })
+      }
+
+      if (url.pathname === "/partner-messages/mark-read" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.chat_id || !body.user_id) return json({ ok: false, error: "missing_fields" }, 400)
+        await env.DB.prepare(`
+          UPDATE partner_messages
+          SET read_at=datetime('now')
+          WHERE chat_id=? AND sender_id != ? AND read_at IS NULL AND deleted_at IS NULL
+        `).bind(body.chat_id, body.user_id).run()
+        return json({ ok: true })
+      }
+
+      if (url.pathname === "/partner-messages/unread-count" && request.method === "GET") {
+        const chatId = url.searchParams.get("chatId")
+        const userId = url.searchParams.get("userId")
+        if (!chatId || !userId) return json({ ok: false, error: "missing_fields" }, 400)
+        const row = await env.DB.prepare(`
+          SELECT COUNT(*) AS count FROM partner_messages
+          WHERE chat_id=? AND sender_id != ? AND read_at IS NULL AND deleted_at IS NULL
+        `).bind(chatId, userId).first<any>()
+        return json({ ok: true, count: row?.count || 0 })
+      }
+
+      if (url.pathname === "/partner-messages/update" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.id) return json({ ok: false, error: "id_required" }, 400)
+        await env.DB.prepare(`
+          UPDATE partner_messages SET
+            content = COALESCE(?, content),
+            edited_at = CASE WHEN ? = 1 THEN datetime('now') ELSE edited_at END,
+            deleted_at = CASE WHEN ? = 1 THEN datetime('now') ELSE deleted_at END,
+            expires_at = CASE WHEN ? = 1 THEN ? ELSE expires_at END
+          WHERE id = ?
+        `).bind(
+          body.content ?? null,
+          body.set_edited_at ? 1 : 0,
+          body.set_deleted_at ? 1 : 0,
+          body.set_expires_at ? 1 : 0,
+          body.expires_at ?? null,
+          body.id
+        ).run()
+        return json({ ok: true })
+      }
+
+      if (url.pathname === "/partner-messages/by-id" && request.method === "GET") {
+        const id = url.searchParams.get("id")
+        if (!id) return json({ ok: false, error: "id_required" }, 400)
+        const msg = await env.DB.prepare("SELECT * FROM partner_messages WHERE id = ?").bind(id).first()
+        return json({ ok: true, message: msg || null })
+      }
+
+      if (url.pathname === "/partner-saved-messages/count" && request.method === "GET") {
+        const chatId = url.searchParams.get("chatId")
+        const userId = url.searchParams.get("userId")
+        if (!chatId || !userId) return json({ ok: false, error: "missing_fields" }, 400)
+        const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM partner_saved_messages WHERE user_id=? AND chat_id=?")
+          .bind(userId, chatId).first<any>()
+        return json({ ok: true, count: row?.count || 0 })
+      }
+
+      if (url.pathname === "/partner-saved-messages/by-chat" && request.method === "GET") {
+        const chatId = url.searchParams.get("chatId")
+        const userId = url.searchParams.get("userId")
+        if (!chatId || !userId) return json({ ok: false, error: "missing_fields" }, 400)
+        const rows = await env.DB.prepare("SELECT message_id FROM partner_saved_messages WHERE user_id=? AND chat_id=?")
+          .bind(userId, chatId).all()
+        return json({ ok: true, saved: (rows.results || []).map((r: any) => r.message_id) })
+      }
+
+      if (url.pathname === "/partner-saved-messages/toggle" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.user_id || !body.message_id || !body.chat_id) return json({ ok: false, error: "missing_fields" }, 400)
+
+        const existing = await env.DB.prepare("SELECT id FROM partner_saved_messages WHERE user_id=? AND message_id=?")
+          .bind(body.user_id, body.message_id).first<any>()
+
+        if (existing) {
+          await env.DB.prepare("DELETE FROM partner_saved_messages WHERE id=?").bind(existing.id).run()
+          return json({ ok: true, saved: false })
+        }
+
+        await env.DB.prepare(`
+          INSERT INTO partner_saved_messages (id,user_id,message_id,chat_id,created_at)
+          VALUES (?, ?, ?, ?, datetime('now'))
+        `).bind(crypto.randomUUID(), body.user_id, body.message_id, body.chat_id).run()
+
+        return json({ ok: true, saved: true })
+      }
+
+
       return json({ ok: false, error: "not_found" }, 404)
     } catch (error) {
       return json({
