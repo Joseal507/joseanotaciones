@@ -4,7 +4,6 @@ import { useRouter } from 'next/navigation';
 
 import { useState, useEffect, useRef } from 'react';
 import { getSession } from 'next-auth/react';
-import { supabase } from '../lib/supabase';
 import { getMaterias, Materia, Tema, Documento, Apunte } from '../lib/storage';
 import { useIdioma } from '../hooks/useIdioma';
 import { getQuizzesGuardados, getFlashcardDecks, getQuizzesTemporales, QuizGuardado, FlashcardDeck } from '../lib/quizStorage';
@@ -145,12 +144,17 @@ export default function PublicarComunidad({
 
     setSubiendoPortada(true);
     try {
-      const ext  = file.name.split('.').pop() || 'jpg';
-      const path = `portadas/${userId}_${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from('comunidad-portadas').upload(path, file, { contentType: file.type, upsert: true });
-      if (upErr) throw upErr;
-      const { data: { publicUrl } } = supabase.storage.from('comunidad-portadas').getPublicUrl(path);
-      setPortadaUrl(publicUrl);
+      const form = new FormData();
+      form.append('file', file);
+      form.append('folder', 'comunidad-portadas');
+      const res = await fetch('/api/partner-upload', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) throw new Error(data.error || 'Error subiendo portada');
+      setPortadaUrl(data.url);
     } catch (e: any) {
       setPortadaError('Error: ' + (e.message || 'intenta de nuevo'));
       setPortadaPreview(''); setPortadaUrl('');
@@ -799,20 +803,17 @@ export default function PublicarComunidad({
                           setVideoPreview(preview);
                           setSubiendoVideo(true);
                           try {
-                            const ext  = file.name.split('.').pop() || 'mp4';
-                            const path = `videos/${userId}_${Date.now()}.${ext}`;
-                            const { error: upErr } = await supabase.storage
-                              .from('comunidad-videos')
-                              .upload(path, file, { contentType: file.type, upsert: true });
-
-                            if (upErr) {
-                              if ((upErr as any).message?.toLowerCase().includes('bucket not found')) {
-                                throw new Error('El bucket comunidad-videos no existe en Supabase');
-                              }
-                              throw upErr;
-                            }
-                            const { data: { publicUrl } } = supabase.storage.from('comunidad-videos').getPublicUrl(path);
-                            setVideoUrl(publicUrl);
+                            const form = new FormData();
+                            form.append('file', file);
+                            form.append('folder', 'comunidad-videos');
+                            const res = await fetch('/api/partner-upload', {
+                              method: 'POST',
+                              credentials: 'same-origin',
+                              body: form,
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            if (!res.ok || !data.url) throw new Error(data.error || 'Error subiendo video');
+                            setVideoUrl(data.url);
                           } catch (e: any) {
                             setVideoError('Error subiendo: ' + (e.message || 'intenta de nuevo'));
                             setVideoPreview(''); setVideoUrl('');

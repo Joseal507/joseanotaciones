@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getSession } from 'next-auth/react';
-import { supabase } from '../../lib/supabase';
 
 const HAND = "'Caveat',cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -108,18 +107,19 @@ export default function NewsPage() {
   };
 
   const uploadFile = async (f: File): Promise<string> => {
-    const ext = f.name.split('.').pop();
-    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
-    const path = `news/${fileName}`;
     setUploadProgress(20);
-    const { error } = await supabase.storage
-      .from('news_media')
-      .upload(path, f, { cacheControl: '3600', upsert: false });
-    if (error) throw error;
-    setUploadProgress(80);
-    const { data } = supabase.storage.from('news_media').getPublicUrl(path);
+    const form = new FormData();
+    form.append('file', f);
+    form.append('folder', 'news');
+    const res = await fetch('/api/partner-upload', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.url) throw new Error(data.error || 'Error subiendo archivo');
     setUploadProgress(100);
-    return data.publicUrl;
+    return data.url;
   };
 
   // 🔐 Click en publicar → primero pregunta secreta
