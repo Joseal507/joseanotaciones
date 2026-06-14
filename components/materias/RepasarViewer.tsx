@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { supabase } from '../../lib/supabase';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
@@ -294,10 +293,9 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
         const matId = mat.materialId || mat.id;
         if (!matId) throw new Error('Material sin id.');
 
-        const session = (await supabase.auth.getSession()).data.session;
         const res = await fetch(`/api/materials/${matId}/download-url`, {
           cache: 'no-store',
-          headers: session ? { Authorization: `Bearer ${session.access_token}` } : {},
+          credentials: 'same-origin',
         });
         const data = await res.json();
         if (!res.ok || !data?.url) throw new Error(data?.error || 'No se pudo obtener URL del documento.');

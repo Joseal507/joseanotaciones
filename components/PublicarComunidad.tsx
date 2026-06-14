@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 
 import { useState, useEffect, useRef } from 'react';
+import { getSession } from 'next-auth/react';
 import { supabase } from '../lib/supabase';
 import { getMaterias, Materia, Tema, Documento, Apunte } from '../lib/storage';
 import { useIdioma } from '../hooks/useIdioma';
@@ -100,23 +101,16 @@ export default function PublicarComunidad({
   // ─── cargar datos ─────────────────────────────────────────────────────────
   useEffect(() => {
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const session: any = await getSession();
+      const user = session?.user;
+      if (!user?.id) return;
       setUserId(user.id);
-      setUserNombre(user.user_metadata?.nombre || user.email?.split('@')[0] || 'Usuario');
-      // Buscar avatar real desde leaderboard
-      setUserAvatar(user.user_metadata?.avatar_url || '');
+      setUserNombre(user.name || user.email?.split('@')[0] || 'Usuario');
+      setUserAvatar(user.image || '');
       try {
-        const { createClient } = await import('@supabase/supabase-js');
-        const sb = createClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-        );
-        const { data: lb } = await sb
-          .from('leaderboard')
-          .select('avatar_url')
-          .eq('user_id', user.id)
-          .single();
+        const res = await fetch('/api/leaderboard', { cache: 'no-store', credentials: 'same-origin' });
+        const json = await res.json();
+        const lb = (json.data || []).find((x: any) => x.user_id === user.id);
         if (lb?.avatar_url) setUserAvatar(lb.avatar_url);
       } catch {}
 
@@ -126,12 +120,9 @@ export default function PublicarComunidad({
       if (local.length > 0) setMaterias(local);
 
       try {
-        const session = (await supabase.auth.getSession()).data.session;
-        if (session) {
-          const res  = await fetch('/api/materias', { headers: { 'Authorization': `Bearer ${session.access_token}` } });
-          const data = await res.json();
-          if (data.success && data.materias?.length > 0) setMaterias(data.materias);
-        }
+        const res  = await fetch('/api/materias', { credentials: 'same-origin' });
+        const data = await res.json();
+        if (data.success && data.materias?.length > 0) setMaterias(data.materias);
       } catch {}
       setMateriasLoading(false);
 

@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
-import { supabase } from '../../lib/supabase';
 
 // Cache global de OCR
 const ocrCache = new Map<string, { x: number; y: number; w: number; h: number }[]>();
@@ -364,10 +363,7 @@ export default function FlashcardSourceViewer({ card, materiales, color, onClose
           try {
             let fullText = materialTextCache.get(matId);
             if (!fullText) {
-              const session = (await supabase.auth.getSession()).data.session;
-              const authHeader: HeadersInit = session?.access_token
-                ? { Authorization: `Bearer ${session.access_token}` }
-                : {};
+              const authHeader: HeadersInit = {};
               const res = await fetch('/api/enfoques/teorico/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...authHeader },
@@ -471,10 +467,7 @@ export default function FlashcardSourceViewer({ card, materiales, color, onClose
         const needle = norm(card.sourceText ?? "").slice(0, 100);
         const needleShort = norm(card.sourceText ?? "").split(' ').slice(0, 6).join(' ');
 
-        const session = (await supabase.auth.getSession()).data.session;
-        const authHeader: HeadersInit = session?.access_token
-          ? { Authorization: `Bearer ${session.access_token}` }
-          : {};
+        const authHeader: HeadersInit = {};
 
         for (const mat of materiales) {
           const matId = mat?.materialId || mat?.id;
@@ -612,11 +605,8 @@ export default function FlashcardSourceViewer({ card, materiales, color, onClose
       }
 
       try {
-        const session = (await supabase.auth.getSession()).data.session;
         const res = await fetch(`/api/materials/${matId}/download-url`, {
-          headers: session?.access_token
-            ? { Authorization: `Bearer ${session.access_token}` }
-            : {},
+          credentials: 'same-origin',
         });
 
         if (!res.ok) {

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { getSession } from 'next-auth/react';
 import { supabase } from '../../lib/supabase';
 
 const HAND = "'Caveat',cursive";
@@ -74,8 +75,8 @@ export default function NewsPage() {
   }, []);
 
   const checkAdmin = async () => {
-    const { data } = await supabase.auth.getUser();
-    if (data.user?.email?.toLowerCase() === ADMIN_EMAIL) {
+    const session: any = await getSession();
+    if (session?.user?.email?.toLowerCase() === ADMIN_EMAIL) {
       setIsAdmin(true);
     }
   };
@@ -154,14 +155,10 @@ export default function NewsPage() {
     setUploadProgress(0);
     try {
       const mediaUrl = await uploadFile(file);
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
       const res = await fetch('/api/news', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-        },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({ titulo, descripcion, contenido, tipo, media_url: mediaUrl, categoria, destacada }),
       });
       const data = await res.json();
@@ -185,11 +182,9 @@ export default function NewsPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('¿Eliminar esta noticia?')) return;
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
       const res = await fetch(`/api/news?id=${id}`, {
         method: 'DELETE',
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        credentials: 'same-origin',
       });
       const data = await res.json();
       if (data.success) loadNews();

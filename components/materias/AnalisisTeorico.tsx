@@ -62,8 +62,7 @@ export default function AnalisisTeorico({ materiales, onClose, onGuardarApunte, 
         let authToken = '';
         try {
           const { supabase } = await import('../../lib/supabase');
-          const session = (await supabase.auth.getSession()).data.session;
-          authToken = session?.access_token || '';
+          authToken = '';
         } catch {}
 
         const res = await fetch('/api/analizar-teorico', {

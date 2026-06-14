@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo} from 'react';
 import dynamic from 'next/dynamic';
-import { supabase } from '../../lib/supabase';
 import { detectContentLanguage } from '../../lib/detectLanguage';
 import MathText from '../MathText';
 import { upsertSession, getSessionsByTema } from '../../lib/studySessions';
@@ -2142,9 +2141,8 @@ export default function FlashcardsPage({ materiales, seleccion, tema, materia, s
       const matId = matActual.materialId || matActual.id;
       if (matId) {
         try {
-          const session = (await supabase.auth.getSession()).data.session;
           const res = await fetch(`/api/materials/${matId}/download-url`, {
-            headers: session ? { Authorization: `Bearer ${session.access_token}` } : {},
+            credentials: 'same-origin',
           });
           const data = await res.json();
           if (!cancelled && data?.url) setPdfUrl(data.url);
@@ -2291,15 +2289,10 @@ ${txt}`);
         console.warn(`⚠️ Material ${i + 1}: sin ID de material, saltando`);
         continue;
       }
-      const session = (await supabase.auth.getSession()).data.session;
-      if (!session) {
-        console.warn(`⚠️ Material ${i + 1}: sin sesión de usuario, saltando`);
-        continue;
-      }
 
       const res = await fetch('/api/enfoques/teorico/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        headers: { 'Content-Type': 'application/json',  },
         body: JSON.stringify({ materialIds: [matId] }),
       });
       const data = await res.json();
@@ -2405,7 +2398,6 @@ ${fullText}`);
       }
       console.log(`🔀 Procesando ${materialBlocks.length} material(es) por separado`);
 
-      const session = (await supabase.auth.getSession()).data.session;
       const allResponses = await Promise.all(
         materialBlocks.map(async (block, blockIdx) => {
           setGeneratingStep(`Generando flashcards del material ${blockIdx + 1}/${materialBlocks.length}...`);
@@ -2413,7 +2405,7 @@ ${fullText}`);
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}),
+              
             },
             body: JSON.stringify({
               content: block.text,

@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import confetti from 'canvas-confetti';
-import { supabase } from '../../lib/supabase';
 import { detectContentLanguage } from '../../lib/detectLanguage';
 import MathText from '../MathText';
 import MatchingCanvas from './MatchingCanvas';
@@ -298,9 +297,8 @@ export default function QuizPage({
 
     const loadUrl = async () => {
       try {
-        const session = (await supabase.auth.getSession()).data.session;
         const res = await fetch(`/api/materials/${matActualId}/download-url`, {
-          headers: session ? { Authorization: `Bearer ${session.access_token}` } : {},
+          credentials: 'same-origin',
         });
         const data = await res.json();
         if (!cancelled && data?.url) {
@@ -508,12 +506,11 @@ export default function QuizPage({
 
       if (!matId) { console.warn(`⚠️ [Quiz] Material ${i + 1}: sin ID`); continue; }
 
-      const session = (await supabase.auth.getSession()).data.session;
-      if (!session) { console.warn(`⚠️ [Quiz] Material ${i + 1}: sin sesión`); continue; }
+      
 
       const res = await fetch('/api/enfoques/teorico/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        headers: { 'Content-Type': 'application/json',  },
         body: JSON.stringify({ materialIds: [matId] }),
       });
       const data = await res.json();

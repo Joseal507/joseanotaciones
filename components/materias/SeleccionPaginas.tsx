@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
-import { supabase } from '../../lib/supabase';
 
 const Document = dynamic(() => import('react-pdf').then(m => m.Document), { ssr: false });
 const Page = dynamic(() => import('react-pdf').then(m => m.Page), { ssr: false });
@@ -126,8 +125,7 @@ export default function SeleccionPaginas({
       });
       if (necesitaToken) {
         try {
-          const s = (await supabase.auth.getSession()).data.session;
-          token = s?.access_token || null;
+          token = null;
         } catch {}
       }
 
