@@ -468,13 +468,10 @@ const eliminarDocumento = async (id: string) => {
   const materialId = (doc as any)?.materialId;
   if (materialId) {
     try {
-      const session = (await import('../../lib/supabase').then(m => m.supabase.auth.getSession())).data.session;
-      if (session) {
-        await fetch(`/api/materials/${materialId}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
-      }
+      await fetch(`/api/materials/${materialId}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
     } catch (e) {
       console.warn('Error borrando material nuevo:', e);
     }
