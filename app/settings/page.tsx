@@ -968,7 +968,11 @@ export default function SettingsPage() {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       credentials: 'same-origin',
-                      body: JSON.stringify({ visible_leaderboard: newVal }),
+                      body: JSON.stringify({
+                        visible_leaderboard: newVal,
+                        user_agreement: newVal,
+                        user_agreement_date: new Date().toISOString(),
+                      }),
                     });
                   } catch {}
                 }} color="var(--gold)" />

@@ -26,10 +26,11 @@ export default function OnboardingCheck() {
         const entry = (json.data || []).find((x: any) => x.user_id === userId);
 
         if (entry?.genero && entry?.tipo_estudiante) {
-          if (!entry.user_agreement) {
-            setNombre(userName);
-            setShowAgreement(true);
-          }
+          setChecked(true);
+          return;
+        }
+
+        if (entry && (entry.user_agreement === 1 || entry.user_agreement === 0 || entry.user_agreement === true || entry.user_agreement === false)) {
           setChecked(true);
           return;
         }
