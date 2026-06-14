@@ -1,19 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+
+const API = process.env.STUDYAL_API_URL || process.env.NEXT_PUBLIC_STUDYAL_API_URL || '';
 
 export async function POST(req: NextRequest) {
-  const { post_id, tipo } = await req.json();
-  const campo = tipo === 'estudiado' ? 'estudiados' : 'views';
   try {
-    await supabase.rpc('increment_comunidad_stat', { p_post_id: post_id, p_campo: campo });
-    return NextResponse.json({ ok: true });
-  } catch {
-    const { data } = await supabase.from('comunidad_posts').select('views,estudiados').eq('id', post_id).single();
-    if (data) {
-      await supabase.from('comunidad_posts').update({
-        [campo]: (data as any)[campo] + 1
-      }).eq('id', post_id);
-    }
-    return NextResponse.json({ ok: true });
+    if (!API) throw new Error('STUDYAL_API_URL no configurado');
+    const body = await req.json();
+    const res = await fetch(API + '/comunidad-views/increment', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    return NextResponse.json(data, { status: res.status });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
+

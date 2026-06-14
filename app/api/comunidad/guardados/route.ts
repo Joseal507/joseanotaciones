@@ -1,24 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+
+const API = process.env.STUDYAL_API_URL || process.env.NEXT_PUBLIC_STUDYAL_API_URL || '';
 
 export async function POST(req: NextRequest) {
-  const { post_id, user_id } = await req.json();
   try {
-    const { data: existing } = await supabase
-      .from('comunidad_guardados')
-      .select('id')
-      .eq('post_id', post_id)
-      .eq('user_id', user_id)
-      .single();
-
-    if (existing) {
-      await supabase.from('comunidad_guardados').delete().eq('id', existing.id);
-      return NextResponse.json({ guardado: false });
-    } else {
-      await supabase.from('comunidad_guardados').insert({ post_id, user_id });
-      return NextResponse.json({ guardado: true });
-    }
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    if (!API) throw new Error('STUDYAL_API_URL no configurado');
+    const body = await req.json();
+    const res = await fetch(API + '/comunidad-guardados/toggle', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    return NextResponse.json(data, { status: res.status });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
+
