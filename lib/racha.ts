@@ -44,16 +44,10 @@ export const saveRacha = (data: RachaData): void => {
 export const syncRachaADB = async (racha: RachaData): Promise<void> => {
   if (!isBrowser()) return;
   try {
-    const { supabase } = await import('./supabase');
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData.session?.access_token;
-    if (!token) return;
     await fetch('/api/racha', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify({
         racha_actual: racha.rachaActual,
         mejor_racha: racha.mejorRacha,
@@ -67,13 +61,8 @@ export const syncRachaADB = async (racha: RachaData): Promise<void> => {
 export const cargarRachaDesdeDB = async (): Promise<RachaData> => {
   if (!isBrowser()) return empty;
   try {
-    const { supabase } = await import('./supabase');
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData.session?.access_token;
-    if (!token) return getRacha();
-
     const res = await fetch('/api/racha', {
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'same-origin',
     });
 
     if (!res.ok) return getRacha();

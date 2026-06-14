@@ -1,4 +1,3 @@
-import { supabase } from './supabase';
 import { registrarXpDiario } from './xpDiario';
 
 export type FuenteXP = 'timer' | 'flashcards' | 'quiz' | 'post' | 'objetivo' | 'login' | 'racha' | 'comunidad' | 'daily_reward';
@@ -11,16 +10,10 @@ export async function darXP(
   try {
     if (cantidad === 0) return { ok: false, xpGanado: 0, xpTotal: 0, nivel: 1, subioNivel: false };
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData.session?.access_token;
-    if (!token) return { ok: false, xpGanado: 0, xpTotal: 0, nivel: 1, subioNivel: false };
-
     const res = await fetch('/api/xp', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify({ fuente, cantidad, meta }),
     });
 
@@ -29,7 +22,6 @@ export async function darXP(
     const data = await res.json();
     const xpGanado = data.xp_ganado ?? 0;
 
-    // Registrar en tracking diario local + emitir evento global
     if (xpGanado > 0) {
       registrarXpDiario(xpGanado);
       try {
@@ -50,3 +42,4 @@ export async function darXP(
     return { ok: false, xpGanado: 0, xpTotal: 0, nivel: 1, subioNivel: false };
   }
 }
+

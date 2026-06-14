@@ -1,16 +1,8 @@
-import { supabase } from './supabase';
 import { getPerfil } from './storage';
 import { getRacha } from './racha';
 
 export const syncLeaderboard = async () => {
   try {
-    let session = (await supabase.auth.getSession()).data.session;
-    if (!session) {
-      const { data } = await supabase.auth.refreshSession();
-      session = data.session;
-    }
-    if (!session) return;
-
     const perfil = getPerfil();
 
     const totalAcertadas = Object.values(perfil.flashcardsAcertadas || {}).reduce(
@@ -26,17 +18,17 @@ export const syncLeaderboard = async () => {
       (a: number, m: any) => a + (m.quizzes || 0), 0
     );
 
-    const { data: current } = await supabase
-      .from('leaderboard')
-      .select('flashcards_estudiadas, mejor_racha')
-      .eq('user_id', session.user.id)
-      .single();
+    const currentRes = await fetch('/api/leaderboard', { cache: 'no-store', credentials: 'same-origin' });
+    const currentData = await currentRes.json().catch(() => ({}));
+    const sessionRes = await fetch('/api/auth/session', { cache: 'no-store' });
+    const session = await sessionRes.json().catch(() => ({}));
+    const userId = session?.user?.id;
 
-    // ✅ flashcards NUNCA bajan
+    const current = (currentData?.data || []).find((x: any) => x.user_id === userId) || {};
+
     const flashcardsActuales = current?.flashcards_estudiadas || 0;
     const flashcardsNuevas = Math.max(flashcardsActuales, total);
 
-    // ✅ Racha desde lib/racha (no hardcodeado desde localStorage)
     const rachaData = getRacha();
     const rachaActual = rachaData.rachaActual;
     const mejorRacha = Math.max(
@@ -47,10 +39,8 @@ export const syncLeaderboard = async () => {
 
     await fetch('/api/leaderboard', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify({
         flashcards_estudiadas: flashcardsNuevas,
         precision_global: precision,
@@ -63,3 +53,4 @@ export const syncLeaderboard = async () => {
     console.error('syncLeaderboard error:', err);
   }
 };
+

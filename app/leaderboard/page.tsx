@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 export const dynamic = 'force-dynamic';
 
 import { useEffect, useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import { useSession } from 'next-auth/react';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import NavbarMobile from '../../components/NavbarMobile';
 import Leaderboard from '../../components/Leaderboard';
@@ -15,44 +15,18 @@ const BODY = "'Inter', system-ui, sans-serif";
 export default function LeaderboardPage() {
   const router = useRouter();
   const isMobile = useIsMobile();
+  const { status } = useSession();
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    console.log('🏆 [LEADERBOARD] mount, pathname:', window.location.pathname);
-    // Check rápido por localStorage (evita redirect si la sesión existe)
-    try {
-      const authKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
-      if (authKey) {
-        const raw = localStorage.getItem(authKey);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed?.access_token || parsed?.[0]?.access_token) {
-            setChecking(false);
-            // Validar en background sin redirect agresivo
-            supabase.auth.getSession().then(({ data }) => {
-              if (!data.session && !parsed?.refresh_token) {
-                console.log('🏆 [LEADERBOARD] REDIRECTING TO /landing'); router.push('/landing');
-              }
-            }).catch(() => {});
-            return;
-          }
-        }
-      }
-    } catch {}
-
-    // Sin token → ir al landing con timeout
-    const sessionPromise = supabase.auth.getSession();
-    const timeout = new Promise<any>((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000));
-    Promise.race([sessionPromise, timeout])
-      .then((result: any) => {
-        if (!result?.data?.session) {
-          (console.log('🏆 [LEADERBOARD] REDIRECTING TO /landing #2'), (window as any).__showNavLoader?.('/landing'), router.push('/landing'));
-        } else {
-          setChecking(false);
-        }
-      })
-      .catch(() => setChecking(false)); // Si hay timeout, dejar entrar (no botear)
-  }, []);
+    if (status === 'loading') return;
+    if (status === 'unauthenticated') {
+      try { (window as any).__showNavLoader?.('/landing'); } catch {}
+      router.push('/landing');
+      return;
+    }
+    setChecking(false);
+  }, [status, router]);
 
   if (checking) {
     return (

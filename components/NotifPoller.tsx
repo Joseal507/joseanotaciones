@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { getSession } from 'next-auth/react';
 
 const STORAGE_KEY = 'studyal_notif_leidas';
 
@@ -15,35 +15,15 @@ export default function NotifPoller() {
 
     const checkNotifs = async () => {
       try {
-        // Obtener token
-        let token: string | null = null;
-        try {
-          const result: any = await Promise.race([
-            supabase.auth.getSession(),
-            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000)),
-          ]);
-          token = result?.data?.session?.access_token || null;
-        } catch {
-          try {
-            const k = Object.keys(localStorage).find(x => x.startsWith('sb-') && x.endsWith('-auth-token'));
-            if (k) {
-              const parsed = JSON.parse(localStorage.getItem(k) || '{}');
-              token = parsed?.access_token || null;
-            }
-          } catch {}
-        }
-        if (!token || !activo) return;
-
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user || !activo) return;
+        const session = await getSession();
+        if (!session?.user || !activo) return;
 
         const leidas = getLeidas();
         const vistasKey = 'studyal_notif_vistas';
         const vistas = new Set<string>(JSON.parse(localStorage.getItem(vistasKey) || '[]'));
 
-        // 1) Chats no leídos
         try {
-          const r = await fetch('/api/notif-unread', { headers: { 'Authorization': 'Bearer ' + token } });
+          const r = await fetch('/api/notif-unread', { credentials: 'same-origin' });
           if (r.ok) {
             const { unread } = await r.json();
             (unread || []).forEach((u: any) => {
@@ -62,9 +42,8 @@ export default function NotifPoller() {
           }
         } catch {}
 
-        // 2) Solicitudes de partner
         try {
-          const r = await fetch('/api/partners', { headers: { 'Authorization': 'Bearer ' + token } });
+          const r = await fetch('/api/partners', { credentials: 'same-origin' });
           if (r.ok) {
             const data = await r.json();
             (data.solicitudes || []).forEach((s: any) => {
@@ -87,9 +66,7 @@ export default function NotifPoller() {
       } catch {}
     };
 
-    // Primera vez tras 5s (no spamear al cargar)
     const initial = setTimeout(checkNotifs, 5000);
-    // Después cada 30s
     const iv = setInterval(checkNotifs, 30000);
 
     return () => { activo = false; clearTimeout(initial); clearInterval(iv); };
@@ -97,3 +74,4 @@ export default function NotifPoller() {
 
   return null;
 }
+
