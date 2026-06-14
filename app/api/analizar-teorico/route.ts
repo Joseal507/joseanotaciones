@@ -4,7 +4,8 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../lib/auth/options';
 import { studyAIJson, cleanDeep, safeParseJson } from '../../../lib/studyai';
 import { detectContentLanguage } from '../../../lib/detectLanguage';
 import {
@@ -201,18 +202,11 @@ Return EXACTLY this JSON:
 // ── Handler ────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
-    // ─── Auth (opcional pero recomendado) ───
+    // ─── Auth NextAuth (opcional pero recomendado) ───
     let userId: string | null = null;
     try {
-      const token = (req.headers.get('authorization') ?? '').replace('Bearer ', '');
-      if (token) {
-        const sb = createClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        );
-        const { data: { user } } = await sb.auth.getUser(token);
-        userId = user?.id ?? null;
-      }
+      const session = await getServerSession(authOptions);
+      userId = (session?.user as any)?.id ?? null;
     } catch {}
 
     // ─── Body ───
