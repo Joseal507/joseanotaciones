@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../../lib/auth/options';
 import { getMaterial, hardDeleteMaterial } from '../../../../lib/materials/repository';
 import { deleteFromR2 } from '../../../../lib/materials/storage';
+
+
+async function getUser() {
+  const session = await getServerSession(authOptions);
+  return (session?.user as any) || null;
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -13,15 +20,8 @@ export async function DELETE(
     const { id } = await context.params;
 
     // ─── Auth ───
-    const token = (req.headers.get('authorization') ?? '').replace('Bearer ', '');
-    if (!token) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    if (error || !user) return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
+    const user = await getUser();
+    if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
     // ─── Verificar ownership ───
     const material = await getMaterial(id, user.id);

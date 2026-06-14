@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../../../lib/auth/options';
 import {
   getMaterial,
   getMaterialText,
@@ -9,21 +10,20 @@ import {
 import { downloadFromR2 } from '../../../../../lib/materials/storage';
 import { extractText } from '../../../../../lib/materials/extractors';
 
+
+async function getUser() {
+  const session = await getServerSession(authOptions);
+  return (session?.user as any) || null;
+}
+
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
     // ─── Auth ───
-    const token = (req.headers.get('authorization') ?? '').replace('Bearer ', '');
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    if (error || !user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    }
+    const user = await getUser();
+    if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
     const { materialIds } = await req.json();
     if (!materialIds?.length) {

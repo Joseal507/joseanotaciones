@@ -4,7 +4,6 @@
 // Solo llama a la API si no hay contenido local
 // ═══════════════════════════════════════════════════════
 import { useState, useEffect, useRef } from 'react';
-import { supabase } from '../supabase';
 
 export type ContentStatus =
   | 'idle'        // no empezó
@@ -109,15 +108,10 @@ export function useMultiContent(
       // Los que necesitan API: llamada en batch
       if (needAPI.length > 0) {
         try {
-          const session = (await supabase.auth.getSession()).data.session;
-          if (!session) throw new Error('No hay sesión');
-
           const res = await fetch('/api/enfoques/teorico/start', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${session.access_token}`,
-            },
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
             body: JSON.stringify({
               materialIds: needAPI.map(m => m.materialId),
             }),
@@ -156,15 +150,10 @@ async function fetchContent(
   materialId: string,
   kind: string,
 ): Promise<{ text: string; fromCache: boolean }> {
-  const session = (await supabase.auth.getSession()).data.session;
-  if (!session) throw new Error('No hay sesión activa');
-
   const res = await fetch('/api/enfoques/teorico/start', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.access_token}`,
-    },
+    headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
     body: JSON.stringify({ materialIds: [materialId] }),
   });
 

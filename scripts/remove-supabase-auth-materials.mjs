@@ -1,3 +1,30 @@
+import fs from "fs";
+
+function w(path, content) {
+  fs.writeFileSync(path, content.trimStart() + "\n");
+  console.log("updated", path);
+}
+
+w("lib/client-auth.ts", `
+import { getSession } from 'next-auth/react';
+
+export async function getCurrentSession() {
+  return await getSession();
+}
+
+export async function getCurrentUserId(): Promise<string | null> {
+  const session = await getSession();
+  return ((session?.user as any)?.id as string) || null;
+}
+
+export async function requireCurrentUserId(): Promise<string> {
+  const id = await getCurrentUserId();
+  if (!id) throw new Error('No hay sesión activa');
+  return id;
+}
+`);
+
+w("lib/materials/upload.ts", `
 // ═══════════════════════════════════════════════
 // CLIENTE DE UPLOAD — NextAuth + R2 + D1
 // ═══════════════════════════════════════════════
@@ -132,7 +159,7 @@ function uploadWithProgress(
         onProgress(100);
         resolve();
       } else {
-        reject(new Error(`R2 upload failed: ${xhr.status}`));
+        reject(new Error(\`R2 upload failed: \${xhr.status}\`));
       }
     });
 
@@ -146,9 +173,9 @@ function uploadWithProgress(
 }
 
 export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes < 1024) return \`\${bytes} B\`;
+  if (bytes < 1024 * 1024) return \`\${(bytes / 1024).toFixed(1)} KB\`;
+  return \`\${(bytes / 1024 / 1024).toFixed(1)} MB\`;
 }
 
 export function kindEmoji(kind: string): string {
@@ -162,4 +189,14 @@ export function kindEmoji(kind: string): string {
   };
   return map[kind] ?? '📁';
 }
+`);
 
+let useContent = fs.readFileSync("lib/materials/useContent.ts", "utf8");
+useContent = useContent.replace("import { supabase } from '../supabase';\n", "");
+useContent = useContent.replace(/const session = \(await supabase\.auth\.getSession\(\)\)\.data\.session;\s*if \(!session\) throw new Error\('No hay sesión'\);\s*/g, "");
+useContent = useContent.replace(/const session = \(await supabase\.auth\.getSession\(\)\)\.data\.session;\s*if \(!session\) throw new Error\('No hay sesión activa'\);\s*/g, "");
+useContent = useContent.replace(/,\s*Authorization: `Bearer \$\{session\.access_token\}`/g, "");
+useContent = useContent.replace(/headers: \{\s*'Content-Type': 'application\/json',\s*\}/g, "headers: { 'Content-Type': 'application/json' },\n            credentials: 'same-origin'");
+useContent = useContent.replace(/headers: \{\s*'Content-Type': 'application\/json',\s*\},/g, "headers: { 'Content-Type': 'application/json' },\n    credentials: 'same-origin',");
+fs.writeFileSync("lib/materials/useContent.ts", useContent);
+console.log("patched lib/materials/useContent.ts");

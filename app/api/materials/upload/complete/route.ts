@@ -1,27 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../../../lib/auth/options';
 import { objectExists } from '../../../../../lib/materials/storage';
 import { getMaterial } from '../../../../../lib/materials/repository';
 import type { CompleteUploadResponse } from '../../../../../lib/materials/types';
+
+
+async function getUser() {
+  const session = await getServerSession(authOptions);
+  return (session?.user as any) || null;
+}
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    // ─── Auth ───
-    const token = (req.headers.get('authorization') ?? '').replace('Bearer ', '');
-    if (!token) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    }
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    if (error || !user) {
-      return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
-    }
+    const user = await getUser();
+    if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
     // ─── Body ───
     const { materialId } = await req.json();
