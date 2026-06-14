@@ -1,78 +1,65 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../lib/auth/options';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+const API = process.env.STUDYAL_API_URL || process.env.NEXT_PUBLIC_STUDYAL_API_URL || '';
 
-export async function GET(req: NextRequest) {
+async function getUser() {
+  const session = await getServerSession(authOptions);
+  return (session?.user as any) || null;
+}
+
+export async function GET() {
   try {
-    const token = req.headers.get('authorization')?.replace('Bearer ', '');
-    if (!token) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    const { data: userData } = await supabaseAdmin.auth.getUser(token);
-    if (!userData?.user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    const userId = userData.user.id;
+    const user = await getUser();
+    if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    if (!API) return NextResponse.json({ unread: [] });
 
-    // Obtener TODOS los chats donde participa el usuario (sin filtrar deleted_at)
-    const { data: chats } = await supabaseAdmin
-      .from('partner_chats')
-      .select('id, user1_id, user2_id')
-      .or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
+    const chatsRes = await fetch(`${API}/partner-chats/by-user?userId=${encodeURIComponent(user.id)}`, { cache: 'no-store' });
+    const chatsData = await chatsRes.json().catch(() => ({}));
+    const chats = chatsData?.chats || [];
 
-    if (!chats || chats.length === 0) {
-      return NextResponse.json({ unread: [] });
-    }
+    if (!chats.length) return NextResponse.json({ unread: [] });
 
-    const chatIds = chats.map(c => c.id);
+    const groups: Record<string, any[]> = {};
 
-    // Mensajes no leídos enviados por otros
-    const { data: msgs } = await supabaseAdmin
-      .from('partner_messages')
-      .select('id, chat_id, sender_id, content, created_at')
-      .in('chat_id', chatIds)
-      .neq('sender_id', userId)
-      .is('read_at', null)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false })
-      .limit(50);
+    await Promise.all(chats.map(async (chat: any) => {
+      const msgRes = await fetch(`${API}/partner-messages/by-chat?chatId=${encodeURIComponent(chat.id)}`, { cache: 'no-store' });
+      const msgData = await msgRes.json().catch(() => ({}));
+      const unread = (msgData?.messages || [])
+        .filter((m: any) => m.sender_id !== user.id && !m.read_at && !m.deleted_at)
+        .sort((a: any, b: any) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        .slice(0, 50);
 
-    if (!msgs || msgs.length === 0) {
-      return NextResponse.json({ unread: [] });
-    }
+      if (unread.length) groups[chat.id] = unread;
+    }));
 
-    // Agrupar por chat
-    const porChat: Record<string, any[]> = {};
-    msgs.forEach((m: any) => {
-      if (!porChat[m.chat_id]) porChat[m.chat_id] = [];
-      porChat[m.chat_id].push(m);
-    });
+    const senderIds = Array.from(new Set(Object.values(groups).flat().map((m: any) => m.sender_id)));
+    const profileMap: Record<string, any> = {};
 
-    // Obtener nombres de senders
-    const senderIds = [...new Set(msgs.map((m: any) => m.sender_id))];
-    const { data: perfiles } = await supabaseAdmin
-      .from('leaderboard')
-      .select('user_id, nombre, avatar_url')
-      .in('user_id', senderIds);
-    const nm: Record<string, any> = {};
-    (perfiles || []).forEach((p: any) => { nm[p.user_id] = p; });
+    await Promise.all(senderIds.map(async (id) => {
+      const res = await fetch(`${API}/leaderboard/by-user?userId=${encodeURIComponent(String(id))}`, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (data?.entry) profileMap[String(id)] = data.entry;
+    }));
 
-    // Para cada chat con mensajes no leídos, devolver info
-    const result = Object.entries(porChat).map(([chatId, mensajes]) => {
+    const unread = Object.entries(groups).map(([chatId, mensajes]) => {
       const primer = mensajes[0];
+      const p = profileMap[primer.sender_id] || {};
       return {
         chat_id: chatId,
         sender_id: primer.sender_id,
-        sender_nombre: nm[primer.sender_id]?.nombre || 'Partner',
-        sender_avatar: nm[primer.sender_id]?.avatar_url || null,
+        sender_nombre: p.nombre || 'Partner',
+        sender_avatar: p.avatar_url || null,
         count: mensajes.length,
         last_content: primer.content,
         last_at: primer.created_at,
       };
     });
 
-    return NextResponse.json({ unread: result });
+    return NextResponse.json({ unread });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+

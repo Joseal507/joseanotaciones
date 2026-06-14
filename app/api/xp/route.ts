@@ -1,135 +1,95 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../lib/auth/options';
 import { calcularNivel } from '@/lib/nivelUtils';
 
-const getAdmin = () =>
-  createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
+const API = process.env.STUDYAL_API_URL || process.env.NEXT_PUBLIC_STUDYAL_API_URL || '';
 
-async function getUser(req: NextRequest) {
-  const token = req.headers.get('authorization')?.replace('Bearer ', '');
-  if (!token) {
-    console.log('❌ XP: No token');
-    return null;
-  }
-  try {
-    const { data, error } = await getAdmin().auth.getUser(token);
-    if (error || !data.user) {
-      console.log('❌ XP auth error:', error?.message);
-      return null;
-    }
-    return data.user;
-  } catch (e: any) {
-    console.log('❌ XP catch:', e.message);
-    return null;
-  }
+async function getUser() {
+  const session = await getServerSession(authOptions);
+  return (session?.user as any) || null;
 }
 
-export async function GET(req: NextRequest) {
-  console.log('📥 GET /api/xp');
+function parseBreakdown(value: any): Record<string, any> {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return {}; }
+}
+
+async function getLeaderboardEntry(userId: string) {
+  if (!API) return null;
+  const res = await fetch(`${API}/leaderboard/by-user?userId=${encodeURIComponent(userId)}`, { cache: 'no-store' });
+  const data = await res.json().catch(() => ({}));
+  return data?.entry || null;
+}
+
+async function upsertLeaderboard(payload: Record<string, any>) {
+  if (!API) throw new Error('STUDYAL_API_URL no configurado');
+  const res = await fetch(`${API}/leaderboard/upsert`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok === false) throw new Error(data.error || 'leaderboard_upsert_failed');
+  return data.entry || null;
+}
+
+export async function GET() {
   try {
-    const user = await getUser(req);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await getUser();
+    if (!user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const db = getAdmin();
-    const { data, error } = await db
-      .from('leaderboard')
-      .select('xp_total, xp_breakdown, nivel')
-      .eq('user_id', user.id)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    const xpTotal = data?.xp_total ?? 0;
+    const entry = await getLeaderboardEntry(user.id);
+    const xpTotal = Number(entry?.xp_total ?? 0);
     const nivelCalculado = calcularNivel(xpTotal);
-
-    console.log(`✅ XP GET: user=${user.id} xp=${xpTotal} nivel=${nivelCalculado}`);
 
     return NextResponse.json({
       ok: true,
       xp_total: xpTotal,
-      nivel: nivelCalculado,
-      xp_breakdown: data?.xp_breakdown ?? {},
+      nivel: Number(entry?.nivel ?? nivelCalculado),
+      xp_breakdown: parseBreakdown(entry?.xp_breakdown),
     });
   } catch (e: any) {
-    console.error('❌ XP GET crash:', e.message);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
-  console.log('📥 POST /api/xp');
   try {
-    const user = await getUser(req);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await getUser();
+    if (!user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    let body: any;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: 'Body inválido' }, { status: 400 });
-    }
+    const body = await req.json().catch(() => ({}));
+    const { fuente, cantidad } = body;
 
-    const { fuente, cantidad, meta } = body;
-    console.log(`📥 XP POST: fuente=${fuente} cantidad=${cantidad}`);
-
-    const fuentesValidas = ['timer', 'flashcards', 'quiz', 'post', 'objetivo', 'login', 'racha', 'comunidad'];
-    if (
-      !fuente ||
-      !fuentesValidas.includes(fuente) ||
-      typeof cantidad !== 'number' ||
-      cantidad === 0
-    ) {
-      console.log('❌ XP datos inválidos:', { fuente, cantidad });
+    const fuentesValidas = ['timer', 'flashcards', 'quiz', 'post', 'objetivo', 'login', 'racha', 'comunidad', 'daily_reward'];
+    if (!fuente || !fuentesValidas.includes(fuente) || typeof cantidad !== 'number' || cantidad === 0) {
       return NextResponse.json({ error: 'Datos inválidos' }, { status: 400 });
     }
 
-    const db = getAdmin();
-    const { data: current, error: errGet } = await db
-      .from('leaderboard')
-      .select('xp_total, xp_breakdown, nivel')
-      .eq('user_id', user.id)
-      .single();
-
-    if (errGet && errGet.code !== 'PGRST116') {
-      return NextResponse.json({ error: errGet.message }, { status: 500 });
-    }
-
-    const xpActual = current?.xp_total ?? 0;
-    const breakdownActual = current?.xp_breakdown ?? {};
+    const current = await getLeaderboardEntry(user.id);
+    const xpActual = Number(current?.xp_total ?? 0);
+    const breakdownActual = parseBreakdown(current?.xp_breakdown);
     const xpNuevo = Math.max(0, xpActual + cantidad);
     const nivelNuevo = calcularNivel(xpNuevo);
-    const nivelAnterior = current?.nivel ?? calcularNivel(xpActual);
+    const nivelAnterior = Number(current?.nivel ?? calcularNivel(xpActual));
 
     const breakdownNuevo = {
       ...breakdownActual,
-      [fuente]: (breakdownActual[fuente] ?? 0) + cantidad,
+      [fuente]: Number(breakdownActual[fuente] ?? 0) + cantidad,
       ultima_actualizacion: new Date().toISOString(),
     };
 
-    const { error: errUpdate } = await db
-      .from('leaderboard')
-      .upsert(
-        {
-          user_id: user.id,
-          xp_total: xpNuevo,
-          xp_breakdown: breakdownNuevo,
-          nivel: nivelNuevo,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id' },
-      );
-
-    if (errUpdate) {
-      console.error('❌ XP upsert error:', errUpdate.message);
-      return NextResponse.json({ error: errUpdate.message }, { status: 500 });
-    }
-
-    console.log(`✅ XP: +${cantidad} (${fuente}) → ${xpNuevo} | Nivel ${nivelAnterior}→${nivelNuevo}`);
+    await upsertLeaderboard({
+      user_id: user.id,
+      email: user.email || null,
+      nombre: user.name || user.email?.split('@')[0] || null,
+      avatar_url: user.image || null,
+      xp_total: xpNuevo,
+      xp_breakdown: JSON.stringify(breakdownNuevo),
+      nivel: nivelNuevo,
+    });
 
     return NextResponse.json({
       ok: true,
@@ -142,7 +102,7 @@ export async function POST(req: NextRequest) {
       fuente,
     });
   } catch (e: any) {
-    console.error('❌ XP POST crash:', e.message);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
+
