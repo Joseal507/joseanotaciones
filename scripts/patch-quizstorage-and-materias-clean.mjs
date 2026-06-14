@@ -1,14 +1,36 @@
-export type NivelQuiz = 'facil' | 'medio' | 'intermedio' | 'dificil';
+import fs from "fs";
+import re from "node:repl";
 
+function w(path, content) {
+  fs.writeFileSync(path, content.trimStart() + "\n");
+  console.log("updated", path);
+}
+
+// limpiar línea vieja de app/materias/page.tsx por reemplazo textual simple
+let m = fs.readFileSync("app/materias/page.tsx", "utf8");
+m = m.replace(
+`      const session = (await import('../../lib/supabase').then(m => m.supabase.auth.getSession())).data.session;
+      await fetch(\`/api/materials/\${materialId}\`, {
+        method: 'DELETE',
+        headers: session?.access_token ? { Authorization: \`Bearer \${session.access_token}\` } : {},
+      });`,
+`      await fetch(\`/api/materials/\${materialId}\`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });`
+);
+fs.writeFileSync("app/materias/page.tsx", m);
+console.log("patched app/materias/page.tsx");
+
+// quizStorage sin Supabase: localStorage-first, con API hooks futuros
+w("lib/quizStorage.ts", `
 export type QuizGuardado = {
   id: string;
   nombre: string;
   materiaId?: string;
   materiaNombre?: string;
-  materiaColor?: string;
   temaId?: string;
   temaNombre?: string;
-  nivel?: NivelQuiz;
   preguntas: any[];
   fechaCreacion?: string;
   fechaActualizacion?: string;
@@ -19,10 +41,8 @@ export type FlashcardDeck = {
   nombre: string;
   materiaId?: string;
   materiaNombre?: string;
-  materiaColor?: string;
   temaId?: string;
   temaNombre?: string;
-  temaColor?: string;
   flashcards: any[];
   fechaCreacion?: string;
   fechaActualizacion?: string;
@@ -68,11 +88,9 @@ export function guardarQuiz(quiz: Partial<QuizGuardado> & { preguntas: any[] }):
     nombre: quiz.nombre || 'Quiz sin título',
     materiaId: quiz.materiaId,
     materiaNombre: quiz.materiaNombre,
-    materiaColor: quiz.materiaColor,
     temaId: quiz.temaId,
     temaNombre: quiz.temaNombre,
     preguntas: quiz.preguntas || [],
-    nivel: quiz.nivel,
     fechaCreacion: quiz.fechaCreacion || now,
     fechaActualizacion: now,
   };
@@ -107,11 +125,9 @@ export function guardarQuizTemporal(quiz: Partial<QuizGuardado> & { preguntas: a
     nombre: quiz.nombre || 'Quiz temporal',
     materiaId: quiz.materiaId,
     materiaNombre: quiz.materiaNombre,
-    materiaColor: quiz.materiaColor,
     temaId: quiz.temaId,
     temaNombre: quiz.temaNombre,
     preguntas: quiz.preguntas || [],
-    nivel: quiz.nivel,
     fechaCreacion: quiz.fechaCreacion || now,
     fechaActualizacion: now,
   };
@@ -146,10 +162,8 @@ export function guardarFlashcardDeck(deck: Partial<FlashcardDeck> & { flashcards
     nombre: deck.nombre || 'Deck sin título',
     materiaId: deck.materiaId,
     materiaNombre: deck.materiaNombre,
-    materiaColor: deck.materiaColor,
     temaId: deck.temaId,
     temaNombre: deck.temaNombre,
-    temaColor: deck.temaColor,
     flashcards: deck.flashcards || [],
     fechaCreacion: deck.fechaCreacion || now,
     fechaActualizacion: now,
@@ -170,10 +184,4 @@ export function eliminarFlashcardDeck(id: string) {
 export function getFlashcardDeck(id: string): FlashcardDeck | null {
   return getFlashcardDecks().find(d => d.id === id) || null;
 }
-
-
-
-export const eliminarQuizGuardado = eliminarQuiz;
-export const guardarDeck = guardarFlashcardDeck;
-export const obtenerDecks = getFlashcardDecks;
-export const eliminarDeck = eliminarFlashcardDeck;
+`);
