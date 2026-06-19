@@ -117,18 +117,6 @@ export default function SeleccionPaginas({
     const cargar = async () => {
       setLoading(true);
 
-      let token: string | null = null;
-      const necesitaToken = materiales.some(m => {
-        const t = detectarTipo(m);
-        return (t === 'pdf' || t === 'docx' || t === 'pptx' || t === 'image') &&
-               !m.archivoBase64 && !m.archivoUrl && (m.materialId || m.id);
-      });
-      if (necesitaToken) {
-        try {
-          token = null;
-        } catch {}
-      }
-
       const urlsPdf: Record<string, string> = {};
       const urlsImg: Record<string, string> = {};
       const errors: Record<string, string> = {};
@@ -153,19 +141,24 @@ export default function SeleccionPaginas({
             url = m.archivoUrl;
           } else {
             const remoteId = m.materialId || m.id;
-            if (remoteId && token) {
+
+            if (remoteId) {
               const res = await fetch(`/api/materials/${remoteId}/download-url`, {
-                headers: { Authorization: `Bearer ${token}` },
+                credentials: 'same-origin',
               });
+
               if (res.ok) {
                 const data = await res.json();
                 url = data.url;
               } else {
-                errors[m.id] = `No se pudo obtener (${res.status})`;
+                const data = await res.json().catch(() => ({}));
+                errors[m.id] = data?.error
+                  ? `No se pudo obtener el archivo: ${data.error}`
+                  : `No se pudo obtener el archivo (${res.status})`;
                 return;
               }
             } else {
-              errors[m.id] = 'Sin acceso al archivo';
+              errors[m.id] = 'Este material no tiene ID válido para acceder al archivo';
               return;
             }
           }
