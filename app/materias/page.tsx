@@ -180,13 +180,25 @@ export default function MateriasPage() {
             const matLocal = materiasLocal.find((m: any) => String(m.id) === String(openIdLocal));
             if (matLocal) {
               setMateriaActual(matLocal);
-              setVista('materia');
+              setVista(prev => (
+                ['flashcards', 'quiz', 'repasar', 'tema', 'apunte', 'documento'].includes(prev)
+                  ? prev
+                  : 'materia'
+              ));
               localStorage.removeItem('josea_open_materia');
             } else {
-              setVista('materias');
+              setVista(prev => (
+                ['flashcards', 'quiz', 'repasar', 'tema', 'apunte', 'documento'].includes(prev)
+                  ? prev
+                  : 'materias'
+              ));
             }
           } else {
-            setVista('materias');
+            setVista(prev => (
+              ['flashcards', 'quiz', 'repasar', 'tema', 'apunte', 'documento'].includes(prev)
+                ? prev
+                : 'materias'
+            ));
           }
 
           setCargando(false);
@@ -227,9 +239,17 @@ export default function MateriasPage() {
               const mat = allMaterias.find((m: any) => m.id === openId);
               if (mat) {
                 setMateriaActual(mat);
-                setVista('materia');
+                setVista(prev => (
+                  ['flashcards', 'quiz', 'repasar', 'tema', 'apunte', 'documento'].includes(prev)
+                    ? prev
+                    : 'materia'
+                ));
               } else {
-                setVista('materias');
+                setVista(prev => (
+                  ['flashcards', 'quiz', 'repasar', 'tema', 'apunte', 'documento'].includes(prev)
+                    ? prev
+                    : 'materias'
+                ));
               }
               localStorage.removeItem('josea_open_materia');
             }
@@ -548,12 +568,23 @@ const eliminarDocumento = async (id: string) => {
     if (materiaActual?.id === materiaEditada.id) setMateriaActual(materiaEditada);
   };
 
-  if (!cargando && vista === 'materia' && !materiaActual) {
-    setTimeout(() => {
+  useEffect(() => {
+    if (cargando) return;
+
+    // Nunca cambiar vista durante render. Este guard solo corrige estados rotos.
+    if (vista === 'materia' && !materiaActual) {
       try { window.history.replaceState(null, '', '/materias'); } catch {}
       setVista('materias');
-    }, 0);
-  }
+      return;
+    }
+
+    // Si se pierde el tema pero todavía existe materia, vuelve a la materia,
+    // no al listado completo. Evita que un enfoque abierto bote al usuario.
+    if (vista === 'tema' && materiaActual && !temaActual) {
+      setVista('materia');
+      return;
+    }
+  }, [cargando, vista, materiaActual, temaActual]);
 
   if (cargando) {
     return (
