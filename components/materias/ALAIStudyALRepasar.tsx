@@ -1349,8 +1349,6 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                               `${prev.trim()}\n\nLo que aprendí después del feedback:\n${followUpAnswer.trim()}`.trim()
                             );
 
-                            setFollowUpAnswer('');
-                            setTeachCheck(null);
                             setError('');
                             setPhase('explicar');
                           }}
