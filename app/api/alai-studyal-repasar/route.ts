@@ -54,6 +54,15 @@ function cleanAction(value: any) {
   };
 }
 
+function cleanMiniLesson(value: any) {
+  return {
+    title: String(value?.title || '').trim(),
+    explanation: String(value?.explanation || '').trim(),
+    example: String(value?.example || '').trim(),
+    analogy: String(value?.analogy || '').trim(),
+  };
+}
+
 function cleanFollowUp(value: any) {
   if (typeof value === 'string') {
     return { question: value.trim(), why: '', concept: '' };
@@ -131,16 +140,123 @@ function calibrateRepasarScore({
 }
 
 function levelFromScore(score: number) {
-  if (score >= 90) return 'dominio fuerte';
-  if (score >= 75) return 'buen avance';
-  if (score >= 55) return 'en progreso';
-  if (score >= 25) return 'base débil';
-  return 'necesita repaso';
+  if (score >= 90) return '🏆 Dominio completo';
+  if (score >= 75) return '🎓 Listo para practicar examen';
+  if (score >= 55) return '📗 Comprensión sólida';
+  if (score >= 35) return '📘 Comprensión básica';
+  return '🌱 Idea inicial';
+}
+
+function masteryStage(score: number) {
+  if (score >= 90) return 'dominio_completo';
+  if (score >= 75) return 'listo_para_examen';
+  if (score >= 55) return 'comprension_solida';
+  if (score >= 35) return 'comprension_basica';
+  return 'idea_inicial';
+}
+
+function cleanStudyBreakdown(value: any) {
+  return {
+    remembered: cleanScore(value?.remembered),
+    explained: cleanScore(value?.explained),
+    missing: cleanScore(value?.missing),
+  };
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    if (body?.kind === 'teach-check') {
+      const concept = String(body.concept || '').trim();
+      const lesson = String(body.lesson || '').trim();
+      const answer = String(body.answer || '').trim();
+      const mode = String(body.mode || 'libre').trim();
+
+      if (!concept) {
+        return NextResponse.json({ error: 'No hay concepto para verificar.' }, { status: 400 });
+      }
+
+      if (!answer) {
+        return NextResponse.json({ error: 'No hay respuesta para verificar.' }, { status: 400 });
+      }
+
+      const check = await alai({
+        json: true,
+        temperature: 0.18,
+        maxTokens: 1200,
+        messages: [
+          {
+            role: 'system',
+            content: `
+Eres un tutor de StudyAL.
+Verifica si el estudiante entendió UN concepto que acabas de explicarle.
+No evalúes todo el material.
+No castigues por no usar palabras exactas.
+Devuelve SOLO JSON válido.
+`,
+          },
+          {
+            role: 'user',
+            content: `
+LECTOR:
+${mode}
+
+CONCEPTO A VERIFICAR:
+${concept}
+
+MINI LECCIÓN:
+"""
+${lesson || 'Sin mini lección'}
+"""
+
+RESPUESTA DEL ESTUDIANTE:
+"""
+${answer}
+"""
+
+Devuelve EXACTAMENTE este JSON:
+{
+  "passed": false,
+  "score": 0,
+  "message": "",
+  "understood": [],
+  "stillMissing": [],
+  "improvedAnswer": ""
+}
+`,
+          },
+        ],
+      });
+
+      const parsedCheck = extractJson(check.text);
+
+      if (!parsedCheck) {
+        return NextResponse.json({
+          check: {
+            passed: false,
+            score: 40,
+            message: check.text.slice(0, 900),
+            understood: [],
+            stillMissing: [concept],
+            improvedAnswer: '',
+          },
+        });
+      }
+
+      const score = cleanScore(parsedCheck.score);
+
+      return NextResponse.json({
+        check: {
+          passed: Boolean(parsedCheck.passed) || score >= 70,
+          score,
+          message: String(parsedCheck.message || ''),
+          understood: cleanArray(parsedCheck.understood),
+          stillMissing: cleanArray(parsedCheck.stillMissing),
+          improvedAnswer: String(parsedCheck.improvedAnswer || ''),
+        },
+      });
+    }
 
     const materialText = String(body.materialText || '').trim();
     const explanation = String(body.explanation || '').trim();
@@ -276,8 +392,21 @@ El feedback debe ser MUY fácil de entender:
 - frases cortas
 - directo al punto
 - cero lenguaje genérico
-- explica por qué bajó o subió el score
-- da acciones concretas
+- explica qué recordó, qué entendió y qué olvidó
+- no suenes como rúbrica genérica
+- habla como el lector seleccionado
+- el score NO debe ser el centro; el centro es ayudar a estudiar
+
+El usuario no necesita sentirse castigado.
+Primero valida lo que sí recordó.
+Luego muestra vacíos concretos.
+Luego dile exactamente qué repasar y cómo mejorar.
+
+También debes generar "teachMissing": una mini clase corta SOLO de lo que olvidó.
+Esa mini clase debe tener:
+- explicación simple
+- ejemplo
+- analogía si ayuda
 
 Nunca inventes contenido fuera del material.
 Devuelve SOLO JSON válido.
@@ -324,10 +453,16 @@ Devuelve EXACTAMENTE este JSON:
 {
   "score": 0,
   "level": "",
+  "masteryStage": "",
   "summary": "",
   "mainIssue": "",
   "scoreReason": "",
   "estimatedNextScore": 0,
+  "studyBreakdown": {
+    "remembered": 0,
+    "explained": 0,
+    "missing": 0
+  },
   "reviewer": {
     "persona": "${selectedMode.persona}",
     "rating": 0,
@@ -353,6 +488,12 @@ Devuelve EXACTAMENTE este JSON:
       "detail": ""
     }
   ],
+  "teachMissing": {
+    "title": "",
+    "explanation": "",
+    "example": "",
+    "analogy": ""
+  },
   "followUpQuestions": [
     {
       "question": "",
@@ -376,16 +517,19 @@ Devuelve EXACTAMENTE este JSON:
           score: 50,
           level: 'en progreso',
           metrics: { coverage: 50, clarity: 50, depth: 50, connections: 50 },
+          masteryStage: 'comprension_basica',
           summary: 'No pude estructurar el análisis automáticamente.',
           mainIssue: 'La respuesta de la IA no llegó en el formato esperado.',
           scoreReason: 'Se muestra feedback crudo para no perder información.',
           estimatedNextScore: 65,
+          studyBreakdown: { remembered: 35, explained: 25, missing: 40 },
           strengths: [],
           missingConcepts: [],
           confusions: [],
           weakConcepts: [],
           conceptStatus: [],
           actions: [],
+          teachMissing: null,
           reviewer: null,
           followUpQuestions: [],
           feedback: result.text.slice(0, 1200),
@@ -422,6 +566,7 @@ Devuelve EXACTAMENTE este JSON:
       analysis: {
         score,
         level: levelFromScore(score),
+        masteryStage: String(parsed.masteryStage || masteryStage(score)),
         metrics: {
           coverage: score,
           clarity: score,
@@ -432,6 +577,11 @@ Devuelve EXACTAMENTE este JSON:
         mainIssue: String(parsed.mainIssue || ''),
         scoreReason: String(parsed.scoreReason || ''),
         estimatedNextScore: cleanScore(Math.max(parsed.estimatedNextScore || 0, Math.min(100, score + (score < 55 ? 25 : 15)))),
+        studyBreakdown: cleanStudyBreakdown(parsed.studyBreakdown || {
+          remembered: score,
+          explained: Math.max(0, score - 10),
+          missing: Math.max(0, 100 - score),
+        }),
         reviewer,
         conceptStatus,
         strengths,
@@ -441,6 +591,7 @@ Devuelve EXACTAMENTE este JSON:
         actions: Array.isArray(parsed.actions)
           ? parsed.actions.map(cleanAction).filter((a: any) => a.title || a.detail).slice(0, 4)
           : [],
+        teachMissing: parsed.teachMissing ? cleanMiniLesson(parsed.teachMissing) : null,
         followUpQuestions: Array.isArray(parsed.followUpQuestions)
           ? parsed.followUpQuestions.map(cleanFollowUp).filter((q: any) => q.question).slice(0, 4)
           : [],

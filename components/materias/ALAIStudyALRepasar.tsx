@@ -39,10 +39,16 @@ interface AnalysisResult {
     depth: number;
     connections: number;
   };
+  masteryStage?: string;
   summary?: string;
   mainIssue?: string;
   scoreReason?: string;
   estimatedNextScore?: number;
+  studyBreakdown?: {
+    remembered: number;
+    explained: number;
+    missing: number;
+  };
   reviewer?: ReviewerResult | null;
   conceptStatus?: {
     concept: string;
@@ -57,6 +63,12 @@ interface AnalysisResult {
     title: string;
     detail?: string;
   }[];
+  teachMissing?: {
+    title: string;
+    explanation: string;
+    example?: string;
+    analogy?: string;
+  } | null;
   followUpQuestions?: {
     question: string;
     why?: string;
@@ -175,18 +187,19 @@ function filterTextByPages(fullText: string, pages: number[]): string {
 }
 
 function scoreLabel(score: number) {
-  if (score >= 90) return 'Dominio fuerte';
-  if (score >= 75) return 'Buen avance';
-  if (score >= 55) return 'En progreso';
-  if (score >= 25) return 'Base débil';
-  return 'Necesita repaso';
+  if (score >= 90) return '🏆 Dominio completo';
+  if (score >= 75) return '🎓 Listo para practicar examen';
+  if (score >= 55) return '📗 Comprensión sólida';
+  if (score >= 35) return '📘 Comprensión básica';
+  return '🌱 Idea inicial';
 }
 
 function scoreEmoji(score: number) {
-  if (score >= 90) return '🟢';
-  if (score >= 75) return '🟡';
-  if (score >= 55) return '🟠';
-  return '🔴';
+  if (score >= 90) return '🏆';
+  if (score >= 75) return '🎓';
+  if (score >= 55) return '📗';
+  if (score >= 35) return '📘';
+  return '🌱';
 }
 
 function conceptBadge(status: string) {
@@ -204,6 +217,8 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [followUpAnswer, setFollowUpAnswer] = useState('');
+  const [checkingTeach, setCheckingTeach] = useState(false);
+  const [teachCheck, setTeachCheck] = useState<any | null>(null);
   const [activeRepasarColor, setActiveRepasarColor] = useState('rgba(250, 204, 21, 0.48)');
   const [error, setError] = useState('');
 
@@ -269,6 +284,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
       if (saved?.mode) setMode(saved.mode);
       if (Array.isArray(saved?.attempts)) setAttempts(saved.attempts);
       if (saved?.analysis) setAnalysis(saved.analysis);
+      if (saved?.teachCheck) setTeachCheck(saved.teachCheck);
     } catch {}
   }, [storageKey]);
 
@@ -281,10 +297,29 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
         mode,
         attempts,
         analysis,
+        teachCheck,
         updatedAt: Date.now(),
       }));
     } catch {}
-  }, [storageKey, phase, notes, explanation, mode, attempts, analysis]);
+  }, [storageKey, phase, notes, explanation, mode, attempts, analysis, teachCheck]);
+
+  const pendingTeachAnalysis = useMemo(() => {
+    if (analysis?.teachMissing) return analysis;
+    return attempts.find((attempt) => attempt.analysis?.teachMissing)?.analysis || null;
+  }, [analysis, attempts]);
+
+  const mustVerifyMissingConcept = Boolean(pendingTeachAnalysis?.teachMissing && !teachCheck?.passed);
+
+  useEffect(() => {
+    if (phase === 'explicar' && mustVerifyMissingConcept) {
+      if (!analysis && pendingTeachAnalysis) {
+        setAnalysis(pendingTeachAnalysis);
+      }
+
+      setPhase('analisis');
+      setError('Primero verifica lo que te faltó antes de volver a explicar.');
+    }
+  }, [phase, mustVerifyMissingConcept, analysis, pendingTeachAnalysis]);
 
   const weakConcepts = useMemo(() => {
     const values = attempts.flatMap((a) => a.analysis.weakConcepts || a.analysis.missingConcepts || []);
@@ -299,6 +334,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
     setAnalysis(null);
     setAttempts([]);
     setFollowUpAnswer('');
+    setTeachCheck(null);
     setError('');
     try {
       localStorage.removeItem(storageKey);
@@ -356,6 +392,81 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
       setError(err?.message || 'No se pudo analizar.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const goToExplain = () => {
+    if (mustVerifyMissingConcept) {
+      if (!analysis && pendingTeachAnalysis) {
+        setAnalysis(pendingTeachAnalysis);
+      }
+
+      setPhase('analisis');
+
+      window.setTimeout(() => {
+        document
+          .getElementById('teach-check-section')
+          ?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          });
+      }, 50);
+
+      setError('Primero verifica lo que te faltó antes de volver a explicar.');
+      return;
+    }
+
+    setError('');
+    setPhase('explicar');
+  };
+
+  const checkTeachMissing = async () => {
+    if (!analysis?.teachMissing) {
+      setError('No hay concepto para verificar.');
+      return;
+    }
+
+    if (!followUpAnswer.trim()) {
+      setError('Explícalo con tus palabras antes de verificar.');
+      return;
+    }
+
+    setCheckingTeach(true);
+    setError('');
+
+    try {
+      const concept =
+        analysis.teachMissing.title ||
+        analysis.weakConcepts?.[0] ||
+        analysis.missingConcepts?.[0] ||
+        'concepto pendiente';
+
+      const lesson = [
+        analysis.teachMissing.explanation,
+        analysis.teachMissing.example ? `Ejemplo: ${analysis.teachMissing.example}` : '',
+        analysis.teachMissing.analogy ? `Analogía: ${analysis.teachMissing.analogy}` : '',
+      ].filter(Boolean).join('\n\n');
+
+      const res = await fetch('/api/alai-studyal-repasar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'teach-check',
+          mode,
+          concept,
+          lesson,
+          answer: followUpAnswer,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'No se pudo verificar.');
+
+      setTeachCheck(data.check);
+    } catch (err: any) {
+      setError(err?.message || 'No se pudo verificar.');
+    } finally {
+      setCheckingTeach(false);
     }
   };
 
@@ -591,9 +702,34 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
               />
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 22 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 22, flexWrap: 'wrap' }}>
               <button onClick={() => setPhase('preview')} style={{ ...buttonStyle, background: 'var(--bg-card)', color: 'var(--text-primary)' }}>← prelectura</button>
-              <button onClick={() => setPhase('explicar')} style={buttonStyle}>explicar lo entendido →</button>
+
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {analysis?.teachMissing && (
+                  <button
+                    onClick={() => {
+                      if (!analysis && pendingTeachAnalysis) setAnalysis(pendingTeachAnalysis);
+                      setPhase('analisis');
+                    }}
+                    style={{ ...buttonStyle, background: 'var(--bg-card)', color: 'var(--text-primary)' }}
+                  >
+                    volver a lo que faltó →
+                  </button>
+                )}
+                <button
+                  onClick={goToExplain}
+                  style={{
+                    ...buttonStyle,
+                    opacity: mustVerifyMissingConcept ? 0.65 : 1,
+                    cursor: mustVerifyMissingConcept ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {mustVerifyMissingConcept
+                    ? '🔒 verifica antes de explicar'
+                    : 'explicar lo entendido →'}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -698,79 +834,103 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
             ) : (
               <div style={{ display: 'grid', gap: 18 }}>
                 <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: '140px minmax(0, 1fr)',
-                  gap: 18,
-                  alignItems: 'center',
-                  background: 'linear-gradient(135deg, color-mix(in srgb, var(--gold) 18%, var(--bg-primary)), var(--bg-primary))',
+                  background: 'linear-gradient(135deg, color-mix(in srgb, var(--gold) 16%, var(--bg-primary)), var(--bg-primary))',
                   border: '2px solid var(--gold)',
                   borderRadius: 22,
                   padding: 20,
                 }}>
                   <div style={{
-                    width: 118,
-                    height: 118,
-                    borderRadius: '50%',
-                    display: 'grid',
-                    placeItems: 'center',
-                    background: 'var(--gold)',
-                    color: '#111',
-                    fontFamily: HAND,
-                    fontSize: 44,
-                    fontWeight: 900,
-                    border: '3px solid var(--text-primary)',
-                    boxShadow: '4px 5px 0 var(--text-primary)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 16,
+                    alignItems: 'flex-start',
+                    flexWrap: 'wrap',
                   }}>
-                    {analysis.score}
-                  </div>
+                    <div style={{ minWidth: 260, flex: 1 }}>
+                      <div style={{
+                        fontFamily: HAND,
+                        fontSize: 38,
+                        fontWeight: 900,
+                        marginBottom: 6,
+                      }}>
+                        {scoreLabel(analysis.score)}
+                      </div>
 
-                  <div>
-                    <div style={{
-                      fontFamily: HAND,
-                      fontSize: 34,
-                      fontWeight: 900,
-                      marginBottom: 6,
-                    }}>
-                      {scoreEmoji(analysis.score)} {scoreLabel(analysis.score)}
+                      <p style={{
+                        margin: 0,
+                        color: 'var(--text-primary)',
+                        lineHeight: 1.7,
+                        fontSize: 17,
+                        fontWeight: 650,
+                      }}>
+                        {analysis.summary || analysis.feedback || analysis.reviewer?.feedback || 'Análisis generado.'}
+                      </p>
                     </div>
 
-                    <p style={{
-                      margin: 0,
-                      color: 'var(--text-primary)',
-                      lineHeight: 1.7,
-                      fontSize: 17,
-                      fontWeight: 650,
+                    <div style={{
+                      background: 'var(--bg-card)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: 16,
+                      padding: '10px 14px',
+                      textAlign: 'center',
+                      minWidth: 96,
                     }}>
-                      {analysis.summary || analysis.feedback || analysis.reviewer?.feedback || 'Análisis generado.'}
-                    </p>
-
-                    {(analysis.scoreReason || analysis.mainIssue) && (
-                      <div style={{
-                        marginTop: 12,
-                        color: 'var(--text-muted)',
-                        lineHeight: 1.6,
-                      }}>
-                        <strong>Por qué recibiste este puntaje:</strong> {analysis.scoreReason || analysis.mainIssue}
+                      <div style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 900 }}>
+                        dominio
                       </div>
-                    )}
-
-                    {typeof analysis.estimatedNextScore === 'number' && analysis.estimatedNextScore > analysis.score && (
-                      <div style={{
-                        marginTop: 12,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        background: 'var(--bg-card)',
-                        border: '1px dashed var(--gold)',
-                        borderRadius: 999,
-                        padding: '8px 12px',
-                        color: 'var(--gold)',
-                        fontWeight: 900,
-                      }}>
-                        📈 Si corriges esto puedes subir aprox. a {analysis.estimatedNextScore}/100
+                      <div style={{ fontFamily: HAND, fontSize: 30, fontWeight: 900 }}>
+                        {analysis.score}/100
                       </div>
-                    )}
+                    </div>
                   </div>
+
+                  {analysis.studyBreakdown && (
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                      gap: 10,
+                      marginTop: 16,
+                    }}>
+                      {[
+                        ['Recordaste', analysis.studyBreakdown.remembered],
+                        ['Explicaste', analysis.studyBreakdown.explained],
+                        ['Falta reforzar', analysis.studyBreakdown.missing],
+                      ].map(([label, value]: any) => (
+                        <div key={label} style={{
+                          background: 'var(--bg-card)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 14,
+                          padding: 12,
+                        }}>
+                          <div style={{ fontWeight: 900, marginBottom: 7 }}>{label}</div>
+                          <div style={{
+                            height: 9,
+                            borderRadius: 999,
+                            background: 'var(--bg-primary)',
+                            overflow: 'hidden',
+                            border: '1px solid var(--border-color)',
+                          }}>
+                            <div style={{
+                              width: `${Math.max(0, Math.min(100, Number(value) || 0))}%`,
+                              height: '100%',
+                              background: 'var(--gold)',
+                            }} />
+                          </div>
+                          <div style={{ marginTop: 6, color: 'var(--text-muted)', fontWeight: 800 }}>{value}%</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {(analysis.scoreReason || analysis.mainIssue) && (
+                    <div style={{
+                      marginTop: 14,
+                      color: 'var(--text-muted)',
+                      lineHeight: 1.6,
+                    }}>
+                      <strong>Qué significa:</strong> {analysis.scoreReason || analysis.mainIssue}
+                    </div>
+                  )}
                 </div>
 
                 {(analysis.reviewer || mode) && (
@@ -900,6 +1060,58 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                   </div>
                 </div>
 
+                {analysis.teachMissing && (analysis.teachMissing.explanation || analysis.teachMissing.example || analysis.teachMissing.analogy) && (
+                  <div style={{
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 18,
+                    padding: 18,
+                  }}>
+                    <h3 style={{ fontFamily: HAND, fontSize: 30, margin: '0 0 10px' }}>
+                      Lo que te faltó, explicado aquí mismo
+                    </h3>
+
+                    {analysis.teachMissing.title && (
+                      <div style={{
+                        color: 'var(--gold)',
+                        fontWeight: 900,
+                        marginBottom: 8,
+                      }}>
+                        {analysis.teachMissing.title}
+                      </div>
+                    )}
+
+                    {analysis.teachMissing.explanation && (
+                      <p style={{ margin: 0, color: 'var(--text-primary)', lineHeight: 1.7 }}>
+                        {analysis.teachMissing.explanation}
+                      </p>
+                    )}
+
+                    {analysis.teachMissing.example && (
+                      <div style={{
+                        marginTop: 12,
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 14,
+                        padding: 12,
+                        lineHeight: 1.6,
+                      }}>
+                        <strong>Ejemplo:</strong> {analysis.teachMissing.example}
+                      </div>
+                    )}
+
+                    {analysis.teachMissing.analogy && (
+                      <div style={{
+                        marginTop: 10,
+                        color: 'var(--text-muted)',
+                        lineHeight: 1.6,
+                      }}>
+                        <strong>Analogía:</strong> {analysis.teachMissing.analogy}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {(analysis.missingConcepts?.length > 0 || analysis.confusions?.length > 0) && (
                   <div style={{
                     display: 'grid',
@@ -936,65 +1148,70 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                   </div>
                 )}
 
-                {Array.isArray(analysis.followUpQuestions) && analysis.followUpQuestions.length > 0 && (
+                {analysis.teachMissing && (analysis.teachMissing.explanation || Array.isArray(analysis.followUpQuestions)) && (
                   <div style={{
                     background: 'color-mix(in srgb, var(--gold) 9%, var(--bg-primary))',
                     border: '1px solid var(--gold)',
                     borderRadius: 18,
                     padding: 18,
                   }}>
-                    <h3 style={{ fontFamily: HAND, fontSize: 30, margin: '0 0 8px' }}>Preguntas para subir tu puntaje</h3>
+                    <div id="teach-check-section">
+                    <h3 style={{ fontFamily: HAND, fontSize: 30, margin: '0 0 8px' }}>
+                      Explícalo tú para verificar
+                    </h3>
                     <p style={{ margin: '0 0 12px', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                      Responde estas preguntas y úsalas para tu siguiente intento. No es tarea extra: es justo lo que te falta reforzar.
+                      Antes de reintentar todo el material, demuestra que ya entendiste lo que te faltó.
                     </p>
 
-                    <div style={{ display: 'grid', gap: 10 }}>
-                      {analysis.followUpQuestions.map((q: any, i) => (
-                        <div key={i} style={{
-                          background: 'var(--bg-card)',
-                          border: '1px solid var(--border-color)',
-                          borderRadius: 14,
-                          padding: 14,
-                        }}>
-                          <div style={{ fontWeight: 900, lineHeight: 1.5 }}>
-                            {i + 1}. {typeof q === 'string' ? q : q.question}
-                          </div>
-
-                          {typeof q !== 'string' && q.concept && (
-                            <div style={{
-                              marginTop: 6,
-                              display: 'inline-block',
-                              color: '#111',
-                              background: 'var(--gold)',
-                              borderRadius: 999,
-                              padding: '3px 9px',
-                              fontSize: 12,
-                              fontWeight: 900,
-                            }}>
-                              {q.concept}
-                            </div>
-                          )}
-
-                          {typeof q !== 'string' && q.why && (
-                            <div style={{
-                              color: 'var(--text-muted)',
-                              marginTop: 8,
-                              lineHeight: 1.5,
-                            }}>
-                              {q.why}
-                            </div>
-                          )}
+                    {Array.isArray(analysis.followUpQuestions) && analysis.followUpQuestions.length > 0 && (
+                      <div style={{
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 14,
+                        padding: 14,
+                        marginBottom: 12,
+                      }}>
+                        <div style={{ fontWeight: 900, lineHeight: 1.5 }}>
+                          {typeof analysis.followUpQuestions[0] === 'string'
+                            ? analysis.followUpQuestions[0]
+                            : analysis.followUpQuestions[0].question}
                         </div>
-                      ))}
-                    </div>
+
+                        {typeof analysis.followUpQuestions[0] !== 'string' && analysis.followUpQuestions[0].concept && (
+                          <div style={{
+                            marginTop: 6,
+                            display: 'inline-block',
+                            color: '#111',
+                            background: 'var(--gold)',
+                            borderRadius: 999,
+                            padding: '3px 9px',
+                            fontSize: 12,
+                            fontWeight: 900,
+                          }}>
+                            {analysis.followUpQuestions[0].concept}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <textarea
                       value={followUpAnswer}
-                      onChange={(e) => setFollowUpAnswer(e.target.value)}
-                      placeholder="Responde aquí. Luego úsalo para mejorar tu siguiente intento..."
+                      onChange={(e) => {
+                        setFollowUpAnswer(e.target.value);
+                        setTeachCheck(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          if (followUpAnswer.trim() && !checkingTeach) {
+                            checkTeachMissing();
+                          }
+                        }
+                      }}
+                      placeholder="Explícalo aquí con tus palabras... Enter para verificar, Shift+Enter para nueva línea"
                       style={{
                         width: '100%',
-                        minHeight: 130,
+                        minHeight: 150,
                         resize: 'vertical',
                         background: 'var(--bg-card)',
                         color: 'var(--text-primary)',
@@ -1010,21 +1227,131 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                       }}
                     />
 
-                    <button
-                      onClick={() => {
-                        setExplanation((prev) => `${prev.trim()}\n\nMejora después del feedback:\n${followUpAnswer.trim()}`.trim());
-                        setFollowUpAnswer('');
-                        setPhase('explicar');
-                      }}
-                      disabled={!followUpAnswer.trim()}
-                      style={{
-                        ...buttonStyle,
+                    {teachCheck && (
+                      <div style={{
                         marginTop: 12,
-                        opacity: followUpAnswer.trim() ? 1 : 0.5,
-                      }}
-                    >
-                      usar esto para mejorar mi intento
-                    </button>
+                        background: teachCheck.passed
+                          ? 'color-mix(in srgb, var(--gold) 14%, var(--bg-card))'
+                          : 'var(--bg-card)',
+                        border: teachCheck.passed
+                          ? '1px solid var(--gold)'
+                          : '1px solid var(--border-color)',
+                        borderRadius: 14,
+                        padding: 14,
+                        lineHeight: 1.6,
+                      }}>
+                        <div style={{
+                          fontWeight: 900,
+                          marginBottom: 6,
+                          color: teachCheck.passed ? 'var(--gold)' : '#f87171',
+                        }}>
+                          {teachCheck.passed ? '✅ Ya entendiste este concepto' : '🟡 Casi, pero falta ajustar'}
+                        </div>
+
+                        {teachCheck.message && (
+                          <div style={{ color: 'var(--text-primary)' }}>
+                            {teachCheck.message}
+                          </div>
+                        )}
+
+                        {Array.isArray(teachCheck.stillMissing) && teachCheck.stillMissing.length > 0 && (
+                          <ul style={{ margin: '8px 0 0', paddingLeft: 20, color: 'var(--text-muted)' }}>
+                            {teachCheck.stillMissing.map((item: string, i: number) => <li key={i}>{item}</li>)}
+                          </ul>
+                        )}
+
+                        {teachCheck.improvedAnswer && (
+                          <div style={{ marginTop: 10, color: 'var(--text-muted)' }}>
+                            <strong>Mejor forma de decirlo:</strong> {teachCheck.improvedAnswer}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {error && (
+                      <div style={{
+                        marginTop: 12,
+                        color: '#f87171',
+                        fontWeight: 800,
+                      }}>
+                        {error}
+                      </div>
+                    )}
+
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      marginTop: 14,
+                      flexWrap: 'wrap',
+                    }}>
+                      <button
+                        onClick={() => setPhase('lectura')}
+                        style={{ ...buttonStyle, background: 'var(--bg-card)', color: 'var(--text-primary)' }}
+                      >
+                        ← releer material
+                      </button>
+
+                      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                        <button
+                          onClick={checkTeachMissing}
+                          disabled={!followUpAnswer.trim() || checkingTeach}
+                          style={{
+                            ...buttonStyle,
+                            background: 'var(--bg-card)',
+                            color: 'var(--text-primary)',
+                            opacity: followUpAnswer.trim() && !checkingTeach ? 1 : 0.5,
+                            cursor: followUpAnswer.trim() && !checkingTeach ? 'pointer' : 'not-allowed',
+                          }}
+                        >
+                          {checkingTeach ? 'verificando…' : 'verificar concepto'}
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            if (!teachCheck?.passed) {
+                              document
+                                .getElementById('teach-check-section')
+                                ?.scrollIntoView({
+                                  behavior: 'smooth',
+                                  block: 'start',
+                                });
+
+                              setError(
+                                'Primero verifica que entendiste el concepto faltante.'
+                              );
+
+                              return;
+                            }
+
+                            if (!followUpAnswer.trim()) {
+                              setError('Explícalo con tus palabras antes de reintentar.');
+                              return;
+                            }
+
+                            setExplanation((prev) =>
+                              `${prev.trim()}\n\nLo que aprendí después del feedback:\n${followUpAnswer.trim()}`.trim()
+                            );
+
+                            setFollowUpAnswer('');
+                            setTeachCheck(null);
+                            setError('');
+                            setPhase('explicar');
+                          }}
+                          disabled={!teachCheck?.passed}
+                          style={{
+                            ...buttonStyle,
+                            opacity: teachCheck?.passed ? 1 : 0.5,
+                            cursor: teachCheck?.passed ? 'pointer' : 'not-allowed',
+                          }}
+                        >
+                          {teachCheck?.passed
+                            ? '✅ volver a explicar →'
+                            : '🔒 verifica antes de volver a explicar'}
+                        </button>
+                      </div>
+                    </div>
+                    </div>
                   </div>
                 )}
 
@@ -1066,7 +1393,19 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
             )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 22 }}>
-              <button onClick={() => setPhase('explicar')} style={{ ...buttonStyle, background: 'var(--bg-card)', color: 'var(--text-primary)' }}>← mejorar explicación</button>
+              <button
+                onClick={goToExplain}
+                style={{
+                  ...buttonStyle,
+                  background: mustVerifyMissingConcept ? 'var(--bg-card)' : 'var(--bg-card)',
+                  color: 'var(--text-primary)',
+                  opacity: mustVerifyMissingConcept ? 0.65 : 1,
+                }}
+              >
+                {mustVerifyMissingConcept
+                  ? '🔒 verifica antes de volver a explicar'
+                  : '← volver a explicar'}
+              </button>
               <button onClick={onBack} style={buttonStyle}>terminar repaso</button>
             </div>
           </div>
