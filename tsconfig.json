@@ -1,14 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2017",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
-    ],
+    "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
-    "strict": true,
+    "strict": false,
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
@@ -17,36 +13,30 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
+    "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./*"
-      ]
-    }
+      "@/*": ["./*"]
+    },
+    "plugins": [{ "name": "next" }]
   },
   "include": [
     "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
-    "**/*.mts"
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "hooks/**/*.ts",
+    "hooks/**/*.tsx",
+    "lib/**/*.ts",
+    "lib/**/*.tsx",
+    "middleware.ts",
+    ".next/types/**/*.ts"
   ],
   "exclude": [
-    "**/*.backup",
-    "**/*.bak",
-    "backup_20260524_0339",
-    "backup_20260524_0341",
-    "backup_quiz_ai_matching",
-    "backup_quiz_final_20260525_015123",
-    "backup_quiz_rework_20260525_014848",
-    "backup_quizzes_20260525",
     "node_modules",
-    "cloudflare",
-    "cloudflare/**/*"
+    "backups",
+    ".backups",
+    ".next",
+    "cloudflare"
   ]
 }

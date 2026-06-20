@@ -8,8 +8,10 @@ export async function POST(request: NextRequest) {
 
     const totalAcertadas = Object.values(perfil.flashcardsAcertadas || {}).reduce((a: number, b: any) => a + b, 0);
     const totalFalladas = Object.values(perfil.flashcardsFalladas || {}).reduce((a: number, b: any) => a + b, 0);
-    const total = totalAcertadas + totalFalladas;
-    const precision = total > 0 ? Math.round((totalAcertadas / total) * 100) : 0;
+    const acertadas = Number(totalAcertadas || 0);
+    const falladas = Number(totalFalladas || 0);
+    const total = acertadas + falladas;
+    const precision = total > 0 ? Math.round((acertadas / total) * 100) : 0;
 
     const materiasTop = Object.entries(perfil.materiasStats || {})
       .map(([_, s]: any) => s)
