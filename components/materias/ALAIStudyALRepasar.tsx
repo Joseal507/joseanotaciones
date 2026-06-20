@@ -581,20 +581,36 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
             return (
               <button
                 key={id}
-                onClick={() => setPhase(id as Phase)}
+                onClick={() => {
+                  if (id === 'explicar') {
+                    goToExplain();
+                    return;
+                  }
+
+                  setPhase(id as Phase);
+                }}
                 style={{
                   border: `2px solid ${active ? 'var(--gold)' : 'var(--border-color)'}`,
                   background: active ? 'color-mix(in srgb, var(--gold) 18%, var(--bg-card))' : 'var(--bg-card)',
                   color: 'var(--text-primary)',
                   borderRadius: 16,
                   padding: '11px 10px',
-                  cursor: 'pointer',
+                  cursor:
+                    id === 'explicar' && mustVerifyMissingConcept
+                      ? 'not-allowed'
+                      : 'pointer',
+                  opacity:
+                    id === 'explicar' && mustVerifyMissingConcept
+                      ? 0.6
+                      : 1,
                   fontFamily: HAND,
                   fontSize: 17,
                   fontWeight: 900,
                 }}
               >
-                {num}. {label}
+                {id === 'explicar' && mustVerifyMissingConcept
+                  ? `🔒 ${num}. ${label}`
+                  : `${num}. ${label}`}
               </button>
             );
           })}
