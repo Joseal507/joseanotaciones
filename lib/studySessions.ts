@@ -1,9 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-// Sistema de sesiones de estudio persistentes en localStorage
-// Namespaced por usuario (obtenido vía Supabase auth)
+// Sistema de sesiones de estudio persistentes.
+ // Fuente local inmediata + sincronización con D1 por usuario vía NextAuth.
 // ═══════════════════════════════════════════════════════════════
-import { supabase } from './supabase';
-
 export type Enfoque = 'teorico' | 'matematico' | 'mixto';
 
 export interface StudySession {
@@ -14,30 +12,17 @@ export interface StudySession {
   selectedPages?: Record<string, number[]>; // páginas por materialId
   flashcards?: any[];                   // flashcards generadas
   notes?: any[];                        // notas/apuntes hechos
+  materialText?: string;
+  currentPhase?: string;
   createdAt: number;
   lastOpenedAt: number;
 }
 
 const BASE_KEY = 'study_sessions_v1';
-const GUEST_KEY = 'guest';
-
-// ── Caché del userId actual (se refresca cuando cambia auth) ──
-let cachedUserId: string | null = null;
-
-// Inicializar caché y suscribirse a cambios de auth (solo en cliente)
-if (typeof window !== 'undefined') {
-  supabase.auth.getUser().then(({ data }) => {
-    cachedUserId = data?.user?.id || null;
-  }).catch(() => {});
-
-  supabase.auth.onAuthStateChange((_event, session) => {
-    cachedUserId = session?.user?.id || null;
-  });
-}
+const USER_KEY = 'nextauth';
 
 function getStorageKey(): string {
-  const uid = cachedUserId || GUEST_KEY;
-  return `${BASE_KEY}_${uid}`;
+  return `${BASE_KEY}_${USER_KEY}`;
 }
 
 function loadAll(): Record<string, StudySession> {
@@ -74,6 +59,18 @@ export function findSession(temaId: string, enfoque: Enfoque, materialIds: strin
 }
 
 // Crear o actualizar sesión
+async function syncSessionToServer(session: StudySession) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    await fetch('/api/study-sessions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(session),
+    });
+  } catch {}
+}
+
 export function upsertSession(params: {
   temaId: string;
   enfoque: Enfoque;
@@ -81,6 +78,8 @@ export function upsertSession(params: {
   selectedPages?: Record<string, number[]>;
   flashcards?: any[];
   notes?: any[];
+  materialText?: string;
+  currentPhase?: string;
 }): StudySession {
   const all = loadAll();
   const existing = findSession(params.temaId, params.enfoque, params.materialIds);
@@ -92,10 +91,13 @@ export function upsertSession(params: {
       selectedPages: params.selectedPages ?? existing.selectedPages,
       flashcards: params.flashcards ?? existing.flashcards,
       notes: params.notes ?? existing.notes,
+      materialText: params.materialText ?? existing.materialText,
+      currentPhase: params.currentPhase ?? existing.currentPhase,
       lastOpenedAt: now,
     };
     all[existing.id] = updated;
     saveAll(all);
+    syncSessionToServer(updated);
     return updated;
   }
 
@@ -108,11 +110,14 @@ export function upsertSession(params: {
     selectedPages: params.selectedPages,
     flashcards: params.flashcards,
     notes: params.notes,
+    materialText: params.materialText,
+    currentPhase: params.currentPhase,
     createdAt: now,
     lastOpenedAt: now,
   };
   all[id] = newSession;
   saveAll(all);
+  syncSessionToServer(newSession);
   return newSession;
 }
 
@@ -155,20 +160,41 @@ if (typeof window !== 'undefined') {
     const oldKey = 'flashka_study_sessions_v1';
     const oldData = localStorage.getItem(oldKey);
     if (oldData) {
-      // Esperar a que llegue el userId para migrar al namespace correcto
-      const tryMigrate = () => {
-        if (cachedUserId) {
-          const newKey = getStorageKey();
-          if (!localStorage.getItem(newKey)) {
-            localStorage.setItem(newKey, oldData);
-            console.log('🔄 Sesiones migradas de flashka_ → ' + newKey);
-          }
-          localStorage.removeItem(oldKey);
-        } else {
-          setTimeout(tryMigrate, 500);
-        }
-      };
-      tryMigrate();
+      const newKey = getStorageKey();
+      if (!localStorage.getItem(newKey)) localStorage.setItem(newKey, oldData);
+      localStorage.removeItem(oldKey);
     }
   } catch {}
+}
+
+export async function syncSessionsFromServer(temaId?: string): Promise<StudySession[]> {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const res = await fetch(`/api/study-sessions${temaId ? `?temaId=${encodeURIComponent(temaId)}` : ''}`, {
+      cache: 'no-store',
+    });
+
+    const json = await res.json();
+    if (!res.ok || !json?.success || !Array.isArray(json.sessions)) {
+      return temaId ? getSessionsByTema(temaId) : Object.values(loadAll()).sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
+    }
+
+    const all = loadAll();
+    for (const sess of json.sessions as StudySession[]) {
+      if (!sess?.id) continue;
+      const local = all[sess.id];
+      if (!local || Number(sess.lastOpenedAt || 0) >= Number(local.lastOpenedAt || 0)) {
+        all[sess.id] = sess;
+      }
+    }
+
+    saveAll(all);
+
+    return temaId
+      ? getSessionsByTema(temaId)
+      : Object.values(loadAll()).sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
+  } catch {
+    return temaId ? getSessionsByTema(temaId) : Object.values(loadAll()).sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
+  }
 }

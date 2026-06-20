@@ -5,7 +5,7 @@ import { Materia, Tema, Apunte, Documento } from '../../lib/storage';
 import TeoricoWorkspace from './TeoricoWorkspace';
 import SeleccionPaginas, { type SeleccionResult } from './SeleccionPaginas';
 import ModalConvertirPDF from './ModalConvertirPDF';
-import { upsertSession, cleanupSessions, getSessionsByTema, getMaterialSessions, type StudySession } from '../../lib/studySessions';
+import { upsertSession, cleanupSessions, getSessionsByTema, getMaterialSessions, syncSessionsFromServer, type StudySession } from '../../lib/studySessions';
 
 
 const HAND = "'Caveat', cursive";
@@ -520,31 +520,44 @@ export default function TemaView({ materia, tema, onBack, onBackMateria, onGoHom
 
   const refreshSessions = useCallback(() => {
     if (!tema?.id) return;
-    const existingIds = (tema.documentos || []).map((d: any) => d.id);
+    const existingIds = (tema.documentos || []).map((d: any) => d.materialId || d.id);
     cleanupSessions(tema.id, existingIds);
     setActiveSessions(getSessionsByTema(tema.id));
+
+    syncSessionsFromServer(tema.id).then((sessions) => {
+      cleanupSessions(tema.id, existingIds);
+      setActiveSessions(sessions);
+    }).catch(() => {});
   }, [tema?.id, tema?.documentos]);
 
   useEffect(() => {
     refreshSessions();
   }, [refreshSessions]);
 
-  // ── Auto-reabrir enfoque cuando volvemos de flashcards ──
+  // ── Auto-reabrir enfoque cuando volvemos de flashcards/quiz/repasar ──
   useEffect(() => {
     if (!returnToEnfoque) return;
-    onClearReturnToEnfoque?.();
-    // Buscar la sesión activa más reciente para este tema
-    const sessions = getSessionsByTema(tema?.id || '');
-    if (sessions.length > 0) {
-      const lastSession = sessions[sessions.length - 1];
-      // Restaurar selección
+
+    let cancelled = false;
+
+    const restoreLatestSession = async () => {
+      onClearReturnToEnfoque?.();
+
+      const sessions = await syncSessionsFromServer(tema?.id || '');
+      if (cancelled) return;
+
+      const lastSession = sessions[0] || getSessionsByTema(tema?.id || '')[0];
+      if (!lastSession) return;
+
       const matIds = lastSession.materialIds || [];
+
       setSelectedIds(matIds.map((id: string) => {
         const doc = tema.documentos?.find((d: any) => (d.materialId || d.id) === id);
         return doc?.id || id;
       }).filter(Boolean));
-      // Restaurar enfoque
+
       setEnfoqueElegido(lastSession.enfoque as any);
+
       if (lastSession.selectedPages) {
         const rebuilt = lastSession.materialIds.map((matId: string, idx: number) => ({
           materialId: matId,
@@ -553,11 +566,19 @@ export default function TemaView({ materia, tema, onBack, onBackMateria, onGoHom
         }));
         setSeleccionResult(rebuilt as any);
       }
+
       setResumeSessionId(lastSession.id);
       setOpenTeorico(true);
-      console.log('🔄 Auto-reabriendo enfoque desde flashcards:', lastSession.id);
-    }
-  }, [returnToEnfoque]);
+      refreshSessions();
+      console.log('🔄 Auto-reabriendo enfoque:', lastSession.id);
+    };
+
+    restoreLatestSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [returnToEnfoque, tema?.id, tema?.documentos, onClearReturnToEnfoque, refreshSessions]);
 
   // Sincronizar selectedIds con documentos existentes (limpia IDs de docs borrados)
   // Se desactiva mientras se está borrando para evitar interferencia
@@ -965,7 +986,7 @@ export default function TemaView({ materia, tema, onBack, onBackMateria, onGoHom
   if (openTeorico) return (
     <TeoricoWorkspace
       materiales={tema.documentos.filter((d: any) => selectedIds.includes(d.id))}
-      onClose={() => { setOpenTeorico(false); setSeleccionResult(null); setEnfoqueElegido(null); setResumeSessionId(null); refreshSessions(); }}
+      onClose={() => { setOpenTeorico(false); refreshSessions(); }}
       onOpenFlashcards={() => {
               const matsSeleccionados = tema.documentos.filter((d: any) => selectedIds.includes(d.id));
               const rawSel = Array.isArray(seleccionResult) ? seleccionResult : [];
@@ -1193,6 +1214,35 @@ export default function TemaView({ materia, tema, onBack, onBackMateria, onGoHom
                 })
                 .filter(Boolean);
 
+              let savedSessionId: string | null = null;
+              try {
+                const pagesByMat: Record<string, number[]> = {};
+                normalizedSel.forEach((n: any) => {
+                  if (n?.materialId && Array.isArray(n.pages) && n.pages.length > 0) {
+                    pagesByMat[n.materialId] = n.pages;
+                  }
+                });
+
+                const matIds = matsSeleccionados
+                  .map((m: any) => m?.materialId || m?.id)
+                  .filter(Boolean) as string[];
+
+                if (tema?.id && matIds.length > 0) {
+                  const sess = upsertSession({
+                    temaId: tema.id,
+                    enfoque: 'teorico' as any,
+                    materialIds: matIds,
+                    selectedPages: Object.keys(pagesByMat).length ? pagesByMat : undefined,
+                    currentPhase: 'repasar',
+                  });
+                  savedSessionId = sess.id;
+                  setResumeSessionId(sess.id);
+                  refreshSessions();
+                }
+              } catch (e) {
+                console.warn('Error guardando sesión de repasar:', e);
+              }
+
               onOpenRepasar?.(matsSeleccionados, normalizedSel.length ? normalizedSel : undefined);
             }}
       onComingSoon={() => {}}
@@ -1364,7 +1414,11 @@ export default function TemaView({ materia, tema, onBack, onBackMateria, onGoHom
         const matchingSession = activeSessions.find(s => {
           if (s.materialIds.length !== selectedIds.length) return false;
           const setA = new Set(s.materialIds);
-          return selectedIds.every(id => setA.has(id));
+          return selectedIds.every(id => {
+            const doc = tema.documentos?.find((d: any) => d.id === id);
+            const matId = doc?.materialId || id;
+            return setA.has(matId);
+          });
         });
         const isResumeMode = !!matchingSession;
         return (

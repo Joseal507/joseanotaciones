@@ -797,6 +797,12 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
             <textarea
               value={explanation}
               onChange={(e) => setExplanation(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !loading) {
+                  e.preventDefault();
+                  evaluate();
+                }
+              }}
               placeholder="Escribe aquí tu explicación..."
               style={{
                 width: '100%',
@@ -1040,7 +1046,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                     borderRadius: 18,
                     padding: 18,
                   }}>
-                    <h3 style={{ fontFamily: HAND, fontSize: 28, margin: '0 0 10px' }}>✅ Ya entendiste</h3>
+                    <h3 style={{ fontFamily: HAND, fontSize: 28, margin: '0 0 10px' }}>Ya entendiste</h3>
                     {analysis.strengths?.length ? (
                       <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
                         {analysis.strengths.map((item, i) => <li key={i}>{item}</li>)}
@@ -1219,6 +1225,13 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
+
+                          if (teachCheck?.passed) {
+                            setError('');
+                            setPhase('explicar');
+                            return;
+                          }
+
                           if (followUpAnswer.trim() && !checkingTeach) {
                             checkTeachMissing();
                           }

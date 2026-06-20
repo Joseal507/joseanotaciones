@@ -134,6 +134,104 @@ export default {
         return json({ ok: true })
       }
 
+
+      if (url.pathname === "/study-sessions/by-user" && request.method === "GET") {
+        const userId = url.searchParams.get("userId")
+        const temaId = url.searchParams.get("temaId")
+        if (!userId) return json({ ok: false, error: "userId_required" }, 400)
+
+        let query = `
+          SELECT *
+          FROM study_sessions
+          WHERE user_id = ?
+        `
+        const binds: any[] = [userId]
+
+        if (temaId) {
+          query += " AND tema_id = ?"
+          binds.push(temaId)
+        }
+
+        query += " ORDER BY last_opened_at DESC LIMIT 100"
+
+        const rows = await env.DB.prepare(query).bind(...binds).all()
+
+        const sessions = (rows.results || []).map((row: any) => ({
+          id: row.id,
+          temaId: row.tema_id,
+          enfoque: row.enfoque,
+          materialIds: safeJson(row.material_ids, []),
+          selectedPages: safeJson(row.selected_pages, undefined),
+          flashcards: safeJson(row.flashcards, undefined),
+          notes: safeJson(row.notes, undefined),
+          materialText: row.material_text || undefined,
+          currentPhase: row.current_phase || undefined,
+          createdAt: Number(row.created_at || Date.now()),
+          lastOpenedAt: Number(row.last_opened_at || Date.now()),
+        }))
+
+        return json({ ok: true, sessions })
+      }
+
+      if (url.pathname === "/study-sessions/upsert" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.user_id) return json({ ok: false, error: "user_id_required" }, 400)
+        if (!body.tema_id) return json({ ok: false, error: "tema_id_required" }, 400)
+        if (!body.enfoque) return json({ ok: false, error: "enfoque_required" }, 400)
+
+        const id = body.id || crypto.randomUUID()
+        const now = Number(body.last_opened_at || Date.now())
+        const createdAt = Number(body.created_at || now)
+
+        await env.DB.prepare(`
+          INSERT INTO study_sessions (
+            id, user_id, tema_id, enfoque, material_ids, selected_pages,
+            flashcards, notes, material_text, current_phase,
+            created_at, last_opened_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(id) DO UPDATE SET
+            tema_id = excluded.tema_id,
+            enfoque = excluded.enfoque,
+            material_ids = excluded.material_ids,
+            selected_pages = excluded.selected_pages,
+            flashcards = COALESCE(excluded.flashcards, study_sessions.flashcards),
+            notes = COALESCE(excluded.notes, study_sessions.notes),
+            material_text = COALESCE(excluded.material_text, study_sessions.material_text),
+            current_phase = COALESCE(excluded.current_phase, study_sessions.current_phase),
+            last_opened_at = excluded.last_opened_at,
+            updated_at = datetime('now')
+        `).bind(
+          id,
+          body.user_id,
+          body.tema_id,
+          body.enfoque,
+          JSON.stringify(body.material_ids || []),
+          body.selected_pages ? JSON.stringify(body.selected_pages) : null,
+          body.flashcards ? JSON.stringify(body.flashcards) : null,
+          body.notes ? JSON.stringify(body.notes) : null,
+          body.material_text || null,
+          body.current_phase || null,
+          createdAt,
+          now
+        ).run()
+
+        return json({ ok: true, session: { id } })
+      }
+
+      if (url.pathname === "/study-sessions/delete" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.user_id) return json({ ok: false, error: "user_id_required" }, 400)
+        if (!body.id) return json({ ok: false, error: "id_required" }, 400)
+
+        await env.DB.prepare("DELETE FROM study_sessions WHERE user_id = ? AND id = ?")
+          .bind(body.user_id, body.id)
+          .run()
+
+        return json({ ok: true })
+      }
+
+
       if (url.pathname === "/settings/by-user" && request.method === "GET") {
         const userId = url.searchParams.get("userId")
         if (!userId) return json({ ok: false, error: "userId_required" }, 400)
