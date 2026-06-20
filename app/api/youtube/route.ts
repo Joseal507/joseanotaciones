@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { YoutubeTranscript } from 'youtube-transcript';
-import { groqRequest } from '../../../lib/studyai';
+import { alaiRequest } from '../../../lib/alai';
 
 function extractVideoId(url: string): string | null {
   const patterns = [
@@ -108,8 +108,8 @@ Devuelve SOLO JSON válido, sin texto extra:
 {"summary":"5-8 oraciones","key_points":["p1","p2","p3","p4","p5"],"keywords":["k1","k2","k3","k4","k5","k6","k7","k8"],"flashcards":[{"pregunta":"¿P?","respuesta":"R"}],"quiz":[{"pregunta":"¿P?","opciones":["A","B","C","D"],"correcta":0,"explicacion":"por qué"}],"apuntes":"# Título\\n\\n## Resumen\\napuntes...","difficulty":"básico/intermedio/avanzado","topics":["t1","t2","t3"]}
 Genera EXACTAMENTE ${finalFlashcardCount} flashcards y EXACTAMENTE 5 preguntas de quiz cubriendo TODO el contenido.`;
 
-    // Usar groqRequest con todos los proveedores (Groq, Cerebras, HF, SambaNova, Gemini, Mistral, Cloudflare)
-    const rawText = await groqRequest(async (client, model) => {
+    // Usar alaiRequest con todos los proveedores (ALAI, Cerebras, HF, SambaNova, Gemini, Mistral, Cloudflare)
+    const rawText = await alaiRequest(async (client, model) => {
       const r = await client.chat.completions.create({
         model: model('llama-3.3-70b-versatile'),
         messages: [

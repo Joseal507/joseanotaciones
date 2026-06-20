@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { studyAI } from '../../../lib/studyai';
+import { alai } from '../../../lib/alai';
 
 export const maxDuration = 120;
 
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No hay explicación del usuario.' }, { status: 400 });
     }
 
-    const result = await studyAI({
+    const result = await alai({
       json: true,
       temperature: 0.22,
       maxTokens: 3000,

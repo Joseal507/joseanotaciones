@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { groqRequest } from '../../../lib/studyai';
+import { alaiRequest } from '../../../lib/alai';
 import { detectLanguageFromMany } from '../../../lib/detectLanguage';
 
 export const maxDuration = 60;
@@ -121,7 +121,7 @@ ${docsTexto}`;
 
     // ── IMAGEN ──
     if (imageBase64 && imageMime) {
-      const respuesta = await groqRequest(async (client, model) => {
+      const respuesta = await alaiRequest(async (client, model) => {
         const res = await client.chat.completions.create({
           model: 'meta-llama/llama-4-scout-17b-16e-instruct',
           messages: [
@@ -144,7 +144,7 @@ ${docsTexto}`;
     }
 
     // ── CHAT NORMAL ──
-    const respuesta = await groqRequest(async (client, model) => {
+    const respuesta = await alaiRequest(async (client, model) => {
       const res = await client.chat.completions.create({
         model: model('llama-3.3-70b-versatile'),
         messages: [

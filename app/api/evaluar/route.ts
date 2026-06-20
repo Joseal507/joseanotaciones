@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { groqRequest } from '../../../lib/studyai';
+import { alaiRequest } from '../../../lib/alai';
 
 export const maxDuration = 20;
 
@@ -65,7 +65,7 @@ Devuelve SOLO JSON:
 }
 `;
 
-    const resultado = await groqRequest(async (client, model) => {
+    const resultado = await alaiRequest(async (client, model) => {
       const r = await client.chat.completions.create({
         model: model('llama-3.3-70b-versatile'),
         messages: [

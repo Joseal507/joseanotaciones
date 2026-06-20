@@ -13,7 +13,7 @@ const detectLang = (text: string, fallback: string): 'en' | 'es' => {
   return enC > esC ? 'en' : 'es';
 };
 
-import { groqRequest } from '../../../lib/studyai';
+import { alaiRequest } from '../../../lib/alai';
 import { getCachedContent, saveToCache } from '../../../lib/cache';
 import { detectContentLanguage } from '../../../lib/detectLanguage';
 
@@ -139,7 +139,7 @@ Responde SOLO con este JSON, sin texto extra:
   "applications": ["aplicación1", "aplicación2"]
 }`;
 
-    const analysisText = await groqRequest(async (client, model) => {
+    const analysisText = await alaiRequest(async (client, model) => {
       const r = await client.chat.completions.create({
         model: model('llama-3.3-70b-versatile'),
         messages: [

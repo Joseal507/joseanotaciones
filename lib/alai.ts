@@ -477,10 +477,3 @@ export function cleanDeep(obj: any): any {
   return obj;
 }
 
-// Compatibilidad temporal con imports actuales
-export type StudyAIParams = ALAIParams;
-export type StudyAIResult = ALAIResult;
-export const studyAI = alai;
-export const studyAIJson = alaiJson;
-export const groqRequest = alaiRequest;
-export const getGroqClient = getALAIClient;

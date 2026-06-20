@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { studyAI } from '../../../lib/studyai';
+import { alai } from '../../../lib/alai';
 import { detectLanguage } from '../../../lib/detectLanguage';
 import { QuizQuestion, QuizQuestionType, MultipleChoiceQuestion, MultiSelectQuestion, TrueFalseQuestion, FillBlankQuestion, MatchingQuestion, ShortAnswerQuestion } from '../../../lib/types/quiz';
 
@@ -390,7 +390,7 @@ donde "N" es el número entero de la página. Si no lo encuentras, omite el pref
 Contexto del Material:
 ${chunk}`;
 
-            const res = await studyAI({
+            const res = await alai({
               messages: [{ role: 'user', content: extractPrompt }],
               temperature: 0.1,
               maxTokens: 4000,
@@ -613,7 +613,7 @@ Tarea #${idx + 1}:
 `).join('\n')}`;
 
       try {
-        const res = await studyAI({
+        const res = await alai({
           messages: [{ role: 'user', content: conversionPrompt }],
           temperature: 0.15,
           maxTokens: 3500,

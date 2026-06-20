@@ -1,12 +1,12 @@
 // ═══════════════════════════════════════════════════════════════
-// /api/analizar-teorico — Análisis pedagógico con StudyAI
+// /api/analizar-teorico — Análisis pedagógico con ALAI
 // Cache por material + auth + fallback completo
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
-import { studyAIJson, cleanDeep, safeParseJson } from '../../../lib/studyai';
+import { alaiJson, cleanDeep, safeParseJson } from '../../../lib/alai';
 import { detectContentLanguage } from '../../../lib/detectLanguage';
 import {
   getMaterialResult,
@@ -268,7 +268,7 @@ export async function POST(req: NextRequest) {
 
     // ─── Dos pasadas en paralelo ───
     const [rawA, rawB] = await Promise.all([
-      studyAIJson({
+      alaiJson({
         messages: [
           { role: 'system', content: promptA(detectedLang as 'es' | 'en', combinedText) },
           { role: 'user', content: detectedLang === 'es' ? 'Genera el análisis ahora.' : 'Generate the analysis now.' },
@@ -278,7 +278,7 @@ export async function POST(req: NextRequest) {
         json: true,
       }).catch(async () => {
         // Fallback sin json_object forzado
-        const r = await studyAIJson({
+        const r = await alaiJson({
           messages: [{ role: 'user', content: promptA(detectedLang as 'es' | 'en', combinedText) }],
           temperature: 0.6,
           maxTokens: 8000,
@@ -286,7 +286,7 @@ export async function POST(req: NextRequest) {
         return r;
       }),
 
-      studyAIJson({
+      alaiJson({
         messages: [
           { role: 'system', content: promptB(detectedLang as 'es' | 'en', combinedText) },
           { role: 'user', content: detectedLang === 'es' ? 'Genera la segunda parte ahora.' : 'Generate the second part now.' },
@@ -295,7 +295,7 @@ export async function POST(req: NextRequest) {
         maxTokens: 8000,
         json: true,
       }).catch(async () => {
-        const r = await studyAIJson({
+        const r = await alaiJson({
           messages: [{ role: 'user', content: promptB(detectedLang as 'es' | 'en', combinedText) }],
           temperature: 0.6,
           maxTokens: 8000,

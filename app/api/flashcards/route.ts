@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { groqRequest } from '../../../lib/studyai';
+import { alaiRequest } from '../../../lib/alai';
 import { detectLanguage } from '../../../lib/detectLanguage';
 
 export const maxDuration = 120;
@@ -76,7 +76,7 @@ REGLAS ESTRICTAS:
 Material (${chunk.length} chars):
 ${chunk}`;
 
-      const concepts = await groqRequest(async (client, model) => {
+      const concepts = await alaiRequest(async (client, model) => {
         const r = await client.chat.completions.create({
           model: model('llama-3.3-70b-versatile'),
           messages: [{ role: 'user', content: extractPrompt }],
@@ -187,7 +187,7 @@ ${texto.slice(0, 14000)}
 Conceptos:
 ${batch.map((c, idx) => `${idx + 1}. ${c}`).join('\n')}`;
 
-      const cards = await groqRequest(async (client, model) => {
+      const cards = await alaiRequest(async (client, model) => {
         const r = await client.chat.completions.create({
           model: model('llama-3.3-70b-versatile'),
           messages: [{ role: 'user', content: flashPrompt }],

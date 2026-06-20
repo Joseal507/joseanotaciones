@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { groqRequest } from '../../../lib/studyai';
+import { alaiRequest } from '../../../lib/alai';
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,7 +32,7 @@ Include: progress summary, strengths, areas to improve, motivation. Max 200 word
 - Materias top: ${materiasTop.map((m: any) => m.nombre).join(', ') || 'Ninguna aún'}
 Incluir: resumen progreso, puntos fuertes, áreas de mejora, motivación. Máximo 200 palabras.`;
 
-    const reporte = await groqRequest(async (client, model) => {
+    const reporte = await alaiRequest(async (client, model) => {
       const r = await client.chat.completions.create({
         model: model('llama-3.3-70b-versatile'),
         messages: [

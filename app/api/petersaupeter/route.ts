@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { groqRequest, getGroqClient } from '../../../lib/studyai';
+import { alaiRequest, getALAIClient } from '../../../lib/alai';
 
 // ── JSON PARSER ROBUSTO ──────────────────────────────────
 function safeParseJSON(raw: string): any {
@@ -32,7 +32,7 @@ function safeParseJSON(raw: string): any {
   throw new Error('Could not parse JSON');
 }
 
-// ── VISION: Groq llama-4-scout (con imagen) ─────────────
+// ── VISION: ALAI llama-4-scout (con imagen) ─────────────
 async function solveWithVision(
   imageBase64: string,
   imageMime: string,
@@ -49,10 +49,10 @@ async function solveWithVision(
     process.env.GEMINI_API_KEY_3, process.env.GEMINI_API_KEY_4,
   ].filter(Boolean) as string[];
 
-  // 1. Groq Vision (llama-4-scout) - todas las keys
+  // 1. ALAI Vision (llama-4-scout) - todas las keys
   for (const key of GROQ_KEYS) {
     try {
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      const res = await fetch('https://api.ALAI.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
         body: JSON.stringify({
@@ -69,9 +69,9 @@ async function solveWithVision(
         }),
       });
       const data = await res.json();
-      if (data.error) { console.log('Groq vision key 429/error, next...'); continue; }
+      if (data.error) { console.log('ALAI vision key 429/error, next...'); continue; }
       const text = data?.choices?.[0]?.message?.content || '';
-      if (text.trim()) { console.log('✅ Groq Vision OK'); return text; }
+      if (text.trim()) { console.log('✅ ALAI Vision OK'); return text; }
     } catch { continue; }
   }
 
@@ -175,9 +175,9 @@ export async function POST(req: NextRequest) {
       try {
         rawText = await solveWithVision(imageBase64, imageMime, visionPrompt);
       } catch (visionErr) {
-        console.log('Vision failed, using groqRequest text fallback...');
-        // Fallback: usar groqRequest con todas las keys rotando
-        rawText = await groqRequest(async (client, model) => {
+        console.log('Vision failed, using alaiRequest text fallback...');
+        // Fallback: usar alaiRequest con todas las keys rotando
+        rawText = await alaiRequest(async (client, model) => {
           const fallbackPrompt = lang === 'en'
             ? `${prompt}\n\nI cannot read the image. Solve a representative quadratic equation step by step as example.`
             : `${prompt}\n\nNo puedo leer la imagen. Resuelve una ecuacion cuadratica representativa paso a paso como ejemplo.`;
@@ -191,8 +191,8 @@ export async function POST(req: NextRequest) {
         });
       }
     } else {
-      // ── SOLO TEXTO: usar groqRequest que rota todas las keys ──
-      rawText = await groqRequest(async (client, model) => {
+      // ── SOLO TEXTO: usar alaiRequest que rota todas las keys ──
+      rawText = await alaiRequest(async (client, model) => {
         const full = lang === 'en'
           ? `${prompt}\n\nMath problem to solve: ${texto}`
           : `${prompt}\n\nProblema matematico a resolver: ${texto}`;
