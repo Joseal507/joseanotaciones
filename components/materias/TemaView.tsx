@@ -5,6 +5,7 @@ import { Materia, Tema, Apunte, Documento } from '../../lib/storage';
 import TeoricoWorkspace from './TeoricoWorkspace';
 import SeleccionPaginas, { type SeleccionResult } from './SeleccionPaginas';
 import ModalConvertirPDF from './ModalConvertirPDF';
+import StudyLoader from '../StudyLoader';
 import { upsertSession, cleanupSessions, getSessionsByTema, getMaterialSessions, syncSessionsFromServer, type StudySession } from '../../lib/studySessions';
 
 
@@ -538,16 +539,18 @@ export default function TemaView({ materia, tema, onBack, onBackMateria, onGoHom
   useEffect(() => {
     if (!returnToEnfoque) return;
 
+    setReturningToEnfoque(true);
     let cancelled = false;
 
     const restoreLatestSession = async () => {
-      onClearReturnToEnfoque?.();
-
       const sessions = await syncSessionsFromServer(tema?.id || '');
       if (cancelled) return;
 
       const lastSession = sessions[0] || getSessionsByTema(tema?.id || '')[0];
-      if (!lastSession) return;
+      if (!lastSession) {
+        setReturningToEnfoque(false);
+        return;
+      }
 
       const matIds = lastSession.materialIds || [];
 
@@ -570,6 +573,11 @@ export default function TemaView({ materia, tema, onBack, onBackMateria, onGoHom
       setResumeSessionId(lastSession.id);
       setOpenTeorico(true);
       refreshSessions();
+
+      requestAnimationFrame(() => {
+        setReturningToEnfoque(false);
+        onClearReturnToEnfoque?.();
+      });
       console.log('🔄 Auto-reabriendo enfoque:', lastSession.id);
     };
 
@@ -663,6 +671,7 @@ export default function TemaView({ materia, tema, onBack, onBackMateria, onGoHom
 
   const [showEnfoque, setShowEnfoque] = useState(false);
   const [openTeorico, setOpenTeorico] = useState(false);
+  const [returningToEnfoque, setReturningToEnfoque] = useState(false);
   const [showSeleccion, setShowSeleccion] = useState(false);
   const [enfoqueElegido, setEnfoqueElegido] = useState<'teorico' | 'matematico' | 'mixto' | 'practico' | 'practico' | null>(null);
   const [seleccionResult, setSeleccionResult] = useState<SeleccionResult[] | null>(null);
@@ -1248,6 +1257,10 @@ export default function TemaView({ materia, tema, onBack, onBackMateria, onGoHom
       onComingSoon={() => {}}
     />
   );
+
+  if (returningToEnfoque) {
+    return <StudyLoader label="Volviendo al enfoque..." />;
+  }
 
   return (
     <div style={{

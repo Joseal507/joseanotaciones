@@ -780,7 +780,9 @@ const eliminarDocumento = async (id: string) => {
             sessionId={flashcardsSessionId}
             onBack={() => {
               setReturnToEnfoque(true);
-              setVista('tema');
+              requestAnimationFrame(() => {
+                setVista('tema');
+              });
             }}
           />
         )}
@@ -803,7 +805,9 @@ const eliminarDocumento = async (id: string) => {
             materia={materiaActual}
             onBack={() => {
               setReturnToEnfoque(true);
-              setVista('tema');
+              requestAnimationFrame(() => {
+                setVista('tema');
+              });
             }}
           />
         )}
