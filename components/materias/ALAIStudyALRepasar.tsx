@@ -39,11 +39,24 @@ interface AnalysisResult {
     depth: number;
     connections: number;
   };
+  summary?: string;
+  mainIssue?: string;
+  scoreReason?: string;
+  estimatedNextScore?: number;
   reviewer?: ReviewerResult | null;
+  conceptStatus?: {
+    concept: string;
+    status: 'mastered' | 'progress' | 'weak';
+    note?: string;
+  }[];
   strengths: string[];
   missingConcepts: string[];
   confusions: string[];
   weakConcepts?: string[];
+  actions?: {
+    title: string;
+    detail?: string;
+  }[];
   followUpQuestions?: {
     question: string;
     why?: string;
@@ -159,6 +172,27 @@ function filterTextByPages(fullText: string, pages: number[]): string {
   }
 
   return result.join('\n\n');
+}
+
+function scoreLabel(score: number) {
+  if (score >= 90) return 'Dominio fuerte';
+  if (score >= 75) return 'Buen avance';
+  if (score >= 55) return 'En progreso';
+  if (score >= 25) return 'Base débil';
+  return 'Necesita repaso';
+}
+
+function scoreEmoji(score: number) {
+  if (score >= 90) return '🟢';
+  if (score >= 75) return '🟡';
+  if (score >= 55) return '🟠';
+  return '🔴';
+}
+
+function conceptBadge(status: string) {
+  if (status === 'mastered') return { icon: '🟢', label: 'Dominado' };
+  if (status === 'weak') return { icon: '🔴', label: 'Débil' };
+  return { icon: '🟡', label: 'En progreso' };
 }
 
 export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materia, onBack }: Props) {
@@ -654,45 +688,92 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
 
         {phase === 'analisis' && (
           <div style={cardStyle}>
-            <h2 style={{ fontFamily: HAND, fontSize: 38, margin: '0 0 10px' }}>Feedback del lector</h2>
+            <h2 style={{ fontFamily: HAND, fontSize: 38, margin: '0 0 8px' }}>Feedback claro</h2>
+            <p style={{ color: 'var(--text-muted)', margin: '0 0 18px', lineHeight: 1.6 }}>
+              Esto no califica un ensayo. Mide qué tanto entendiste el material y qué debes mejorar en el siguiente intento.
+            </p>
 
             {!analysis ? (
               <p style={{ color: 'var(--text-muted)' }}>Todavía no hay análisis.</p>
             ) : (
               <div style={{ display: 'grid', gap: 18 }}>
                 <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
+                  display: 'grid',
+                  gridTemplateColumns: '140px minmax(0, 1fr)',
                   gap: 18,
-                  background: 'var(--bg-primary)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 18,
-                  padding: 18,
+                  alignItems: 'center',
+                  background: 'linear-gradient(135deg, color-mix(in srgb, var(--gold) 18%, var(--bg-primary)), var(--bg-primary))',
+                  border: '2px solid var(--gold)',
+                  borderRadius: 22,
+                  padding: 20,
                 }}>
                   <div style={{
-                    width: 96,
-                    height: 96,
+                    width: 118,
+                    height: 118,
                     borderRadius: '50%',
                     display: 'grid',
                     placeItems: 'center',
                     background: 'var(--gold)',
                     color: '#111',
                     fontFamily: HAND,
-                    fontSize: 38,
+                    fontSize: 44,
                     fontWeight: 900,
                     border: '3px solid var(--text-primary)',
-                    boxShadow: '3px 4px 0 var(--text-primary)',
+                    boxShadow: '4px 5px 0 var(--text-primary)',
                   }}>
                     {analysis.score}
                   </div>
+
                   <div>
-                    <h3 style={{ fontFamily: HAND, fontSize: 32, margin: 0 }}>{analysis.level}</h3>
-                    <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', lineHeight: 1.6 }}>{analysis.feedback}</p>
+                    <div style={{
+                      fontFamily: HAND,
+                      fontSize: 34,
+                      fontWeight: 900,
+                      marginBottom: 6,
+                    }}>
+                      {scoreEmoji(analysis.score)} {scoreLabel(analysis.score)}
+                    </div>
+
+                    <p style={{
+                      margin: 0,
+                      color: 'var(--text-primary)',
+                      lineHeight: 1.7,
+                      fontSize: 17,
+                      fontWeight: 650,
+                    }}>
+                      {analysis.summary || analysis.feedback || analysis.reviewer?.feedback || 'Análisis generado.'}
+                    </p>
+
+                    {(analysis.scoreReason || analysis.mainIssue) && (
+                      <div style={{
+                        marginTop: 12,
+                        color: 'var(--text-muted)',
+                        lineHeight: 1.6,
+                      }}>
+                        <strong>Por qué recibiste este puntaje:</strong> {analysis.scoreReason || analysis.mainIssue}
+                      </div>
+                    )}
+
+                    {typeof analysis.estimatedNextScore === 'number' && analysis.estimatedNextScore > analysis.score && (
+                      <div style={{
+                        marginTop: 12,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        background: 'var(--bg-card)',
+                        border: '1px dashed var(--gold)',
+                        borderRadius: 999,
+                        padding: '8px 12px',
+                        color: 'var(--gold)',
+                        fontWeight: 900,
+                      }}>
+                        📈 Si corriges esto puedes subir aprox. a {analysis.estimatedNextScore}/100
+                      </div>
+                    )}
                   </div>
                 </div>
 
-
-                                {(analysis.reviewer || analysis.feedback) && (
+                {(analysis.reviewer || mode) && (
                   <div style={{
                     background: 'var(--bg-primary)',
                     border: '1px solid var(--border-color)',
@@ -704,170 +785,216 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                       justifyContent: 'space-between',
                       gap: 12,
                       alignItems: 'center',
-                      marginBottom: 12,
+                      marginBottom: 10,
                     }}>
                       <h3 style={{ fontFamily: HAND, fontSize: 30, margin: 0 }}>
-                        {analysis.reviewer?.persona || (mode === 'nino' ? 'Niño' : mode === 'universitario' ? 'Universitario' : mode === 'profesor' ? 'Profesor' : 'Evaluador neutral')}
+                        Lector: {analysis.reviewer?.persona || (mode === 'nino' ? 'Niño' : mode === 'universitario' ? 'Universitario' : mode === 'profesor' ? 'Profesor' : 'Evaluador neutral')}
                       </h3>
                       <div style={{
-                        background: analysis.reviewer?.wouldUnderstand ? 'var(--gold)' : 'var(--bg-card)',
-                        color: analysis.reviewer?.wouldUnderstand ? '#111' : 'var(--text-primary)',
+                        background: analysis.score >= 75 ? 'var(--gold)' : 'var(--bg-card)',
+                        color: analysis.score >= 75 ? '#111' : 'var(--text-primary)',
                         border: '2px solid var(--text-primary)',
                         borderRadius: 999,
                         padding: '6px 12px',
                         fontWeight: 900,
                         fontSize: 14,
                       }}>
-                        {(analysis.reviewer?.rating ?? analysis.score)}/100
+                        {analysis.reviewer?.rating ?? analysis.score}/100
                       </div>
                     </div>
-
-                    {(analysis.reviewer?.verdict || analysis.level) && (
-                      <div style={{
-                        fontWeight: 900,
-                        color: (analysis.reviewer?.wouldUnderstand ?? analysis.score >= 70) ? 'var(--gold)' : '#f87171',
-                        marginBottom: 10,
-                      }}>
-                        {analysis.reviewer?.verdict || analysis.level}
-                      </div>
-                    )}
 
                     <p style={{
                       margin: 0,
                       color: 'var(--text-muted)',
                       lineHeight: 1.7,
                     }}>
-                      {analysis.reviewer?.feedback || analysis.feedback}
+                      {analysis.reviewer?.feedback || analysis.feedback || 'Este lector evaluó tu explicación según su nivel.'}
                     </p>
-
-                    {Array.isArray(analysis.reviewer?.missingForThem) && analysis.reviewer.missingForThem.length > 0 && (
-                      <ul style={{
-                        margin: '12px 0 0',
-                        paddingLeft: 20,
-                        color: 'var(--text-muted)',
-                        lineHeight: 1.6,
-                      }}>
-                        {analysis.reviewer.missingForThem.map((item, idx) => <li key={idx}>{item}</li>)}
-                      </ul>
-                    )}
                   </div>
                 )}
 
-                {analysis.metrics && (
+                {Array.isArray(analysis.conceptStatus) && analysis.conceptStatus.length > 0 && (
                   <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                    gap: 12,
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 18,
+                    padding: 18,
                   }}>
-                    {[
-                      ['Cobertura', analysis.metrics.coverage],
-                      ['Claridad', analysis.metrics.clarity],
-                      ['Profundidad', analysis.metrics.depth],
-                      ['Conexiones', analysis.metrics.connections],
-                    ].map(([label, value]: any) => (
-                      <div key={label} style={{
-                        background: 'var(--bg-primary)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 16,
-                        padding: 14,
+                    <h3 style={{ fontFamily: HAND, fontSize: 30, margin: '0 0 12px' }}>Mapa de dominio</h3>
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+                      gap: 10,
+                    }}>
+                      {analysis.conceptStatus.map((item, i) => {
+                        const badge = conceptBadge(item.status);
+                        return (
+                          <div key={`${item.concept}-${i}`} style={{
+                            background: 'var(--bg-card)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 14,
+                            padding: 12,
+                          }}>
+                            <div style={{ fontWeight: 900, marginBottom: 5 }}>
+                              {badge.icon} {item.concept}
+                            </div>
+                            <div style={{ color: 'var(--gold)', fontSize: 13, fontWeight: 900, marginBottom: 5 }}>
+                              {badge.label}
+                            </div>
+                            {item.note && (
+                              <div style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                {item.note}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                  gap: 12,
+                }}>
+                  <div style={{
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 18,
+                    padding: 18,
+                  }}>
+                    <h3 style={{ fontFamily: HAND, fontSize: 28, margin: '0 0 10px' }}>✅ Ya entendiste</h3>
+                    {analysis.strengths?.length ? (
+                      <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
+                        {analysis.strengths.map((item, i) => <li key={i}>{item}</li>)}
+                      </ul>
+                    ) : (
+                      <p style={{ color: 'var(--text-muted)', margin: 0 }}>Todavía no se detectó una idea fuerte clara.</p>
+                    )}
+                  </div>
+
+                  <div style={{
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 18,
+                    padding: 18,
+                  }}>
+                    <h3 style={{ fontFamily: HAND, fontSize: 28, margin: '0 0 10px' }}>🎯 Corrige primero</h3>
+                    {(analysis.actions?.length ? analysis.actions : [
+                      { title: analysis.nextStep || 'Mejora tu siguiente intento', detail: analysis.mainIssue || 'Agrega los conceptos clave que faltaron y conéctalos con tus palabras.' },
+                    ]).map((action, i) => (
+                      <div key={i} style={{
+                        borderTop: i ? '1px solid var(--border-color)' : 'none',
+                        paddingTop: i ? 10 : 0,
+                        marginTop: i ? 10 : 0,
                       }}>
-                        <div style={{ fontFamily: HAND, fontSize: 23, fontWeight: 900 }}>{label}</div>
-                        <div style={{
-                          marginTop: 8,
-                          height: 10,
-                          background: 'var(--bg-card)',
-                          borderRadius: 999,
-                          overflow: 'hidden',
-                          border: '1px solid var(--border-color)',
-                        }}>
-                          <div style={{
-                            width: `${value}%`,
-                            height: '100%',
-                            background: 'var(--gold)',
-                          }} />
-                        </div>
-                        <div style={{ marginTop: 6, color: 'var(--text-muted)', fontWeight: 800 }}>{value}/100</div>
+                        <div style={{ fontWeight: 900 }}>{action.title}</div>
+                        {action.detail && (
+                          <div style={{ color: 'var(--text-muted)', lineHeight: 1.6, marginTop: 4 }}>
+                            {action.detail}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
-                )}
+                </div>
 
-                {[
-                  ['✅ Entendiste bien', analysis.strengths],
-                  ['🧩 Te faltó cubrir', analysis.missingConcepts],
-                  ['⚠️ Posibles confusiones', analysis.confusions],
-                ].map(([title, items]: any) => (
-                  <div key={title} style={{
-                    background: 'var(--bg-primary)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: 18,
-                    padding: 18,
+                {(analysis.missingConcepts?.length > 0 || analysis.confusions?.length > 0) && (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                    gap: 12,
                   }}>
-                    <h3 style={{ fontFamily: HAND, fontSize: 28, margin: '0 0 10px' }}>{title}</h3>
-                    {Array.isArray(items) && items.length ? (
-                      <ul style={{ margin: 0, paddingLeft: 22, lineHeight: 1.8 }}>
-                        {items.map((item: string, i: number) => <li key={i}>{item}</li>)}
-                      </ul>
-                    ) : (
-                      <p style={{ color: 'var(--text-muted)', margin: 0 }}>Nada crítico detectado.</p>
+                    {analysis.missingConcepts?.length > 0 && (
+                      <div style={{
+                        background: 'var(--bg-primary)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 18,
+                        padding: 18,
+                      }}>
+                        <h3 style={{ fontFamily: HAND, fontSize: 28, margin: '0 0 10px' }}>🧩 Faltó mencionar</h3>
+                        <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
+                          {analysis.missingConcepts.map((item, i) => <li key={i}>{item}</li>)}
+                        </ul>
+                      </div>
+                    )}
+
+                    {analysis.confusions?.length > 0 && (
+                      <div style={{
+                        background: 'var(--bg-primary)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 18,
+                        padding: 18,
+                      }}>
+                        <h3 style={{ fontFamily: HAND, fontSize: 28, margin: '0 0 10px' }}>⚠️ Revisa esto</h3>
+                        <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
+                          {analysis.confusions.map((item, i) => <li key={i}>{item}</li>)}
+                        </ul>
+                      </div>
                     )}
                   </div>
-                ))}
-
-                <div style={{
-                  background: 'color-mix(in srgb, var(--gold) 12%, var(--bg-card))',
-                  border: '1px dashed var(--gold)',
-                  borderRadius: 18,
-                  padding: 18,
-                  lineHeight: 1.7,
-                }}>
-                  <strong>Siguiente paso:</strong> {analysis.nextStep}
-                </div>
+                )}
 
                 {Array.isArray(analysis.followUpQuestions) && analysis.followUpQuestions.length > 0 && (
                   <div style={{
-                    background: 'var(--bg-primary)',
-                    border: '1px solid var(--border-color)',
+                    background: 'color-mix(in srgb, var(--gold) 9%, var(--bg-primary))',
+                    border: '1px solid var(--gold)',
                     borderRadius: 18,
                     padding: 18,
                   }}>
-                    <h3 style={{ fontFamily: HAND, fontSize: 30, margin: '0 0 10px' }}>Preguntas de seguimiento</h3>
-                    <ol style={{ marginTop: 0, lineHeight: 1.8 }}>
+                    <h3 style={{ fontFamily: HAND, fontSize: 30, margin: '0 0 8px' }}>Preguntas para subir tu puntaje</h3>
+                    <p style={{ margin: '0 0 12px', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                      Responde estas preguntas y úsalas para tu siguiente intento. No es tarea extra: es justo lo que te falta reforzar.
+                    </p>
+
+                    <div style={{ display: 'grid', gap: 10 }}>
                       {analysis.followUpQuestions.map((q: any, i) => (
-                        <li key={i}>
-                          <div style={{ fontWeight: 800 }}>
-                            {typeof q === 'string' ? q : q.question}
+                        <div key={i} style={{
+                          background: 'var(--bg-card)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 14,
+                          padding: 14,
+                        }}>
+                          <div style={{ fontWeight: 900, lineHeight: 1.5 }}>
+                            {i + 1}. {typeof q === 'string' ? q : q.question}
                           </div>
+
+                          {typeof q !== 'string' && q.concept && (
+                            <div style={{
+                              marginTop: 6,
+                              display: 'inline-block',
+                              color: '#111',
+                              background: 'var(--gold)',
+                              borderRadius: 999,
+                              padding: '3px 9px',
+                              fontSize: 12,
+                              fontWeight: 900,
+                            }}>
+                              {q.concept}
+                            </div>
+                          )}
 
                           {typeof q !== 'string' && q.why && (
                             <div style={{
                               color: 'var(--text-muted)',
-                              marginTop: 4,
+                              marginTop: 8,
+                              lineHeight: 1.5,
                             }}>
                               {q.why}
                             </div>
                           )}
-
-                          {typeof q !== 'string' && q.concept && (
-                            <div style={{
-                              marginTop: 4,
-                              fontSize: 13,
-                              color: 'var(--gold)',
-                              fontWeight: 800,
-                            }}>
-                              Concepto: {q.concept}
-                            </div>
-                          )}
-                        </li>
+                        </div>
                       ))}
-                    </ol>
+                    </div>
+
                     <textarea
                       value={followUpAnswer}
                       onChange={(e) => setFollowUpAnswer(e.target.value)}
-                      placeholder="Responde una o varias preguntas aquí para preparar tu siguiente intento..."
+                      placeholder="Responde aquí. Luego úsalo para mejorar tu siguiente intento..."
                       style={{
                         width: '100%',
-                        minHeight: 120,
+                        minHeight: 130,
                         resize: 'vertical',
                         background: 'var(--bg-card)',
                         color: 'var(--text-primary)',
@@ -879,11 +1006,13 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                         lineHeight: 1.6,
                         outline: 'none',
                         boxSizing: 'border-box',
+                        marginTop: 12,
                       }}
                     />
+
                     <button
                       onClick={() => {
-                        setExplanation((prev) => `${prev.trim()}\n\nRespuesta de seguimiento:\n${followUpAnswer.trim()}`.trim());
+                        setExplanation((prev) => `${prev.trim()}\n\nMejora después del feedback:\n${followUpAnswer.trim()}`.trim());
                         setFollowUpAnswer('');
                         setPhase('explicar');
                       }}
@@ -894,7 +1023,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                         opacity: followUpAnswer.trim() ? 1 : 0.5,
                       }}
                     >
-                      usar en siguiente intento
+                      usar esto para mejorar mi intento
                     </button>
                   </div>
                 )}
@@ -927,7 +1056,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                             fontFamily: BODY,
                           }}
                         >
-                          <strong>Intento {attempts.length - index}</strong> · {attempt.analysis.score}/100 · {attempt.analysis.level}
+                          <strong>Intento {attempts.length - index}</strong> · {attempt.analysis.score}/100 · {scoreLabel(attempt.analysis.score)}
                         </button>
                       ))}
                     </div>

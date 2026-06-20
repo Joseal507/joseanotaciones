@@ -38,6 +38,34 @@ function cleanReviewer(value: any) {
   };
 }
 
+function cleanConceptStatus(value: any) {
+  const status = String(value?.status || 'progress').trim();
+  return {
+    concept: String(value?.concept || '').trim(),
+    status: ['mastered', 'progress', 'weak'].includes(status) ? status : 'progress',
+    note: String(value?.note || '').trim(),
+  };
+}
+
+function cleanAction(value: any) {
+  return {
+    title: String(value?.title || '').trim(),
+    detail: String(value?.detail || '').trim(),
+  };
+}
+
+function cleanFollowUp(value: any) {
+  if (typeof value === 'string') {
+    return { question: value.trim(), why: '', concept: '' };
+  }
+
+  return {
+    question: String(value?.question || '').trim(),
+    why: String(value?.why || '').trim(),
+    concept: String(value?.concept || '').trim(),
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -68,42 +96,42 @@ export async function POST(req: NextRequest) {
           content: `
 Eres un tutor pedagógico experto de StudyAL.
 
-Evalúas comprensión real, no memorización literal.
-El estudiante puede explicar con palabras diferentes al material.
+Evalúas comprensión real para un modo de repaso activo.
+El estudiante NO está escribiendo un ensayo: está diciendo lo que recuerda y entendió después de leer.
+
+REGLA CENTRAL:
+No califiques como 0 solo porque faltan conceptos.
+Un 0 solo aplica si la respuesta está vacía, no tiene relación con el material, o contradice casi todo.
+Si la explicación menciona ideas correctas aunque sea incompleta, debe recibir crédito.
 
 Evalúa:
-- cobertura conceptual contra TODO el material
-- comprensión profunda
-- claridad
-- conexiones entre ideas
-- errores o confusiones
-- dominio general
+- qué ideas correctas sí entendió
+- qué ideas importantes omitió
+- qué conexiones todavía no hizo
+- qué errores o confusiones aparecen
+- qué debería corregir en el siguiente intento
 
-IMPORTANTE:
-Repasar es ADAPTATIVO.
-
-Debes detectar los conceptos que el estudiante NO domina.
-
-Luego genera preguntas de seguimiento enfocadas EXCLUSIVAMENTE en:
-- conceptos omitidos
-- conceptos débiles
-- relaciones importantes no explicadas
-- errores detectados
-
-Las preguntas deben ayudar al estudiante a mejorar su siguiente intento.
-No hagas preguntas triviales.
+Repasar es ADAPTATIVO:
+Después del feedback, genera preguntas de seguimiento específicas para mejorar el siguiente intento.
+Las preguntas deben atacar conceptos débiles, omisiones o relaciones no explicadas.
+No hagas preguntas triviales ni genéricas.
 
 Evalúa SOLO desde el lector seleccionado en MODO DE EXPLICACIÓN.
-No evalúes con los 4 lectores a la vez.
+No evalúes con todos los lectores a la vez.
 
-Lectores disponibles:
-- nino: evalúa si una persona sin base podría captar la idea central.
-- universitario: evalúa precisión, orden, términos correctos y suficiencia para estudiar.
-- profesor: evalúa rigor, omisiones importantes, errores finos y dominio real.
-- libre: evaluador neutral; evalúa utilidad global, estructura, claridad y preparación para examen.
+Criterio por lector:
+- nino: prioriza idea central, lenguaje simple, claridad y ejemplos. Sé amable. No exijas términos técnicos.
+- universitario: prioriza comprensión académica, orden, conceptos clave y preparación para examen. Estricto moderado.
+- profesor: prioriza rigor, precisión, relaciones, omisiones importantes y errores finos. Estricto alto.
+- libre: prioriza utilidad global, claridad, estructura y qué tan estudiable es la explicación. Balanceado.
 
-El lector seleccionado debe hablar con su propia voz, como si hubiera leído la explicación del estudiante.
-No seas complaciente. Sé útil, directo y pedagógico.
+El feedback debe ser MUY fácil de entender:
+- frases cortas
+- directo al punto
+- cero lenguaje genérico
+- explica por qué bajó o subió el score
+- da acciones concretas
+
 Nunca inventes contenido fuera del material.
 Devuelve SOLO JSON válido.
 `,
@@ -143,12 +171,10 @@ Devuelve EXACTAMENTE este JSON:
 {
   "score": 0,
   "level": "",
-  "metrics": {
-    "coverage": 0,
-    "clarity": 0,
-    "depth": 0,
-    "connections": 0
-  },
+  "summary": "",
+  "mainIssue": "",
+  "scoreReason": "",
+  "estimatedNextScore": 0,
   "reviewer": {
     "persona": "",
     "rating": 0,
@@ -157,11 +183,23 @@ Devuelve EXACTAMENTE este JSON:
     "wouldUnderstand": false,
     "missingForThem": []
   },
+  "conceptStatus": [
+    {
+      "concept": "",
+      "status": "mastered | progress | weak",
+      "note": ""
+    }
+  ],
   "strengths": [],
   "missingConcepts": [],
   "confusions": [],
   "weakConcepts": [],
-
+  "actions": [
+    {
+      "title": "",
+      "detail": ""
+    }
+  ],
   "followUpQuestions": [
     {
       "question": "",
@@ -169,7 +207,6 @@ Devuelve EXACTAMENTE este JSON:
       "concept": ""
     }
   ],
-
   "feedback": "",
   "nextStep": ""
 }
@@ -186,14 +223,20 @@ Devuelve EXACTAMENTE este JSON:
           score: 50,
           level: 'en progreso',
           metrics: { coverage: 50, clarity: 50, depth: 50, connections: 50 },
+          summary: 'No pude estructurar el análisis automáticamente.',
+          mainIssue: 'La respuesta de la IA no llegó en el formato esperado.',
+          scoreReason: 'Se muestra feedback crudo para no perder información.',
+          estimatedNextScore: 65,
           strengths: [],
           missingConcepts: [],
           confusions: [],
           weakConcepts: [],
+          conceptStatus: [],
+          actions: [],
           reviewer: null,
           followUpQuestions: [],
           feedback: result.text.slice(0, 1200),
-          nextStep: 'Reformula tu explicación con idea central, conceptos clave, relaciones y ejemplo.',
+          nextStep: 'Vuelve a intentar explicando la idea central, conceptos clave y una conexión importante.',
         },
       });
     }
@@ -203,18 +246,28 @@ Devuelve EXACTAMENTE este JSON:
         score: cleanScore(parsed.score),
         level: String(parsed.level || 'en progreso'),
         metrics: {
-          coverage: cleanScore(parsed.metrics?.coverage),
-          clarity: cleanScore(parsed.metrics?.clarity),
-          depth: cleanScore(parsed.metrics?.depth),
-          connections: cleanScore(parsed.metrics?.connections),
+          coverage: cleanScore(parsed.metrics?.coverage ?? parsed.score),
+          clarity: cleanScore(parsed.metrics?.clarity ?? parsed.score),
+          depth: cleanScore(parsed.metrics?.depth ?? parsed.score),
+          connections: cleanScore(parsed.metrics?.connections ?? parsed.score),
         },
+        summary: String(parsed.summary || parsed.feedback || ''),
+        mainIssue: String(parsed.mainIssue || ''),
+        scoreReason: String(parsed.scoreReason || ''),
+        estimatedNextScore: cleanScore(parsed.estimatedNextScore || Math.min(100, Number(parsed.score || 0) + 12)),
         reviewer: parsed.reviewer ? cleanReviewer(parsed.reviewer) : null,
+        conceptStatus: Array.isArray(parsed.conceptStatus)
+          ? parsed.conceptStatus.map(cleanConceptStatus).filter((c: any) => c.concept).slice(0, 10)
+          : [],
         strengths: cleanArray(parsed.strengths),
         missingConcepts: cleanArray(parsed.missingConcepts),
         confusions: cleanArray(parsed.confusions),
         weakConcepts: cleanArray(parsed.weakConcepts),
+        actions: Array.isArray(parsed.actions)
+          ? parsed.actions.map(cleanAction).filter((a: any) => a.title || a.detail).slice(0, 4)
+          : [],
         followUpQuestions: Array.isArray(parsed.followUpQuestions)
-          ? parsed.followUpQuestions.slice(0, 5)
+          ? parsed.followUpQuestions.map(cleanFollowUp).filter((q: any) => q.question).slice(0, 4)
           : [],
         feedback: String(parsed.feedback || ''),
         nextStep: String(parsed.nextStep || ''),
