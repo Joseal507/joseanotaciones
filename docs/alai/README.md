@@ -2,13 +2,20 @@
 
 ALAI es el sistema central de IA de StudyAL.
 
-Módulos principales:
-- ALAI Core: `lib/alai.ts`
-- ALAIStudyALCards
-- ALAIStudyALQuizzes
-- ALAIStudyALRepasar
+## Core
+- `lib/alai.ts`
 
-Providers actuales:
+## Módulos
+- `components/materias/ALAIStudyALCards.tsx`
+- `components/materias/ALAIStudyALQuizzes.tsx`
+- `components/materias/ALAIStudyALRepasar.tsx`
+
+## Endpoints
+- `/api/alai-studyal-cards`
+- `/api/alai-studyal-quizzes`
+- `/api/alai-studyal-repasar`
+
+## Providers
 - Groq
 - GitHub Models / JIT
 - Gemini

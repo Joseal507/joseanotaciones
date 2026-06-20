@@ -1,4 +1,13 @@
 # Deployment
 
-Producción: Vercel.
-APIs/Storage auxiliares: Cloudflare Workers, D1 y R2.
+## Frontend
+Vercel.
+
+## Backend auxiliar
+Cloudflare Workers.
+
+## DB/Storage
+Cloudflare D1 y R2.
+
+## Rama de desarrollo
+`desarrollo-studyal`
