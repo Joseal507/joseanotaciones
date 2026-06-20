@@ -78,7 +78,20 @@ Evalúa:
 - conexiones entre ideas
 - errores o confusiones
 - dominio general
-- qué tan bien entenderían la explicación 4 lectores distintos
+
+IMPORTANTE:
+Repasar es ADAPTATIVO.
+
+Debes detectar los conceptos que el estudiante NO domina.
+
+Luego genera preguntas de seguimiento enfocadas EXCLUSIVAMENTE en:
+- conceptos omitidos
+- conceptos débiles
+- relaciones importantes no explicadas
+- errores detectados
+
+Las preguntas deben ayudar al estudiante a mejorar su siguiente intento.
+No hagas preguntas triviales.
 
 Evalúa SOLO desde el lector seleccionado en MODO DE EXPLICACIÓN.
 No evalúes con los 4 lectores a la vez.
@@ -148,7 +161,15 @@ Devuelve EXACTAMENTE este JSON:
   "missingConcepts": [],
   "confusions": [],
   "weakConcepts": [],
-  "followUpQuestions": [],
+
+  "followUpQuestions": [
+    {
+      "question": "",
+      "why": "",
+      "concept": ""
+    }
+  ],
+
   "feedback": "",
   "nextStep": ""
 }
@@ -192,7 +213,9 @@ Devuelve EXACTAMENTE este JSON:
         missingConcepts: cleanArray(parsed.missingConcepts),
         confusions: cleanArray(parsed.confusions),
         weakConcepts: cleanArray(parsed.weakConcepts),
-        followUpQuestions: cleanArray(parsed.followUpQuestions).slice(0, 5),
+        followUpQuestions: Array.isArray(parsed.followUpQuestions)
+          ? parsed.followUpQuestions.slice(0, 5)
+          : [],
         feedback: String(parsed.feedback || ''),
         nextStep: String(parsed.nextStep || ''),
       },

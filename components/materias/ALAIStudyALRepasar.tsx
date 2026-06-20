@@ -44,7 +44,11 @@ interface AnalysisResult {
   missingConcepts: string[];
   confusions: string[];
   weakConcepts?: string[];
-  followUpQuestions?: string[];
+  followUpQuestions?: {
+    question: string;
+    why?: string;
+    concept?: string;
+  }[];
   feedback: string;
   nextStep: string;
 }
@@ -829,7 +833,33 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                   }}>
                     <h3 style={{ fontFamily: HAND, fontSize: 30, margin: '0 0 10px' }}>Preguntas de seguimiento</h3>
                     <ol style={{ marginTop: 0, lineHeight: 1.8 }}>
-                      {analysis.followUpQuestions.map((q, i) => <li key={i}>{q}</li>)}
+                      {analysis.followUpQuestions.map((q: any, i) => (
+                        <li key={i}>
+                          <div style={{ fontWeight: 800 }}>
+                            {typeof q === 'string' ? q : q.question}
+                          </div>
+
+                          {typeof q !== 'string' && q.why && (
+                            <div style={{
+                              color: 'var(--text-muted)',
+                              marginTop: 4,
+                            }}>
+                              {q.why}
+                            </div>
+                          )}
+
+                          {typeof q !== 'string' && q.concept && (
+                            <div style={{
+                              marginTop: 4,
+                              fontSize: 13,
+                              color: 'var(--gold)',
+                              fontWeight: 800,
+                            }}>
+                              Concepto: {q.concept}
+                            </div>
+                          )}
+                        </li>
+                      ))}
                     </ol>
                     <textarea
                       value={followUpAnswer}
