@@ -226,7 +226,7 @@ function getMotivational(pct: number): { emoji: string; msg: string; color: stri
 // ═══════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════════════════════════
-export default function QuizPage({
+export default function ALAIStudyALQuizzes({
   materiales,
   seleccion,
   tema,
@@ -320,7 +320,7 @@ export default function QuizPage({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matActualId]);
 
-  // ── Helpers de selección (igual que FlashcardsPage) ──────
+  // ── Helpers de selección (igual que ALAIStudyALCards) ──────
   const getSelectionPages = useCallback((item: any): number[] => {
     if (!item) return [];
     const candidates = [item?.pages, item?.paginasSeleccionadas, item?.selectedPages, item?.paginas, item?.pageNumbers, item?.range, item?.selection];
@@ -449,7 +449,7 @@ export default function QuizPage({
     goToGlobalSelection(globalSelectedCursorRef.current - 1);
   }, [goToGlobalSelection]);
 
-  // ── Filtrar texto por páginas (igual que FlashcardsPage) ──
+  // ── Filtrar texto por páginas (igual que ALAIStudyALCards) ──
   const filterTextByPages = useCallback((fullText: string, pages: number[]): string => {
     if (!pages.length) return fullText;
     const sortedPages = [...pages].sort((a, b) => a - b);
@@ -484,7 +484,7 @@ export default function QuizPage({
     return result.join('\n');
   }, []);
 
-  // ── Extraer texto real de los materiales (igual que FlashcardsPage) ──
+  // ── Extraer texto real de los materiales (igual que ALAIStudyALCards) ──
   const extractQuizText = useCallback(async (): Promise<string> => {
     const texts: string[] = [];
     for (let i = 0; i < materiales.length; i++) {
@@ -550,7 +550,7 @@ texto.slice(0,8000)
       }
       console.log('📚 [Quiz] Texto extraído:', texto.length, 'chars');
 
-      const res = await fetch('/api/quiz', {
+      const res = await fetch('/api/alai-studyal-quizzes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1096,7 +1096,7 @@ texto.slice(0,8000)
           }}
         />
 
-        {/* PDF lado izquierdo — igual que FlashcardsPage */}
+        {/* PDF lado izquierdo — igual que ALAIStudyALCards */}
         {quizState === 'playing' && (
           <div style={{
             flex: '0 0 50%',

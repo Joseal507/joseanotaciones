@@ -121,7 +121,7 @@ export default function ModoExamen({ flashcards, contenido, nombreDoc, temaColor
 
       // 2. Preguntas de quiz generadas por AI
       if (cantidadQuiz > 0 && contenido) {
-        const res = await fetch('/api/quiz', {
+        const res = await fetch('/api/alai-studyal-quizzes', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: contenido, count: cantidadQuiz, idioma: getIdioma() }),

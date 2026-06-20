@@ -30,7 +30,7 @@ interface Props {
   onRequestPrev?: () => void;
   onRequestNext?: () => void;
   onPageChange?: (page: number) => void;
-  // Solo para QuizPage: muestra la página de la pregunta actual en el header
+  // Solo para ALAIStudyALQuizzes: muestra la página de la pregunta actual en el header
   currentQuestionPage?: number;
   scrollTrigger?: number;
 }
@@ -376,7 +376,7 @@ export default function FlashcardsPDFViewer({
           display: 'flex', flexDirection: 'column', alignItems: 'center',
           gap: 1,
         }}>
-          {/* Página de la pregunta actual (solo QuizPage) */}
+          {/* Página de la pregunta actual (solo ALAIStudyALQuizzes) */}
           {currentQuestionPage && currentQuestionPage > 0 && (
             <div style={{
               fontSize: 10, color: themeColor,

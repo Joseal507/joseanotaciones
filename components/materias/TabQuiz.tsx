@@ -1,5 +1,5 @@
 'use client';
-import QuizPage from './QuizPage';
+import ALAIStudyALQuizzes from './ALAIStudyALQuizzes';
 export default function TabQuiz(props: any) {
-  return <QuizPage {...props} />;
+  return <ALAIStudyALQuizzes {...props} />;
 }

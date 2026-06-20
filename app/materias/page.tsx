@@ -14,9 +14,9 @@ const MateriaView = dynamicImport(() => import('../../components/materias/Materi
 const TemaView = dynamicImport(() => import('../../components/materias/TemaView'));
 const ApunteEditor = dynamicImport(() => import('../../components/materias/ApunteEditor'));
 const DocumentoView = dynamicImport(() => import('../../components/materias/DocumentoView'));
-const FlashcardsPage = dynamicImport(() => import('../../components/materias/FlashcardsPage'), { ssr: false });
-const QuizPage = dynamicImport(() => import('../../components/materias/QuizPage'), { ssr: false });
-const RepasarWorkspace = dynamicImport(() => import('../../components/materias/RepasarWorkspace'), { ssr: false });
+const ALAIStudyALCards = dynamicImport(() => import('../../components/materias/ALAIStudyALCards'), { ssr: false });
+const ALAIStudyALQuizzes = dynamicImport(() => import('../../components/materias/ALAIStudyALQuizzes'), { ssr: false });
+const ALAIStudyALRepasar = dynamicImport(() => import('../../components/materias/ALAIStudyALRepasar'), { ssr: false });
 const ModalMateria = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalMateria));
 const ModalTema = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalTema));
 const ModalApunte = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalApunte));
@@ -772,7 +772,7 @@ const eliminarDocumento = async (id: string) => {
         )}
 
         {vista === 'flashcards' && temaActual && materiaActual && (
-          <FlashcardsPage
+          <ALAIStudyALCards
             materiales={flashcardsMateriales.length > 0 ? flashcardsMateriales : temaActual.documentos}
             seleccion={flashcardsSeleccion}
             tema={temaActual}
@@ -786,7 +786,7 @@ const eliminarDocumento = async (id: string) => {
         )}
 
         {vista === 'quiz' && temaActual && materiaActual && (
-          <QuizPage
+          <ALAIStudyALQuizzes
             materiales={quizMateriales.length > 0 ? quizMateriales : temaActual.documentos}
             seleccion={quizSeleccion}
             tema={temaActual}
@@ -796,7 +796,7 @@ const eliminarDocumento = async (id: string) => {
         )}
 
         {vista === 'repasar' && temaActual && materiaActual && (
-          <RepasarWorkspace
+          <ALAIStudyALRepasar
             materiales={repasarMateriales.length > 0 ? repasarMateriales : temaActual.documentos}
             seleccion={repasarSeleccion}
             tema={temaActual}

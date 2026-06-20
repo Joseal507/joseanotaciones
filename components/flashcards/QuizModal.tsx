@@ -53,7 +53,7 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
   const generarQuiz = async () => {
     setCargando(true);
     try {
-      const res = await fetch('/api/quiz', {
+      const res = await fetch('/api/alai-studyal-quizzes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: contenido, count: cantidad, idioma: getIdioma(), nivel }),

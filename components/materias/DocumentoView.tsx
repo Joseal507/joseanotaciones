@@ -110,7 +110,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
         setAnalisisLocal(d1.analysis);
       }
 
-      const r2 = await fetch('/api/flashcards', {
+      const r2 = await fetch('/api/alai-studyal-cards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -131,7 +131,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
         setRecommendedReason(d2.reason || '');
       }
 
-      const r3 = await fetch('/api/flashcards', {
+      const r3 = await fetch('/api/alai-studyal-cards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -169,7 +169,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
     setFlashcardsMessage('');
 
     try {
-      const res = await fetch('/api/flashcards', {
+      const res = await fetch('/api/alai-studyal-cards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

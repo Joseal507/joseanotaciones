@@ -1452,7 +1452,7 @@ export default function TemaView({ materia, tema, onBack, onBackMateria, onGoHom
             }));
             setSeleccionResult(rebuilt as any);
           }
-          // Guardar sessionId para que FlashcardsPage pueda cargar el cache
+          // Guardar sessionId para que ALAIStudyALCards pueda cargar el cache
           setResumeSessionId(matchingSession.id);
           setOpenTeorico(true);
           console.log('🔁 Continuando sesión:', matchingSession.id);

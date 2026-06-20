@@ -61,7 +61,7 @@ function extractSelectionText(seleccion: any[] | null | undefined) {
     .join('\n\n---\n\n');
 }
 
-export default function RepasarWorkspace({ materiales, seleccion, tema, materia, onBack }: Props) {
+export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materia, onBack }: Props) {
   const [phase, setPhase] = useState<Phase>('preview');
   const [notes, setNotes] = useState('');
   const [explanation, setExplanation] = useState('');
@@ -166,7 +166,7 @@ export default function RepasarWorkspace({ materiales, seleccion, tema, materia,
     setAnalysis(null);
 
     try {
-      const res = await fetch('/api/repasar', {
+      const res = await fetch('/api/alai-studyal-repasar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

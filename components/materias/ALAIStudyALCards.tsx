@@ -188,7 +188,7 @@ function NotebookCard({
             width: '100%',
             textShadow: isAnswer ? `0 1px 2px rgba(0,0,0,0.3)` : 'none',
           }}>
-            <MathText text={cleanFlashcardText(isAnswer ? card.answer : card.question)} />
+            <MathText text={cleanFlashcardText(card ? (isAnswer ? card.answer : card.question) : '')} />
           </div>
         </div>
         {large && (
@@ -606,13 +606,17 @@ function DeckView({
   const { favorites, toggleFav, visibleCards } = controls;
   const [current, setCurrent] = useState(0);
   const [flipped, setFlipped] = useState(false);
-  const card = visibleCards[current];
+
+  const safeCurrent = visibleCards.length > 0
+    ? Math.max(0, Math.min(current, visibleCards.length - 1))
+    : 0;
+  const card = visibleCards[safeCurrent];
 
   useEffect(() => {
-    if (current >= visibleCards.length && visibleCards.length > 0) {
-      setCurrent(0);
+    if (current !== safeCurrent) {
+      setCurrent(safeCurrent);
     }
-  }, [visibleCards.length, current]);
+  }, [current, safeCurrent]);
 
   useEffect(() => { setFlipped(false); }, [current]);
 
@@ -667,7 +671,7 @@ function DeckView({
         </div>
       </div>
       <NumberedPagination
-        total={cards.length} current={current}
+        total={visibleCards.length} current={safeCurrent}
         onChange={setCurrent} color={color}
       />
       <div style={{ textAlign: 'center', maxWidth: 800, margin: '0 auto', width: '100%' }}>
@@ -678,7 +682,7 @@ function DeckView({
           fontFamily: BODY, fontSize: 14, fontWeight: 700,
           color: color, borderRadius: 10,
         }}>
-          {current + 1} / {cards.length}
+          {safeCurrent + 1} / {visibleCards.length}
         </span>
       </div>
       <div style={{
@@ -722,18 +726,18 @@ function DeckView({
           }}
         >← Anterior</button>
         <div style={{ fontFamily: BODY, fontSize: 13, color: '#666' }}>
-          {current + 1} de {cards.length}
+          {safeCurrent + 1} de {visibleCards.length}
         </div>
         <button
           onClick={() => setCurrent(c => Math.min(cards.length - 1, c + 1))}
-          disabled={current === cards.length - 1}
+          disabled={safeCurrent === visibleCards.length - 1}
           style={{
             padding: '10px 20px', borderRadius: 10,
             border: '1.5px dashed rgba(255,255,255,0.2)',
             background: 'transparent',
-            color: current === cards.length - 1 ? '#444' : '#ccc',
+            color: safeCurrent === visibleCards.length - 1 ? '#444' : '#ccc',
             fontFamily: BODY, fontSize: 14, fontWeight: 700,
-            cursor: current === cards.length - 1 ? 'default' : 'pointer',
+            cursor: safeCurrent === visibleCards.length - 1 ? 'default' : 'pointer',
           }}
         >Siguiente →</button>
       </div>
@@ -1943,7 +1947,7 @@ function EmptyGenerate({ color, onGenerate, generating, numPages, selectedPages,
   );
 }
 
-export default function FlashcardsPage({ materiales, seleccion, tema, materia, sessionId, onBack }: Props) {
+export default function ALAIStudyALCards({ materiales, seleccion, tema, materia, sessionId, onBack }: Props) {
   const color = tema?.color || '#22d3ee';
   const [activeMaterialIndex, setActiveMaterialIndex] = useState(0);
   const matActual = materiales[activeMaterialIndex];
@@ -2111,6 +2115,7 @@ export default function FlashcardsPage({ materiales, seleccion, tema, materia, s
   const [editingCard, setEditingCard] = useState<Flashcard | null>(null);
   const [studyMode, setStudyMode] = useState<StudyMode | null>(null);
   const [showStudySelector, setShowStudySelector] = useState(false);
+
   const [studyOrder, setStudyOrder] = useState<StudyOrder>('bucle');
   const [studySingleCard, setStudySingleCard] = useState<Flashcard | null>(null);
   const [sourceCard, setSourceCard] = useState<Flashcard | null>(null);
@@ -2401,7 +2406,7 @@ ${fullText}`);
       const allResponses = await Promise.all(
         materialBlocks.map(async (block, blockIdx) => {
           setGeneratingStep(`Generando flashcards del material ${blockIdx + 1}/${materialBlocks.length}...`);
-          const res = await fetch('/api/flashcards', {
+          const res = await fetch('/api/alai-studyal-cards', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
