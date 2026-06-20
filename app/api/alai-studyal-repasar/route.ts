@@ -101,29 +101,30 @@ function calibrateRepasarScore({
 
   // Si la IA reconoce comprensión, no puede dar puntajes ridículos.
   if (hasUsefulUnderstanding) {
-    if (mode === 'nino') score = Math.max(score, 58);
-    else if (mode === 'universitario') score = Math.max(score, 42);
-    else if (mode === 'profesor') score = Math.max(score, 30);
-    else score = Math.max(score, 45);
+    if (mode === 'nino') score = Math.max(score, 68);
+    else if (mode === 'universitario') score = Math.max(score, 52);
+    else if (mode === 'profesor') score = Math.max(score, 36);
+    else score = Math.max(score, 55);
   }
 
   // Respuesta corta pero relacionada: crédito básico, diferente por lector.
   if (words >= 8 && hasUsefulUnderstanding) {
-    if (mode === 'nino') score += 8;
-    if (mode === 'profesor') score -= 5;
+    if (mode === 'nino') score += 12;
+    if (mode === 'universitario') score += 4;
+    if (mode === 'profesor') score -= 4;
   }
 
   // Penalizaciones suaves y claras.
-  if (missingCount >= 4) score -= mode === 'profesor' ? 14 : mode === 'universitario' ? 10 : 6;
-  else if (missingCount >= 2) score -= mode === 'profesor' ? 8 : mode === 'universitario' ? 6 : 3;
+  if (missingCount >= 4) score -= mode === 'profesor' ? 14 : mode === 'universitario' ? 8 : 2;
+  else if (missingCount >= 2) score -= mode === 'profesor' ? 8 : mode === 'universitario' ? 5 : 1;
 
-  if (hasConfusion) score -= mode === 'profesor' ? 12 : mode === 'universitario' ? 8 : 5;
+  if (hasConfusion) score -= mode === 'profesor' ? 12 : mode === 'universitario' ? 8 : 4;
 
   // Diferenciar lectores aunque el modelo intente igualar puntajes.
   if (hasUsefulUnderstanding) {
-    if (mode === 'nino') score = Math.max(score, 55);
-    if (mode === 'universitario') score = Math.max(score, 35);
-    if (mode === 'profesor') score = Math.max(score, 25);
+    if (mode === 'nino') score = Math.max(score, 65);
+    if (mode === 'universitario') score = Math.max(score, 45);
+    if (mode === 'profesor') score = Math.max(score, 30);
   }
 
   return cleanScore(Math.round(score));
@@ -153,14 +154,15 @@ export async function POST(req: NextRequest) {
     }> = {
       nino: {
         persona: 'Niño',
-        strictness: 'baja',
+        strictness: 'muy baja',
         scoringGuide: `
 NIÑO:
 - Evalúa si se entiende la idea principal.
 - NO castigues fuerte por falta de datos, nombres o detalles.
-- Si el estudiante capta la idea general, debe estar mínimo entre 55 y 75.
-- Si lo explica simple y con sentido, puede estar entre 75 y 90 aunque no cubra todo.
-- Solo baja de 40 si no se entiende la idea central o está fuera del tema.
+- Si el estudiante capta la idea general, debe estar mínimo entre 65 y 80.
+- Si lo explica simple y con sentido, puede estar entre 80 y 95 aunque no cubra todo.
+- Solo baja de 50 si no se entiende la idea central o está fuera del tema.
+- Para niño, NO castigues fuerte por no mencionar nombres, fechas o detalles.
 `,
       },
       universitario: {
@@ -170,7 +172,7 @@ NIÑO:
 UNIVERSITARIO:
 - Evalúa si sirve para estudiar y responder en clase.
 - Debe cubrir ideas principales, algunos detalles y conexiones.
-- Si tiene idea central correcta pero poca profundidad: 45 a 65.
+- Si tiene idea central correcta pero poca profundidad: 50 a 68.
 - Si explica bien pero omite detalles importantes: 65 a 82.
 - Si explica con orden, conceptos y ejemplos: 82 a 95.
 - Solo baja de 25 si casi no hay contenido útil o está fuera del material.
@@ -183,7 +185,7 @@ UNIVERSITARIO:
 PROFESOR:
 - Evalúa precisión, rigor, conceptos omitidos y relaciones.
 - Puede penalizar fuerte omisiones importantes.
-- Si tiene idea central correcta pero superficial: 35 a 55.
+- Si tiene idea central correcta pero superficial: 35 a 58.
 - Si explica bastante bien pero falta análisis: 60 a 78.
 - Si está completo, preciso y conectado: 80 a 100.
 - Solo baja de 20 si la explicación es irrelevante, vacía o muy equivocada.
