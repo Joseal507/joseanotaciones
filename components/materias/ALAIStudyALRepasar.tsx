@@ -39,7 +39,7 @@ interface AnalysisResult {
     depth: number;
     connections: number;
   };
-  reviewers?: ReviewerResult[];
+  reviewer?: ReviewerResult | null;
   strengths: string[];
   missingConcepts: string[];
   confusions: string[];
@@ -567,7 +567,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
           <div style={cardStyle}>
             <h2 style={{ fontFamily: HAND, fontSize: 38, margin: '0 0 10px' }}>Di lo que sabes</h2>
             <p style={{ color: 'var(--text-muted)', lineHeight: 1.7, fontSize: 16 }}>
-              Explica con tus palabras todo lo que recuerdas del material. La IA lo comparará contra el contenido seleccionado completo y hará que 4 lectores te den feedback: niño, universitario, profesor y evaluador neutral.
+              Explica con tus palabras todo lo que recuerdas del material. La IA lo comparará contra el contenido seleccionado completo según el lector que elijas.
             </p>
 
             <div style={{
@@ -577,10 +577,10 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
               margin: '18px 0',
             }}>
               {[
-                ['nino', 'Intento simple'],
-                ['universitario', 'Intento universitario'],
-                ['profesor', 'Intento profesor'],
-                ['libre', 'Intento libre'],
+                ['nino', 'Niño'],
+                ['universitario', 'Universitario'],
+                ['profesor', 'Profesor'],
+                ['libre', 'Evaluador neutral'],
               ].map(([id, label]) => {
                 const active = mode === id;
                 return (
@@ -642,7 +642,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                 opacity: loading || contentStatus === 'loading' || !materialText.trim() ? 0.6 : 1,
                 cursor: loading || contentStatus === 'loading' ? 'wait' : !materialText.trim() ? 'not-allowed' : 'pointer',
               }}>
-                {loading ? 'analizando…' : contentStatus === 'loading' ? 'cargando material…' : 'evaluar con 4 lectores'}
+                {loading ? 'analizando…' : contentStatus === 'loading' ? 'cargando material…' : 'evaluar con este lector'}
               </button>
             </div>
           </div>
@@ -650,7 +650,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
 
         {phase === 'analisis' && (
           <div style={cardStyle}>
-            <h2 style={{ fontFamily: HAND, fontSize: 38, margin: '0 0 10px' }}>Feedback de 4 lectores</h2>
+            <h2 style={{ fontFamily: HAND, fontSize: 38, margin: '0 0 10px' }}>Feedback del lector</h2>
 
             {!analysis ? (
               <p style={{ color: 'var(--text-muted)' }}>Todavía no hay análisis.</p>
@@ -688,88 +688,64 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                 </div>
 
 
-                {(Array.isArray(analysis.reviewers) && analysis.reviewers.length > 0 ? analysis.reviewers : [
-                  {
-                    persona: 'Evaluación general',
-                    rating: analysis.score,
-                    verdict: analysis.level,
-                    feedback: analysis.feedback || 'La IA generó una evaluación general, pero no separó el feedback por lectores.',
-                    wouldUnderstand: analysis.score >= 70,
-                    missingForThem: analysis.missingConcepts,
-                  },
-                ]).length > 0 && (
+                                {(analysis.reviewer || analysis.feedback) && (
                   <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                    gap: 12,
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 18,
+                    padding: 18,
                   }}>
-                    {(Array.isArray(analysis.reviewers) && analysis.reviewers.length > 0 ? analysis.reviewers : [
-                      {
-                        persona: 'Evaluación general',
-                        rating: analysis.score,
-                        verdict: analysis.level,
-                        feedback: analysis.feedback || 'La IA generó una evaluación general, pero no separó el feedback por lectores.',
-                        wouldUnderstand: analysis.score >= 70,
-                        missingForThem: analysis.missingConcepts,
-                      },
-                    ]).map((reader, i) => (
-                      <div key={`${reader.persona}-${i}`} style={{
-                        background: 'var(--bg-primary)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 18,
-                        padding: 16,
-                        minHeight: 190,
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      alignItems: 'center',
+                      marginBottom: 12,
+                    }}>
+                      <h3 style={{ fontFamily: HAND, fontSize: 30, margin: 0 }}>
+                        {analysis.reviewer?.persona || (mode === 'nino' ? 'Niño' : mode === 'universitario' ? 'Universitario' : mode === 'profesor' ? 'Profesor' : 'Evaluador neutral')}
+                      </h3>
+                      <div style={{
+                        background: analysis.reviewer?.wouldUnderstand ? 'var(--gold)' : 'var(--bg-card)',
+                        color: analysis.reviewer?.wouldUnderstand ? '#111' : 'var(--text-primary)',
+                        border: '2px solid var(--text-primary)',
+                        borderRadius: 999,
+                        padding: '6px 12px',
+                        fontWeight: 900,
+                        fontSize: 14,
                       }}>
-                        <div style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          gap: 10,
-                          alignItems: 'center',
-                          marginBottom: 10,
-                        }}>
-                          <h3 style={{ fontFamily: HAND, fontSize: 28, margin: 0 }}>
-                            {reader.persona || `Lector ${i + 1}`}
-                          </h3>
-                          <div style={{
-                            background: reader.wouldUnderstand ? 'var(--gold)' : 'var(--bg-card)',
-                            color: reader.wouldUnderstand ? '#111' : 'var(--text-primary)',
-                            border: '2px solid var(--text-primary)',
-                            borderRadius: 999,
-                            padding: '5px 10px',
-                            fontWeight: 900,
-                            fontSize: 13,
-                          }}>
-                            {reader.rating}/100
-                          </div>
-                        </div>
-                        {reader.verdict && (
-                          <div style={{
-                            fontWeight: 900,
-                            color: reader.wouldUnderstand ? 'var(--gold)' : '#f87171',
-                            marginBottom: 8,
-                          }}>
-                            {reader.verdict}
-                          </div>
-                        )}
-                        <p style={{
-                          margin: 0,
-                          color: 'var(--text-muted)',
-                          lineHeight: 1.6,
-                        }}>
-                          {reader.feedback}
-                        </p>
-                        {Array.isArray(reader.missingForThem) && reader.missingForThem.length > 0 && (
-                          <ul style={{
-                            margin: '10px 0 0',
-                            paddingLeft: 18,
-                            color: 'var(--text-muted)',
-                            lineHeight: 1.5,
-                          }}>
-                            {reader.missingForThem.map((item, idx) => <li key={idx}>{item}</li>)}
-                          </ul>
-                        )}
+                        {(analysis.reviewer?.rating ?? analysis.score)}/100
                       </div>
-                    ))}
+                    </div>
+
+                    {(analysis.reviewer?.verdict || analysis.level) && (
+                      <div style={{
+                        fontWeight: 900,
+                        color: (analysis.reviewer?.wouldUnderstand ?? analysis.score >= 70) ? 'var(--gold)' : '#f87171',
+                        marginBottom: 10,
+                      }}>
+                        {analysis.reviewer?.verdict || analysis.level}
+                      </div>
+                    )}
+
+                    <p style={{
+                      margin: 0,
+                      color: 'var(--text-muted)',
+                      lineHeight: 1.7,
+                    }}>
+                      {analysis.reviewer?.feedback || analysis.feedback}
+                    </p>
+
+                    {Array.isArray(analysis.reviewer?.missingForThem) && analysis.reviewer.missingForThem.length > 0 && (
+                      <ul style={{
+                        margin: '12px 0 0',
+                        paddingLeft: 20,
+                        color: 'var(--text-muted)',
+                        lineHeight: 1.6,
+                      }}>
+                        {analysis.reviewer.missingForThem.map((item, idx) => <li key={idx}>{item}</li>)}
+                      </ul>
+                    )}
                   </div>
                 )}
 

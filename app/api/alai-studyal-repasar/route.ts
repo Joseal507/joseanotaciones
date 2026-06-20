@@ -80,13 +80,16 @@ Evalúa:
 - dominio general
 - qué tan bien entenderían la explicación 4 lectores distintos
 
-Los 4 lectores/personas son:
-1. Niño: evalúa si una persona sin base podría captar la idea central.
-2. Universitario: evalúa precisión, orden, términos correctos y suficiencia para estudiar.
-3. Profesor: evalúa rigor, omisiones importantes, errores finos y dominio real.
-4. Evaluador neutral: evalúa utilidad global, estructura, claridad y preparación para examen.
+Evalúa SOLO desde el lector seleccionado en MODO DE EXPLICACIÓN.
+No evalúes con los 4 lectores a la vez.
 
-Cada lector debe hablar con su propia voz, como si hubiera leído la explicación del estudiante.
+Lectores disponibles:
+- nino: evalúa si una persona sin base podría captar la idea central.
+- universitario: evalúa precisión, orden, términos correctos y suficiencia para estudiar.
+- profesor: evalúa rigor, omisiones importantes, errores finos y dominio real.
+- libre: evaluador neutral; evalúa utilidad global, estructura, claridad y preparación para examen.
+
+El lector seleccionado debe hablar con su propia voz, como si hubiera leído la explicación del estudiante.
 No seas complaciente. Sé útil, directo y pedagógico.
 Nunca inventes contenido fuera del material.
 Devuelve SOLO JSON válido.
@@ -133,40 +136,14 @@ Devuelve EXACTAMENTE este JSON:
     "depth": 0,
     "connections": 0
   },
-  "reviewers": [
-    {
-      "persona": "Niño",
-      "rating": 0,
-      "verdict": "",
-      "feedback": "",
-      "wouldUnderstand": false,
-      "missingForThem": []
-    },
-    {
-      "persona": "Universitario",
-      "rating": 0,
-      "verdict": "",
-      "feedback": "",
-      "wouldUnderstand": false,
-      "missingForThem": []
-    },
-    {
-      "persona": "Profesor",
-      "rating": 0,
-      "verdict": "",
-      "feedback": "",
-      "wouldUnderstand": false,
-      "missingForThem": []
-    },
-    {
-      "persona": "Evaluador neutral",
-      "rating": 0,
-      "verdict": "",
-      "feedback": "",
-      "wouldUnderstand": false,
-      "missingForThem": []
-    }
-  ],
+  "reviewer": {
+    "persona": "",
+    "rating": 0,
+    "verdict": "",
+    "feedback": "",
+    "wouldUnderstand": false,
+    "missingForThem": []
+  },
   "strengths": [],
   "missingConcepts": [],
   "confusions": [],
@@ -192,7 +169,7 @@ Devuelve EXACTAMENTE este JSON:
           missingConcepts: [],
           confusions: [],
           weakConcepts: [],
-          reviewers: [],
+          reviewer: null,
           followUpQuestions: [],
           feedback: result.text.slice(0, 1200),
           nextStep: 'Reformula tu explicación con idea central, conceptos clave, relaciones y ejemplo.',
@@ -210,7 +187,7 @@ Devuelve EXACTAMENTE este JSON:
           depth: cleanScore(parsed.metrics?.depth),
           connections: cleanScore(parsed.metrics?.connections),
         },
-        reviewers: Array.isArray(parsed.reviewers) ? parsed.reviewers.map(cleanReviewer).filter((r: any) => r.persona || r.feedback).slice(0, 4) : [],
+        reviewer: parsed.reviewer ? cleanReviewer(parsed.reviewer) : null,
         strengths: cleanArray(parsed.strengths),
         missingConcepts: cleanArray(parsed.missingConcepts),
         confusions: cleanArray(parsed.confusions),
