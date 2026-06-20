@@ -21,6 +21,15 @@ interface Props {
   onBack: () => void;
 }
 
+interface ReviewerResult {
+  persona: string;
+  rating: number;
+  verdict: string;
+  feedback: string;
+  wouldUnderstand: boolean;
+  missingForThem?: string[];
+}
+
 interface AnalysisResult {
   score: number;
   level: string;
@@ -30,6 +39,7 @@ interface AnalysisResult {
     depth: number;
     connections: number;
   };
+  reviewers?: ReviewerResult[];
   strengths: string[];
   missingConcepts: string[];
   confusions: string[];
@@ -47,7 +57,7 @@ interface Attempt {
   analysis: AnalysisResult;
 }
 
-function clampText(text: string, max = 22000) {
+function clampText(text: string, max = 60000) {
   if (!text) return '';
   if (text.length <= max) return text;
   return text.slice(0, max) + '\n\n[Contenido recortado para análisis]';
@@ -59,6 +69,92 @@ function extractSelectionText(seleccion: any[] | null | undefined) {
     .map((s: any) => s?.text || s?.texto || s?.content || s?.contenido || s?.selectedText || '')
     .filter(Boolean)
     .join('\n\n---\n\n');
+}
+
+function normalizePages(value: any): number[] {
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map(Number).filter((n) => Number.isFinite(n) && n > 0))).sort((a, b) => a - b);
+  }
+
+  if (value && typeof value === 'object') {
+    const start = Number(value.start ?? value.from ?? value.startPage ?? value.paginaInicial);
+    const end = Number(value.end ?? value.to ?? value.endPage ?? value.paginaFinal);
+    if (Number.isFinite(start) && Number.isFinite(end) && start > 0 && end >= start) {
+      return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+    }
+  }
+
+  return [];
+}
+
+function getSelectionPages(item: any): number[] {
+  if (!item) return [];
+  return [
+    item.pages,
+    item.selectedPages,
+    item.paginasSeleccionadas,
+    item.paginas,
+    item.pageNumbers,
+    item.range,
+    item.selection,
+  ]
+    .map(normalizePages)
+    .find((arr) => arr.length > 0) || [];
+}
+
+function findSelectionForMaterial(materiales: any[], mat: any, index: number, seleccion?: any[] | null) {
+  if (!Array.isArray(seleccion) || !seleccion.length) return null;
+
+  const matMaterialId = String(mat?.materialId || mat?.material_id || mat?.id || '');
+  const matDocumentId = String(mat?.id || '');
+
+  return (
+    seleccion.find((s: any) => Number(s?.materialIndex) === index) ||
+    seleccion.find((s: any) => {
+      const ids = [s?.materialId, s?.material_id, s?.documentId, s?.document_id, s?.docId, s?.doc_id, s?.id]
+        .filter(Boolean)
+        .map((v: any) => String(v));
+      return ids.includes(matMaterialId) || ids.includes(matDocumentId);
+    }) ||
+    seleccion[index] ||
+    null
+  );
+}
+
+function filterTextByPages(fullText: string, pages: number[]): string {
+  if (!fullText || !pages.length) return fullText || '';
+
+  const sortedPages = Array.from(new Set(pages.map(Number).filter((n) => Number.isFinite(n) && n > 0))).sort((a, b) => a - b);
+  if (!sortedPages.length) return fullText;
+
+  const result: string[] = [];
+  const markerRegex = /(?:^|\n)\s*(?:\[\s*(?:P[aá]gina|Pagina|Page)\s+(\d+)\s*\]|---\s*(?:p[aá]gina|page)\s*(\d+)\s*---)\s*/gi;
+  const matches = Array.from(fullText.matchAll(markerRegex));
+
+  if (matches.length > 0) {
+    for (let i = 0; i < matches.length; i++) {
+      const match = matches[i];
+      const page = Number(match[1] || match[2]);
+      if (!sortedPages.includes(page)) continue;
+
+      const start = (match.index || 0) + match[0].length;
+      const end = i + 1 < matches.length ? (matches[i + 1].index || fullText.length) : fullText.length;
+      const chunk = fullText.slice(start, end).trim();
+      if (chunk) result.push(`[Pagina ${page}]\n${chunk}`);
+    }
+
+    if (result.length > 0) return result.join('\n\n');
+  }
+
+  const pageChunks = fullText.split('\f');
+  if (pageChunks.length > 1) {
+    for (const page of sortedPages) {
+      const chunk = pageChunks[page - 1];
+      if (chunk?.trim()) result.push(`[Pagina ${page}]\n${chunk.trim()}`);
+    }
+  }
+
+  return result.join('\n\n');
 }
 
 export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materia, onBack }: Props) {
@@ -92,17 +188,33 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
   const selectedText = useMemo(() => extractSelectionText(seleccion), [seleccion]);
 
   const materialText = useMemo(() => {
-    if (selectedText.trim()) return selectedText.trim();
+    const blocks = materiales
+      .map((m: any, i: number) => {
+        const matId = m?.materialId || m?.material_id || m?.id || `material_${i + 1}`;
+        const name = m?.nombre || m?.name || m?.titulo || matId;
+        const sel = findSelectionForMaterial(materiales, m, i, seleccion);
+        const pages = getSelectionPages(sel);
+        const selectionText = String((sel as any)?.text || (sel as any)?.texto || (sel as any)?.content || (sel as any)?.contenido || (sel as any)?.selectedText || '').trim();
+        const fullText = String(contenidos[m.id] ?? m.contenido ?? '').trim();
 
-    return materiales
-      .map((m: any) => {
-        const text = contenidos[m.id] ?? m.contenido ?? '';
-        const name = m.nombre || m.name || m.titulo || 'Material';
-        return text ? `### ${name}\n${text}` : '';
+        if (selectionText) {
+          return `[Material ${i + 1}: ID=${matId} | ${name}${pages.length ? ` | páginas ${pages.join(', ')}` : ''}]\n${selectionText}`;
+        }
+
+        if (!fullText) return '';
+
+        if (pages.length > 0) {
+          const filtered = filterTextByPages(fullText, pages);
+          return `[Material ${i + 1}: ID=${matId} | ${name} | páginas ${pages.join(', ')}]\n${filtered || fullText}`;
+        }
+
+        return `[Material ${i + 1}: ID=${matId} | ${name} | documento completo]\n${fullText}`;
       })
-      .filter(Boolean)
-      .join('\n\n---\n\n');
-  }, [selectedText, materiales, contenidos]);
+      .filter(Boolean);
+
+    if (blocks.length > 0) return blocks.join('\n\n---\n\n');
+    return selectedText.trim();
+  }, [selectedText, materiales, seleccion, contenidos]);
 
   const preview = useMemo(() => {
     const clean = materialText.replace(/\s+/g, ' ').trim();
@@ -158,6 +270,13 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
   const evaluate = async () => {
     if (!explanation.trim()) {
       setError('Escribe primero lo que entendiste.');
+      return;
+    }
+
+    if (!materialText.trim()) {
+      setError(contentStatus === 'loading'
+        ? 'Todavía estoy cargando el contenido del material. Intenta de nuevo en unos segundos.'
+        : 'No hay contenido legible del material para comparar tu explicación.');
       return;
     }
 
@@ -446,9 +565,9 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
 
         {phase === 'explicar' && (
           <div style={cardStyle}>
-            <h2 style={{ fontFamily: HAND, fontSize: 38, margin: '0 0 10px' }}>Escribe lo que entendiste</h2>
+            <h2 style={{ fontFamily: HAND, fontSize: 38, margin: '0 0 10px' }}>Di lo que sabes</h2>
             <p style={{ color: 'var(--text-muted)', lineHeight: 1.7, fontSize: 16 }}>
-              No busques responder exacto. Explica con tus palabras. La IA evaluará dominio real del tema.
+              Explica con tus palabras todo lo que recuerdas del material. La IA lo comparará contra el contenido seleccionado completo y hará que 4 lectores te den feedback: niño, universitario, profesor y evaluador neutral.
             </p>
 
             <div style={{
@@ -458,10 +577,10 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
               margin: '18px 0',
             }}>
               {[
-                ['nino', 'Explícalo como a un niño'],
-                ['universitario', 'Como universitario'],
-                ['profesor', 'Como profesor'],
-                ['libre', 'Libre'],
+                ['nino', 'Intento simple'],
+                ['universitario', 'Intento universitario'],
+                ['profesor', 'Intento profesor'],
+                ['libre', 'Intento libre'],
               ].map(([id, label]) => {
                 const active = mode === id;
                 return (
@@ -518,12 +637,12 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 22 }}>
               <button onClick={() => setPhase('lectura')} style={{ ...buttonStyle, background: 'var(--bg-card)', color: 'var(--text-primary)' }}>← lectura</button>
-              <button onClick={evaluate} disabled={loading} style={{
+              <button onClick={evaluate} disabled={loading || contentStatus === 'loading' || !materialText.trim()} style={{
                 ...buttonStyle,
-                opacity: loading ? 0.6 : 1,
-                cursor: loading ? 'wait' : 'pointer',
+                opacity: loading || contentStatus === 'loading' || !materialText.trim() ? 0.6 : 1,
+                cursor: loading || contentStatus === 'loading' ? 'wait' : !materialText.trim() ? 'not-allowed' : 'pointer',
               }}>
-                {loading ? 'analizando…' : 'analizar comprensión'}
+                {loading ? 'analizando…' : contentStatus === 'loading' ? 'cargando material…' : 'evaluar con 4 lectores'}
               </button>
             </div>
           </div>
@@ -531,7 +650,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
 
         {phase === 'analisis' && (
           <div style={cardStyle}>
-            <h2 style={{ fontFamily: HAND, fontSize: 38, margin: '0 0 10px' }}>Feedback AI</h2>
+            <h2 style={{ fontFamily: HAND, fontSize: 38, margin: '0 0 10px' }}>Feedback de 4 lectores</h2>
 
             {!analysis ? (
               <p style={{ color: 'var(--text-muted)' }}>Todavía no hay análisis.</p>
@@ -568,6 +687,91 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                   </div>
                 </div>
 
+
+                {(Array.isArray(analysis.reviewers) && analysis.reviewers.length > 0 ? analysis.reviewers : [
+                  {
+                    persona: 'Evaluación general',
+                    rating: analysis.score,
+                    verdict: analysis.level,
+                    feedback: analysis.feedback || 'La IA generó una evaluación general, pero no separó el feedback por lectores.',
+                    wouldUnderstand: analysis.score >= 70,
+                    missingForThem: analysis.missingConcepts,
+                  },
+                ]).length > 0 && (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                    gap: 12,
+                  }}>
+                    {(Array.isArray(analysis.reviewers) && analysis.reviewers.length > 0 ? analysis.reviewers : [
+                      {
+                        persona: 'Evaluación general',
+                        rating: analysis.score,
+                        verdict: analysis.level,
+                        feedback: analysis.feedback || 'La IA generó una evaluación general, pero no separó el feedback por lectores.',
+                        wouldUnderstand: analysis.score >= 70,
+                        missingForThem: analysis.missingConcepts,
+                      },
+                    ]).map((reader, i) => (
+                      <div key={`${reader.persona}-${i}`} style={{
+                        background: 'var(--bg-primary)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 18,
+                        padding: 16,
+                        minHeight: 190,
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          gap: 10,
+                          alignItems: 'center',
+                          marginBottom: 10,
+                        }}>
+                          <h3 style={{ fontFamily: HAND, fontSize: 28, margin: 0 }}>
+                            {reader.persona || `Lector ${i + 1}`}
+                          </h3>
+                          <div style={{
+                            background: reader.wouldUnderstand ? 'var(--gold)' : 'var(--bg-card)',
+                            color: reader.wouldUnderstand ? '#111' : 'var(--text-primary)',
+                            border: '2px solid var(--text-primary)',
+                            borderRadius: 999,
+                            padding: '5px 10px',
+                            fontWeight: 900,
+                            fontSize: 13,
+                          }}>
+                            {reader.rating}/100
+                          </div>
+                        </div>
+                        {reader.verdict && (
+                          <div style={{
+                            fontWeight: 900,
+                            color: reader.wouldUnderstand ? 'var(--gold)' : '#f87171',
+                            marginBottom: 8,
+                          }}>
+                            {reader.verdict}
+                          </div>
+                        )}
+                        <p style={{
+                          margin: 0,
+                          color: 'var(--text-muted)',
+                          lineHeight: 1.6,
+                        }}>
+                          {reader.feedback}
+                        </p>
+                        {Array.isArray(reader.missingForThem) && reader.missingForThem.length > 0 && (
+                          <ul style={{
+                            margin: '10px 0 0',
+                            paddingLeft: 18,
+                            color: 'var(--text-muted)',
+                            lineHeight: 1.5,
+                          }}>
+                            {reader.missingForThem.map((item, idx) => <li key={idx}>{item}</li>)}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {analysis.metrics && (
                   <div style={{
