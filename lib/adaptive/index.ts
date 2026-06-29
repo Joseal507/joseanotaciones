@@ -194,15 +194,6 @@ export {
 } from './adaptiveContext'
 export type { AdaptiveContext } from './adaptiveContext'
 
-// ── Blueprint Chunker ────────────────────────────────────────────
-export {
-  splitIntoChunks,
-  detectRealPages,
-  extractPageSlice,
-  mergeTopicsFromChunks,
-  validateMergedTopics,
-} from './blueprintChunker'
-export type { TextChunk, PageMap, RawTopic, RawConcept, MergeValidation } from './blueprintChunker'
 
 
 // ── Exam Prediction ──────────────────────────────────────────────

@@ -1,4 +1,3 @@
-import { detectRealPages, extractPageSlice } from './blueprintChunker'
 
 // ═══════════════════════════════════════════════════════════════
 // StudyAL — AdaptiveContext Universal
@@ -155,10 +154,10 @@ function buildMaterialSlice(
   // 1. Si hay sourcePages → intentar páginas reales primero
   if (sourcePages.length > 0) {
     // Intentar detectar páginas reales en el material
-    const pageMap = detectRealPages(materialContent)
+    const pageMap = []
 
     if (pageMap.length >= 2) {
-      const realSlice = extractPageSlice(materialContent, sourcePages, pageMap, MAX_CHARS)
+      const realSlice = ''
       if (realSlice.length > 400) {
         return realSlice
       }

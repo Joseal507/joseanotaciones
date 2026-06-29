@@ -13,11 +13,53 @@ import {
   validateMaterialBlueprint,
 } from './blueprint'
 import type { MaterialBlueprint, MaterialTopic, BlueprintBuildParams } from './blueprint'
-import {
-  splitIntoChunks,
-  mergeTopicsFromChunks,
-  validateMergedTopics,
-} from './blueprintChunker'
+import { alaiJson } from '../alai'
+
+// ── Chunking (mismo patrón que análisis) ─────────────────────
+function splitIntoChunks(text: string, chunkSize = 4500): string[] {
+  const chunks: string[] = []
+  let remaining = text.trim()
+  while (remaining.length > 0) {
+    if (remaining.length <= chunkSize) {
+      chunks.push(remaining)
+      break
+    }
+    let cut = remaining.lastIndexOf('\n\n', chunkSize)
+    if (cut < chunkSize * 0.5) cut = remaining.lastIndexOf('\n', chunkSize)
+    if (cut < chunkSize * 0.5) cut = chunkSize
+    chunks.push(remaining.slice(0, cut).trim())
+    remaining = remaining.slice(cut).trim()
+  }
+  return chunks.filter(Boolean)
+}
+
+// ── Wrapper de alaiJson con retry (mismo patrón que safeAlaiJson) ──
+async function safeAlaiJson(prompt: string, maxTokens = 5000): Promise<any> {
+  try {
+    return await alaiJson({
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.25,
+      maxTokens,
+      json: true,
+    })
+  } catch (firstError: any) {
+    console.warn('⚠️ blueprint safeAlaiJson primer intento falló:', firstError?.message)
+    try {
+      return await alaiJson({
+        messages: [{
+          role: 'user',
+          content: prompt + '\n\nIMPORTANTE: Devuelve SOLO JSON válido. No markdown. No texto extra.',
+        }],
+        temperature: 0.15,
+        maxTokens: Math.min(maxTokens, 5200),
+        json: true,
+      })
+    } catch (secondError: any) {
+      console.warn('⚠️ blueprint segundo intento falló:', secondError?.message)
+      return null
+    }
+  }
+}
 
 
 // ── Tipos del grafo de conocimiento ─────────────────────────────
@@ -69,110 +111,106 @@ interface BlueprintAnalysisResult {
 // ── Prompt para extraer blueprint del material ───────────────────
 
 function buildBlueprintPrompt(
-  materialContent: string,
+  chunk: string,
   materialTitle: string,
   lang: 'es' | 'en',
+  chunkIndex: number = 0,
+  totalChunks: number = 1,
 ): string {
-  const contentSlice = materialContent // chunk ya viene con el tamaño correcto
+  const isEs = lang === 'es'
 
-  if (lang === 'es') {
-    return `Eres ALAI BLUEPRINT ANALYZER. Tu trabajo es analizar el 100% de este material y extraer su estructura pedagógica real.
+  if (isEs) {
+    return `Eres un extractor de TOPICS de aprendizaje. Tu trabajo: identificar los temas REALES y específicos de este fragmento del material.
 
-MISIÓN:
-Identificar los TEMAS REALES del material — no secciones genéricas, no "introducción", no "resumen".
-Cada tema debe ser un concepto, proceso, teoría o área de conocimiento específica del material.
+MATERIAL: "${materialTitle}"
+FRAGMENTO: ${chunkIndex + 1} de ${totalChunks}
+
+CONTENIDO:
+${chunk}
 
 REGLAS CRÍTICAS:
-1. PROHIBIDO crear temas genéricos como "Introducción", "Resumen", "General", "Conceptos básicos".
-2. Cada tema debe tener un título específico que diga EXACTAMENTE de qué trata: "Glucólisis y producción de ATP", "Modelo atómico de Bohr", "Ley de Ohm y circuitos eléctricos".
-3. Mínimo 2 temas para cualquier material. Máximo 8 temas.
-4. Cada tema debe tener entre 2 y 8 conceptos específicos.
-5. PROHIBIDO inventar conceptos que no estén en el material.
-6. Los conceptos deben ser términos, ideas o procesos que realmente aparecen en el texto.
-7. La dificultad (0-100) debe reflejar qué tan difícil es el tema para un estudiante promedio.
-8. La importancia (0-100) debe reflejar qué tan probable es que ese tema aparezca en un examen.
 
-MATERIAL: ${materialTitle}
-CONTENIDO:
-${contentSlice}
+1. NO crear topics genéricos como "Introducción", "Conceptos básicos", "Resumen", "General"
+2. Cada topic debe ser una UNIDAD DE APRENDIZAJE específica del material
+3. EXTRAE TODOS los topics que aparezcan en este fragmento:
+   - Si hay 1 tema central, extrae 1 topic
+   - Si hay 3 subtemas, extrae 3 topics
+   - Si hay 5 procesos distintos, extrae 5 topics
+4. Cada topic debe tener 2-6 conceptos CLAVE específicos
+5. NO inventes — solo extrae lo que está en el material
 
-Devuelve SOLO JSON válido con esta estructura exacta:
+EJEMPLOS BUENOS:
+- "Estructura de los lípidos saturados" (específico)
+- "Función de los fosfolípidos en la membrana" (concreto)
+- "Clasificación de las grasas trans" (acotado)
+
+EJEMPLOS MALOS:
+- "Lípidos" (demasiado general)
+- "Conceptos importantes" (genérico)
+- "Lo que debes saber" (vacío)
+
+Devuelve SOLO JSON válido:
 {
   "topics": [
     {
-      "title": "Título específico del tema — NO genérico",
-      "subtitle": "subtítulo opcional que añade contexto",
-      "description": "qué cubre este tema en 1-2 oraciones",
-      "concepts": [
-        {
-          "name": "nombre del concepto específico",
-          "definition": "definición clara en 1 oración",
-          "importance": "critical | major | supporting",
-          "difficulty": 60,
-          "practiceType": "recall | application | explanation | analysis",
-          "commonConfusions": ["confusión frecuente con este concepto"]
-        }
-      ],
+      "title": "Título específico del topic",
+      "description": "Descripción de 1-2 frases de qué cubre",
       "difficulty": 60,
       "importance": 80,
-      "estimatedMinutes": 20,
-      "practiceNeeds": ["understand", "memorize"],
-      "commonMistakes": ["error frecuente que cometen los estudiantes"]
+      "estimatedMinutes": 15,
+      "concepts": [
+        {
+          "name": "Nombre del concepto",
+          "definition": "Definición breve y clara",
+          "importance": "critical" | "major" | "supporting",
+          "difficulty": 50,
+          "practiceType": "recall" | "application" | "analysis"
+        }
+      ]
     }
-  ],
-  "centralQuestion": "El problema o pregunta central que resuelve este material",
-  "learningPath": ["Primero aprender esto", "Luego esto", "Finalmente esto"],
-  "keyInsight": "La idea más importante del material en 1 oración"
+  ]
 }`
   }
 
-  return `You are ALAI BLUEPRINT ANALYZER. Your job is to analyze 100% of this material and extract its real pedagogical structure.
+  return `You are a learning TOPIC extractor. Your job: identify the REAL specific topics in this material chunk.
 
-MISSION:
-Identify the REAL TOPICS of the material — not generic sections, not "introduction", not "summary".
-Each topic must be a specific concept, process, theory or knowledge area from the material.
+MATERIAL: "${materialTitle}"
+CHUNK: ${chunkIndex + 1} of ${totalChunks}
+
+CONTENT:
+${chunk}
 
 CRITICAL RULES:
-1. FORBIDDEN to create generic topics like "Introduction", "Summary", "General", "Basic concepts".
-2. Each topic must have a specific title that says EXACTLY what it covers: "Glycolysis and ATP production", "Bohr atomic model", "Ohm's Law and electric circuits".
-3. Minimum 2 topics for any material. Maximum 8 topics.
-4. Each topic must have between 2 and 8 specific concepts.
-5. FORBIDDEN to invent concepts not in the material.
-6. Concepts must be terms, ideas or processes that actually appear in the text.
-7. Difficulty (0-100) must reflect how hard the topic is for an average student.
-8. Importance (0-100) must reflect how likely that topic is to appear in an exam.
 
-MATERIAL: ${materialTitle}
-CONTENT:
-${contentSlice}
+1. NO generic topics like "Introduction", "Basic concepts", "Summary", "General"
+2. Each topic must be a SPECIFIC learning unit from the material
+3. EXTRACT ALL topics that appear in this chunk:
+   - If 1 central theme, extract 1 topic
+   - If 3 subtopics, extract 3 topics
+   - If 5 distinct processes, extract 5 topics
+4. Each topic must have 2-6 KEY specific concepts
+5. DON'T invent — only extract what's in the material
 
-Return ONLY valid JSON with this exact structure:
+Return ONLY valid JSON:
 {
   "topics": [
     {
-      "title": "Specific topic title — NOT generic",
-      "subtitle": "optional subtitle adding context",
-      "description": "what this topic covers in 1-2 sentences",
-      "concepts": [
-        {
-          "name": "specific concept name",
-          "definition": "clear definition in 1 sentence",
-          "importance": "critical | major | supporting",
-          "difficulty": 60,
-          "practiceType": "recall | application | explanation | analysis",
-          "commonConfusions": ["frequent confusion about this concept"]
-        }
-      ],
+      "title": "Specific topic title",
+      "description": "1-2 sentence description",
       "difficulty": 60,
       "importance": 80,
-      "estimatedMinutes": 20,
-      "practiceNeeds": ["understand", "memorize"],
-      "commonMistakes": ["frequent mistake students make"]
+      "estimatedMinutes": 15,
+      "concepts": [
+        {
+          "name": "Concept name",
+          "definition": "Brief clear definition",
+          "importance": "critical" | "major" | "supporting",
+          "difficulty": 50,
+          "practiceType": "recall" | "application" | "analysis"
+        }
+      ]
     }
-  ],
-  "centralQuestion": "The central problem or question this material solves",
-  "learningPath": ["Learn this first", "Then this", "Finally this"],
-  "keyInsight": "The most important idea of the material in 1 sentence"
+  ]
 }`
 }
 
@@ -466,199 +504,355 @@ export interface BuildBlueprintOptions {
   preExtractedTopics?: RawExtractedTopic[]
 }
 
-export async function fetchAndBuildBlueprint(
-  options: BuildBlueprintOptions,
-): Promise<MaterialBlueprint> {
-  const {
-    materialId,
-    materialTitle,
-    materialContent,
-    selectedPages,
-    preExtractedTopics,
-  } = options
-
-  // Si ya tenemos topics extraídos, construir directamente
-  if (preExtractedTopics && preExtractedTopics.length > 0) {
-    const params: BlueprintBuildParams = {
-      materialId,
-      materialTitle,
-      materialContent,
-      selectedPages,
-      extractedTopics: preExtractedTopics,
-    }
-    return buildMaterialBlueprint(params)
-  }
-
-  // Sin contenido → fallback inmediato
-  if (!materialContent || materialContent.trim().length < 50) {
-    console.warn('[Blueprint] Material vacío — usando fallback')
-    return fallbackBlueprintFromText(materialContent, materialId, materialTitle)
-  }
-
+export async function fetchAndBuildBlueprint(params: BlueprintBuildParams): Promise<MaterialBlueprint> {
+  const { materialContent, materialId, materialTitle } = params
   const lang = detectLang(materialContent)
 
-  try {
-    // ── Chunking para materiales largos ───────────────────────────
-    const chunks = splitIntoChunks(materialContent)
-    console.log(`[Blueprint] ${chunks.length} chunk(s) para analizar`)
-
-    const chunkResults: Array<{ topics: RawExtractedTopic[]; chunkIndex: number }> = []
-    let mergedCentralQuestion: string | undefined = undefined
-    let mergedLearningPath: string[] | undefined = undefined
-    let mergedKeyInsight: string | undefined = undefined
-
-    // Procesar en lotes de 3 para no saturar
-    for (let i = 0; i < chunks.length; i += 3) {
-      const batch = chunks.slice(i, i + 3)
-
-      const batchResults = await Promise.all(
-        batch.map(async (chunk) => {
-          const prompt = buildBlueprintPrompt(chunk.content, materialTitle, lang)
-
-          try {
-            const res = await fetch('/api/analizar-teorico', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contenido: chunk.content,
-                mode: 'blueprint_analysis',
-                blueprintPrompt: prompt,
-                materialTitle,
-                chunkIndex: chunk.index,
-                chunkPages: chunk.estimatedPages,
-                maxLength: 'medium',
-              }),
-            })
-
-            if (!res.ok) {
-              return { topics: [], chunkIndex: chunk.index }
-            }
-
-            const data = await res.json()
-
-            const rawText =
-              data.blueprint ||
-              data.blueprintRaw ||
-              data.analysis ||
-              data.content ||
-              ''
-
-            const parsed = parseAnalysisResponse(rawText)
-            if (!parsed?.topics || parsed.topics.length === 0) {
-              return { topics: [], chunkIndex: chunk.index }
-            }
-
-            if (parsed.centralQuestion && !mergedCentralQuestion) {
-              mergedCentralQuestion = parsed.centralQuestion
-            }
-
-            if (
-              Array.isArray(parsed.learningPath) &&
-              parsed.learningPath.length > 0 &&
-              (!mergedLearningPath || parsed.learningPath.length > mergedLearningPath.length)
-            ) {
-              mergedLearningPath = parsed.learningPath.map(String)
-            }
-
-            if (parsed.keyInsight && !mergedKeyInsight) {
-              mergedKeyInsight = parsed.keyInsight
-            }
-
-            const topics = sanitizeTopics(parsed.topics).map(t => ({
-              ...t,
-              sourcePages: t.sourcePages && t.sourcePages.length > 0
-                ? t.sourcePages
-                : chunk.estimatedPages,
-              concepts: (t.concepts || []).map(c => ({
-                ...c,
-                sourcePages: c.sourcePages && c.sourcePages.length > 0
-                  ? c.sourcePages
-                  : chunk.estimatedPages,
-              })),
-            }))
-
-            console.log(`[Blueprint] Chunk ${chunk.index}: ${topics.length} topics`)
-            return { topics, chunkIndex: chunk.index }
-          } catch {
-            return { topics: [], chunkIndex: chunk.index }
-          }
-        })
-      )
-
-      chunkResults.push(...batchResults)
-    }
-
-    const mergedTopics = mergeTopicsFromChunks(chunkResults as any)
-    const mergeValidation = validateMergedTopics(mergedTopics as any)
-
-    console.log(
-      `[Blueprint] Merge: ${mergeValidation.topicCount} topics, ${mergeValidation.conceptCount} conceptos`
-    )
-
-    if (mergeValidation.warnings.length > 0) {
-      console.warn('[Blueprint] Warnings:', mergeValidation.warnings)
-    }
-
-    const sanitizedTopics = mergedTopics as RawExtractedTopic[]
-
-    if (sanitizedTopics.length === 0) {
-      console.warn('[Blueprint] Cero topics tras merge — usando fallback')
-      return fallbackBlueprintFromText(materialContent, materialId, materialTitle)
-    }
-    // ── Enriquecer topics con relaciones del grafo de conocimiento ──
-    // Extraer todos los conceptos de los topics para llamar a extract-graph
-    const allConceptNames = sanitizedTopics
-      .flatMap(t => t.concepts.map(c => c.name))
-      .filter(n => n.length > 1)
-
-    let enrichedTopics = sanitizedTopics
-
-    if (allConceptNames.length >= 2) {
-      const graph = await fetchConceptGraph(materialContent, materialId, allConceptNames)
-      if (graph && graph.relations.length > 0) {
-        enrichedTopics = enrichTopicsWithGraph(sanitizedTopics, graph)
-        console.log('[Blueprint] Topics enriquecidos con grafo de conocimiento')
-      }
-    }
-
-    const params: BlueprintBuildParams = {
-      materialId,
-      materialTitle,
-      materialContent,
-      selectedPages,
-      extractedTopics: enrichedTopics,
-      centralQuestion: mergedCentralQuestion,
-      learningPath: mergedLearningPath,
-      keyInsight: mergedKeyInsight,
-    }
-
-    const blueprint = buildMaterialBlueprint(params)
-
-    // Validar resultado
-    const validation = validateMaterialBlueprint(blueprint, materialContent.length)
-
-    if (!validation.isValid) {
-      console.warn('[Blueprint] Validación fallida:', validation.errors)
-      // Si el score es muy bajo → fallback
-      if (validation.score < 30) {
-        return fallbackBlueprintFromText(materialContent, materialId, materialTitle)
-      }
-      // Si el score es medio → devolver igual pero marcar
-      blueprint.validationPassed = false
-      blueprint.confidence = Math.min(blueprint.confidence, 50)
-    }
-
-    console.log(
-      `[Blueprint] ✅ ${blueprint.topics.length} temas | confidence: ${blueprint.confidence}% | fallback: ${blueprint.fallbackUsed}`
-    )
-
-    return blueprint
-
-  } catch (err) {
-    console.error('[Blueprint] Error en análisis:', err)
+  if (!materialContent || materialContent.length < 200) {
+    console.warn('[Blueprint] Material muy corto, usando fallback')
     return fallbackBlueprintFromText(materialContent, materialId, materialTitle)
   }
+
+  console.log(`📚 Blueprint analizando: "${materialTitle}" (${materialContent.length} chars)`)
+
+  // ═══════════════════════════════════════════════════════════════
+  // FASE 1: Análisis profundo por chunks
+  // Extraer DATOS CRUDOS (ideas, hechos, procesos) de todo el PDF
+  // ═══════════════════════════════════════════════════════════════
+  const chunks = splitIntoChunks(materialContent, 4500)
+  console.log(`📄 Fase 1: Analizando ${chunks.length} chunk(s) en paralelo`)
+
+  const allRawData: ChunkAnalysis[] = []
+  const PARALLEL = 2
+
+  for (let start = 0; start < chunks.length; start += PARALLEL) {
+    const batch = chunks.slice(start, start + PARALLEL)
+
+    const results = await Promise.all(
+      batch.map(async (chunk, idx) => {
+        const chunkIndex = start + idx
+        const prompt = buildChunkAnalysisPrompt(chunk, materialTitle, lang, chunkIndex, chunks.length)
+        const raw = await safeAlaiJson(prompt, 3500)
+
+        if (!raw) {
+          console.warn(`⚠️ Chunk ${chunkIndex + 1} análisis falló`)
+          return null
+        }
+
+        console.log(`✅ Chunk ${chunkIndex + 1}/${chunks.length}: ${(raw.ideas || []).length} ideas, ${(raw.conceptos || []).length} conceptos`)
+        return raw as ChunkAnalysis
+      })
+    )
+
+    allRawData.push(...results.filter((r): r is ChunkAnalysis => r !== null))
+  }
+
+  if (allRawData.length === 0) {
+    console.warn('[Blueprint] Cero datos extraídos, fallback')
+    return fallbackBlueprintFromText(materialContent, materialId, materialTitle)
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // FASE 2: Síntesis global
+  // Con TODOS los datos, identificar los topics REALES del material
+  // ═══════════════════════════════════════════════════════════════
+  console.log(`🧠 Fase 2: Sintetizando topics desde ${allRawData.length} chunks analizados`)
+
+  const allIdeas = allRawData.flatMap(d => d.ideas || [])
+  const allConceptos = allRawData.flatMap(d => d.conceptos || [])
+  const allProcesos = allRawData.flatMap(d => d.procesos || [])
+  const allRelaciones = allRawData.flatMap(d => d.relaciones || [])
+
+  const synthesisPrompt = buildSynthesisPrompt({
+    materialTitle,
+    lang,
+    ideas: allIdeas,
+    conceptos: allConceptos,
+    procesos: allProcesos,
+    relaciones: allRelaciones,
+    totalChars: materialContent.length,
+  })
+
+  const synthesisResult = await safeAlaiJson(synthesisPrompt, 5500)
+
+  if (!synthesisResult || !synthesisResult.topics || !Array.isArray(synthesisResult.topics)) {
+    console.warn('[Blueprint] Síntesis falló, usando datos crudos')
+    return fallbackFromRawData(allRawData, materialContent, materialId, materialTitle)
+  }
+
+  const extractedTopics = sanitizeTopics(synthesisResult.topics)
+  console.log(`✅ Blueprint: ${extractedTopics.length} topics identificados`)
+
+  // ═══════════════════════════════════════════════════════════════
+  // FASE 3: Construir blueprint final
+  // ═══════════════════════════════════════════════════════════════
+  const blueprintParams: BlueprintBuildParams = {
+    materialContent,
+    materialId,
+    materialTitle,
+    extractedTopics,
+  }
+
+  const blueprint = buildMaterialBlueprint(blueprintParams)
+  const validation = validateMaterialBlueprint(blueprint, materialContent.length)
+  if (!validation.isValid) {
+    console.warn('[Blueprint] Validación falló:', validation.errors || [])
+  }
+
+  return blueprint
 }
+
+// ═══════════════════════════════════════════════════════════════
+// TIPOS Y HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+interface ChunkAnalysis {
+  ideas?: string[]
+  conceptos?: Array<{ nombre: string; definicion: string }>
+  procesos?: string[]
+  relaciones?: string[]
+}
+
+function buildChunkAnalysisPrompt(
+  chunk: string,
+  materialTitle: string,
+  lang: 'es' | 'en',
+  chunkIndex: number,
+  totalChunks: number,
+): string {
+  if (lang === 'es') {
+    return `Analiza este fragmento del material "${materialTitle}" (chunk ${chunkIndex + 1}/${totalChunks}).
+
+Tu trabajo: extraer TODO el conocimiento útil. No sintetices, no agrupes — EXTRAE.
+
+CONTENIDO:
+${chunk}
+
+Devuelve SOLO JSON válido:
+{
+  "ideas": ["ideas centrales que aparecen", "puntos importantes", "hechos clave"],
+  "conceptos": [
+    {"nombre": "Nombre del concepto técnico", "definicion": "breve definición del material"}
+  ],
+  "procesos": ["procesos o mecanismos descritos", "secuencias", "ciclos"],
+  "relaciones": ["X causa Y", "A se relaciona con B porque..."]
+}
+
+REGLAS:
+- Extrae 5-15 ideas
+- Extrae 3-10 conceptos con definición
+- No inventes nada que no esté en el material
+- Sé granular: prefiere muchos elementos específicos sobre pocos generales`
+  }
+
+  return `Analyze this chunk of "${materialTitle}" (${chunkIndex + 1}/${totalChunks}).
+
+Extract ALL useful knowledge. Don't synthesize, don't group — EXTRACT.
+
+CONTENT:
+${chunk}
+
+Return ONLY valid JSON:
+{
+  "ideas": ["central ideas", "key facts"],
+  "conceptos": [{"nombre": "term", "definicion": "brief definition"}],
+  "procesos": ["processes described"],
+  "relaciones": ["X causes Y", "A relates to B because..."]
+}`
+}
+
+function buildSynthesisPrompt(params: {
+  materialTitle: string
+  lang: 'es' | 'en'
+  ideas: string[]
+  conceptos: Array<{ nombre: string; definicion: string }>
+  procesos: string[]
+  relaciones: string[]
+  totalChars: number
+}): string {
+  const { materialTitle, lang, ideas, conceptos, procesos, relaciones, totalChars } = params
+
+  // Estimar cuántos topics esperados según tamaño del material
+  // ~2000-3000 chars por topic, mínimo 3, máximo 12
+  const expectedTopics = Math.max(3, Math.min(12, Math.round(totalChars / 2500)))
+
+  const dataBlock = [
+    'IDEAS EXTRAÍDAS:',
+    ideas.slice(0, 60).map(i => '- ' + i).join('\n'),
+    '',
+    'CONCEPTOS EXTRAÍDOS:',
+    conceptos.slice(0, 40).map(c => `- ${c.nombre}: ${c.definicion}`).join('\n'),
+    '',
+    'PROCESOS:',
+    procesos.slice(0, 25).map(p => '- ' + p).join('\n'),
+    '',
+    'RELACIONES:',
+    relaciones.slice(0, 25).map(r => '- ' + r).join('\n'),
+  ].join('\n')
+
+  if (lang === 'es') {
+    return `Eres un diseñador de planes de estudio. Te doy todos los datos extraídos del material "${materialTitle}".
+
+Tu trabajo: identificar los TOPICS reales que un estudiante necesita aprender para dominar este material.
+
+DATOS DEL MATERIAL:
+${dataBlock}
+
+INSTRUCCIONES:
+
+1. Identifica los ${expectedTopics} TOPICS principales del material (puede variar entre ${Math.max(2, expectedTopics - 2)} y ${expectedTopics + 2})
+2. Cada topic debe ser una UNIDAD DE APRENDIZAJE específica
+3. NO uses topics genéricos como "Introducción" o "Conceptos básicos"
+4. Cada topic agrupa 3-7 conceptos relacionados
+5. Los conceptos vienen de la lista de "Conceptos extraídos"
+
+EJEMPLOS BUENOS de topics:
+- "Estructura molecular de los lípidos saturados"
+- "Función de fosfolípidos en la membrana celular"
+- "Clasificación y propiedades de las grasas trans"
+- "Vitaminas liposolubles y su absorción"
+
+Devuelve SOLO JSON válido:
+{
+  "topics": [
+    {
+      "title": "Título específico (no genérico)",
+      "description": "1-2 frases de qué cubre",
+      "difficulty": 60,
+      "importance": 80,
+      "estimatedMinutes": 15,
+      "concepts": [
+        {
+          "name": "Nombre del concepto",
+          "definition": "Definición breve",
+          "importance": "critical" | "major" | "supporting",
+          "difficulty": 50,
+          "practiceType": "recall" | "application" | "analysis"
+        }
+      ]
+    }
+  ]
+}`
+  }
+
+  return `You are a study plan designer. Here are all data extracted from "${materialTitle}".
+
+Your job: identify the REAL topics a student needs to learn to master this material.
+
+DATA:
+${dataBlock}
+
+INSTRUCTIONS:
+
+1. Identify the ${expectedTopics} main TOPICS (can vary ${Math.max(2, expectedTopics - 2)} to ${expectedTopics + 2})
+2. Each topic = a SPECIFIC learning unit
+3. NO generic topics like "Introduction"
+4. Each topic groups 3-7 related concepts
+
+Return ONLY valid JSON:
+{
+  "topics": [
+    {
+      "title": "Specific title",
+      "description": "1-2 sentences",
+      "difficulty": 60,
+      "importance": 80,
+      "estimatedMinutes": 15,
+      "concepts": [
+        {
+          "name": "Concept name",
+          "definition": "Brief definition",
+          "importance": "critical" | "major" | "supporting",
+          "difficulty": 50,
+          "practiceType": "recall" | "application" | "analysis"
+        }
+      ]
+    }
+  ]
+}`
+}
+
+function fallbackFromRawData(
+  rawData: ChunkAnalysis[],
+  materialContent: string,
+  materialId: string,
+  materialTitle: string,
+): MaterialBlueprint {
+  // Si la síntesis falló pero tenemos datos crudos, crear topics básicos por chunk
+  const topics: RawExtractedTopic[] = []
+  for (let i = 0; i < rawData.length; i++) {
+    const d = rawData[i]
+    const conceptos = (d.conceptos || []).slice(0, 5).map(c => ({
+      name: c.nombre,
+      definition: c.definicion,
+      importance: 'major' as const,
+      difficulty: 50,
+      practiceType: 'recall' as const,
+    }))
+
+    if (conceptos.length === 0) continue
+
+    topics.push({
+      title: `Parte ${i + 1}`,
+      description: (d.ideas || [])[0] || '',
+      difficulty: 50,
+      importance: 70,
+      estimatedMinutes: 15,
+      concepts: conceptos,
+    })
+  }
+
+  if (topics.length === 0) {
+    return fallbackBlueprintFromText(materialContent, materialId, materialTitle)
+  }
+
+  return buildMaterialBlueprint({
+    materialContent,
+    materialId,
+    materialTitle,
+    extractedTopics: topics,
+  })
+}
+
+
+
+// ── Merge de topics duplicados ────────────────────────────
+function mergeDuplicateTopics(topics: RawExtractedTopic[]): RawExtractedTopic[] {
+  const groups: Map<string, RawExtractedTopic[]> = new Map()
+
+  for (const topic of topics) {
+    const key = topic.title.toLowerCase()
+      .replace(/[^a-záéíóúñ\s]/g, '')
+      .trim()
+      .split(/\s+/)
+      .slice(0, 3)
+      .join(' ')
+
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(topic)
+  }
+
+  const merged: RawExtractedTopic[] = []
+  for (const [key, group] of groups.entries()) {
+    if (group.length === 1) {
+      merged.push(group[0])
+    } else {
+      // Fusionar: combinar conceptos sin duplicar
+      const allConcepts = group.flatMap(t => t.concepts || [])
+      const uniqueConcepts = Array.from(
+        new Map(allConcepts.map(c => [c.name.toLowerCase(), c])).values()
+      )
+      merged.push({
+        ...group[0],
+        concepts: uniqueConcepts,
+      })
+    }
+  }
+
+  return merged
+}
+
+
 
 // ── Blueprint desde análisis existente ──────────────────────────
 // Si ya se hizo un análisis previo (modo repasar/análisis),
