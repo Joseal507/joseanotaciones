@@ -8,6 +8,8 @@ export interface StudySession {
   id: string;                           // sess_xxx
   temaId: string;                       // tema al que pertenece
   enfoque: Enfoque;
+  processMode?: 'free' | 'adaptive';
+  studyMode?: 'free' | 'adaptive';      // modo de estudio elegido
   materialIds: string[];                // materiales en esta sesión
   selectedPages?: Record<string, number[]>; // páginas por materialId
   flashcards?: any[];                   // flashcards generadas
@@ -49,12 +51,18 @@ export function getSessionsByTema(temaId: string): StudySession[] {
 }
 
 // Encontrar sesión por enfoque + materialIds (para no duplicar)
+function normalizeIds(ids: string[]): string {
+  return [...new Set((ids || []).map(id => String(id || '').trim()).filter(Boolean))]
+    .sort()
+    .join(',');
+}
+
 export function findSession(temaId: string, enfoque: Enfoque, materialIds: string[]): StudySession | null {
   const sessions = getSessionsByTema(temaId);
-  const sortedIds = [...materialIds].sort().join(',');
+  const sortedIds = normalizeIds(materialIds);
   return sessions.find(s =>
     s.enfoque === enfoque &&
-    [...s.materialIds].sort().join(',') === sortedIds
+    normalizeIds(s.materialIds) === sortedIds
   ) || null;
 }
 
@@ -74,6 +82,8 @@ async function syncSessionToServer(session: StudySession) {
 export function upsertSession(params: {
   temaId: string;
   enfoque: Enfoque;
+  studyMode?: 'free' | 'adaptive';
+  processMode?: 'free' | 'adaptive';
   materialIds: string[];
   selectedPages?: Record<string, number[]>;
   flashcards?: any[];
@@ -82,12 +92,15 @@ export function upsertSession(params: {
   currentPhase?: string;
 }): StudySession {
   const all = loadAll();
-  const existing = findSession(params.temaId, params.enfoque, params.materialIds);
+  const cleanMaterialIds = [...new Set((params.materialIds || []).map(id => String(id || '').trim()).filter(Boolean))];
+  const existing = findSession(params.temaId, params.enfoque, cleanMaterialIds);
 
   const now = Date.now();
   if (existing) {
     const updated: StudySession = {
       ...existing,
+      processMode: params.processMode ?? existing.processMode ?? 'free',
+      studyMode: params.studyMode ?? existing.studyMode ?? 'free',
       selectedPages: params.selectedPages ?? existing.selectedPages,
       flashcards: params.flashcards ?? existing.flashcards,
       notes: params.notes ?? existing.notes,
@@ -106,7 +119,9 @@ export function upsertSession(params: {
     id,
     temaId: params.temaId,
     enfoque: params.enfoque,
-    materialIds: params.materialIds,
+    processMode: params.processMode || 'free',
+    studyMode: params.studyMode || 'free',
+    materialIds: cleanMaterialIds,
     selectedPages: params.selectedPages,
     flashcards: params.flashcards,
     notes: params.notes,
@@ -130,7 +145,10 @@ export function deleteSession(sessionId: string) {
 
 // Saber si un material tiene alguna sesión activa
 export function getMaterialSessions(temaId: string, materialId: string): StudySession[] {
-  return getSessionsByTema(temaId).filter(s => s.materialIds.includes(materialId));
+  const target = String(materialId || '').trim();
+  return getSessionsByTema(temaId).filter(s =>
+    s.materialIds.some(id => String(id || '').trim() === target)
+  );
 }
 
 // Limpiar sesiones huérfanas (materiales que ya no existen)

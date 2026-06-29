@@ -18,7 +18,24 @@ export default {
       if (url.pathname === "/users/by-email" && request.method === "GET") {
         const email = url.searchParams.get("email")?.toLowerCase().trim()
         if (!email) return json({ ok: false, error: "email_required" }, 400)
-        const user = await env.DB.prepare("SELECT * FROM users WHERE email = ?").bind(email).first()
+        const user = await env.DB.prepare(`
+          SELECT
+            u.*,
+            p.nombre,
+            p.avatar_url,
+            p.tipo_usuario,
+            p.tipo_estudiante,
+            p.escuela,
+            p.universidad,
+            p.carrera,
+            p.edad,
+            p.es_menor,
+            p.referral_source,
+            p.objetivo
+          FROM users u
+          LEFT JOIN profiles p ON p.user_id = u.id
+          WHERE u.email = ?
+        `).bind(email).first()
         return json({ ok: true, user: user || null })
       }
 
@@ -51,7 +68,7 @@ export default {
 
         await env.DB.prepare(`
           INSERT INTO profiles (user_id, nombre, email, avatar_url, onboarding_completo, updated_at)
-          VALUES (?, ?, ?, ?, 1, datetime('now'))
+          VALUES (?, ?, ?, ?, 0, datetime('now'))
           ON CONFLICT(user_id) DO UPDATE SET
             nombre = COALESCE(profiles.nombre, excluded.nombre),
             email = COALESCE(profiles.email, excluded.email),
@@ -65,6 +82,112 @@ export default {
         ).run()
 
         return json({ ok: true, user })
+      }
+
+      if (url.pathname === "/onboarding/complete" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.user_id) return json({ ok: false, error: "user_id_required" }, 400)
+
+        const edad = Number(body.edad || 0)
+        const esMenor = edad > 0 && edad < 18 ? 1 : 0
+
+        if (!body.nombre || !edad || !body.tipo_usuario) {
+          return json({ ok: false, error: "missing_required_fields" }, 400)
+        }
+
+        if (esMenor && !body.permiso_menor) {
+          return json({ ok: false, error: "minor_permission_required" }, 400)
+        }
+
+        if (!body.accepted_terms || !body.accepted_privacy) {
+          return json({ ok: false, error: "legal_acceptance_required" }, 400)
+        }
+
+        await env.DB.prepare(`
+          UPDATE users SET
+            name = ?,
+            onboarding_version = ?,
+            onboarding_completed = 1,
+            terms_accepted_at = datetime('now'),
+            privacy_accepted_at = datetime('now'),
+            updated_at = datetime('now')
+          WHERE id = ?
+        `).bind(body.nombre, Number(body.onboarding_version || 2), body.user_id).run()
+
+        await env.DB.prepare(`
+          INSERT INTO profiles (
+            user_id, nombre, email, avatar_url, descripcion, genero,
+            tipo_estudiante, universidad, carrera, onboarding_completo,
+            edad, es_menor, permiso_menor, tipo_usuario, escuela,
+            referral_source, objetivo, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(user_id) DO UPDATE SET
+            nombre = excluded.nombre,
+            email = COALESCE(excluded.email, profiles.email),
+            avatar_url = COALESCE(excluded.avatar_url, profiles.avatar_url),
+            descripcion = COALESCE(excluded.descripcion, profiles.descripcion),
+            genero = NULL,
+            tipo_estudiante = excluded.tipo_estudiante,
+            universidad = excluded.universidad,
+            carrera = excluded.carrera,
+            onboarding_completo = 1,
+            edad = excluded.edad,
+            es_menor = excluded.es_menor,
+            permiso_menor = excluded.permiso_menor,
+            tipo_usuario = excluded.tipo_usuario,
+            escuela = excluded.escuela,
+            referral_source = excluded.referral_source,
+            objetivo = excluded.objetivo,
+            updated_at = datetime('now')
+        `).bind(
+          body.user_id,
+          body.nombre,
+          body.email || null,
+          body.avatar_url || null,
+          body.descripcion || null,
+          body.tipo_usuario || null,
+          body.universidad || null,
+          body.carrera || null,
+          edad,
+          esMenor,
+          body.permiso_menor ? 1 : 0,
+          body.tipo_usuario || null,
+          body.escuela || null,
+          body.referral_source || null,
+          body.objetivo || null
+        ).run()
+
+        await env.DB.prepare(`
+          INSERT INTO leaderboard (
+            user_id, nombre, email, avatar_url, xp_total, flashcards_estudiadas,
+            racha_actual, mejor_racha, precision_global, visible_leaderboard,
+            descripcion, genero, tipo_estudiante, universidad, carrera, quizzes_completados, updated_at
+          )
+          VALUES (?, ?, ?, ?, 0, 0, 0, 0, 0, ?, NULL, NULL, ?, ?, ?, 0, datetime('now'))
+          ON CONFLICT(user_id) DO UPDATE SET
+            nombre = excluded.nombre,
+            email = COALESCE(excluded.email, leaderboard.email),
+            avatar_url = COALESCE(excluded.avatar_url, leaderboard.avatar_url),
+            visible_leaderboard = excluded.visible_leaderboard,
+            genero = NULL,
+            tipo_estudiante = excluded.tipo_estudiante,
+            universidad = excluded.universidad,
+            carrera = excluded.carrera,
+            updated_at = datetime('now')
+        `).bind(
+          body.user_id,
+          body.nombre,
+          body.email || null,
+          body.avatar_url || null,
+          body.visible_leaderboard ? 1 : 0,
+          body.tipo_usuario || null,
+          body.universidad || body.escuela || null,
+          body.carrera || null
+        ).run()
+
+        const profile = await env.DB.prepare("SELECT * FROM profiles WHERE user_id = ?").bind(body.user_id).first()
+        return json({ ok: true, profile })
       }
 
       if (url.pathname === "/profiles/by-user" && request.method === "GET") {

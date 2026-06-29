@@ -19,6 +19,8 @@ interface Props {
   tema: any;
   materia: any;
   onBack: () => void;
+  onMasteryEvent?: (event: any) => void;
+  masteryContext?: any;
 }
 
 interface ReviewerResult {
@@ -208,7 +210,9 @@ function conceptBadge(status: string) {
   return { icon: '🟡', label: 'En progreso' };
 }
 
-export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materia, onBack }: Props) {
+import { useMasteryReporter } from '../../hooks/useMastery';
+
+export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materia, onBack, onMasteryEvent, masteryContext }: Props) {
   const [phase, setPhase] = useState<Phase>('preview');
   const [notes, setNotes] = useState('');
   const [explanation, setExplanation] = useState('');
@@ -221,6 +225,8 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
   const [teachCheck, setTeachCheck] = useState<any | null>(null);
   const [activeRepasarColor, setActiveRepasarColor] = useState('rgba(250, 204, 21, 0.48)');
   const [error, setError] = useState('');
+
+  // onMasteryEvent viene como prop desde app/materias/page.tsx
 
   const { texts: contenidos, status: contentStatus, totalChars } = useMultiContent(
     materiales.map((m: any) => ({
@@ -370,6 +376,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
           explanation,
           materialText: clampText(materialText),
           previousWeakConcepts: weakConcepts,
+          masteryContext,
         }),
       });
 
@@ -388,6 +395,41 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
         ...prev,
       ].slice(0, 8));
       setPhase('analisis');
+
+      // ── Mastery Engine: reportar resultado de Repasar ──
+      try {
+        const a = data.analysis;
+        const conceptsCovered = [
+          ...(a.missingConcepts || []),
+          ...(a.strengths || []),
+          ...(a.weakConcepts || []),
+          ...(a.conceptStatus?.map((c: any) => c.concept) || []),
+        ].filter(Boolean).slice(0, 15);
+
+        console.log(
+          '%c🧠 REPASAR → emit',
+          'background:#22c55e;color:#000;padding:2px 6px;border-radius:4px;font-weight:900',
+          {
+            score: typeof a.score === 'number' ? a.score : 0,
+            explanationQuality: a.metrics?.clarity ?? a.score ?? 0,
+            coveragePercent: a.metrics?.coverage ?? a.score ?? 0,
+            concepts: conceptsCovered,
+            missing: a.missingConcepts?.slice(0, 5) || [],
+          }
+        );
+
+        onMasteryEvent?.({
+          tool: 'repasar',
+          materialId: materiales[0]?.materialId || materiales[0]?.id || '',
+          score: typeof a.score === 'number' ? a.score : 0,
+          explanationQuality: a.metrics?.clarity ?? a.score ?? 0,
+          coveragePercent: a.metrics?.coverage ?? a.score ?? 0,
+          conceptsIdentified: conceptsCovered,
+          mistakeTypes: a.missingConcepts?.slice(0, 5) || [],
+          freeModeUse: true,
+          freeDomainPct: 8,
+        });
+      } catch (_) {}
     } catch (err: any) {
       setError(err?.message || 'No se pudo analizar.');
     } finally {
@@ -665,6 +707,46 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                     {item}
                   </label>
                 ))}
+
+                {/* Panel adaptativo: enfoque según masteryContext */}
+                {masteryContext && (masteryContext.criticalConcepts?.length > 0 || masteryContext.weakConcepts?.length > 0) && (
+                  <div style={{
+                    marginTop: 16,
+                    padding: '12px 14px',
+                    background: 'color-mix(in srgb, var(--gold) 10%, var(--bg-primary))',
+                    border: '1.5px solid color-mix(in srgb, var(--gold) 40%, transparent)',
+                    borderRadius: 12,
+                  }}>
+                    <div style={{ fontFamily: HAND, fontSize: 16, fontWeight: 900, color: 'var(--gold)', marginBottom: 8 }}>
+                      🎯 Mientras lees, enfócate especialmente en:
+                    </div>
+                    {masteryContext.criticalConcepts?.slice(0, 3).map((c: string) => (
+                      <div key={c} style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        marginBottom: 6, fontSize: 14, color: 'var(--text-primary)',
+                      }}>
+                        <span style={{ color: '#ef4444', fontSize: 16 }}>⚠️</span>
+                        <strong>{c}</strong>
+                        <span style={{ color: 'var(--text-faint)', fontSize: 12 }}>crítico</span>
+                      </div>
+                    ))}
+                    {masteryContext.weakConcepts?.slice(0, 4).map((c: string) => (
+                      <div key={c} style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        marginBottom: 6, fontSize: 14, color: 'var(--text-primary)',
+                      }}>
+                        <span style={{ color: '#f97316', fontSize: 16 }}>📍</span>
+                        {c}
+                        <span style={{ color: 'var(--text-faint)', fontSize: 12 }}>reforzar</span>
+                      </div>
+                    ))}
+                    {masteryContext.strongConcepts?.length > 0 && (
+                      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-faint)', fontStyle: 'italic' }}>
+                        ✅ Ya dominas: {masteryContext.strongConcepts.slice(0, 3).join(', ')}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div style={{
@@ -698,6 +780,23 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
               gap: 18,
               marginTop: 20,
             }}>
+              {/* Panel adaptativo en lectura activa */}
+              {masteryContext && (masteryContext.criticalConcepts?.length > 0 || masteryContext.weakConcepts?.length > 0) && (
+                <div style={{
+                  padding: '10px 14px',
+                  background: 'color-mix(in srgb, var(--blue) 8%, var(--bg-primary))',
+                  border: '1px solid color-mix(in srgb, var(--blue) 30%, transparent)',
+                  borderRadius: 10,
+                  marginBottom: 12,
+                  fontSize: 13,
+                }}>
+                  <span style={{ color: 'var(--blue)', fontWeight: 900 }}>💡 Anota especialmente sobre: </span>
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    {[...(masteryContext.criticalConcepts || []), ...(masteryContext.weakConcepts || [])].slice(0, 5).join(' · ')}
+                  </span>
+                </div>
+              )}
+
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
@@ -793,6 +892,35 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                 );
               })}
             </div>
+
+            {/* Panel adaptativo en explicación */}
+            {masteryContext && (masteryContext.criticalConcepts?.length > 0 || masteryContext.weakConcepts?.length > 0) && (
+              <div style={{
+                padding: '10px 14px',
+                background: 'color-mix(in srgb, #ef4444 6%, var(--bg-primary))',
+                border: '1px solid color-mix(in srgb, #ef4444 25%, transparent)',
+                borderRadius: 10,
+                marginBottom: 12,
+                fontSize: 13,
+              }}>
+                <div style={{ color: '#ef4444', fontWeight: 900, marginBottom: 4 }}>
+                  🎯 Al explicar, asegúrate de mencionar:
+                </div>
+                {[...(masteryContext.criticalConcepts || []).slice(0, 2), ...(masteryContext.weakConcepts || []).slice(0, 3)].map((c: string) => (
+                  <span key={c} style={{
+                    display: 'inline-block',
+                    margin: '2px 4px 2px 0',
+                    padding: '2px 8px',
+                    background: 'color-mix(in srgb, #ef4444 15%, transparent)',
+                    border: '1px solid color-mix(in srgb, #ef4444 30%, transparent)',
+                    borderRadius: 999,
+                    color: 'var(--text-primary)',
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}>{c}</span>
+                ))}
+              </div>
+            )}
 
             <textarea
               value={explanation}

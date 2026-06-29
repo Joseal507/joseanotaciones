@@ -317,8 +317,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    const rawText = String(body.content || '').trim();
+    const rawText = String(body.content || body.contenido || body.texto || '').trim();
     const count = Math.max(1, Math.min(Number(body.count) || 10, 50));
+    const masteryContext = body.masteryContext || null;
     const nivel = ['facil', 'intermedio', 'dificil', 'easy', 'medium', 'hard'].includes(String(body.nivel))
       ? String(body.nivel)
       : 'intermedio';
@@ -391,7 +392,8 @@ Contexto del Material:
 ${chunk}`;
 
             const res = await alai({
-              messages: [{ role: 'user', content: extractPrompt }],
+              messages: [
+        { role: 'system', content: 'Eres un examinador experto. REGLA DE ORO: El 80% de las preguntas DEBEN ser sobre los conceptos listados como DÉBILES o CRÍTICOS. PROHIBIDO preguntar sobre conceptos dominados. Si el estudiante tiene "ilusión de conocimiento" en un concepto, haz una pregunta trampa sobre ese concepto exacto.' },{ role: 'user', content: extractPrompt }],
               temperature: 0.1,
               maxTokens: 4000,
             });
@@ -437,23 +439,98 @@ ${chunk}`;
 
     const selectedTasks: ConceptTask[] = [];
 
+    // ── SELECCIÓN ADAPTATIVA basada en masteryContext ──
+    // Si hay contexto de mastery, priorizar conceptos débiles
+    if (masteryContext?.weakConcepts?.length || masteryContext?.criticalConcepts?.length) {
+      const weakSet = new Set([
+        ...(masteryContext.criticalConcepts || []).map((s: string) => s.toLowerCase()),
+        ...(masteryContext.weakConcepts || []).map((s: string) => s.toLowerCase()),
+        ...(masteryContext.forgettingRiskConcepts || []).map((s: string) => s.toLowerCase()),
+      ]);
+      const strongSet = new Set(
+        (masteryContext.strongConcepts || []).map((s: string) => s.toLowerCase())
+      );
+
+      // Clasificar conceptos extraídos
+      const weak: ExtractedConcept[] = [];
+      const normal: ExtractedConcept[] = [];
+      const strong: ExtractedConcept[] = [];
+
+      for (const c of allExtractedConcepts) {
+        const text = c.text.toLowerCase();
+        const isWeak = Array.from(weakSet).some((w: string) => text.includes(w) || w.includes(text.slice(0, 20)));
+        const isStrong = Array.from(strongSet).some((s: string) => text.includes(s) || s.includes(text.slice(0, 20)));
+
+        if (isWeak) weak.push(c);
+        else if (isStrong) strong.push(c);
+        else normal.push(c);
+      }
+
+      // Distribución adaptativa:
+      // críticos/débiles: 55% | normales: 35% | fuertes: 10%
+      const weakCount = Math.round(bufferCount * 0.55);
+      const normalCount = Math.round(bufferCount * 0.35);
+      const strongCount = bufferCount - weakCount - normalCount;
+
+      const adaptiveConcepts: ExtractedConcept[] = [
+        ...weak.sort(() => Math.random() - 0.5).slice(0, weakCount),
+        ...normal.sort(() => Math.random() - 0.5).slice(0, normalCount),
+        ...strong.sort(() => Math.random() - 0.5).slice(0, strongCount),
+      ];
+
+      // Si no hay suficientes débiles, completar con normales
+      if (adaptiveConcepts.length < bufferCount) {
+        const missing = bufferCount - adaptiveConcepts.length;
+        const extra = [...normal, ...strong]
+          .filter(c => !adaptiveConcepts.includes(c))
+          .sort(() => Math.random() - 0.5)
+          .slice(0, missing);
+        adaptiveConcepts.push(...extra);
+      }
+
+      // Ajustar dificultad según el perfil del estudiante
+      let adaptedNivel = nivel;
+      if (masteryContext.studentProfile === 'beginner') {
+        adaptedNivel = 'facil';
+      } else if (masteryContext.studentProfile === 'memorizer' || masteryContext.studentProfile === 'understander') {
+        adaptedNivel = 'intermedio';
+      } else if (masteryContext.studentProfile === 'advanced') {
+        adaptedNivel = 'dificil';
+      }
+
+      // Crear tasks con dificultad adaptada
+      for (const c of adaptiveConcepts) {
+        const type = tipos[Math.floor(Math.random() * tipos.length)];
+        selectedTasks.push({
+          concept: c.text,
+          materialId: c.materialId,
+          materialName: c.materialName,
+          page: c.page,
+          type,
+        });
+      }
+
+      console.log('[Quiz Adaptativo] Debiles: ' + weak.length + ' | Normales: ' + normalCount + ' | Fuertes: ' + strongCount + ' | Perfil: ' + masteryContext.studentProfile);
+    }
+
     // DISTRIBUCIÓN PROPORCIONAL GARANTIZADA POR MATERIAL
     // Agrupar conceptos por material
-    // Shuffle global primero
-    allExtractedConcepts.sort(() => Math.random() - 0.5);
+    // Shuffle global primero (solo si no se usó selección adaptativa)
+    if (selectedTasks.length === 0) allExtractedConcepts.sort(() => Math.random() - 0.5);
     const conceptsByMaterial: Record<string, ExtractedConcept[]> = {};
     for (const c of allExtractedConcepts) {
       if (!conceptsByMaterial[c.materialId]) conceptsByMaterial[c.materialId] = [];
       conceptsByMaterial[c.materialId].push(c);
     }
     const matIds = Object.keys(conceptsByMaterial);
-    console.log(`🧠 [Quiz Backend] Conceptos por material:`, matIds.map(id => `${id}: ${conceptsByMaterial[id].length}`).join(', '));
+    console.log('[Quiz Backend] Conceptos por material:', matIds.map(id => id + ': ' + conceptsByMaterial[id].length).join(', '));
 
     // Calcular cuántas preguntas le tocan a cada material proporcionalmente
+    // Solo si no se usó selección adaptativa
     const totalConcepts = allExtractedConcepts.length;
     const tasksPerMaterial: Record<string, number> = {};
     let assigned = 0;
-    matIds.forEach((id, idx) => {
+    if (selectedTasks.length === 0) matIds.forEach((id, idx) => {
       if (idx === matIds.length - 1) {
         tasksPerMaterial[id] = bufferCount - assigned;
       } else {
@@ -462,7 +539,7 @@ ${chunk}`;
         assigned += tasksPerMaterial[id];
       }
     });
-    console.log(`🧠 [Quiz Backend] Tareas por material:`, matIds.map(id => `${id}: ${tasksPerMaterial[id]}`).join(', '));
+    console.log('[Quiz Backend] Tareas por material:', matIds.map(id => id + ': ' + tasksPerMaterial[id]).join(', '));
 
     // Generar tareas round-robin entre materiales para intercalar bien
     const cursors: Record<string, number> = {};
@@ -492,9 +569,8 @@ ${chunk}`;
     }
     selectedTasks.push(...interleavedTasks.slice(0, bufferCount));
 
-    console.log(`🧠 [Quiz Backend] Tareas totales asignadas con distribución proporcional: ${selectedTasks.length}`);
-    console.log(`🧠 [Quiz Backend] Distribución final:`, 
-      matIds.map(id => `${id}: ${selectedTasks.filter(t => t.materialId === id).length}`).join(', '));
+    console.log('[Quiz Backend] Tareas totales asignadas con distribucion proporcional: ' + selectedTasks.length);
+    console.log('[Quiz Backend] Distribucion final:', matIds.map(id => id + ': ' + selectedTasks.filter(t => t.materialId === id).length).join(', '));
 
     const difficultyLabel = nivel === 'facil' || nivel === 'easy' ? 'easy' : nivel === 'dificil' || nivel === 'hard' ? 'hard' : 'medium';
 
@@ -504,6 +580,10 @@ ${chunk}`;
 - "true_false": "correctAnswer" is boolean (true or false).
 - "multi_select": "options" is 4-5 strings. "correctAnswers" is array of correct indices.
 - "fill_blank": "question" MUST contain exactly one "___" placeholder. Make sure that the missing word or phrase ("answer") is NOT repeated in the sentence. For example, if the sentence is "Bohr studied at Copenhagen University", replacing "Copenhagen" must result in "Bohr studied at ___ University", NOT "Bohr studied at ___ Copenhagen University". "answer" is the word. "wordBank" has exactly 4 options.
+
+REQUIRED IN EVERY QUESTION:
+- "primaryConcept": string — the main academic concept being tested (1-3 words, e.g. "ATP synthesis", NOT the question text)
+- "concepts": string[] — list of 1-3 academic concepts this question covers
 - "matching": "pairs" MUST have exactly 4 objects: { "left": "concept", "right": "match" }. Do NOT use placeholder/generic words. Use real facts.
 - "short_answer": "acceptedAnswers" is array of 1-5 strings, "caseInsensitive" is true.`
       : `Especificación estricta de tipos (JSON ESTRICTO):
@@ -511,6 +591,10 @@ ${chunk}`;
 - "true_false": "correctAnswer" es un booleano (true o false).
 - "multi_select": "options" tiene de 4 a 5 strings. "correctAnswers" es un array de enteros correctos.
 - "fill_blank": "question" DEBE contener exactamente un "___" reemplazando una palabra crucial. REGLA GRAMATICAL: Todas las opciones en "wordBank" DEBEN compartir el mismo género (masculino/femenino) y número (singular/plural) que la respuesta correcta, para que la respuesta no sea obvia por descartes del texto previo (ej. "el", "una"). "answer" es la palabra correcta. "wordBank" tiene 4 opciones.
+
+OBLIGATORIO EN CADA PREGUNTA:
+- "primaryConcept": string — el concepto académico principal que evalúa (1-3 palabras, ej. "síntesis de ATP", NO el texto de la pregunta)
+- "concepts": string[] — lista de 1-3 conceptos académicos que cubre esta pregunta
 - "matching": "pairs" DEBE contener exactamente 4 objetos: { "left": "concepto", "right": "definición" }. REGLA CRÍTICA: Los 4 conceptos DEBEN pertenecer a la MISMA CATEGORÍA EXACTA (ej. 4 fechas, 4 autores, o 4 teorías) para que la respuesta requiera conocimiento y no sea deducible por simple descarte. Extrae hechos reales.
 - "short_answer": "acceptedAnswers" es un array de 1-5 strings correctos, "caseInsensitive" es true.`;
 

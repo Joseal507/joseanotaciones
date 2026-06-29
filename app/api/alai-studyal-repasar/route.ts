@@ -325,6 +325,7 @@ EVALUADOR NEUTRAL:
     const materia = String(body.materia || '').trim();
     const tema = String(body.tema || '').trim();
     const previousWeakConcepts = Array.isArray(body.previousWeakConcepts) ? body.previousWeakConcepts : [];
+    const masteryContext = body.masteryContext || null;
 
     if (!materialText) {
       return NextResponse.json({ error: 'No hay contenido para analizar.' }, { status: 400 });
@@ -432,6 +433,28 @@ ${selectedMode.strictness}
 
 CONCEPTOS DÉBILES PREVIOS:
 ${previousWeakConcepts.join(', ') || 'Ninguno'}
+
+${masteryContext ? `
+PERFIL DEL ESTUDIANTE (ADAPTA TU EVALUACIÓN A ESTO):
+- Dominio general: ${masteryContext.overallMastery}%
+- Comprensión: ${masteryContext.understanding}% | Memoria: ${masteryContext.memory}% | Aplicación: ${masteryContext.application}%
+- Perfil: ${masteryContext.studentProfile}
+- Conceptos críticos (< 20%): ${masteryContext.criticalConcepts?.join(', ') || 'Ninguno'}
+- Conceptos débiles (< 40%): ${masteryContext.weakConcepts?.join(', ') || 'Ninguno'}
+- Conceptos dominados: ${masteryContext.strongConcepts?.join(', ') || 'Ninguno'}
+
+INSTRUCCIÓN ADAPTATIVA:
+${masteryContext.studentProfile === 'beginner' ? 'El estudiante es principiante. Evalúa si mencionó los conceptos básicos. Sé generoso con el puntaje si muestra comprensión básica.' : ''}
+${masteryContext.studentProfile === 'memorizer' ? 'El estudiante memoriza pero no conecta. Penaliza si solo enumera sin explicar relaciones entre conceptos.' : ''}
+${masteryContext.studentProfile === 'understander' ? 'El estudiante entiende pero no recuerda detalles. Evalúa si captó las ideas principales aunque olvide detalles menores.' : ''}
+${masteryContext.studentProfile === 'applier' ? 'El estudiante aplica pero no explica bien. Evalúa si puede transferir el conocimiento a ejemplos nuevos.' : ''}
+${masteryContext.studentProfile === 'advanced' ? 'El estudiante está avanzado. Sé exigente. Penaliza si no conecta conceptos o no muestra profundidad.' : ''}
+
+ENFOCA EL ANÁLISIS EN:
+${masteryContext.criticalConcepts?.length ? `- Verificar especialmente si mencionó: ${masteryContext.criticalConcepts.slice(0, 3).join(', ')}` : ''}
+${masteryContext.weakConcepts?.length ? `- Detectar si confundió: ${masteryContext.weakConcepts.slice(0, 3).join(', ')}` : ''}
+${masteryContext.strongConcepts?.length ? `- No penalizar si omitió: ${masteryContext.strongConcepts.slice(0, 3).join(', ')} (ya los domina)` : ''}
+` : ''}
 
 MATERIAL:
 """

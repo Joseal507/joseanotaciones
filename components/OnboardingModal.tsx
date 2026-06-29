@@ -1,340 +1,588 @@
+
 'use client';
 
-import { useState } from 'react';
-import { getSession } from 'next-auth/react';
-import { useIdioma } from '../hooks/useIdioma';
-
-const CARRERAS = [
-  'Ingeniería en Sistemas / Informática','Ingeniería Civil','Ingeniería Mecánica',
-  'Ingeniería Eléctrica','Medicina','Enfermería','Odontología','Psicología','Derecho',
-  'Administración de Empresas','Contaduría / Contabilidad','Economía','Arquitectura',
-  'Diseño Gráfico','Marketing / Publicidad','Comunicación Social','Educación / Pedagogía',
-  'Biología','Química','Física','Matemáticas','Filosofía','Historia','Sociología',
-  'Trabajo Social','Nutrición / Dietética','Fisioterapia','Farmacia','Veterinaria',
-  'Agronomía','Otra carrera',
-];
+import { useMemo, useState } from 'react';
 
 const UNIVERSIDADES = [
-  'ULAT','USMA','UTP','UP (Universidad de Panamá)','UDELAS','ISAE Universidad',
-  'Universidad Latina de Panamá','Columbus University','Universidad del Istmo','UMECIT',
-  'Harvard','MIT','Stanford','Notre Dame','IE University','UM (Universidad de Miami)',
-  'TEC de Monterrey','MU','Otra universidad',
+  'Universidad Latina de Panamá','Universidad de Panamá','Universidad Tecnológica de Panamá','USMA','UDELAS','UMECIT',
+  'Universidad del Istmo','Columbus University','ISAE Universidad','Universidad Interamericana de Panamá','UCF','USF','FIU','FSU','UF','UCLA','NYU',
+  'Harvard','MIT','Stanford','Notre Dame','IE University','Universidad de Miami','TEC de Monterrey',
 ];
 
-const ESCUELAS_PUBLICAS = [
-  'Instituto Nacional (El Nacio)','Artes y Oficios Melchor Lasso de la Vega',
-  'Instituto Fermín Naudeau','Instituto Profesional y Técnico de Panamá (IPTP)',
-  'Escuela Secundaria Pedro Pablo Sánchez','Colegio Secundario de Panamá',
-  'Escuela Secundaria de la Chorrera','Escuela Secundaria de Chitré','Colegio Rubiano',
+const ESCUELAS = [
+  'Colegio Brader',
+  'Colegio Javier',
+  'AIP',
+  'Balboa Academy',
+  'Metropolitan School',
+  'Colegio Episcopal de Panamá',
+  'Colegio Real de Panamá',
+  'Colegio San Agustín',
+  'Oxford School',
+  'Colegio La Salle',
+  'Instituto Panamericano',
+  'Instituto Nacional',
+  'Artes y Oficios',
+  'Instituto Fermín Naudeau',
+  'Colegio Internacional de Panamá'
 ];
 
-const ESCUELAS_PRIVADAS = [
-  'Colegio Brader','AIP (Academia Internacional de Panamá)','Balboa Academy',
-  'Metropolitan School','Instituto Sun Yat Sen (ISP)','Colegio Episcopal de Panamá (ECP)',
-  'Colegio Real de Panamá (CRP)','Colegio San Agustín','Oxford School','Colegio Javier',
-  'Colegio La Salle','Colegio De La Salle','Colegio Isaac Rabin','Colegio Hebreo',
-  'Instituto Episcopal San Cristóbal','Colegio Internacional de María Inmaculada',
-  'Saint Mary School','Colegio Internacional SEK Panamá',"King's College",'Colegio San Viator',
-  'Instituto Panamericano (IPA)','Colegio Las Esclavas','Colegio María Inmaculada',
-  'Colegio Madre Laura','Saint John School','Colegio Bilingüe Punta Pacífica',
-  'Colegio Internacional de Panamá','Colegio Alberto Einstein','Boston School International',
-  'St. George School','Otra escuela',
+const CARRERAS = [
+  'Medicina','Ingeniería en Sistemas','Ingeniería Civil','Derecho','Psicología','Administración de Empresas',
+  'Contabilidad','Arquitectura','Diseño Gráfico','Marketing','Comunicación Social','Educación','Biología',
+  'Química','Física','Matemáticas','Enfermería','Odontología','Fisioterapia','Farmacia',
 ];
+
+const REFERRALS = [
+  ['google','🔎','Google'],
+  ['tiktok','🎵','TikTok'],
+  ['instagram','📸','Instagram'],
+  ['youtube','▶️','YouTube'],
+  ['amigos_familia','👥','Amigos / Familia'],
+  ['dueno','👨‍💻','El fundador'],
+  ['otro','✨','Otro'],
+];
+
+const OBJECTIVES = [
+  ['mejorar_notas','📈','Mejorar mis notas'],
+  ['aprobar_examen','🎯','Aprobar un examen'],
+  ['entender_materias','🧠','Entender mejor mis materias'],
+  ['habito_estudio','📚','Crear un hábito de estudio'],
+  ['graduarme','🎓','Graduarme'],
+  ['otro','✨','Otro'],
+];
+
+type Step = 'welcome' | 'name' | 'age' | 'type' | 'school' | 'university' | 'career' | 'referral' | 'objective' | 'legal' | 'finish';
 
 interface Props {
   nombre: string;
   onComplete: () => void;
 }
 
-type Step = 'genero' | 'tipo' | 'detalles' | 'meta';
+function cx(active: boolean): React.CSSProperties {
+  return {
+    border: active ? '2px solid var(--gold)' : '2px solid var(--border-color)',
+    background: active ? 'linear-gradient(135deg, color-mix(in srgb, var(--gold) 18%, var(--bg-card)), color-mix(in srgb, var(--bg-card) 82%, #000))' : 'var(--bg-secondary)',
+    color: active ? 'var(--gold)' : 'var(--text-primary)',
+    boxShadow: active ? '0 0 0 4px color-mix(in srgb, var(--gold) 14%, transparent), 0 14px 34px rgba(0,0,0,.18)' : 'none',
+  };
+}
 
 export default function OnboardingModal({ nombre, onComplete }: Props) {
-  const { tr, idioma } = useIdioma();
-  const [step, setStep] = useState<Step>('genero');
-  const [genero, setGenero] = useState('');
-  const [tipoEstudiante, setTipoEstudiante] = useState('');
-  const [universidad, setUniversidad] = useState('');
-  const [universidadCustom, setUniversidadCustom] = useState('');
-  const [carrera, setCarrera] = useState('');
-  const [carreraCustom, setCarreraCustom] = useState('');
-  const [escuela, setEscuela] = useState('');
-  const [escuelaCustom, setEscuelaCustom] = useState('');
-  const [queQuieresEstudiar, setQueQuieresEstudiar] = useState('');
-  const [guardando, setGuardando] = useState(false);
+  const [step, setStep] = useState<Step>('welcome');
+  const [name, setName] = useState(nombre || '');
+  const [age, setAge] = useState('');
+  const [minorPermission, setMinorPermission] = useState(false);
+  const [type, setType] = useState('');
+  const [school, setSchool] = useState('');
+  const [schoolCustom, setSchoolCustom] = useState('');
+  const [university, setUniversity] = useState('');
+  const [universityCustom, setUniversityCustom] = useState('');
+  const [career, setCareer] = useState('');
+  const [careerCustom, setCareerCustom] = useState('');
+  const [referral, setReferral] = useState('');
+  const [referralOther, setReferralOther] = useState('');
+  const [objective, setObjective] = useState('');
+  const [objectiveOther, setObjectiveOther] = useState('');
+  const [terms, setTerms] = useState(false);
+  const [privacy, setPrivacy] = useState(false);
+  const [leaderboard, setLeaderboard] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
 
-  const universidadFinal = universidad === 'Otra universidad' ? universidadCustom : universidad;
-  const carreraFinal     = carrera === 'Otra carrera' ? carreraCustom : carrera;
-  const escuelaFinal     = escuela === 'Otra escuela' ? escuelaCustom : escuela;
+  const schoolFinal = (school || schoolCustom).trim();
+  const universityFinal = (university || universityCustom).trim();
+  const careerFinal = (career || careerCustom).trim();
+  const referralFinal = referral === 'otro' ? referralOther.trim() : referral;
+  const objectiveFinal = objective === 'otro' ? objectiveOther.trim() : objective;
 
-  const tieneDetalles = tipoEstudiante === 'universitario' || tipoEstudiante === 'escuela';
-  const steps: Step[] = tieneDetalles ? ['genero','tipo','detalles','meta'] : ['genero','tipo','meta'];
-  const stepIndex  = steps.indexOf(step);
-  const totalSteps = steps.length;
-  const progress   = ((stepIndex + 1) / totalSteps) * 100;
+  const isMinor = Number(age) > 0 && Number(age) < 18;
 
-  const handleGuardar = async () => {
-    setGuardando(true);
+  const steps = useMemo<Step[]>(() => {
+    const base: Step[] = ['welcome','name','age','type'];
+    if (type === 'estudiante') base.push('school');
+    if (type === 'universitario') base.push('university', 'career');
+    base.push('referral','objective','legal','finish');
+    return base;
+  }, [type]);
+
+  const index = Math.max(0, steps.indexOf(step));
+  const progress = Math.round(((index + 1) / steps.length) * 100);
+
+  const title = {
+    welcome: 'Bienvenido a StudyAL.',
+    name: '¿Cómo te llamas?',
+    age: '¿Qué edad tienes?',
+    type: '¿Quién eres?',
+    school: '¿En qué escuela estudias?',
+    university: '¿En qué universidad estudias?',
+    career: '¿Qué carrera estudias?',
+    referral: '¿Cómo conociste StudyAL?',
+    objective: '¿Qué quieres lograr?',
+    legal: 'Antes de entrar',
+    finish: 'Todo listo.',
+  }[step];
+
+  function canContinue() {
+    if (step === 'welcome') return true;
+    if (step === 'name') return name.trim().length >= 2;
+    if (step === 'age') return Number(age) > 0 && Number(age) < 120 && (!isMinor || minorPermission);
+    if (step === 'type') return !!type;
+    if (step === 'school') return !!schoolFinal;
+    if (step === 'university') return !!universityFinal;
+    if (step === 'career') return !!careerFinal;
+    if (step === 'referral') return !!referralFinal;
+    if (step === 'objective') return !!objectiveFinal;
+    if (step === 'legal') return terms && privacy;
+    return true;
+  }
+
+  function next() {
+    const i = steps.indexOf(step);
+    if (step === 'legal') return save();
+    if (i < steps.length - 1) setStep(steps[i + 1]);
+  }
+
+  function back() {
+    const i = steps.indexOf(step);
+    if (i > 0) setStep(steps[i - 1]);
+  }
+
+  async function save() {
+    if (!canContinue()) return;
+    setSaving(true);
+    setErr('');
+
     try {
-      const session: any = await getSession();
-      if (!session?.user?.id) { onComplete(); return; }
-
-      const userId = session.user.id;
-      localStorage.setItem(`josea_onboarding_done_${userId}`, 'true');
-
-      const datosPerfil = {
-        nombre,
-        genero,
-        tipo_estudiante: tipoEstudiante,
-        universidad:  tipoEstudiante === 'universitario' ? universidadFinal : tipoEstudiante === 'escuela' ? escuelaFinal : null,
-        carrera:      tipoEstudiante === 'universitario' ? carreraFinal : null,
-        que_quieres_estudiar: queQuieresEstudiar || null,
-        onboarding_completo: true,
-      };
-
-      await fetch('/api/leaderboard', {
+      const res = await fetch('/api/onboarding', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json',  },
-        body: JSON.stringify(datosPerfil),
+        headers: { 'content-type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          nombre: name.trim(),
+          edad: Number(age),
+          permiso_menor: minorPermission,
+          tipo_usuario: type,
+          escuela: type === 'estudiante' ? schoolFinal : null,
+          universidad: type === 'universitario' ? universityFinal : null,
+          carrera: type === 'universitario' ? careerFinal : null,
+          referral_source: referralFinal,
+          objetivo: objectiveFinal,
+          accepted_terms: terms,
+          accepted_privacy: privacy,
+          visible_leaderboard: leaderboard,
+        }),
       });
 
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.success === false) throw new Error(json.error || 'No se pudo guardar');
 
-      fetch('/api/notify-new-user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...datosPerfil, email: session.user.email, es_nuevo: true }),
-      }).catch(() => {});
-
-      onComplete();
-    } catch (err) {
-      console.error('handleGuardar error:', err);
-      onComplete();
+      setStep('finish');
+      setTimeout(onComplete, 1800);
+    } catch (e: any) {
+      setErr(e?.message || 'No se pudo guardar. Inténtalo de nuevo.');
     } finally {
-      setGuardando(false);
+      setSaving(false);
     }
+  }
+
+  const input: React.CSSProperties = {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: '2px solid var(--border-color)',
+    borderRadius: 20,
+    padding: '17px 19px',
+    background: 'var(--bg-secondary)',
+    color: 'var(--text-primary)',
+    fontSize: 18,
+    fontWeight: 900,
+    outline: 'none',
   };
 
-  const goNext = () => {
-    const idx = steps.indexOf(step);
-    if (idx < steps.length - 1) setStep(steps[idx + 1]);
-    else handleGuardar();
+  const card: React.CSSProperties = {
+    width: '100%',
+    borderRadius: 20,
+    padding: '17px 19px',
+    cursor: 'pointer',
+    textAlign: 'left',
+    fontWeight: 900,
+    transition: 'all .18s ease',
   };
-
-  const goBack = () => {
-    const idx = steps.indexOf(step);
-    if (idx > 0) setStep(steps[idx - 1]);
-  };
-
-  const canContinue = () => {
-    if (step === 'genero')   return genero !== '';
-    if (step === 'tipo')     return tipoEstudiante !== '';
-    if (step === 'detalles') {
-      if (tipoEstudiante === 'universitario') return carreraFinal !== '' || carrera !== '';
-      if (tipoEstudiante === 'escuela')       return escuelaFinal !== '' || escuela !== '';
-    }
-    return true;
-  };
-
-  const SelectStyle: React.CSSProperties = {
-    width: '100%', padding: '12px 16px', borderRadius: '12px',
-    border: '2px solid var(--border-color)', background: 'var(--bg-secondary)',
-    color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer',
-  };
-  const InputStyle: React.CSSProperties = {
-    width: '100%', padding: '12px 16px', borderRadius: '12px', marginTop: '8px',
-    border: '2px solid var(--gold)', background: 'var(--bg-secondary)',
-    color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box',
-  };
-  const LabelStyle: React.CSSProperties = {
-    fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)',
-    display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px',
-  };
-
-  const stepTitles: Record<Step, string> = {
-    genero:   idioma === 'en' ? `Hi, ${nombre}! 🎉` : `¡Hola, ${nombre}! 🎉`,
-    tipo:     idioma === 'en' ? 'What type of student are you?' : '¿Qué tipo de estudiante eres?',
-    detalles: tipoEstudiante === 'escuela'
-      ? (idioma === 'en' ? 'What school do you attend?' : '¿En qué escuela estudias?')
-      : (idioma === 'en' ? 'Where do you study?' : '¿Dónde estudias?'),
-    meta:     idioma === 'en' ? 'What do you want to achieve?' : '¿Qué quieres lograr aquí?',
-  };
-
-  const stepEmojis: Record<Step, string> = { genero: '👋', tipo: '🎓', detalles: '🏫', meta: '✨' };
-
-  const metaSuggestions = idioma === 'en'
-    ? ['Pass my exams','Learn programming','Improve my GPA','Prepare thesis','Certifications','Learn for fun']
-    : ['Pasar mis exámenes','Aprender programación','Mejorar mi promedio','Preparar tesis','Certificaciones','Aprender por placer'];
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', backdropFilter: 'blur(8px)' }}>
-      <div style={{ width: '100%', maxWidth: '480px', background: 'var(--bg-card)', borderRadius: '24px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.6)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-
-        <div style={{ height: '4px', background: 'var(--bg-secondary)', flexShrink: 0 }}>
-          <div style={{ height: '100%', width: `${progress}%`, background: 'var(--gold)', transition: 'width 0.4s ease', borderRadius: '0 4px 4px 0' }} />
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      zIndex: 99999,
+      background: 'radial-gradient(circle at 20% 12%, color-mix(in srgb, var(--gold) 26%, transparent), transparent 28%), radial-gradient(circle at 82% 82%, rgba(56,189,248,.16), transparent 34%), linear-gradient(135deg, var(--bg-primary), color-mix(in srgb, var(--bg-primary) 78%, #000))',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 18,
+    }}>
+      <div style={{
+        width: '100%',
+        maxWidth: 860,
+        minHeight: 520,
+        maxHeight: '84vh',
+        overflow: 'hidden',
+        borderRadius: 36,
+        border: '1px solid color-mix(in srgb, var(--gold) 32%, var(--border-color))',
+        background: 'color-mix(in srgb, var(--bg-card) 92%, transparent)',
+        boxShadow: '0 0 0 1px rgba(255,255,255,.04), 0 34px 120px rgba(0,0,0,.58), 0 0 70px color-mix(in srgb, var(--gold) 12%, transparent)',
+        display: 'flex',
+        flexDirection: 'column',
+        position: 'relative',
+      }}>
+        <div style={{ padding: '20px 24px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <img src="/logo.png" alt="StudyAL" style={{ width: 38, height: 38, objectFit: 'contain', transform: 'scale(1.8)' }} />
+              <div>
+                <strong style={{ fontSize: 21, color: 'var(--text-primary)', letterSpacing: '-.6px' }}>Study<span style={{ color: 'var(--gold)' }}>AL</span></strong>
+                <div style={{ fontSize: 10, color: 'var(--text-faint)', fontWeight: 900, letterSpacing: 1.4, textTransform: 'uppercase' }}>onboarding inteligente</div>
+              </div>
+            </div>
+            <div style={{ color: 'var(--text-faint)', fontSize: 12, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 1 }}>
+              ALAI · Paso {index + 1} de {steps.length}
+            </div>
+          </div>
+          <div style={{ height: 7, background: 'color-mix(in srgb, var(--bg-secondary) 80%, #000)', borderRadius: 999, marginTop: 16, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: progress + '%', background: 'var(--gold)', transition: 'width .35s ease' }} />
+          </div>
         </div>
 
-        <div style={{ padding: '32px', overflowY: 'auto', flex: 1 }}>
-          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-            <div style={{ fontSize: '40px', marginBottom: '8px' }}>{stepEmojis[step]}</div>
-            <h2 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 6px' }}>
-              {stepTitles[step]}
-            </h2>
-            <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: 0 }}>
-              {step === 'genero'   && tr('onbHola')}
-              {step === 'tipo'     && tr('onbTipo')}
-              {step === 'detalles' && tr('onbDetalles')}
-              {step === 'meta'     && tr('onbMeta')}
-            </p>
-            <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '8px 0 0', fontWeight: 600 }}>
-              {tr('onbPaso')} {stepIndex + 1} {tr('onbDe')} {totalSteps}
+        <div style={{ padding: step === 'legal' ? '30px clamp(24px, 6vw, 58px) 110px' : step === 'university' || step === 'career' || step === 'school' ? '34px clamp(24px, 6vw, 58px) 18px' : '30px clamp(24px, 6vw, 58px)', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: step === 'university' || step === 'career' || step === 'school' || step === 'legal' ? 'flex-start' : 'center' }}>
+          <div style={{ marginBottom: 24 }}>
+            <h1 style={{ fontSize: step === 'legal' ? 'clamp(30px, 4.2vw, 42px)' : step === 'university' || step === 'career' || step === 'school' ? 'clamp(30px, 4.6vw, 42px)' : 'clamp(30px, 5.2vw, 50px)', lineHeight: 1.04, letterSpacing: '-1.7px', margin: '0 0 4px', color: 'var(--text-primary)', fontWeight: 1000 }}>
+              {title}
+            </h1>
+            <p style={{ margin: '14px 0 0', color: 'var(--text-muted)', fontSize: 16, lineHeight: 1.6, fontWeight: 650 }}>
+              {step === 'welcome' && 'Antes de entrar, ALAI va a preparar tu espacio para estudiar, organizarte, practicar y ver tu progreso como nunca.'}
+              {step === 'name' && 'Este será tu nombre visible en StudyAL.'}
+              {step === 'age' && 'Tu edad nunca será pública. Solo la usamos para seguridad y experiencia.'}
+              {step === 'type' && 'Así StudyAL adapta mejor tu espacio.'}
+              {step === 'school' && 'Tu escuela puede aparecer en tu perfil público si decides salir en el leaderboard.'}
+              {step === 'university' && 'Tu universidad puede aparecer en tu perfil público si decides salir en el leaderboard.'}
+              {step === 'career' && 'Esto ayuda a ALAI a adaptar mejor tu experiencia académica.'}
+              {step === 'referral' && 'Esto nos ayuda a saber qué canales están trayendo estudiantes reales.'}
+              {step === 'objective' && 'ALAI usará esto para entender qué tipo de ayuda quieres recibir.'}
+              {step === 'legal' && 'Acepta los términos y elige si quieres aparecer en el leaderboard público.'}
+              {step === 'finish' && 'Tu espacio StudyAL está quedando listo. ALAI ya está preparando tu experiencia.'}
             </p>
           </div>
 
-          {step === 'genero' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {step === 'welcome' && (
+            <div style={{ display: 'grid', gap: 12 }}>
               {[
-                { id: 'hombre', label: tr('onbHombre'), emoji: '👦' },
-                { id: 'mujer',  label: tr('onbMujer'),  emoji: '👧' },
-                { id: 'otro',   label: tr('onbOtro'),   emoji: '' },
-              ].map(opt => (
-                <button key={opt.id} onClick={() => setGenero(opt.id)}
-                  style={{ padding: '14px 20px', borderRadius: '14px', border: genero === opt.id ? '2px solid var(--gold)' : '2px solid var(--border-color)', background: genero === opt.id ? 'var(--gold-dim)' : 'var(--bg-secondary)', color: genero === opt.id ? 'var(--gold)' : 'var(--text-primary)', fontSize: '15px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', transition: 'all 0.15s', textAlign: 'left' }}>
-                  <span style={{ fontSize: '24px' }}>{opt.emoji}</span>
-                  {opt.label}
-                  {genero === opt.id && <span style={{ marginLeft: 'auto' }}>✓</span>}
-                </button>
+                ['🗂️','Organiza materias, tareas, horario y objetivos'],
+                ['🧠','Estudia con ALAI, flashcards, quizzes y exámenes'],
+                ['⚡','Mide tu progreso con XP, rachas y estadísticas'],
+              ].map(([e,t]) => (
+                <div key={t} style={{ padding: 18, borderRadius: 22, background: 'linear-gradient(135deg, color-mix(in srgb, var(--bg-secondary) 86%, transparent), color-mix(in srgb, var(--gold) 6%, transparent))', border: '1px solid color-mix(in srgb, var(--gold) 22%, var(--border-color))', display: 'flex', gap: 14, alignItems: 'center', fontWeight: 900, color: 'var(--text-primary)' }}>
+                  <span style={{ fontSize: 28 }}>{e}</span>{t}
+                </div>
               ))}
             </div>
           )}
 
-          {step === 'tipo' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {[
-                { id: 'escuela',       label: tr('onbEscuela'),       emoji: '🏫', desc: tr('onbEscuelaDesc') },
-                { id: 'universitario', label: tr('onbUniversitario'), emoji: '🎓', desc: tr('onbUniversitarioDesc') },
-                { id: 'profesional',   label: tr('onbProfesional'),   emoji: '💼', desc: tr('onbProfesionalDesc') },
-                { id: 'autodidacta',   label: tr('onbAutodidacta'),   emoji: '🧠', desc: tr('onbAutodidactaDesc') },
-              ].map(opt => (
-                <button key={opt.id} onClick={() => setTipoEstudiante(opt.id)}
-                  style={{ padding: '14px 18px', borderRadius: '14px', border: tipoEstudiante === opt.id ? '2px solid var(--gold)' : '2px solid var(--border-color)', background: tipoEstudiante === opt.id ? 'var(--gold-dim)' : 'var(--bg-secondary)', color: tipoEstudiante === opt.id ? 'var(--gold)' : 'var(--text-primary)', fontSize: '14px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', transition: 'all 0.15s', textAlign: 'left' }}>
-                  <span style={{ fontSize: '26px' }}>{opt.emoji}</span>
-                  <div>
-                    <div>{opt.label}</div>
-                    <div style={{ fontSize: '12px', fontWeight: 500, color: tipoEstudiante === opt.id ? 'var(--gold)' : 'var(--text-faint)', marginTop: '2px' }}>{opt.desc}</div>
-                  </div>
-                  {tipoEstudiante === opt.id && <span style={{ marginLeft: 'auto', fontSize: '18px' }}>✓</span>}
-                </button>
-              ))}
-            </div>
-          )}
+          {step === 'name' && <input style={input} autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="Tu nombre" />}
 
-          {step === 'detalles' && tipoEstudiante === 'universitario' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div>
-                <label style={LabelStyle}>🏫 {idioma === 'en' ? 'University' : 'Universidad'}</label>
-                <select value={universidad} onChange={(e: any) => setUniversidad(e.target.value)} style={{ ...SelectStyle, border: universidad ? '2px solid var(--gold)' : '2px solid var(--border-color)' }}>
-                  <option value="">{tr('onbSeleccionaUni')}</option>
-                  {UNIVERSIDADES.map(u => <option key={u} value={u}>{u}</option>)}
-                </select>
-                {universidad === 'Otra universidad' && (
-                  <input type="text" value={universidadCustom} onChange={(e: any) => setUniversidadCustom(e.target.value)}
-                    placeholder={tr('onbEscribeUni')} style={InputStyle} />
-                )}
-              </div>
-              <div>
-                <label style={LabelStyle}>📚 {idioma === 'en' ? 'Major' : 'Carrera'}</label>
-                <select value={carrera} onChange={(e: any) => setCarrera(e.target.value)} style={{ ...SelectStyle, border: carrera ? '2px solid var(--gold)' : '2px solid var(--border-color)' }}>
-                  <option value="">{tr('onbSeleccionaCarrera')}</option>
-                  {CARRERAS.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-                {carrera === 'Otra carrera' && (
-                  <input type="text" value={carreraCustom} onChange={(e: any) => setCarreraCustom(e.target.value)}
-                    placeholder={tr('onbEscribeCarrera')} style={InputStyle} />
-                )}
-              </div>
-            </div>
-          )}
-
-          {step === 'detalles' && tipoEstudiante === 'escuela' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ padding: '12px 16px', background: 'color-mix(in srgb, var(--gold) 8%, transparent)', borderRadius: '12px', border: '1px solid color-mix(in srgb, var(--gold) 30%, transparent)' }}>
-                <p style={{ fontSize: '13px', color: 'var(--gold)', margin: 0, fontWeight: 600 }}>
-                  {tr('onbEscuelasPA')}
-                </p>
-              </div>
-              <div>
-                <label style={LabelStyle}>🏫 {idioma === 'en' ? 'School' : 'Escuela'}</label>
-                <select value={escuela} onChange={(e: any) => setEscuela(e.target.value)} style={{ ...SelectStyle, border: escuela ? '2px solid var(--gold)' : '2px solid var(--border-color)' }}>
-                  <option value="">{tr('onbSeleccionaEscuela')}</option>
-                  <optgroup label="🏛️ {idioma === 'en' ? 'Public Schools' : 'Escuelas Públicas'}">
-                    {ESCUELAS_PUBLICAS.map(e => <option key={e} value={e}>{e}</option>)}
-                  </optgroup>
-                  <optgroup label="🏫 {idioma === 'en' ? 'Private Schools' : 'Escuelas Particulares'}">
-                    {ESCUELAS_PRIVADAS.map(e => <option key={e} value={e}>{e}</option>)}
-                  </optgroup>
-                </select>
-                {escuela === 'Otra escuela' && (
-                  <input type="text" value={escuelaCustom} onChange={(e: any) => setEscuelaCustom(e.target.value)}
-                    placeholder={tr('onbEscribeEscuela')} style={InputStyle} />
-                )}
-              </div>
-            </div>
-          )}
-
-          {step === 'detalles' && (tipoEstudiante === 'profesional' || tipoEstudiante === 'autodidacta') && (
-            <div style={{ padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
-                {tipoEstudiante === 'profesional' ? '💼 ' + tr('onbProfesionalInfo') : '🧠 ' + tr('onbAutodidactaInfo')}
-              </p>
-            </div>
-          )}
-
-          {step === 'meta' && (
+          {step === 'age' && (
             <div>
-              <label style={LabelStyle}>
-                {tr('onbMetaLabel')} <span style={{ color: 'var(--text-faint)', fontWeight: 500, textTransform: 'none' }}>({tr('onbOpcional')})</span>
-              </label>
-              <textarea value={queQuieresEstudiar} onChange={(e: any) => setQueQuieresEstudiar(e.target.value)}
-                placeholder={tr('onbMetaPlaceholder')} rows={4}
-                style={{ width: '100%', padding: '14px 16px', borderRadius: '14px', border: queQuieresEstudiar ? '2px solid var(--gold)' : '2px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', resize: 'vertical', lineHeight: '1.6', boxSizing: 'border-box', fontFamily: 'inherit' }}
-                onFocus={(e: any) => e.currentTarget.style.borderColor = 'var(--gold)'}
-                onBlur={(e: any) => { if (!queQuieresEstudiar) e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-              />
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
-                {metaSuggestions.map(s => (
-                  <button key={s} onClick={() => setQueQuieresEstudiar(s)}
-                    style={{ padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--border-color)', background: queQuieresEstudiar === s ? 'var(--gold-dim)' : 'transparent', color: queQuieresEstudiar === s ? 'var(--gold)' : 'var(--text-faint)', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
-                    {s}
-                  </button>
-                ))}
+              <input style={input} type="number" min={1} max={119} value={age} onChange={e => setAge(e.target.value)} placeholder="Edad" />
+              {isMinor && (
+                <label style={{ marginTop: 16, display: 'flex', gap: 12, padding: 16, borderRadius: 18, background: 'var(--bg-secondary)', border: '2px solid var(--gold)', color: 'var(--text-primary)', fontWeight: 800, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={minorPermission} onChange={e => setMinorPermission(e.target.checked)} />
+                  Confirmo que tengo autorización de mi padre, madre o tutor para utilizar StudyAL.
+                </label>
+              )}
+            </div>
+          )}
+
+          {step === 'type' && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }}>
+              {[
+                ['estudiante','🎒','Estudiante'],
+                ['universitario','🎓','Universitario'],
+                ['profesor','👨‍🏫','Profesor'],
+                ['otro','✨','Otro'],
+              ].map(([id, emoji, label]) => (
+                <button key={id} onClick={() => setType(id)} style={{ ...card, ...cx(type === id), minHeight: 92 }}>
+                  <span style={{ fontSize: 30, marginRight: 10 }}>{emoji}</span>{label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {step === 'school' && (
+            <Picker value={school} setValue={setSchool} custom={schoolCustom} setCustom={setSchoolCustom} options={ESCUELAS} customTrigger="" placeholder="Buscar escuela..." inputStyle={input} />
+          )}
+
+          {step === 'university' && (
+            <Picker value={university} setValue={setUniversity} custom={universityCustom} setCustom={setUniversityCustom} options={UNIVERSIDADES} customTrigger="" placeholder="Buscar universidad..." inputStyle={input} />
+          )}
+
+          {step === 'career' && (
+            <Picker value={career} setValue={setCareer} custom={careerCustom} setCustom={setCareerCustom} options={CARRERAS} customTrigger="" placeholder="Buscar carrera..." inputStyle={input} />
+          )}
+
+          {step === 'referral' && (
+            <GridOptions items={REFERRALS} value={referral} onChange={setReferral} />
+          )}
+          {step === 'referral' && referral === 'otro' && <input style={{ ...input, marginTop: 14 }} value={referralOther} onChange={e => setReferralOther(e.target.value)} placeholder="Cuéntanos dónde" />}
+
+          {step === 'objective' && (
+            <GridOptions items={OBJECTIVES} value={objective} onChange={setObjective} />
+          )}
+          {step === 'objective' && objective === 'otro' && <input style={{ ...input, marginTop: 14 }} value={objectiveOther} onChange={e => setObjectiveOther(e.target.value)} placeholder="Escribe tu objetivo" />}
+
+          {step === 'legal' && (
+            <div style={{ display: 'grid', gap: 14 }}>
+              <Check checked={terms} setChecked={setTerms}>
+                He leído y acepto los Términos y Condiciones de StudyAL.
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.open('/terminos', '_blank'); }}
+                  style={{ marginLeft: 8, border: 'none', background: 'transparent', color: 'var(--gold)', fontWeight: 1000, cursor: 'pointer' }}
+                >
+                  Leer
+                </button>
+              </Check>
+              <Check checked={privacy} setChecked={setPrivacy}>
+                He leído y acepto la Política de Privacidad de StudyAL.
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.open('/legal', '_blank'); }}
+                  style={{ marginLeft: 8, border: 'none', background: 'transparent', color: 'var(--gold)', fontWeight: 1000, cursor: 'pointer' }}
+                >
+                  Leer
+                </button>
+              </Check>
+              <Check checked={leaderboard} setChecked={setLeaderboard}>Quiero aparecer en el leaderboard público de StudyAL.</Check>
+
+              <div style={{ padding: step === 'legal' ? 14 : 16, borderRadius: 18, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Público si activas leaderboard:</strong>
+                <p style={{ color: 'var(--text-muted)', margin: '8px 0 0', lineHeight: 1.6 }}>Nombre, tipo de usuario, escuela/universidad, avatar y estadísticas como XP, racha, flashcards, quizzes y exámenes.</p>
+                <strong style={{ color: 'var(--text-primary)', display: 'block', marginTop: 12 }}>Nunca público:</strong>
+                <p style={{ color: 'var(--text-muted)', margin: '8px 0 0', lineHeight: 1.6 }}>Edad, email, objetivo, cómo conociste StudyAL, permiso de menor e información privada.</p>
               </div>
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: '10px', marginTop: '28px' }}>
-            {stepIndex > 0 && (
-              <button onClick={goBack}
-                style={{ padding: '13px 20px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
-                {tr('onbAtras')}
+          {step === 'finish' && (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {['Perfil creado','ALAI listo','Agenda, materias y progreso preparados','Estadísticas inicializadas','StudyAL listo para empezar'].map(x => (
+                <div key={x} style={{ color: 'var(--text-primary)', fontWeight: 900, padding: 14, borderRadius: 16, background: 'var(--bg-secondary)' }}>✓ {x}</div>
+              ))}
+            </div>
+          )}
+
+          {err && <p style={{ color: '#ef4444', fontWeight: 800, marginTop: 16 }}>{err}</p>}
+        </div>
+
+        {step !== 'finish' && (
+          <div style={{ padding: '12px 22px 18px', display: 'flex', gap: 12, background: 'linear-gradient(to top, var(--bg-card) 80%, transparent)', position: 'sticky', bottom: 0, zIndex: 20, flexShrink: 0 }}>
+            {index > 0 && (
+              <button onClick={back} style={{ padding: '14px 20px', borderRadius: 16, border: '2px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontWeight: 900, cursor: 'pointer' }}>
+                Atrás
               </button>
             )}
-            <button onClick={goNext} disabled={!canContinue() || guardando}
-              style={{ flex: 1, padding: '13px 24px', borderRadius: '12px', border: 'none', background: canContinue() && !guardando ? 'var(--gold)' : 'var(--bg-secondary)', color: canContinue() && !guardando ? '#000' : 'var(--text-faint)', fontSize: '15px', fontWeight: 800, cursor: canContinue() && !guardando ? 'pointer' : 'not-allowed', transition: 'all 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              {guardando
-                ? <><div style={{ width: '14px', height: '14px', border: '2px solid #000', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />{tr('onbGuardando')}</>
-                : step === 'meta' ? tr('onbEmpezar') : tr('onbContinuar')}
+            <button disabled={!canContinue() || saving} onClick={next} style={{
+              flex: 1,
+              padding: '14px 22px',
+              borderRadius: 18,
+              border: 'none',
+              background: canContinue() && !saving ? 'linear-gradient(135deg, var(--gold), color-mix(in srgb, var(--gold) 78%, white))' : 'var(--bg-secondary)',
+              color: canContinue() && !saving ? '#000' : 'var(--text-faint)',
+              fontWeight: 1000,
+              cursor: canContinue() && !saving ? 'pointer' : 'not-allowed',
+              fontSize: 15,
+            }}>
+              {saving ? 'Guardando...' : step === 'legal' ? 'Entrar a StudyAL' : index === 0 ? 'Comenzar' : 'Continuar'}
             </button>
           </div>
-
-          {step === 'meta' && (
-            <button onClick={handleGuardar}
-              style={{ width: '100%', marginTop: '12px', padding: '10px', background: 'transparent', border: 'none', color: 'var(--text-faint)', fontSize: '13px', cursor: 'pointer', fontWeight: 600 }}>
-              {tr('onbSaltar')}
-            </button>
-          )}
-        </div>
-
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        )}
       </div>
     </div>
+  );
+}
+
+function GridOptions({ items, value, onChange }: any) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+      {items.map(([id, emoji, label]: any) => (
+        <button key={id} onClick={() => onChange(id)} style={{ borderRadius: 18, padding: 16, cursor: 'pointer', textAlign: 'left', fontWeight: 1000, ...cx(value === id) }}>
+          <span style={{ fontSize: 26, marginRight: 8 }}>{emoji}</span>{label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Picker({ value, setValue, custom, setCustom, options, placeholder, inputStyle }: any) {
+  const [q, setQ] = useState('');
+  const query = q.trim();
+
+  const filtered = options
+    .filter((o: string) => o.toLowerCase().includes(query.toLowerCase()))
+    .slice(0, 6);
+
+  const hasQuery = query.length >= 2;
+  const hasResults = filtered.length > 0;
+  const selectedText = value || custom;
+
+  function addCustom() {
+    if (!hasQuery) return;
+    setValue('');
+    setCustom(query);
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      <div style={{ position: 'relative' }}>
+        <span style={{
+          position: 'absolute',
+          left: 18,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          color: 'var(--text-faint)',
+          fontSize: 18,
+          pointerEvents: 'none',
+        }}>
+          🔎
+        </span>
+
+        <input
+          style={{
+            ...inputStyle,
+            paddingLeft: 52,
+            height: 58,
+            borderRadius: 20,
+            border: '2px solid var(--gold)',
+            background: 'color-mix(in srgb, var(--bg-secondary) 88%, transparent)',
+            boxShadow: '0 0 0 4px color-mix(in srgb, var(--gold) 9%, transparent)',
+          }}
+          value={q}
+          onChange={e => {
+            setQ(e.target.value);
+            setValue('');
+            setCustom('');
+          }}
+          placeholder={placeholder}
+        />
+      </div>
+
+      {selectedText && (
+        <div style={{
+          padding: '12px 14px',
+          borderRadius: 16,
+          background: 'color-mix(in srgb, var(--gold) 12%, var(--bg-card))',
+          border: '1px solid color-mix(in srgb, var(--gold) 45%, transparent)',
+          color: 'var(--gold)',
+          fontWeight: 1000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}>
+          <span>✓ {selectedText}</span>
+          <button
+            onClick={() => { setValue(''); setCustom(''); setQ(''); }}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--gold)',
+              cursor: 'pointer',
+              fontWeight: 900,
+            }}
+          >
+            cambiar
+          </button>
+        </div>
+      )}
+
+      <div style={{
+        display: 'grid',
+        gap: 8,
+        maxHeight: 220,
+        overflowY: 'auto',
+        paddingRight: 4,
+      }}>
+        {hasResults && filtered.map((o: string) => (
+          <button
+            key={o}
+            onClick={() => {
+              setValue(o);
+              setCustom('');
+            }}
+            style={{
+              padding: '13px 15px',
+              borderRadius: 16,
+              cursor: 'pointer',
+              textAlign: 'left',
+              fontWeight: 900,
+              fontSize: 14,
+              lineHeight: 1.2,
+              ...cx(value === o),
+            }}
+          >
+            {value === o ? '✓ ' : ''}{o}
+          </button>
+        ))}
+
+        {hasQuery && !hasResults && !selectedText && (
+          <div style={{
+            padding: 16,
+            borderRadius: 18,
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-color)',
+          }}>
+            <div style={{ color: 'var(--text-primary)', fontWeight: 1000, fontSize: 15 }}>
+              No encontramos “{query}”.
+            </div>
+            <p style={{ margin: '6px 0 14px', color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.5 }}>
+              Puedes agregarlo manualmente y continuar.
+            </p>
+            <button
+              onClick={addCustom}
+              style={{
+                width: '100%',
+                border: '2px solid var(--gold)',
+                background: 'color-mix(in srgb, var(--gold) 14%, transparent)',
+                color: 'var(--gold)',
+                borderRadius: 14,
+                padding: '12px 14px',
+                cursor: 'pointer',
+                fontWeight: 1000,
+                textAlign: 'left',
+              }}
+            >
+              ➕ Agregar “{query}”
+            </button>
+          </div>
+        )}
+
+        {!hasQuery && !selectedText && (
+          <p style={{
+            margin: '2px 0 0',
+            color: 'var(--text-faint)',
+            fontSize: 13,
+            fontWeight: 700,
+          }}>
+            Escribe al menos 2 letras. Ejemplo: UCF, USF, FIU.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Check({ checked, setChecked, children }: any) {
+  return (
+    <label style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: 14, borderRadius: 18, background: 'var(--bg-secondary)', border: checked ? '2px solid var(--gold)' : '1px solid var(--border-color)', color: 'var(--text-primary)', fontWeight: 850, cursor: 'pointer' }}>
+      <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} style={{ marginTop: 3 }} />
+      <span>{children}</span>
+    </label>
   );
 }

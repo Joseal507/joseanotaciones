@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useMasteryReporter } from '../../hooks/useMastery';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import confetti from 'canvas-confetti';
@@ -53,8 +54,8 @@ interface HistoryEntry {
   };
 }
 
-const HAND = "'Patrick Hand', cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const BODY = "'Plus Jakarta Sans', system-ui, sans-serif";
+const HAND = BODY;
 
 // ─── Helpers de color ─────────────────────────────────────────
 const DIFF_COLOR: Record<Difficulty, string> = {
@@ -232,8 +233,10 @@ export default function ALAIStudyALQuizzes({
   tema,
   materia,
   onBack,
+  onMasteryEvent,
+  masteryContext,
 }: any) {
-  const themeColor = tema?.color || '#22d3ee';
+  const themeColor = '#d6b26f'; // StudyAL gold - identidad Quiz
 
   // ── Setup ──────────────────────────────────────────────────
   const [quizState, setQuizState] = useState<QuizState>('setup');
@@ -559,6 +562,7 @@ texto.slice(0,8000)
           nivel: difficulty,
           tipos: selectedTypes,
           seleccion,
+          masteryContext,
         }),
       });
       const data = await res.json();
@@ -574,6 +578,18 @@ texto.slice(0,8000)
         setQuestionStartTime(now);
         setElapsed(0);
         setQuizState('playing');
+
+        // ── Modo libre: registrar uso (14%) ──
+        try {
+          onMasteryEvent?.({
+            tool: 'quiz',
+            materialId: materiales[0]?.materialId || materiales[0]?.id || '',
+            score: 65,
+            conceptsIdentified: data.quiz.slice(0, 8).map((q: any) => q?.primaryConcept || q?.question?.slice(0, 60) || '').filter(Boolean),
+            freeModeUse: true,
+            freeDomainPct: 14,
+          });
+        } catch (_) {}
       } else {
         setGenError(data.error || 'No se pudieron generar preguntas. Intentá con más páginas.');
         setQuizState('setup');
@@ -770,6 +786,34 @@ texto.slice(0,8000)
       evaluation
     };
 
+    // ── Mastery Engine: reportar resultado de Quiz ──
+    try {
+      const scoreVal = evaluation?.porcentaje ?? (correct ? 100 : 0);
+      // Confianza calibrada: combina nivel de evaluación + velocidad de respuesta
+      // Respuesta rápida + correcta = alta confianza real
+      // Respuesta lenta + correcta = menor confianza (tuvo que pensar mucho)
+      const baseConfMap: Record<string, number> = {
+        correcta: 85, medio_correcta: 55, incorrecta: 20, dont_know: 0,
+      };
+      const baseConf = baseConfMap[evaluation?.nivel || ''] ?? (correct ? 80 : 20);
+      // Ajuste por velocidad: respuesta < 8s suma hasta 10 puntos, > 30s resta hasta 15
+      const speedBonus = timeMs < 8000 ? 10 : timeMs < 15000 ? 5 : timeMs < 30000 ? 0 : -15;
+      const confVal = Math.min(100, Math.max(0, baseConf + speedBonus));
+      onMasteryEvent?.({
+        tool: 'quiz',
+        materialId: materiales[0]?.materialId || materiales[0]?.id || '',
+        score: scoreVal,
+        correct,
+        confidence: confVal,
+        timeMs,
+        // Usar primaryConcept si existe, si no usar el texto de la pregunta como fallback
+        conceptName: (q as any)?.primaryConcept || q?.question?.slice(0, 60) || '',
+        conceptsIdentified: (q as any)?.concepts?.length
+          ? (q as any).concepts
+          : [(q as any)?.primaryConcept || q?.question?.slice(0, 60) || ''].filter(Boolean),
+      });
+    } catch (_) {}
+
     const newHistory = [
       ...history,
       entry
@@ -947,130 +991,63 @@ texto.slice(0,8000)
   // RENDER
   // ──────────────────────────────────────────────────────────
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: '#080810',
-        color: '#fff',
-        display: 'flex',
-        flexDirection: 'column',
-        fontFamily: BODY,
-        zIndex: 9999,
-        overflow: 'hidden',
-      }}
-    >
+    <div className="saq-screen">
+      <div className="saq-bg-radial" />
+      <div className="saq-bg-grid" />
       {/* ── HEADER ─────────────────────────────────────────── */}
-      <header
-        style={{
-          height: 64,
-          background: 'rgba(255,255,255,0.02)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 24px',
-          gap: 20,
-          flexShrink: 0,
-          zIndex: 100,
-        }}
-      >
-        <button
-          onClick={onBack}
-          style={{
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: 10,
-            padding: '7px 16px',
-            color: '#aaa',
-            cursor: 'pointer',
-            fontSize: 13,
-            fontWeight: 700,
-            fontFamily: BODY,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          ← Salir
+      <header className="saq-topbar">
+        <button className="saq-back" onClick={onBack}>
+          ← volver al proceso
         </button>
 
-        <div
-          style={{
-            fontFamily: HAND,
-            fontSize: 26,
-            color: themeColor,
-            flexShrink: 0,
-          }}
-        >
-          Quiz
-          <span style={{ color: '#fff', opacity: 0.35, marginLeft: 8, fontSize: 18 }}>
-            {tema?.nombre}
-          </span>
+        <div className="saq-hero">
+          <div className="saq-chip">04 · Aplicar</div>
+          <h1>
+            <span className="saq-emoji">🎯</span>
+            The Study<span style={{color:'#ef4444'}}>AL</span> Quizzes
+            <small>{tema?.nombre}</small>
+          </h1>
         </div>
 
-        {/* Barra de progreso central */}
-        {quizState === 'playing' && (
-          <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 14,
-              maxWidth: 500,
-              margin: '0 auto',
-            }}
-          >
-            <div
-              style={{
-                flex: 1,
-                height: 6,
-                background: 'rgba(255,255,255,0.07)',
-                borderRadius: 99,
-                overflow: 'hidden',
-              }}
-            >
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{
-                  width: `${((currentIndex + 1) / questions.length) * 100}%`,
-                }}
-                transition={{ type: 'spring', stiffness: 120 }}
-                style={{
-                  height: '100%',
-                  background: themeColor,
-                  boxShadow: `0 0 10px ${themeColor}88`,
-                  borderRadius: 99,
-                }}
-              />
+        {/* Timeline central (solo playing) */}
+        {quizState === 'playing' && questions.length > 0 && (
+          <div className="saq-timeline-wrap">
+            <div className="saq-timeline-title">
+              Pregunta <b>{currentIndex + 1} de {questions.length}</b>
             </div>
-            <span
-              style={{
-                fontSize: 13,
-                fontWeight: 800,
-                color: themeColor,
-                minWidth: 55,
-                textAlign: 'right',
-              }}
-            >
-              {currentIndex + 1}/{questions.length}
-            </span>
+            <div className="saq-timeline">
+              <div className="saq-timeline-line" />
+              <div
+                className="saq-timeline-line-fill"
+                style={{ width: `${(currentIndex / Math.max(questions.length - 1, 1)) * 100}%` }}
+              />
+              {questions.map((_, i) => {
+                const done = i < currentIndex;
+                const active = i === currentIndex;
+                const correct = history[i]?.correct;
+                return (
+                  <div
+                    key={i}
+                    className={`saq-tl-node ${active ? 'active' : ''} ${done ? (correct ? 'done-correct' : 'done-wrong') : ''}`}
+                  >
+                    {done ? (correct ? '✓' : '✗') : (i + 1)}
+                  </div>
+                );
+              })}
+            </div>
+            {currentIndex > 0 && history[currentIndex - 1]?.correct && (
+              <div className="saq-timeline-cheer">¡Vamos bien!</div>
+            )}
           </div>
         )}
 
-        {/* Stats derecha */}
+        {/* Reportar error (derecha) */}
         {quizState === 'playing' && (
-          <div style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
-            <StatChip value={liveCorrect}   color="#4ade80" icon="✓" />
-            <StatChip value={liveIncorrect} color="#f87171" icon="✗" />
-            <div
-              style={{
-                fontSize: 13,
-                color: '#555',
-                fontWeight: 600,
-                minWidth: 38,
-                textAlign: 'right',
-              }}
-            >
-              ⏱ {formatTime(elapsed)}
-            </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button className="saq-report-btn" title="Reportar error en la pregunta">
+              ⚡ Reportar error
+            </button>
+            <button className="saq-menu-btn" title="Más opciones">⋮</button>
           </div>
         )}
       </header>
@@ -1096,16 +1073,19 @@ texto.slice(0,8000)
           }}
         />
 
-        {/* PDF lado izquierdo — igual que ALAIStudyALCards */}
+        {/* PDF lado izquierdo en card StudyAL */}
         {quizState === 'playing' && (
-          <div style={{
-            flex: '0 0 50%',
-            borderRight: '1px solid rgba(255,255,255,0.06)',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            background: '#000',
-          }}>
+          <div className="saq-pdf-panel">
+            <div className="saq-pdf-card">
+              <div className="saq-pdf-head">
+                <div className="saq-pdf-head-icon">📄</div>
+                <div className="saq-pdf-head-info">
+                  <strong>{matActual?.nombre || matActual?.name || 'Material'}</strong>
+                  <span>{activeMaterialSelectedPages.length ? `${activeMaterialSelectedPages.length} páginas` : 'documento'}</span>
+                </div>
+                <button className="saq-pdf-bookmark" title="Marcar página">🔖</button>
+              </div>
+              <div className="saq-pdf-body">
             {pdfLoading ? (
               <div style={{
                 flex: 1,
@@ -1162,20 +1142,24 @@ texto.slice(0,8000)
                 </div>
               </div>
             )}
+              </div>
+            </div>
           </div>
         )}
 
 {/* Panel derecho */}
         <div
+          className={quizState === 'playing' ? 'saq-playing-area' : ''}
           style={{
             flex: 1,
             overflowY: 'auto',
             display: 'flex',
             alignItems: 'flex-start',
             justifyContent: 'center',
-            padding: '40px 32px 80px',
+            padding: quizState === 'playing' ? '12px 16px 24px' : '20px 24px 40px',
             position: 'relative',
             zIndex: 2,
+            gap: 14,
           }}
         >
           <AnimatePresence mode="wait">
@@ -1234,23 +1218,83 @@ texto.slice(0,8000)
 
             {/* ════ 3. PLAYING ════ */}
             {quizState === 'playing' && currentQ && (
-              <QuestionCard
-                key={`q-${currentIndex}`}
-                question={currentQ}
-                index={currentIndex}
-                total={questions.length}
-                themeColor={themeColor}
-                userAnswer={userAnswer}
-                setUserAnswer={setUserAnswer}
-                isLocked={isLocked}
-                lastEntry={history[history.length - 1] ?? null}
-                showWordBank={showWordBank}
-                setShowWordBank={setShowWordBank}
-                onVerify={handleVerify}
-                isEvaluating={isEvaluating}
-                onNext={handleNext}
-                isLast={isLastQ}
-              />
+              <div key={`play-${currentIndex}`} className="saq-playing-grid">
+                <div className="saq-playing-center">
+                  <QuestionCard
+                    key={`q-${currentIndex}`}
+                    question={currentQ}
+                    index={currentIndex}
+                    total={questions.length}
+                    themeColor={themeColor}
+                    userAnswer={userAnswer}
+                    setUserAnswer={setUserAnswer}
+                    isLocked={isLocked}
+                    lastEntry={history[history.length - 1] ?? null}
+                    showWordBank={showWordBank}
+                    setShowWordBank={setShowWordBank}
+                    onVerify={handleVerify}
+                    isEvaluating={isEvaluating}
+                    onNext={handleNext}
+                    isLast={isLastQ}
+                  />
+                </div>
+                <aside className="saq-playing-side">
+                  {/* Tiempo + racha */}
+                  <div className="saq-side-card">
+                    <div className="saq-side-row">
+                      <span className="saq-side-icon" style={{ color: 'var(--gold)' }}>⏱</span>
+                      <div className="saq-side-text">
+                        <small>Tiempo</small>
+                        <strong>{formatTime(elapsed)}</strong>
+                      </div>
+                    </div>
+                    <div className="saq-side-divider" />
+                    <div className="saq-side-row">
+                      <span className="saq-side-icon" style={{ color: '#ef4444' }}>🔥</span>
+                      <div className="saq-side-text">
+                        <small>Racha</small>
+                        <strong style={{ fontSize: 14 }}>
+                          {(() => {
+                            let streak = 0;
+                            for (let i = history.length - 1; i >= 0; i--) {
+                              if (history[i].correct) streak++;
+                              else break;
+                            }
+                            return streak;
+                          })()} consecutivas
+                        </strong>
+                      </div>
+                    </div>
+                    <div className="saq-side-divider" />
+                    <div className="saq-side-stats">
+                      <span><i style={{ background: '#22c55e' }}/>{liveCorrect}</span>
+                      <span><i style={{ background: '#ef4444' }}/>{liveIncorrect}</span>
+                    </div>
+                  </div>
+
+                  {/* Tip ALAI */}
+                  <div className="saq-tip-sticker">
+                    <h5>✦ Tip ALAI</h5>
+                    <p>
+                      Lee la pregunta dos veces antes de elegir. ALAI prefiere precisión a velocidad.
+                    </p>
+                  </div>
+
+                  {/* Herramientas con atajos */}
+                  <div className="saq-side-card">
+                    <h4 className="saq-side-h4">Herramientas</h4>
+                    <button className="saq-tool-btn" disabled>
+                      💡 <span>Pista</span> <kbd>P</kbd>
+                    </button>
+                    <button className="saq-tool-btn" disabled>
+                      ✂ <span>Eliminar 2 opciones</span> <kbd>E</kbd>
+                    </button>
+                    <button className="saq-tool-btn" disabled>
+                      📚 <span>Repasar este tema</span> <kbd>R</kbd>
+                    </button>
+                  </div>
+                </aside>
+              </div>
             )}
 
             {/* ════ 4. RESULTS ════ */}
@@ -1283,16 +1327,1078 @@ texto.slice(0,8000)
         </div>
       </main>
 
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes fadeSlideIn {
-          from { opacity: 0; transform: translateY(16px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+      <style>{SAQ_STYLES}</style>
     </div>
   );
 }
+
+const SAQ_STYLES = `
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes saqFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .saq-screen {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .saq-bg-radial {
+    position: absolute; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--gold) 6%, transparent), transparent 55%),
+      radial-gradient(circle at 85% 80%, color-mix(in srgb, #ef4444 4%, transparent), transparent 50%),
+      radial-gradient(circle at 15% 75%, color-mix(in srgb, var(--blue) 3%, transparent), transparent 50%);
+  }
+  .saq-bg-grid {
+    position: absolute; inset: 0; pointer-events: none;
+    opacity: .06;
+    background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--text-primary) 18%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, var(--text-primary) 18%, transparent) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .saq-topbar {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border-color2);
+    background: linear-gradient(to bottom, var(--bg-primary) 80%, transparent);
+    flex-shrink: 0;
+  }
+  .saq-back {
+    border: 2px solid var(--text-primary);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border-radius: 14px;
+    padding: 9px 16px;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 3px 4px 0 var(--text-primary);
+    transition: transform .2s ease, box-shadow .2s ease;
+    white-space: nowrap;
+  }
+  .saq-back:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 5px 6px 0 var(--text-primary);
+  }
+  .saq-hero { min-width: 0; flex: 1; }
+  .saq-chip {
+    display: inline-block;
+    font-size: 10px; font-weight: 900;
+    letter-spacing: 0.4px;
+    padding: 3px 8px;
+    background: color-mix(in srgb, #ef4444 18%, transparent);
+    color: #ef4444;
+    border: 1px solid color-mix(in srgb, #ef4444 35%, transparent);
+    border-radius: 4px;
+    margin-bottom: 4px;
+  }
+  .saq-hero h1 {
+    margin: 0;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 22px; font-weight: 900; line-height: 1;
+    letter-spacing: -0.5px;
+    color: var(--text-primary);
+  }
+  .saq-emoji {
+    font-size: 24px;
+    filter: drop-shadow(0 0 8px color-mix(in srgb, #ef4444 50%, transparent));
+  }
+  .saq-hero h1 small {
+    font-size: 13px; font-weight: 700; color: var(--text-faint);
+    letter-spacing: 0;
+  }
+
+  /* ===== SETUP DASHBOARD ===== */
+  .saq-setup {
+    display: grid;
+    grid-template-columns: 220px 1fr 230px;
+    gap: 18px;
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 4px 4px 40px;
+    animation: saqFadeIn .5s ease;
+  }
+  .saq-setup-center {
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .saq-setup-title {
+    text-align: center;
+    margin-bottom: 4px;
+  }
+  .saq-setup-title h2 {
+    margin: 0;
+    font-size: 32px; font-weight: 900;
+    letter-spacing: -0.8px;
+    color: var(--text-primary);
+  }
+  .saq-setup-title h2 b {
+    color: var(--gold); font-weight: 900;
+  }
+  .saq-setup-title p {
+    margin: 6px 0 0;
+    color: var(--text-faint); font-size: 13px;
+  }
+
+  /* Cards laterales (mismo estilo StudyALProcess) */
+  .saq-card {
+    background: var(--bg-card);
+    border: 1.5px solid var(--border-color2);
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  }
+  .saq-card h4 {
+    margin: 0 0 10px;
+    font-size: 12.5px; font-weight: 800;
+    color: var(--text-secondary);
+    letter-spacing: .2px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .saq-card-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 0;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+  }
+  .saq-card-row b {
+    margin-left: auto;
+    color: var(--text-primary);
+    font-weight: 900;
+  }
+  .saq-card-row i {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block;
+  }
+
+  /* Tip card dorada */
+  .saq-tip {
+    background: color-mix(in srgb, var(--gold) 8%, transparent);
+    border: 1.5px dashed var(--gold-border);
+    border-radius: 14px;
+    padding: 12px;
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .saq-tip span { font-size: 16px; }
+  .saq-tip p {
+    margin: 0; font-size: 11.5px; line-height: 1.45;
+    color: var(--text-muted);
+  }
+  .saq-tip p b { color: var(--gold); font-weight: 900; }
+
+  /* ===== CENTRO ===== */
+  .saq-section-label {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; font-weight: 900;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+  }
+  .saq-section-label b {
+    color: var(--gold);
+    font-size: 16px;
+  }
+
+  /* Grid tipos de preguntas */
+  .saq-types-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .saq-type-card {
+    background: var(--bg-card);
+    border: 2px solid var(--border-color2);
+    border-radius: 12px;
+    padding: 14px 12px;
+    cursor: pointer;
+    text-align: left;
+    transition: all .2s ease;
+    position: relative;
+    color: var(--text-primary);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .saq-type-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--gold-border);
+    box-shadow: 0 8px 20px rgba(0,0,0,.3);
+  }
+  .saq-type-card.active {
+    border-color: var(--gold);
+    background: color-mix(in srgb, var(--gold) 10%, var(--bg-card));
+    box-shadow: 0 0 0 1px var(--gold), 0 8px 24px color-mix(in srgb, var(--gold) 20%, transparent);
+  }
+  .saq-type-check {
+    position: absolute;
+    top: 10px; right: 10px;
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    border: 2px solid var(--border-color2);
+    display: grid; place-items: center;
+    background: var(--bg-secondary);
+    transition: all .2s ease;
+    font-size: 11px; font-weight: 900;
+    color: transparent;
+  }
+  .saq-type-card.active .saq-type-check {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: #0a0a0a;
+  }
+  .saq-type-icon {
+    font-size: 22px;
+  }
+  .saq-type-title {
+    font-size: 13.5px; font-weight: 900;
+    color: var(--text-primary);
+    line-height: 1.2;
+  }
+  .saq-type-desc {
+    font-size: 11px;
+    color: var(--text-faint);
+    line-height: 1.35;
+  }
+
+  /* Cantidad + dificultad row */
+  .saq-row-2 {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 14px;
+  }
+  .saq-count-pills {
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .saq-count-pill {
+    width: 44px; height: 40px;
+    border-radius: 10px;
+    border: 1.5px solid var(--border-color2);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 14px; font-weight: 900;
+    cursor: pointer;
+    transition: all .2s ease;
+  }
+  .saq-count-pill:hover {
+    border-color: var(--gold-border);
+    color: var(--gold);
+  }
+  .saq-count-pill.active {
+    background: var(--gold);
+    color: #0a0a0a;
+    border-color: var(--gold);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--gold) 30%, transparent);
+  }
+  .saq-count-input {
+    flex: 1; min-width: 120px;
+    background: var(--bg-card2);
+    border: 1.5px solid var(--border-color2);
+    border-radius: 10px;
+    padding: 10px 14px;
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+  }
+  .saq-count-input:focus { border-color: var(--gold); }
+
+  .saq-diff-pills {
+    display: flex; gap: 6px;
+  }
+  .saq-diff-pill {
+    flex: 1;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1.5px solid var(--border-color2);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 13px; font-weight: 800;
+    cursor: pointer;
+    transition: all .2s ease;
+  }
+  .saq-diff-pill:hover {
+    border-color: var(--gold-border);
+  }
+  .saq-diff-pill.active {
+    background: var(--gold);
+    color: #0a0a0a;
+    border-color: var(--gold);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--gold) 30%, transparent);
+  }
+
+  .saq-meta-box {
+    background: var(--bg-card);
+    border: 1.5px dashed var(--border-color2);
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .saq-meta-box b {
+    color: var(--gold); font-weight: 900;
+  }
+
+  /* CTA generar */
+  .saq-generate-btn {
+    width: 100%;
+    padding: 16px;
+    border-radius: 14px;
+    border: 2px solid var(--gold);
+    background: var(--gold);
+    color: #0a0a0a;
+    font-weight: 900;
+    font-size: 16px;
+    cursor: pointer;
+    box-shadow: 4px 5px 0 color-mix(in srgb, var(--gold) 50%, #000);
+    transition: transform .2s ease, box-shadow .2s ease;
+    letter-spacing: 0.3px;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+  }
+  .saq-generate-btn:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 7px 0 color-mix(in srgb, var(--gold) 50%, #000);
+  }
+  .saq-generate-btn:disabled {
+    background: var(--bg-card2);
+    color: var(--text-faint);
+    border-color: var(--border-color2);
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+
+  .saq-error {
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: rgba(248,113,113,0.1);
+    border: 1px solid rgba(248,113,113,0.4);
+    color: #fca5a5;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  /* ===== RESPONSIVE ===== */
+  @media (max-width: 1100px) {
+    .saq-setup { grid-template-columns: 1fr; }
+    .saq-types-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  /* ═══════════════════════════════════════════════════════════
+     PLAYING SCREEN — Quiz en acción tipo cuaderno
+     ═══════════════════════════════════════════════════════════ */
+
+  /* Cuando estamos en playing, ocultar el hero grande del topbar */
+  .saq-screen:has(.saq-timeline-wrap) .saq-hero { display: none; }
+
+  .saq-timeline-wrap {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+  }
+  .saq-timeline-title {
+    font-size: 13px;
+    color: var(--text-faint);
+    margin-bottom: 6px;
+    font-weight: 700;
+  }
+  .saq-timeline-title b {
+    color: var(--gold);
+    font-weight: 900;
+    font-size: 14px;
+  }
+  .saq-timeline {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 4px;
+  }
+  .saq-timeline-line {
+    position: absolute;
+    left: 12px; right: 12px;
+    top: 50%;
+    height: 2px;
+    background: var(--border-color2);
+    transform: translateY(-50%);
+    z-index: 0;
+  }
+  .saq-timeline-line-fill {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    height: 2px;
+    background: var(--gold);
+    transform: translateY(-50%);
+    z-index: 1;
+    transition: width .4s ease;
+    box-shadow: 0 0 6px var(--gold);
+  }
+  .saq-tl-node {
+    position: relative;
+    z-index: 2;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    border: 1.5px solid var(--border-color2);
+    display: grid;
+    place-items: center;
+    font-size: 10px;
+    font-weight: 900;
+    color: var(--text-faint);
+    transition: all .25s ease;
+  }
+  .saq-tl-node.done-correct {
+    background: #22c55e;
+    border-color: #22c55e;
+    color: #000;
+    box-shadow: 0 0 8px #22c55e88;
+  }
+  .saq-tl-node.done-wrong {
+    background: #ef4444;
+    border-color: #ef4444;
+    color: #fff;
+    box-shadow: 0 0 8px #ef444488;
+  }
+  .saq-tl-node.active {
+    width: 28px; height: 28px;
+    background: var(--gold);
+    border-color: var(--gold);
+    color: #0a0a0a;
+    font-size: 12px;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--gold) 25%, transparent), 0 0 12px var(--gold);
+    animation: saqPulse 1.4s ease infinite;
+  }
+  @keyframes saqPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.08); }
+  }
+  .saq-timeline-cheer {
+    margin-top: 6px;
+    font-size: 11.5px;
+    font-weight: 800;
+    color: var(--gold);
+    letter-spacing: 0.3px;
+  }
+
+  .saq-report-btn {
+    border: 1.5px solid var(--border-color2);
+    background: var(--bg-card);
+    color: var(--text-muted);
+    border-radius: 10px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all .2s ease;
+  }
+  .saq-report-btn:hover {
+    color: var(--gold);
+    border-color: var(--gold);
+  }
+  .saq-menu-btn {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: var(--bg-card);
+    border: 1.5px solid var(--border-color2);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+  }
+
+  /* ─── PDF Panel ─── */
+  .saq-pdf-panel {
+    flex: 0 0 40%;
+    max-width: 520px;
+    min-width: 340px;
+    padding: 12px 0 12px 16px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .saq-pdf-card {
+    flex: 1;
+    min-height: 0;
+    background: var(--bg-card);
+    border: 1.5px solid var(--border-color2);
+    border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.25);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .saq-pdf-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-color2);
+    flex-shrink: 0;
+  }
+  .saq-pdf-head-icon {
+    font-size: 16px;
+    width: 32px; height: 32px;
+    display: grid; place-items: center;
+    background: var(--bg-secondary);
+    border: 1.5px solid var(--border-color);
+    border-radius: 8px;
+  }
+  .saq-pdf-head-info { flex: 1; min-width: 0; }
+  .saq-pdf-head-info strong {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 900;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .saq-pdf-head-info span {
+    display: block;
+    font-size: 10px;
+    color: var(--text-faint);
+    font-weight: 700;
+  }
+  .saq-pdf-bookmark {
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    background: var(--bg-secondary);
+    border: 1.5px solid var(--border-color2);
+    color: var(--gold);
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .saq-pdf-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 8px 10px 0;
+    flex-shrink: 0;
+  }
+  .saq-pdf-tab {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--text-faint);
+    padding: 6px 4px;
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all .2s ease;
+  }
+  .saq-pdf-tab:hover { color: var(--text-secondary); }
+  .saq-pdf-tab.active {
+    color: var(--gold);
+    border-bottom-color: var(--gold);
+  }
+  .saq-pdf-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* ─── Playing area layout ─── */
+  .saq-playing-area {
+    align-items: stretch !important;
+  }
+  .saq-playing-grid {
+    display: grid;
+    grid-template-columns: 1fr 200px;
+    gap: 14px;
+    width: 100%;
+    max-width: 980px;
+    margin: 0 auto;
+    align-items: start;
+  }
+  .saq-playing-center { min-width: 0; }
+  .saq-playing-side {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* ─── Side cards ─── */
+  .saq-side-card {
+    background: var(--bg-card);
+    border: 1.5px solid var(--border-color2);
+    border-radius: 14px;
+    padding: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  }
+  .saq-side-h4 {
+    margin: 0 0 8px;
+    font-size: 12px;
+    font-weight: 900;
+    color: var(--gold);
+    letter-spacing: 0.3px;
+  }
+  .saq-side-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .saq-side-icon { font-size: 18px; }
+  .saq-side-text { flex: 1; min-width: 0; }
+  .saq-side-text small {
+    display: block;
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .saq-side-text strong {
+    display: block;
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--text-primary);
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .saq-side-divider {
+    height: 1px;
+    background: var(--border-color2);
+    margin: 10px 0;
+  }
+  .saq-side-stats {
+    display: flex;
+    gap: 12px;
+    font-size: 13px;
+    font-weight: 900;
+    color: var(--text-secondary);
+  }
+  .saq-side-stats span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .saq-side-stats i {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  /* Sticker Tip ALAI */
+  .saq-tip-sticker {
+    background: color-mix(in srgb, var(--gold) 18%, #f5ecd6);
+    color: #2a1a05;
+    padding: 12px 12px 10px;
+    border-radius: 4px;
+    box-shadow: 0 6px 14px rgba(0,0,0,.4);
+    transform: rotate(-1deg);
+    position: relative;
+  }
+  .saq-tip-sticker::before {
+    content: '';
+    position: absolute;
+    top: -8px; left: 50%;
+    width: 50px; height: 14px;
+    transform: translateX(-50%) rotate(-3deg);
+    background: color-mix(in srgb, var(--red) 55%, #c8a05a);
+    opacity: 0.8;
+  }
+  .saq-tip-sticker h5 {
+    margin: 0 0 4px;
+    font-size: 12.5px;
+    font-weight: 900;
+    color: #2a1a05;
+  }
+  .saq-tip-sticker p {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #3a2a10;
+  }
+
+  /* Tool buttons con kbd */
+  .saq-tool-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    margin-bottom: 4px;
+    background: transparent;
+    border: 1px solid var(--border-color2);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all .2s ease;
+    text-align: left;
+  }
+  .saq-tool-btn:hover:not(:disabled) {
+    border-color: var(--gold);
+    color: var(--gold);
+  }
+  .saq-tool-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .saq-tool-btn span { flex: 1; }
+  .saq-tool-btn kbd {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color2);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-family: ui-monospace, monospace;
+    color: var(--text-muted);
+    font-weight: 800;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     QUESTION CARD - Hoja cuaderno StudyAL
+     ═══════════════════════════════════════════════════════════ */
+  .saq-qcard-wrap {
+    width: 100%;
+    max-width: 660px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 0 auto;
+  }
+  .saq-paper {
+    position: relative;
+    background:
+      repeating-linear-gradient(to bottom, #f5ecd6 0 32px, #ecd9b3 32px 33px);
+    color: #1a1a1a;
+    border: 2px solid rgba(0,0,0,.3);
+    border-radius: 8px;
+    padding: 24px 28px 24px 56px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.55), 6px 8px 0 rgba(0,0,0,.35);
+  }
+  .saq-paper-spiral {
+    position: absolute;
+    left: 14px;
+    top: 16px;
+    bottom: 16px;
+    width: 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-around;
+  }
+  .saq-paper-spiral span {
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    background: rgba(0,0,0,.6);
+    box-shadow: inset 0 -1px 0 rgba(255,255,255,.4);
+  }
+  .saq-paper-tape {
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    width: 110px;
+    height: 22px;
+    transform: translateX(-50%) rotate(-1.5deg);
+    background: color-mix(in srgb, var(--gold) 65%, #c8a05a);
+    opacity: 0.88;
+    box-shadow: 0 3px 8px rgba(0,0,0,.25);
+  }
+  .saq-paper-badges {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    gap: 10px;
+  }
+  .saq-paper-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0,0,0,.08);
+    border: 1px solid rgba(0,0,0,.18);
+    color: #2a1a05;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 10.5px;
+    font-weight: 900;
+    letter-spacing: 0.3px;
+  }
+  .saq-paper-page {
+    font-size: 10.5px;
+    font-weight: 800;
+    color: rgba(0,0,0,.55);
+  }
+  .saq-paper-question {
+    margin: 0 0 18px;
+    font-size: 19px;
+    line-height: 1.4;
+    font-weight: 800;
+    color: #111;
+    letter-spacing: -0.3px;
+  }
+  .saq-paper-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* Opciones */
+  .saq-opt {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 14px;
+    border-radius: 10px;
+    border: 2px solid rgba(0,0,0,.18);
+    background: rgba(255,255,255,.5);
+    cursor: pointer;
+    text-align: left;
+    transition: all .18s ease;
+    color: #1a1a1a;
+  }
+  .saq-opt:hover:not(:disabled) {
+    border-color: var(--gold);
+    background: color-mix(in srgb, var(--gold) 14%, white);
+    transform: translateX(3px);
+  }
+  .saq-opt-selected {
+    border-color: var(--gold) !important;
+    background: color-mix(in srgb, var(--gold) 18%, white) !important;
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--gold) 30%, transparent);
+  }
+  .saq-opt-correct {
+    border-color: #16a34a !important;
+    background: #dcfce7 !important;
+    box-shadow: 0 4px 14px rgba(34,197,94,0.35);
+  }
+  .saq-opt-wrong {
+    border-color: #dc2626 !important;
+    background: #fee2e2 !important;
+    box-shadow: 0 4px 14px rgba(239,68,68,0.35);
+    animation: saqShake 0.4s ease;
+  }
+  @keyframes saqShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-4px); }
+    75% { transform: translateX(4px); }
+  }
+  .saq-opt:disabled { cursor: default; }
+  .saq-opt-letter {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 900;
+    flex-shrink: 0;
+    color: #6b4818;
+  }
+  .saq-opt-letter.square { border-radius: 6px; }
+  .saq-opt-selected .saq-opt-letter { color: #6b4818; background: rgba(255,255,255,0.7); }
+  .saq-opt-correct .saq-opt-letter { color: #16a34a; background: white; }
+  .saq-opt-wrong .saq-opt-letter { color: #dc2626; background: white; }
+  .saq-opt-text {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.4;
+    color: #1a1a1a;
+  }
+
+  /* Confianza */
+  .saq-confidence {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px dashed rgba(0,0,0,.18);
+    text-align: center;
+  }
+  .saq-confidence-label {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 800;
+    color: rgba(0,0,0,.55);
+    margin-bottom: 8px;
+  }
+  .saq-confidence-pills {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .saq-conf-pill {
+    border: 1.5px solid rgba(0,0,0,.18);
+    background: rgba(255,255,255,.6);
+    color: #2a1a05;
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 11.5px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all .2s ease;
+  }
+  .saq-conf-pill:hover { border-color: rgba(0,0,0,.4); }
+  .saq-conf-pill.active.low {
+    background: #fee2e2; border-color: #dc2626; color: #dc2626;
+  }
+  .saq-conf-pill.active.mid {
+    background: color-mix(in srgb, var(--gold) 25%, white);
+    border-color: var(--gold);
+    color: #6b4818;
+  }
+  .saq-conf-pill.active.high {
+    background: #dcfce7; border-color: #16a34a; color: #16a34a;
+  }
+
+  /* Feedback dentro del papel */
+  .saq-paper-feedback {
+    margin-top: 16px;
+  }
+  .saq-feedback {
+    background: white;
+    border: 2px solid;
+    border-radius: 12px;
+    padding: 14px;
+    color: #111;
+  }
+  .saq-feedback-correct { border-color: #16a34a; background: #f0fdf4; }
+  .saq-feedback-partial { border-color: #f59e0b; background: #fffbeb; }
+  .saq-feedback-wrong   { border-color: #dc2626; background: #fef2f2; }
+
+  .saq-feedback-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .saq-feedback-icon { font-size: 22px; }
+  .saq-feedback-head strong {
+    font-size: 16px;
+    font-weight: 900;
+    flex: 1;
+  }
+  .saq-feedback-correct .saq-feedback-head strong { color: #16a34a; }
+  .saq-feedback-partial .saq-feedback-head strong { color: #f59e0b; }
+  .saq-feedback-wrong   .saq-feedback-head strong { color: #dc2626; }
+  .saq-feedback-pct {
+    font-size: 14px;
+    font-weight: 900;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: white;
+    border: 2px solid currentColor;
+  }
+  .saq-feedback-correct .saq-feedback-pct { color: #16a34a; }
+  .saq-feedback-partial .saq-feedback-pct { color: #f59e0b; }
+  .saq-feedback-wrong   .saq-feedback-pct { color: #dc2626; }
+
+  .saq-feedback-bar {
+    height: 6px;
+    background: rgba(0,0,0,.08);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .saq-feedback-bar > div {
+    height: 100%;
+    transition: width .6s ease;
+  }
+  .saq-feedback-correct .saq-feedback-bar > div { background: #16a34a; }
+  .saq-feedback-partial .saq-feedback-bar > div { background: #f59e0b; }
+  .saq-feedback-wrong   .saq-feedback-bar > div { background: #dc2626; }
+
+  .saq-feedback-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #2a2a2a;
+  }
+  .saq-feedback-row b {
+    display: block;
+    font-size: 11px;
+    font-weight: 900;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-bottom: 2px;
+  }
+  .saq-feedback-tip {
+    margin-top: 4px;
+    padding: 8px 10px;
+    background: rgba(0,0,0,.05);
+    border-left: 3px solid var(--gold);
+    border-radius: 4px;
+    font-size: 12.5px;
+    color: #2a2a2a;
+  }
+
+  /* Botón de acción flotante */
+  .saq-action-row {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 0 6px;
+  }
+  .saq-action-btn {
+    border: 2px solid var(--gold);
+    background: var(--gold);
+    color: #0a0a0a;
+    border-radius: 12px;
+    padding: 12px 22px;
+    font-size: 14px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 4px 5px 0 color-mix(in srgb, var(--gold) 50%, #000);
+    transition: transform .15s ease, box-shadow .15s ease;
+    letter-spacing: 0.3px;
+  }
+  .saq-action-btn:hover:not(:disabled) {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 7px 0 color-mix(in srgb, var(--gold) 50%, #000);
+  }
+  .saq-action-btn:disabled {
+    background: var(--bg-card2);
+    color: var(--text-faint);
+    border-color: var(--border-color2);
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+  .saq-action-hint {
+    color: var(--text-faint);
+    font-size: 12px;
+    font-style: italic;
+  }
+
+  /* Responsive playing */
+  @media (max-width: 1180px) {
+    .saq-playing-grid { grid-template-columns: 1fr; }
+    .saq-playing-side {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  @media (max-width: 900px) {
+    .saq-pdf-panel { display: none; }
+    .saq-timeline-title { font-size: 12px; }
+    .saq-tl-node { width: 18px; height: 18px; font-size: 9px; }
+    .saq-tl-node.active { width: 24px; height: 24px; }
+    .saq-playing-side { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 640px) {
+    .saq-paper { padding: 20px 18px 20px 44px; }
+    .saq-paper-question { font-size: 16px; }
+    .saq-opt-text { font-size: 13px; }
+    .saq-confidence-pills { gap: 4px; }
+    .saq-conf-pill { font-size: 10.5px; padding: 4px 10px; }
+  }
+  @media (max-width: 640px) {
+    .saq-types-grid { grid-template-columns: 1fr; }
+    .saq-row-2 { grid-template-columns: 1fr; }
+    .saq-hero h1 { font-size: 18px; }
+    .saq-hero h1 small { display: none; }
+  }
+`;
 
 // ═══════════════════════════════════════════════════════════════
 // StatChip
@@ -1325,7 +2431,7 @@ function StatChip({
 }
 
 // ═══════════════════════════════════════════════════════════════
-// SETUP SCREEN
+// SETUP SCREEN — Dashboard StudyAL
 // ═══════════════════════════════════════════════════════════════
 function SetupScreen({
   themeColor,
@@ -1348,252 +2454,218 @@ function SetupScreen({
     });
   };
 
+  const finalCount = customCount
+    ? Math.min(Math.max(parseInt(customCount) || 10, 1), 100)
+    : questionCount;
+
+  // Distribución estimada por tipo
+  const perType = Math.max(1, Math.floor(finalCount / Math.max(selectedTypes.length, 1)));
+  const remainder = finalCount - perType * selectedTypes.length;
+
+  const TYPE_INFO: Record<QuestionType, { desc: string }> = {
+    multiple_choice: { desc: 'Una sola respuesta correcta.' },
+    multi_select:    { desc: 'Selecciona todas las correctas.' },
+    true_false:      { desc: 'Responde verdadero o falso.' },
+    fill_blank:      { desc: 'Completa la frase con la palabra correcta.' },
+    matching:        { desc: 'Conecta conceptos relacionados.' },
+    short_answer:    { desc: 'Escribe tu respuesta con tus propias palabras.' },
+  };
+
+  const estimatedTime = Math.max(1, Math.round(finalCount * 0.6));
+
   return (
     <motion.div
       key="setup"
-      initial={{ opacity: 0, y: 24 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -16 }}
-      style={{ width: '100%', maxWidth: 680 }}
+      exit={{ opacity: 0 }}
+      className="saq-setup"
     >
-      <h1
-        style={{
-          fontFamily: HAND,
-          fontSize: 52,
-          margin: '0 0 6px',
-          textAlign: 'center',
-          color: '#fff',
-        }}
-      >
-        Configura tu Quiz
-      </h1>
-      <p
-        style={{
-          textAlign: 'center',
-          color: '#555',
-          marginBottom: 44,
-          fontSize: 15,
-        }}
-      >
-        Personaliza tu examen y comenzá a estudiar
-      </p>
-
-      {/* DIFICULTAD */}
-      <SectionLabel color={themeColor} icon="🎯" label="DIFICULTAD" />
-      <div
-        style={{
-          display: 'flex',
-          gap: 10,
-          marginBottom: 36,
-          background: 'rgba(255,255,255,0.02)',
-          padding: 6,
-          borderRadius: 16,
-          border: '1px solid rgba(255,255,255,0.06)',
-        }}
-      >
-        {(['easy', 'medium', 'hard'] as Difficulty[]).map(d => (
-          <button
-            key={d}
-            onClick={() => setDifficulty(d)}
-            style={{
-              flex: 1,
-              padding: '15px 10px',
-              borderRadius: 12,
-              border: 'none',
-              cursor: 'pointer',
-              fontWeight: 800,
-              fontSize: 15,
-              fontFamily: BODY,
-              transition: 'all 0.25s',
-              background:
-                difficulty === d
-                  ? DIFF_COLOR[d]
-                  : 'transparent',
-              color: difficulty === d ? '#000' : '#444',
-              boxShadow:
-                difficulty === d
-                  ? `0 8px 20px ${DIFF_COLOR[d]}55`
-                  : 'none',
-              transform: difficulty === d ? 'scale(1.03)' : 'scale(1)',
-            }}
-          >
-            {DIFF_LABEL[d]}
-          </button>
-        ))}
-      </div>
-
-      {/* TIPOS */}
-      <SectionLabel color={themeColor} icon="📋" label="TIPOS DE PREGUNTA" />
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))',
-          gap: 10,
-          marginBottom: 36,
-        }}
-      >
-        {(Object.keys(TYPE_META) as QuestionType[]).map(t => {
-          const active = selectedTypes.includes(t);
-          return (
-            <button
-              key={t}
-              onClick={() => toggleType(t)}
-              style={{
-                padding: '16px 14px',
-                borderRadius: 16,
-                border: `2px solid`,
-                borderColor: active ? themeColor : 'rgba(255,255,255,0.07)',
-                background: active ? `${themeColor}14` : 'rgba(255,255,255,0.02)',
-                cursor: 'pointer',
-                textAlign: 'left',
-                transition: 'all 0.2s',
-                transform: active ? 'scale(1.03)' : 'scale(1)',
-              }}
-            >
-              <div style={{ fontSize: 22, marginBottom: 6 }}>
-                {TYPE_META[t].icon}
-              </div>
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 800,
-                  color: active ? '#fff' : '#555',
-                  fontFamily: BODY,
-                  lineHeight: 1.2,
-                }}
-              >
-                {TYPE_META[t].label}
-              </div>
-              {active && (
-                <div
-                  style={{
-                    marginTop: 4,
-                    width: 20,
-                    height: 20,
-                    borderRadius: '50%',
-                    background: themeColor,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 11,
-                    color: '#000',
-                    fontWeight: 900,
-                  }}
-                >
-                  ✓
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* CANTIDAD */}
-      <SectionLabel color={themeColor} icon="🔢" label="CANTIDAD DE PREGUNTAS" />
-      <div
-        style={{
-          display: 'flex',
-          gap: 8,
-          alignItems: 'center',
-          marginBottom: 44,
-          flexWrap: 'wrap',
-        }}
-      >
-        {[10, 20, 30, 50].map(n => {
-          const active = questionCount === n && !customCount;
-          return (
-            <button
-              key={n}
-              onClick={() => {
-                setQuestionCount(n);
-                setCustomCount('');
-              }}
-              style={{
-                width: 54,
-                height: 54,
-                borderRadius: 14,
-                border: '1.5px solid',
-                borderColor: active ? themeColor : 'rgba(255,255,255,0.1)',
-                background: active ? `${themeColor}22` : 'transparent',
-                color: active ? themeColor : '#555',
-                fontSize: 16,
-                fontWeight: 900,
-                cursor: 'pointer',
-                fontFamily: BODY,
-                transition: 'all 0.2s',
-              }}
-            >
-              {n}
-            </button>
-          );
-        })}
-        <input
-          type="number"
-          placeholder="Otro (máx 100)"
-          value={customCount}
-          onChange={e => setCustomCount(e.target.value)}
-          min={1}
-          max={100}
-          style={{
-            flex: 1,
-            minWidth: 140,
-            background: 'rgba(255,255,255,0.03)',
-            border: `1.5px solid ${customCount ? themeColor : 'rgba(255,255,255,0.1)'}`,
-            borderRadius: 14,
-            padding: '14px 18px',
-            color: '#fff',
-            fontSize: 15,
-            fontFamily: BODY,
-            outline: 'none',
-          }}
-        />
-      </div>
-
-      {genError && (
-        <div
-          style={{
-            padding: '12px 18px',
-            borderRadius: 12,
-            background: '#f8717122',
-            border: '1px solid #f8717166',
-            color: '#f87171',
-            fontSize: 14,
-            marginBottom: 20,
-            fontFamily: BODY,
-          }}
-        >
-          ⚠️ {genError}
+      {/* ============ COLUMNA IZQUIERDA ============ */}
+      <aside style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="saq-card">
+          <h4>📚 Material seleccionado</h4>
+          <div className="saq-card-row">
+            <i style={{ background: '#ef4444' }} />
+            <span>Listo para examinar</span>
+          </div>
+          <div className="saq-card-row">
+            <span style={{ color: 'var(--text-faint)' }}>Idioma detectado</span>
+            <b style={{ color: 'var(--red)' }}>Español</b>
+          </div>
         </div>
-      )}
 
-      <button
-        onClick={onGenerate}
-        style={{
-          width: '100%',
-          padding: '22px',
-          borderRadius: 20,
-          background: `linear-gradient(135deg, ${themeColor}, ${themeColor}bb)`,
-          color: '#000',
-          fontWeight: 900,
-          fontSize: 19,
-          border: 'none',
-          cursor: 'pointer',
-          fontFamily: BODY,
-          letterSpacing: 0.5,
-          boxShadow: `0 12px 32px ${themeColor}44`,
-          transition: 'transform 0.2s, box-shadow 0.2s',
-        }}
-        onMouseEnter={e => {
-          (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)';
-          (e.currentTarget as HTMLElement).style.boxShadow = `0 18px 40px ${themeColor}66`;
-        }}
-        onMouseLeave={e => {
-          (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
-          (e.currentTarget as HTMLElement).style.boxShadow = `0 12px 32px ${themeColor}44`;
-        }}
-      >
-        ✨ EMPEZAR EXAMEN
-      </button>
+        <div className="saq-card">
+          <h4>🎯 ¿Qué evalúa este quiz?</h4>
+          <div className="saq-card-row"><i style={{ background: 'var(--gold)' }}/>Comprensión profunda</div>
+          <div className="saq-card-row"><i style={{ background: 'var(--blue)' }}/>Aplicación de conceptos</div>
+          <div className="saq-card-row"><i style={{ background: 'var(--pink)' }}/>Relaciones y conexiones</div>
+          <div className="saq-card-row"><i style={{ background: '#ef4444' }}/>Pensamiento crítico</div>
+        </div>
+
+        <div className="saq-tip">
+          <span>💡</span>
+          <p>
+            <b>Consejo StudyAL:</b> mezclar tipos de preguntas te ayuda a entender desde diferentes ángulos.
+          </p>
+        </div>
+      </aside>
+
+      {/* ============ COLUMNA CENTRAL ============ */}
+      <div className="saq-setup-center">
+        <div className="saq-setup-title">
+          <h2>Configura tu <b>Quiz</b></h2>
+          <p>ALAI creará preguntas que realmente te hacen pensar.</p>
+        </div>
+
+        {/* TIPOS DE PREGUNTAS */}
+        <div>
+          <div className="saq-section-label">
+            <b>1.</b> Elige los tipos de preguntas
+          </div>
+          <div className="saq-types-grid">
+            {(Object.keys(TYPE_META) as QuestionType[]).map(t => {
+              const active = selectedTypes.includes(t);
+              return (
+                <button
+                  key={t}
+                  onClick={() => toggleType(t)}
+                  className={`saq-type-card ${active ? 'active' : ''}`}
+                >
+                  <div className="saq-type-check">{active ? '✓' : ''}</div>
+                  <div className="saq-type-icon">{TYPE_META[t].icon}</div>
+                  <div className="saq-type-title">{TYPE_META[t].label}</div>
+                  <div className="saq-type-desc">{TYPE_INFO[t].desc}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* CANTIDAD + DIFICULTAD */}
+        <div className="saq-row-2">
+          <div>
+            <div className="saq-section-label">
+              <b>2.</b> ¿Cuántas preguntas?
+            </div>
+            <div className="saq-count-pills" style={{ marginBottom: 10 }}>
+              {[5, 10, 15, 20, 25, 30].map(n => {
+                const active = questionCount === n && !customCount;
+                return (
+                  <button
+                    key={n}
+                    onClick={() => { setQuestionCount(n); setCustomCount(''); }}
+                    className={`saq-count-pill ${active ? 'active' : ''}`}
+                  >
+                    {n}
+                  </button>
+                );
+              })}
+              <input
+                type="number"
+                placeholder="otro"
+                value={customCount}
+                onChange={e => setCustomCount(e.target.value)}
+                min={1}
+                max={100}
+                className="saq-count-input"
+              />
+            </div>
+            <div className="saq-meta-box">
+              ⏱ Tiempo estimado: <b>{estimatedTime} {estimatedTime === 1 ? 'minuto' : 'minutos'}</b>
+            </div>
+          </div>
+
+          <div>
+            <div className="saq-section-label">
+              <b>3.</b> Dificultad
+            </div>
+            <div className="saq-diff-pills" style={{ marginBottom: 10 }}>
+              {(['easy', 'medium', 'hard'] as Difficulty[]).map(d => (
+                <button
+                  key={d}
+                  onClick={() => setDifficulty(d)}
+                  className={`saq-diff-pill ${difficulty === d ? 'active' : ''}`}
+                >
+                  {DIFF_LABEL[d]}
+                </button>
+              ))}
+            </div>
+            <div className="saq-meta-box">
+              🎯 {difficulty === 'easy' && 'Repaso amigable para asentar conceptos.'}
+              {difficulty === 'medium' && 'Equilibrio perfecto para aprender y desafiarte.'}
+              {difficulty === 'hard' && 'Reto serio. Prepárate.'}
+            </div>
+          </div>
+        </div>
+
+        {/* CTA */}
+        {genError && <div className="saq-error">⚠️ {genError}</div>}
+
+        <button
+          onClick={onGenerate}
+          disabled={selectedTypes.length === 0}
+          className="saq-generate-btn"
+        >
+          ✨ Generar mi quiz
+        </button>
+        <div style={{
+          textAlign: 'center',
+          fontSize: 11.5,
+          color: 'var(--text-faint)',
+          marginTop: -8,
+        }}>
+          ALAI necesita unos segundos para crear algo épico para ti.
+        </div>
+      </div>
+
+      {/* ============ COLUMNA DERECHA ============ */}
+      <aside style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="saq-card">
+          <h4>👁 Vista previa</h4>
+          {selectedTypes.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--text-faint)', padding: '6px 0' }}>
+              Elige al menos un tipo de pregunta.
+            </div>
+          ) : (
+            <>
+              {(Object.keys(TYPE_META) as QuestionType[]).filter(t => selectedTypes.includes(t)).map((t, i) => {
+                const count = i === 0 ? perType + remainder : perType;
+                return (
+                  <div key={t} className="saq-card-row">
+                    <span>{TYPE_META[t].icon}</span>
+                    <span style={{ fontSize: 12 }}>{TYPE_META[t].label}</span>
+                    <b>{count}</b>
+                  </div>
+                );
+              })}
+              <div style={{
+                marginTop: 10, paddingTop: 10,
+                borderTop: '1px dashed var(--border-color2)',
+                display: 'flex', justifyContent: 'space-between',
+                fontSize: 13, fontWeight: 900,
+              }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Total</span>
+                <span style={{ color: 'var(--gold)' }}>{finalCount} preguntas</span>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="saq-card">
+          <h4>✨ Esto es lo que lograrás</h4>
+          <div className="saq-card-row">🧠 Evaluarás tu comprensión real del contenido.</div>
+          <div className="saq-card-row">📈 Identificarás tus fortalezas y debilidades.</div>
+          <div className="saq-card-row">💬 Recibirás explicaciones inteligentes de ALAI.</div>
+        </div>
+
+        <div className="saq-tip">
+          <span>⚡</span>
+          <p>
+            <b>Recuerda:</b> no se trata de memorizar, sino de <b>entender y aplicar</b>.
+          </p>
+        </div>
+      </aside>
     </motion.div>
   );
 }
@@ -1628,7 +2700,7 @@ function SectionLabel({
 }
 
 // ═══════════════════════════════════════════════════════════════
-// QUESTION CARD — hoja de cuaderno
+// QUESTION CARD — Hoja de cuaderno StudyAL
 // ═══════════════════════════════════════════════════════════════
 function QuestionCard({
   question,
@@ -1662,6 +2734,11 @@ function QuestionCard({
   isLast: boolean;
 }) {
   const isCorrect = lastEntry?.correct ?? null;
+  const [confidence, setConfidence] = useState<null | 'low' | 'mid' | 'high'>(null);
+
+  useEffect(() => {
+    setConfidence(null);
+  }, [index]);
 
   // Keyboard: Enter para verificar/siguiente
   useEffect(() => {
@@ -1677,106 +2754,39 @@ function QuestionCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: 40 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -40 }}
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -16 }}
       transition={{ type: 'spring', stiffness: 200, damping: 26 }}
-      style={{ width: '100%', maxWidth: 720 }}
+      className="saq-qcard-wrap"
     >
-      {/* Tarjeta estilo hoja */}
-      <div
-        style={{
-          position: 'relative',
-          background: '#f5f5f0',
-          borderRadius: 28,
-          padding: '52px 44px 44px 76px',
-          color: '#1a1a1a',
-          boxShadow:
-            '0 32px 80px rgba(0,0,0,0.55), 0 8px 24px rgba(0,0,0,0.35)',
-          backgroundImage: `repeating-linear-gradient(
-            transparent,
-            transparent 35px,
-            rgba(0,0,0,0.06) 35px,
-            rgba(0,0,0,0.06) 36px
-          )`,
-          backgroundPosition: '0 52px',
-        }}
-      >
-        {/* Agujeros espiral */}
-        <div
-          style={{
-            position: 'absolute',
-            left: 20,
-            top: '50%',
-            transform: 'translateY(-50%)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 28,
-          }}
-        >
-          {[0, 1, 2, 3].map(i => (
-            <div
-              key={i}
-              style={{
-                width: 14,
-                height: 14,
-                borderRadius: '50%',
-                background: '#080810',
-                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
-              }}
-            />
-          ))}
+      {/* Hoja de cuaderno */}
+      <div className="saq-paper">
+        {/* Espiral lateral izquierda */}
+        <div className="saq-paper-spiral">
+          {Array.from({ length: 14 }).map((_, i) => <span key={i} />)}
         </div>
 
-        {/* Margen rojo */}
-        <div
-          style={{
-            position: 'absolute',
-            left: 58,
-            top: 0,
-            bottom: 0,
-            width: 2,
-            background: 'rgba(239,68,68,0.4)',
-          }}
-        />
+        {/* Cinta superior decorativa */}
+        <div className="saq-paper-tape" />
 
-        {/* Badge tipo */}
-        <div
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            background: themeColor,
-            color: '#000',
-            borderRadius: 8,
-            padding: '4px 12px',
-            fontSize: 11,
-            fontWeight: 900,
-            marginBottom: 16,
-            fontFamily: BODY,
-            letterSpacing: 1,
-          }}
-        >
-          {TYPE_META[question.type]?.icon}{' '}
-          {question.type.replace(/_/g, ' ').toUpperCase()}
+        {/* Badge tipo de pregunta */}
+        <div className="saq-paper-badges">
+          <span className="saq-paper-type">
+            {TYPE_META[question.type]?.icon} {TYPE_META[question.type]?.label}
+          </span>
+          {question.sourcePage && (
+            <span className="saq-paper-page">📄 Pág. {question.sourcePage}</span>
+          )}
         </div>
 
         {/* Pregunta */}
-        <h2
-          style={{
-            fontSize: 22,
-            fontWeight: 700,
-            lineHeight: 1.45,
-            color: '#111',
-            marginBottom: 32,
-            fontFamily: BODY,
-          }}
-        >
+        <h2 className="saq-paper-question">
           <MathText text={question.question} />
         </h2>
 
         {/* Opciones */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="saq-paper-options">
           <QuestionOptions
             question={question}
             userAnswer={userAnswer}
@@ -1790,117 +2800,88 @@ function QuestionCard({
           />
         </div>
 
-        {/* Footer: verificar / feedback / siguiente */}
-        <div style={{ marginTop: 32 }}>
-          {!isLocked ? (
-            (question.type === 'fill_blank' ||
-              question.type === 'short_answer' ||
-              question.type === 'multi_select' ||
-              question.type === 'matching') ? (
+        {/* Confianza (solo si no está locked) */}
+        {!isLocked && (
+          <div className="saq-confidence">
+            <span className="saq-confidence-label">¿Qué tan seguro estás?</span>
+            <div className="saq-confidence-pills">
               <button
-                disabled={
-                  userAnswer === null ||
-                  userAnswer === undefined ||
-                  (Array.isArray(userAnswer) && userAnswer.length === 0) ||
-                  (typeof userAnswer === 'string' && !userAnswer.trim())
-                }
-                onClick={() => onVerify()}
-                style={{
-                  width: '100%',
-                  padding: '18px',
-                  borderRadius: 16,
-                  border: 'none',
-                  cursor:
-                    userAnswer === null ||
-                    userAnswer === undefined ||
-                    (Array.isArray(userAnswer) && userAnswer.length === 0) ||
-                    (typeof userAnswer === 'string' && !userAnswer.trim())
-                      ? 'not-allowed'
-                      : 'pointer',
-                  background:
-                    userAnswer === null ||
-                    userAnswer === undefined ||
-                    (Array.isArray(userAnswer) && userAnswer.length === 0) ||
-                    (typeof userAnswer === 'string' && !userAnswer.trim())
-                      ? '#ccc'
-                      : `linear-gradient(135deg, ${themeColor}, ${themeColor}cc)`,
-                  color: '#000',
-                  fontWeight: 900,
-                  fontSize: 17,
-                  fontFamily: BODY,
-                  transition: 'all 0.2s',
-                  boxShadow:
-                    userAnswer !== null &&
-                    userAnswer !== undefined &&
-                    !(Array.isArray(userAnswer) && userAnswer.length === 0) &&
-                    !(typeof userAnswer === 'string' && !userAnswer.trim())
-                      ? `0 8px 24px ${themeColor}44`
-                      : 'none',
-                }}
+                className={`saq-conf-pill ${confidence === 'low' ? 'active low' : ''}`}
+                onClick={() => setConfidence('low')}
+                type="button"
               >
-                {isEvaluating ? '🧠 VERIFICANDO...' : 'VERIFICAR ✓'}
+                😕 No sé
               </button>
-            ) : null
-          ) : (
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
-            >
-              {/* Feedback box */}
-              <FeedbackBox
-                correct={isCorrect ?? false}
-                question={question}
-                userAnswer={lastEntry?.userAnswer}
-                themeColor={themeColor}
-                evaluation={lastEntry?.evaluation}
-              />
               <button
-                data-next-question
-                onClick={onNext}
-                style={{
-                  width: '100%',
-                  padding: '18px',
-                  borderRadius: 16,
-                  border: 'none',
-                  cursor: 'pointer',
-                  background: '#1a1a2e',
-                  color: '#fff',
-                  fontWeight: 900,
-                  fontSize: 17,
-                  fontFamily: BODY,
-                  boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-                  transition: 'background 0.2s',
-                }}
-                onMouseEnter={e =>
-                  ((e.currentTarget as HTMLElement).style.background = '#22223a')
-                }
-                onMouseLeave={e =>
-                  ((e.currentTarget as HTMLElement).style.background = '#1a1a2e')
-                }
+                className={`saq-conf-pill ${confidence === 'mid' ? 'active mid' : ''}`}
+                onClick={() => setConfidence('mid')}
+                type="button"
               >
-                {isLast ? '✓ VER RESULTADOS' : 'SIGUIENTE →'}
+                🤔 Creo que sí
               </button>
-            </motion.div>
-          )}
-        </div>
+              <button
+                className={`saq-conf-pill ${confidence === 'high' ? 'active high' : ''}`}
+                onClick={() => setConfidence('high')}
+                type="button"
+              >
+                💪 Muy seguro
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Feedback inline cuando ya está locked */}
+        {isLocked && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="saq-paper-feedback"
+          >
+            <FeedbackBox
+              correct={isCorrect ?? false}
+              question={question}
+              userAnswer={lastEntry?.userAnswer}
+              themeColor={themeColor}
+              evaluation={lastEntry?.evaluation}
+            />
+          </motion.div>
+        )}
       </div>
 
-      {/* Número de página fuente */}
-      {question.sourcePage && (
-        <div
-          style={{
-            textAlign: 'center',
-            marginTop: 10,
-            fontSize: 12,
-            color: '#333',
-            fontFamily: BODY,
-          }}
-        >
-          📄 Pág. {question.sourcePage}{' '}
-          {question.sourceMaterialName && `· ${question.sourceMaterialName}`}
-        </div>
-      )}
+      {/* Botón flotante de acción */}
+      <div className="saq-action-row">
+        {!isLocked ? (
+          (question.type === 'fill_blank' ||
+            question.type === 'short_answer' ||
+            question.type === 'multi_select' ||
+            question.type === 'matching') ? (
+            <button
+              disabled={
+                userAnswer === null ||
+                userAnswer === undefined ||
+                (Array.isArray(userAnswer) && userAnswer.length === 0) ||
+                (typeof userAnswer === 'string' && !userAnswer.trim())
+              }
+              onClick={() => onVerify()}
+              className="saq-action-btn"
+            >
+              {isEvaluating ? '🧠 VERIFICANDO...' : 'Responder →'}
+            </button>
+          ) : (
+            <div className="saq-action-hint">
+              Haz clic en una opción para responder
+            </div>
+          )
+        ) : (
+          <button
+            data-next-question
+            onClick={onNext}
+            className="saq-action-btn"
+          >
+            {isLast ? '✓ Ver resultados' : 'Siguiente pregunta →'}
+          </button>
+        )}
+      </div>
     </motion.div>
   );
 }
@@ -1919,140 +2900,51 @@ function FeedbackBox({
   themeColor: string;
   evaluation?: HistoryEntry['evaluation'];
 }) {
-
-  const pct =
-    evaluation?.porcentaje ??
-    (correct ? 100 : 0);
-
-  const state =
-    pct >= 85
-      ? 'correct'
-      : pct >= 50
-      ? 'partial'
-      : 'wrong';
-
-  const title =
-    state === 'correct'
-      ? '🟢 CORRECTO'
-      : state === 'partial'
-      ? '🟡 MEDIO CORRECTO'
-      : '🔴 INCORRECTO';
-
-  const color =
-    state === 'correct'
-      ? '#16a34a'
-      : state === 'partial'
-      ? '#f59e0b'
-      : '#dc2626';
-
-  const bg =
-    state === 'correct'
-      ? '#ecfdf5'
-      : state === 'partial'
-      ? '#fffbeb'
-      : '#fef2f2';
+  const pct = evaluation?.porcentaje ?? (correct ? 100 : 0);
+  const state = pct >= 85 ? 'correct' : pct >= 50 ? 'partial' : 'wrong';
+  const title = state === 'correct' ? '¡Correcto!' : state === 'partial' ? 'Casi…' : 'Incorrecto';
+  const icon = state === 'correct' ? '🎉' : state === 'partial' ? '🤏' : '💭';
 
   return (
-    <div
-      id="quiz-feedback"
-      style={{
-        background:bg,
-        border:`2px solid ${color}`,
-        borderRadius:18,
-        padding:20,
-        display:'flex',
-        flexDirection:'column',
-        gap:12,
-        color:'#111',
-      }}
-    >
-
-      <div
-        style={{
-          display:'flex',
-          justifyContent:'space-between',
-          alignItems:'center',
-          fontWeight:900,
-          color,
-          fontSize:18,
-        }}
-      >
-        <span>{title}</span>
-
-        <span
-          style={{
-            padding:'4px 12px',
-            borderRadius:999,
-            background:'#fff',
-            border:`2px solid ${color}`
-          }}
-        >
-          {pct}%
-        </span>
+    <div id="quiz-feedback" className={`saq-feedback saq-feedback-${state}`}>
+      <div className="saq-feedback-head">
+        <span className="saq-feedback-icon">{icon}</span>
+        <strong>{title}</strong>
+        <span className="saq-feedback-pct">{pct}%</span>
       </div>
 
-      <div
-        style={{
-          height:8,
-          borderRadius:999,
-          overflow:'hidden',
-          background:'rgba(0,0,0,.08)'
-        }}
-      >
-        <div
-          style={{
-            width:`${pct}%`,
-            height:'100%',
-            background:color
-          }}
-        />
+      <div className="saq-feedback-bar">
+        <div style={{ width: `${pct}%` }} />
       </div>
 
-      <div>
-        <strong>Tu respuesta:</strong>{' '}
-        {question.type === 'matching'
-          ? (question.pairs || []).map((p: any, i: number) => {
-              const chosen = (question.pairs || [])[userAnswer?.[i]]?.right || 'sin conectar';
-              return `${p.left} → ${chosen}`;
-            }).join(' | ')
-          : Array.isArray(userAnswer)
-          ? userAnswer.map((i: number) => `${String.fromCharCode(65 + i)}. ${question.options?.[i] ?? i}`).join(', ')
-          : String(userAnswer ?? '')}
+      <div className="saq-feedback-body">
+        {evaluation?.respuestaCorrecta && (
+          <div className="saq-feedback-row">
+            <b>Respuesta correcta:</b>
+            <span>{evaluation.respuestaCorrecta}</span>
+          </div>
+        )}
+
+        {evaluation?.analisis && (
+          <div className="saq-feedback-row">
+            <b>Análisis:</b>
+            <span>{evaluation.analisis}</span>
+          </div>
+        )}
+
+        {evaluation?.explicacion && (
+          <div className="saq-feedback-row">
+            <b>¿Por qué?</b>
+            <span>{evaluation.explicacion}</span>
+          </div>
+        )}
+
+        {evaluation?.consejo && (
+          <div className="saq-feedback-tip">
+            💡 {evaluation.consejo}
+          </div>
+        )}
       </div>
-
-      {evaluation?.respuestaCorrecta && (
-        <div>
-          <strong>
-          Respuesta esperada:
-          </strong>{' '}
-          {evaluation.respuestaCorrecta}
-        </div>
-      )}
-
-      {evaluation?.analisis && (
-        <div>
-          <strong>
-          Análisis:
-          </strong>{' '}
-          {evaluation.analisis}
-        </div>
-      )}
-
-      {evaluation?.explicacion && (
-        <div>
-          <strong>
-          Por qué:
-          </strong>{' '}
-          {evaluation.explicacion}
-        </div>
-      )}
-
-      {evaluation?.consejo && (
-        <div>
-          💡 {evaluation.consejo}
-        </div>
-      )}
-
     </div>
   );
 }
@@ -2407,74 +3299,19 @@ function OptionButton({
   onClick: () => void;
   square?: boolean;
 }) {
-  const borderColor = correct
-    ? '#4caf50'
-    : wrong
-    ? '#f44336'
-    : selected
-    ? themeColor
-    : 'rgba(0,0,0,0.12)';
-  const bg = correct
-    ? '#e8f5e9'
-    : wrong
-    ? '#ffebee'
-    : selected
-    ? `${themeColor}15`
-    : '#fff';
+  const state = correct ? 'correct' : wrong ? 'wrong' : selected ? 'selected' : 'idle';
 
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 14,
-        padding: '15px 18px',
-        borderRadius: 14,
-        border: `2px solid ${borderColor}`,
-        background: bg,
-        cursor: disabled ? 'default' : 'pointer',
-        textAlign: 'left',
-        transition: 'all 0.18s',
-        transform: selected && !disabled ? 'scale(1.015)' : 'scale(1)',
-        boxShadow: correct
-          ? '0 4px 16px rgba(76,175,80,0.3)'
-          : wrong
-          ? '0 4px 16px rgba(244,67,54,0.3)'
-          : selected
-          ? `0 4px 16px ${themeColor}33`
-          : 'none',
-      }}
+      className={`saq-opt saq-opt-${state}`}
+      type="button"
     >
-      <div
-        style={{
-          width: 28,
-          height: 28,
-          borderRadius: square ? 6 : '50%',
-          border: `2px solid ${borderColor}`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 12,
-          fontWeight: 900,
-          color: correct ? '#2e7d32' : wrong ? '#c62828' : selected ? themeColor : '#999',
-          flexShrink: 0,
-          fontFamily: BODY,
-          background: selected || correct || wrong ? 'rgba(0,0,0,0.04)' : 'transparent',
-        }}
-      >
+      <div className={`saq-opt-letter ${square ? 'square' : ''}`}>
         {correct ? '✓' : wrong ? '✗' : label}
       </div>
-      <span
-        style={{
-          fontSize: 15,
-          fontWeight: selected || correct ? 700 : 500,
-          color: '#111',
-          fontFamily: BODY,
-          lineHeight: 1.4,
-        }}
-      >
+      <span className="saq-opt-text">
         <MathText text={text} />
       </span>
     </button>

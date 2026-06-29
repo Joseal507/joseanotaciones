@@ -1,4 +1,5 @@
 'use client';
+import { sortCardsByMastery } from '../../lib/masteryEngine';
 
 import { useState, useEffect, useRef, useCallback, useMemo} from 'react';
 import dynamic from 'next/dynamic';
@@ -17,6 +18,8 @@ interface Flashcard {
   sourcePage?: number;
   materialId?: string;
   sourceMaterialId?: string;
+  primaryConcept?: string;
+  concepts?: string[];
 }
 
 interface SeleccionItem {
@@ -32,6 +35,8 @@ interface Props {
   materia: any;
   sessionId?: string | null;
   onBack: () => void;
+  onMasteryEvent?: (event: any) => void;
+  masteryContext?: any;
 }
 
 type StudyMode = 'repite' | 'rapido';
@@ -951,13 +956,14 @@ interface CardProgress {
   nextReviewIndex: number;
 }
 
-function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', order = 'bucle' }: {
+function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', order = 'bucle', onMasteryEvent }: {
   cards: Flashcard[];
   color: string;
   onClose: () => void;
   readOnly?: boolean;
   contexto?: string;
   order?: StudyOrder;
+  onMasteryEvent?: (event: any) => void;
 }) {
   const [shuffledCards] = useState<Flashcard[]>(() => {
     if (order === 'bucle') {
@@ -989,6 +995,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
   const [revealed, setRevealed] = useState(false);
   const [done, setDone] = useState(false);
   const [position, setPosition] = useState(0);
+  const [userConfidence, setUserConfidence] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const current = progress.get(currentId);
@@ -1077,6 +1084,34 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
     newProgress.set(currentId, p);
     setProgress(newProgress);
 
+    // ── Mastery Engine: reportar resultado de Flashcard ──
+    try {
+      const nivel = resultLevel || evaluation?.nivel || 'medio_correcta';
+      const isCorrect = nivel === 'correcta' || nivel === 'INSANE';
+      const isMedium = nivel === 'medio_correcta';
+      const scoreMap: Record<string, number> = {
+        INSANE: 100, correcta: 90, medio_correcta: 55,
+        incorrecta: 20, muy_incorrecta: 5, dont_know: 0, shown: 10,
+      };
+      const score = scoreMap[nivel] ?? 50;
+      // Usar confianza real del estudiante si la proporcionó, si no usar estimación por resultado
+      const confidence = userConfidence !== null
+        ? userConfidence
+        : isCorrect ? 80 : isMedium ? 50 : 20;
+      onMasteryEvent?.({
+        tool: 'flashcards',
+        materialId: cards[0]?.materialId || cards[0]?.sourceMaterialId || '',
+        score,
+        correct: isCorrect,
+        confidence,
+        // Usar primaryConcept si existe, si no usar el texto de la pregunta como fallback
+        conceptName: current?.card?.primaryConcept || current?.card?.question?.slice(0, 60) || '',
+        conceptsIdentified: current?.card?.concepts?.length
+          ? current.card.concepts
+          : [current?.card?.primaryConcept || current?.card?.question?.slice(0, 60) || ''].filter(Boolean),
+      });
+    } catch (_) {}
+
     const next = getNextCard(newProgress);
     if (!next) {
       setDone(true);
@@ -1088,6 +1123,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
     setUserAnswer('');
     setEvaluation(null);
     setRevealed(false);
+    setUserConfidence(null);
   };
 
   const handleDontKnow = async () => {
@@ -1098,8 +1134,47 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
       respuestaCorrecta: current.card.answer,
       explicacion: current.card.answer,
     });
+    setUserConfidence(0); // No sabía = 0% confianza
     setRevealed(true);
   };
+
+  // Componente selector de confianza (se muestra tras revelar)
+  const ConfidenceSelector = () => (
+    <div style={{
+      margin: '12px 0 4px',
+      padding: '10px 14px',
+      background: 'rgba(214,178,111,0.06)',
+      border: '1px solid rgba(214,178,111,0.2)',
+      borderRadius: 10,
+    }}>
+      <div style={{ fontSize: 11, color: '#888', fontWeight: 700, marginBottom: 8, fontFamily: BODY }}>
+        ¿Qué tan seguro estabas ANTES de ver la respuesta?
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {[
+          { label: '🎲 No sabía', val: 0 },
+          { label: '🤔 Dudaba', val: 33 },
+          { label: '👍 Lo sabía', val: 66 },
+          { label: '💪 Segurísimo', val: 100 },
+        ].map(({ label, val }) => (
+          <button
+            key={val}
+            onClick={() => setUserConfidence(val)}
+            style={{
+              flex: 1, padding: '6px 4px', borderRadius: 8, cursor: 'pointer',
+              border: `1.5px solid ${userConfidence === val ? '#d6b26f' : 'rgba(255,255,255,0.1)'}`,
+              background: userConfidence === val ? 'rgba(214,178,111,0.2)' : 'transparent',
+              color: userConfidence === val ? '#d6b26f' : '#666',
+              fontSize: 10, fontWeight: 700, fontFamily: BODY,
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 
   if (done) {
     const stats = Array.from(progress.values()).reduce(
@@ -1520,6 +1595,8 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
                 👁 Respuesta revelada · Continúa cuando estés listo
               </div>
             )}
+            {/* Selector de confianza — aparece cuando se revela la respuesta */}
+            {!evaluation?._showOnly && <ConfidenceSelector />}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
               {canGoBack && (
                 <DashedButton onClick={goBack} color="#a78bfa" fontSize={14}>
@@ -1947,7 +2024,9 @@ function EmptyGenerate({ color, onGenerate, generating, numPages, selectedPages,
   );
 }
 
-export default function ALAIStudyALCards({ materiales, seleccion, tema, materia, sessionId, onBack }: Props) {
+import { useMasteryReporter } from '../../hooks/useMastery';
+
+export default function ALAIStudyALCards({ materiales, seleccion, tema, materia, sessionId, onBack, onMasteryEvent, masteryContext }: Props) {
   const color = tema?.color || '#22d3ee';
   const [activeMaterialIndex, setActiveMaterialIndex] = useState(0);
   const matActual = materiales[activeMaterialIndex];
@@ -2418,6 +2497,7 @@ ${fullText}`);
               materialId: block.materialId,
               seleccion,
               selectedPages,
+              masteryContext,
               totalSelectedPages,
             }),
           });
@@ -2448,6 +2528,18 @@ ${fullText}`);
       setGeneratingStep(`¡Listo! ${cards.length} flashcards generadas`);
       await new Promise(r => setTimeout(r, 700));
       setFlashcards(cards);
+
+      // ── Modo libre: registrar uso (12%) ──
+      try {
+        onMasteryEvent?.({
+          tool: 'flashcards',
+          materialId: matActual?.materialId || matActual?.id || '',
+          score: 60,
+          conceptsIdentified: cards.slice(0, 8).map(c => c.question?.slice(0, 60) || ''),
+          freeModeUse: true,
+          freeDomainPct: 12,
+        });
+      } catch (_) {}
     } catch (e: any) {
       setError(e.message || 'Error al generar flashcards');
     } finally {
@@ -2474,8 +2566,12 @@ ${fullText}`);
     setEditingCard(nueva);
   };
 
-  if (studySingleCard) return <StudyRepite cards={[studySingleCard]} color={color} onClose={() => setStudySingleCard(null)} readOnly contexto={materialText} />;
-  if (studyMode === 'repite') return <StudyRepite cards={flashcards} color={color} onClose={() => setStudyMode(null)} contexto={materialText} order={studyOrder} />;
+  if (studySingleCard) return <StudyRepite cards={[studySingleCard]} color={color} onClose={() => setStudySingleCard(null)} readOnly contexto={materialText} onMasteryEvent={onMasteryEvent} />;
+  const sortedCards = masteryContext
+    ? sortCardsByMastery(flashcards, masteryContext)
+    : flashcards;
+
+  if (studyMode === 'repite') return <StudyRepite cards={sortedCards} color={color} onClose={() => setStudyMode(null)} contexto={materialText} order={studyOrder} onMasteryEvent={onMasteryEvent} />;
   if (studyMode === 'rapido') return <StudyRapido cards={flashcards} color={color} onClose={() => setStudyMode(null)} contexto={materialText} order={studyOrder} />;
 
   return (

@@ -7,8 +7,9 @@ export const maxDuration = 120;
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const texto = body.texto || body.content || '';
+    const texto = body.texto || body.content || body.contenido || '';
     const existentes: string[] = body.existentes || [];
+    const masteryContext = body.masteryContext || null;
 
     if (!texto?.trim()) {
       console.log('❌ Texto vacío');
@@ -143,9 +144,12 @@ CRITICAL RULES (FOLLOW ALL):
 Return ONLY valid JSON:
 {
   "flashcards": [
-    { "question": "...", "answer": "...", "sourceText": "...", "sourcePage": 3, "sourceMaterialId": "mat_xxx" }
+    { "question": "...", "answer": "...", "sourceText": "...", "sourcePage": 3, "sourceMaterialId": "mat_xxx", "primaryConcept": "ATP", "concepts": ["ATP", "Mitocondria"] }
   ]
 }
+
+CRITICAL: "primaryConcept" = the main academic concept this card tests (1-3 words, NOT the question text).
+"concepts" = list of 1-3 academic concepts covered by this card.
 
 Material context:
 ${texto.slice(0, 14000)}
@@ -153,6 +157,14 @@ ${texto.slice(0, 14000)}
 Concepts:
 ${batch.map((c, idx) => `${idx + 1}. ${c}`).join('\n')}`
         : `Convierte cada concepto en una flashcard clara y simple.
+
+${masteryContext ? `
+PERFIL DEL ESTUDIANTE — ADAPTA LAS FLASHCARDS:
+- Conceptos débiles: ${masteryContext.weakConcepts?.join(', ') || 'ninguno'}
+- Conceptos críticos: ${masteryContext.criticalConcepts?.join(', ') || 'ninguno'}
+- Perfil: ${masteryContext.studentProfile}
+INSTRUCCIÓN: Prioriza flashcards sobre los conceptos débiles y críticos. Para conceptos ya dominados (${masteryContext.strongConcepts?.join(', ') || 'ninguno'}), crea flashcards de nivel avanzado o de conexión entre conceptos.
+` : ''}
 
 REGLAS CRÍTICAS (DEBES SEGUIRLAS TODAS):
 
@@ -177,9 +189,12 @@ REGLAS CRÍTICAS (DEBES SEGUIRLAS TODAS):
 Devuelve SOLO JSON válido:
 {
   "flashcards": [
-    { "question": "...", "answer": "...", "sourceText": "...", "sourcePage": 3, "sourceMaterialId": "mat_xxx" }
+    { "question": "...", "answer": "...", "sourceText": "...", "sourcePage": 3, "sourceMaterialId": "mat_xxx", "primaryConcept": "ATP", "concepts": ["ATP", "Mitocondria"] }
   ]
 }
+
+CRÍTICO: "primaryConcept" = el concepto académico principal que evalúa esta card (1-3 palabras, NO el texto de la pregunta).
+"concepts" = lista de 1-3 conceptos académicos que cubre esta card.
 
 Contexto del material:
 ${texto.slice(0, 14000)}

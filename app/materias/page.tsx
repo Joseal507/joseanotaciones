@@ -17,20 +17,39 @@ const DocumentoView = dynamicImport(() => import('../../components/materias/Docu
 const ALAIStudyALCards = dynamicImport(() => import('../../components/materias/ALAIStudyALCards'), { ssr: false });
 const ALAIStudyALQuizzes = dynamicImport(() => import('../../components/materias/ALAIStudyALQuizzes'), { ssr: false });
 const ALAIStudyALRepasar = dynamicImport(() => import('../../components/materias/ALAIStudyALRepasar'), { ssr: false });
+const ALAIStudyALChat = dynamicImport(() => import('../../components/materias/ALAIStudyALChat'), { ssr: false });
+const ALAIStudyALExams = dynamicImport(() => import('../../components/materias/ALAIStudyALExams'), { ssr: false });
+const AnalisisTeorico = dynamicImport(() => import('../../components/materias/AnalisisTeorico'), { ssr: false });
 const ModalMateria = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalMateria));
 const ModalTema = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalTema));
 const ModalApunte = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalApunte));
 import Buscador from '../../components/Buscador';
 import MaterialUploader from '../../components/materials/MaterialUploader';
 import type { MaterialUI } from '../../lib/materials/types';
+import {
+  getMasteryStorageKey,
+  loadMaterialMastery,
+  saveMaterialMastery,
+  createEmptyMastery,
+  processEvent,
+  calculateMasterySnapshot,
+  buildMasteryContext,
+  applyForgettingCurve,
+  buildSessionSummary,
+  type MaterialMastery,
+  type MasteryEvent,
+  type MasterySnapshot,
+  type MasteryContext,
+  type SessionSummary,
+} from '../../lib/masteryEngine';
 
-type Vista = 'materias' | 'materia' | 'tema' | 'apunte' | 'documento' | 'flashcards' | 'quiz' | 'repasar';
+type Vista = 'materias' | 'materia' | 'tema' | 'apunte' | 'documento' | 'flashcards' | 'quiz' | 'repasar' | 'analisis' | 'alai' | 'exam';
 
 export default function MateriasPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const [materias, setMaterias] = useState<Materia[]>([]);
-  const [vista, setVista] = useState<'lista' | 'materia' | 'materias' | 'apunte' | 'tema' | 'documento' | 'flashcards' | 'quiz' | 'repasar'>(() => {
+  const [vista, setVista] = useState<'lista' | 'materia' | 'materias' | 'apunte' | 'tema' | 'documento' | 'flashcards' | 'quiz' | 'repasar' | 'analisis' | 'alai' | 'exam'>(() => {
     if (typeof window !== 'undefined') {
       const sp = new URLSearchParams(window.location.search);
       if (sp.get('open')) return 'materia';
@@ -46,7 +65,257 @@ export default function MateriasPage() {
   const [quizSeleccion,  setQuizSeleccion]    = useState<any[] | undefined>(undefined);
   const [repasarMateriales, setRepasarMateriales] = useState<any[]>([]);
   const [repasarSeleccion, setRepasarSeleccion] = useState<any[] | null>(null);
+  const [analisisMateriales, setAnalisisMateriales] = useState<any[]>([]);
+  const [analisisSeleccion, setAnalisisSeleccion] = useState<any[] | null>(null);
+  const [alaiMateriales, setAlaiMateriales] = useState<any[]>([]);
+  const [alaiSeleccion, setAlaiSeleccion] = useState<any[] | null>(null);
+  const [examMateriales, setExamMateriales] = useState<any[]>([]);
+  const [examSeleccion, setExamSeleccion] = useState<any[] | null>(null);
   const [returnToEnfoque, setReturnToEnfoque] = useState(false);
+  const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
+  const [summaryVisible, setSummaryVisible] = useState(false);
+
+  // ── Auto-inicializar mastery cuando hay tema activo ──
+  // Se ejecuta cuando el usuario entra a un tema que tiene documentos
+  // No espera a que abra ninguna herramienta
+  useEffect(() => {
+    if (!temaActual?.documentos?.length) return;
+    if (vista !== 'tema') return;
+
+    const docs = temaActual.documentos;
+    const ids = docs
+      .map((d: any) => String(d?.materialId || d?.id || ''))
+      .filter(Boolean);
+
+    if (!ids.length) return;
+
+    // Solo inicializar si no hay mastery activo o es de otro tema
+    const currentKey = getMasteryStorageKey(ids);
+    if (masteryState?.sessionKey === currentKey) return;
+
+    const names = docs.map((d: any) => d?.nombre || d?.name || 'Material');
+    initMastery(ids, names);
+  }, [temaActual?.id, vista]);
+
+  // ── Mastery Engine — vive aquí, persiste entre vistas ──
+  const [masteryState, setMasteryState] = useState<MaterialMastery | null>(null);
+  const [masterySnapshot, setMasterySnapshot] = useState<MasterySnapshot | null>(null);
+
+  // Auto-extraer conceptos en background cuando el mastery existe pero no tiene conceptos
+  const autoExtractConcepts = async (mastery: MaterialMastery) => {
+    if (!mastery || mastery.conceptsExtracted || mastery.concepts.length > 0) return;
+    if (!mastery.materialId && !mastery.sessionKey) return;
+
+    try {
+      const materialIds = mastery.sessionKey
+        .replace('studyal_mastery_v1_', '')
+        .split('-')
+        .filter(Boolean);
+
+      if (!materialIds.length) return;
+
+      console.log('%c🧠 Mastery: extrayendo conceptos en background...', 'background:#a78bfa;color:#000;padding:2px 6px;border-radius:4px;font-weight:900');
+
+      // 1. Cargar texto
+      const res = await fetch('/api/enfoques/teorico/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ materialIds }),
+      });
+      const data = await res.json();
+      if (!data.materials) return;
+
+      const fullText = Object.entries(data.materials)
+        .map(([id, m]: [string, any]) => (m.text || '').trim())
+        .filter(Boolean)
+        .join('\n\n---\n\n');
+
+      if (!fullText.trim()) return;
+
+      // 2. Extraer conceptos
+      const extractRes = await fetch('/api/mastery/extract-concepts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          materialText: fullText.slice(0, 25000),
+          materialId: materialIds[0],
+          tema: temaActual?.nombre || '',
+          materia: materiaActual?.nombre || '',
+        }),
+      });
+
+      const extractData = await extractRes.json();
+      if (!extractData.success || !extractData.concepts?.length) return;
+
+      const extractedConcepts = extractData.concepts;
+      console.log(
+        '%c✅ Mastery: conceptos extraídos automáticamente',
+        'background:#4ade80;color:#000;padding:2px 6px;border-radius:4px;font-weight:900',
+        extractedConcepts
+      );
+
+      const newConcepts = extractedConcepts.map((name: string) => ({
+        id: name.toLowerCase().replace(/\s+/g, '_').slice(0, 50),
+        name,
+        materialId: materialIds[0],
+        understanding: 0, memory: 0, application: 0,
+        explanation: 0, exam: 0, confidence: 0,
+        speed: 0, stability: 0, attempts: 0, mistakes: 0,
+        lastReviewed: null, previousScores: [],
+        forgettingRisk: 'very_high' as const,
+        recommendedAction: 'Empieza con Repasar.',
+        recommendedTool: 'repasar' as const,
+      }));
+
+      setMasteryState(prev => {
+        if (!prev) return prev;
+        const updated = {
+          ...prev,
+          concepts: newConcepts,
+          conceptsExtracted: true,
+          lastUpdated: Date.now(),
+        };
+        saveMaterialMastery(updated);
+        setMasterySnapshot(calculateMasterySnapshot(updated));
+        return updated;
+      });
+
+      // Extraer Knowledge Graph en background (no bloquea)
+      setTimeout(async () => {
+        try {
+          const graphRes = await fetch('/api/mastery/extract-graph', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              materialText: fullText.slice(0, 12000),
+              concepts: extractedConcepts,
+              materialId: materialIds[0],
+              tema: temaActual?.nombre || '',
+              materia: materiaActual?.nombre || '',
+            }),
+          });
+          const graphData = await graphRes.json();
+          if (graphData.success && graphData.relations?.length) {
+            console.log(
+              '%c🕸️ Knowledge Graph extraído',
+              'background:#a78bfa;color:#000;padding:2px 6px;border-radius:4px;font-weight:900',
+              graphData.relations.length, 'relaciones'
+            );
+            setMasteryState(prev => {
+              if (!prev) return prev;
+              const withGraph = {
+                ...prev,
+                knowledgeGraph: {
+                  concepts: extractedConcepts,
+                  relations: graphData.relations,
+                },
+                lastUpdated: Date.now(),
+              };
+              saveMaterialMastery(withGraph);
+              return withGraph;
+            });
+          }
+        } catch (e) {
+          console.warn('Knowledge Graph extraction failed:', e);
+        }
+      }, 2000);
+
+    } catch (err) {
+      console.warn('Mastery auto-extract error:', err);
+    }
+  };
+
+  // Inicializar/actualizar mastery cuando cambian los materiales seleccionados
+  const initMastery = (materialIds: string[], materialNames: string[]) => {
+    if (!materialIds.length) return;
+    const sessionKey = getMasteryStorageKey(materialIds);
+    const loaded = loadMaterialMastery(sessionKey);
+
+    // Aplicar curva de olvido al cargar (actualiza valores según tiempo transcurrido)
+    const mastery = loaded
+      ? applyForgettingCurve(loaded)
+      : createEmptyMastery({ materialIds, materialNames, sessionKey });
+
+    setMasteryState(mastery);
+    setMasterySnapshot(calculateMasterySnapshot(mastery));
+
+    // Guardar el estado con el olvido aplicado
+    if (loaded) saveMaterialMastery(mastery);
+
+    // Auto-extraer conceptos si no los tiene
+    if (!mastery.conceptsExtracted && !mastery.concepts.length) {
+      setTimeout(() => autoExtractConcepts(mastery), 500);
+    }
+  };
+
+  // Construir contexto de mastery para pasarlo a las herramientas
+  const getMasteryContext = (): MasteryContext | null => {
+    return buildMasteryContext(masteryState);
+  };
+
+  // Extraer conceptos débiles del estado actual para pasarlos a las herramientas
+  const getWeakConcepts = (): string[] => {
+    if (!masteryState?.concepts?.length) return [];
+    return masteryState.concepts
+      .filter((c: any) => {
+        const score = (c.understanding * 0.25 + c.memory * 0.20 +
+          c.application * 0.20 + c.explanation * 0.15 + c.exam * 0.20);
+        const name = c.name || '';
+        // Solo conceptos reales (no preguntas)
+        if (name.includes('?') || name.length > 60) return false;
+        return score < 50;
+      })
+      .sort((a: any, b: any) => {
+        const scoreA = a.understanding * 0.25 + a.memory * 0.20 + a.application * 0.20;
+        const scoreB = b.understanding * 0.25 + b.memory * 0.20 + b.application * 0.20;
+        return scoreA - scoreB;
+      })
+      .map((c: any) => c.name)
+      .slice(0, 8);
+  };
+
+  // Función que reciben todas las herramientas para reportar eventos
+  const reportMasteryEvent = (event: Omit<MasteryEvent, 'sessionKey'>) => {
+    setMasteryState(prev => {
+      if (!prev) return prev;
+      const fullEvent: MasteryEvent = {
+        ...event,
+        sessionKey: prev.sessionKey,
+        timestamp: Date.now(),
+      };
+      const before = prev;
+      const updated = processEvent(prev, fullEvent);
+      saveMaterialMastery(updated);
+      const snap = calculateMasterySnapshot(updated);
+      setMasterySnapshot(snap);
+
+      // Generar session summary SOLO en modo adaptativo
+      // Nunca aparece en modo libre (los eventos del modo libre traen freeModeUse: true)
+      // En modo libre el dominio se ve en el sidebar sin interrupciones
+      const isFreeMode = (event as any).freeModeUse === true || updated.processMode === 'free';
+      if (
+        event.score !== undefined &&
+        event.score >= 0 &&
+        updated.concepts.length > 0 &&
+        !isFreeMode
+      ) {
+        const summary = buildSessionSummary(before, updated, event.tool);
+        setSessionSummary(summary);
+        setSummaryVisible(true);
+      }
+
+      console.log(
+        '%c📈 Mastery Event CENTRAL',
+        'background:#d6b26f;color:#000;padding:2px 6px;border-radius:4px;font-weight:900',
+        event.tool,
+        '| score:', event.score ?? '—',
+        '| concepts:', event.conceptsIdentified?.length || 0,
+        '| overall:', snap.overallMastery,
+      );
+      return updated;
+    });
+  };
 
   const normalizePages = (value: any): number[] => {
     if (Array.isArray(value)) {
@@ -181,21 +450,21 @@ export default function MateriasPage() {
             if (matLocal) {
               setMateriaActual(matLocal);
               setVista(prev => (
-                ['flashcards', 'quiz', 'repasar', 'tema', 'apunte', 'documento'].includes(prev)
+                ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam', 'tema', 'apunte', 'documento'].includes(prev)
                   ? prev
                   : 'materia'
               ));
               localStorage.removeItem('josea_open_materia');
             } else {
               setVista(prev => (
-                ['flashcards', 'quiz', 'repasar', 'tema', 'apunte', 'documento'].includes(prev)
+                ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam', 'tema', 'apunte', 'documento'].includes(prev)
                   ? prev
                   : 'materias'
               ));
             }
           } else {
             setVista(prev => (
-              ['flashcards', 'quiz', 'repasar', 'tema', 'apunte', 'documento'].includes(prev)
+              ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam', 'tema', 'apunte', 'documento'].includes(prev)
                 ? prev
                 : 'materias'
             ));
@@ -240,13 +509,13 @@ export default function MateriasPage() {
               if (mat) {
                 setMateriaActual(mat);
                 setVista(prev => (
-                  ['flashcards', 'quiz', 'repasar', 'tema', 'apunte', 'documento'].includes(prev)
+                  ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam', 'tema', 'apunte', 'documento'].includes(prev)
                     ? prev
                     : 'materia'
                 ));
               } else {
                 setVista(prev => (
-                  ['flashcards', 'quiz', 'repasar', 'tema', 'apunte', 'documento'].includes(prev)
+                  ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam', 'tema', 'apunte', 'documento'].includes(prev)
                     ? prev
                     : 'materias'
                 ));
@@ -572,6 +841,8 @@ const eliminarDocumento = async (id: string) => {
     if (cargando) return;
 
     // Nunca cambiar vista durante render. Este guard solo corrige estados rotos.
+    if (['exam', 'flashcards', 'quiz', 'repasar', 'analisis', 'alai'].includes(vista)) return;
+
     if (vista === 'materia' && !materiaActual) {
       try { window.history.replaceState(null, '', '/materias'); } catch {}
       setVista('materias');
@@ -742,20 +1013,69 @@ const eliminarDocumento = async (id: string) => {
               setFlashcardsMateriales(matsToUse);
               setFlashcardsSeleccion(normalizedSel);
               setFlashcardsSessionId(sessionId || null);
+              // Inicializar mastery
+              const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
+              const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
+              initMastery(ids, names);
               setVista('flashcards');
             }}
             onOpenQuiz={(mats?: any[], sel?: any[]) => {
-              setQuizMateriales(mats || temaActual?.documentos || []);
+              const matsToUse = mats || temaActual?.documentos || [];
+              setQuizMateriales(matsToUse);
               setQuizSeleccion(sel);
+              // Inicializar mastery
+              const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
+              const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
+              initMastery(ids, names);
               setVista('quiz');
             }}
             onOpenRepasar={(mats?: any[], sel?: any[]) => {
               const matsToUse = mats || temaActual?.documentos || [];
               setRepasarMateriales(matsToUse);
               setRepasarSeleccion(Array.isArray(sel) && sel.length ? sel : null);
+              // Inicializar mastery con estos materiales
+              const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
+              const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
+              initMastery(ids, names);
               setVista('repasar');
             }}
+            onOpenAnalisis={(mats?: any[], sel?: any[]) => {
+              const matsToUse = mats || temaActual?.documentos || [];
+              const normalizedSel = normalizeSeleccionForFlashcards(sel || null, matsToUse);
+              setAnalisisMateriales(matsToUse);
+              setAnalisisSeleccion(normalizedSel);
+              const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
+              const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
+              initMastery(ids, names);
+              setVista('analisis');
+            }}
+            onOpenAlai={(mats?: any[], sel?: any[]) => {
+              const matsToUse = mats || temaActual?.documentos || [];
+              const normalizedSel = normalizeSeleccionForFlashcards(sel || null, matsToUse);
+              setAlaiMateriales(matsToUse);
+              setAlaiSeleccion(normalizedSel);
+              const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
+              const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
+              initMastery(ids, names);
+              setVista('alai');
+            }}
+            onOpenExam={(mats?: any[], sel?: any[]) => {
+              const matsToUse = mats || temaActual?.documentos || [];
+              const normalizedSel = normalizeSeleccionForFlashcards(sel || null, matsToUse);
+              setExamMateriales(matsToUse);
+              setExamSeleccion(normalizedSel);
+              // Inicializar mastery
+              const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
+              const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
+              initMastery(ids, names);
+              setVista('exam');
+            }}
             onAgregarYoutube={agregarYoutube}
+            masteryState={masteryState}
+            masterySnapshot={masterySnapshot}
+            masteryContext={getMasteryContext()}
+            onMasteryEvent={reportMasteryEvent}
+            onInitMastery={initMastery}
           />
         )}
 
@@ -778,6 +1098,8 @@ const eliminarDocumento = async (id: string) => {
             tema={temaActual}
             materia={materiaActual}
             sessionId={flashcardsSessionId}
+            masteryContext={getMasteryContext()}
+            onMasteryEvent={reportMasteryEvent}
             onBack={() => {
               setReturnToEnfoque(true);
               requestAnimationFrame(() => {
@@ -793,7 +1115,16 @@ const eliminarDocumento = async (id: string) => {
             seleccion={quizSeleccion}
             tema={temaActual}
             materia={materiaActual}
-            onBack={() => { setVista('tema'); setQuizMateriales([]); setQuizSeleccion(undefined); }}
+            masteryContext={getMasteryContext()}
+            onMasteryEvent={reportMasteryEvent}
+            onBack={() => {
+              setReturnToEnfoque(true);
+              setQuizMateriales([]);
+              setQuizSeleccion(undefined);
+              requestAnimationFrame(() => {
+                setVista('tema');
+              });
+            }}
           />
         )}
 
@@ -803,6 +1134,61 @@ const eliminarDocumento = async (id: string) => {
             seleccion={repasarSeleccion}
             tema={temaActual}
             materia={materiaActual}
+            masteryContext={getMasteryContext()}
+            onMasteryEvent={reportMasteryEvent}
+            onBack={() => {
+              setReturnToEnfoque(true);
+              requestAnimationFrame(() => {
+                setVista('tema');
+              });
+            }}
+          />
+        )}
+
+        {vista === 'analisis' && temaActual && materiaActual && (
+          <AnalisisTeorico
+            materiales={analisisMateriales.length > 0 ? analisisMateriales : temaActual.documentos}
+            seleccion={analisisSeleccion}
+            tema={temaActual}
+            materia={materiaActual}
+            masteryContext={getMasteryContext()}
+            onMasteryEvent={reportMasteryEvent}
+            onClose={() => {
+              setReturnToEnfoque(true);
+              requestAnimationFrame(() => {
+                setVista('tema');
+              });
+            }}
+          />
+        )}
+
+        {vista === 'alai' && temaActual && materiaActual && (
+          <ALAIStudyALChat
+            materiales={alaiMateriales.length > 0 ? alaiMateriales : temaActual.documentos}
+            seleccion={alaiSeleccion}
+            tema={temaActual}
+            materia={materiaActual}
+            masteryContext={getMasteryContext()}
+            onMasteryEvent={reportMasteryEvent}
+            onBack={() => {
+              setReturnToEnfoque(true);
+              requestAnimationFrame(() => {
+                setVista('tema');
+              });
+            }}
+          />
+        )}
+
+
+        {vista === 'exam' && temaActual && materiaActual && (
+          <ALAIStudyALExams
+            materiales={examMateriales.length > 0 ? examMateriales : temaActual.documentos}
+            seleccion={examSeleccion}
+            tema={temaActual}
+            materia={materiaActual}
+            userName={(session?.user as any)?.name || (session?.user as any)?.username || ''}
+            masteryContext={getMasteryContext()}
+            onMasteryEvent={reportMasteryEvent}
             onBack={() => {
               setReturnToEnfoque(true);
               requestAnimationFrame(() => {
@@ -862,6 +1248,133 @@ const eliminarDocumento = async (id: string) => {
             colorMateria={materiaActual.color}
           />
         )}
+        {/* Session Summary Modal */}
+        {summaryVisible && sessionSummary && (
+          <div
+            onClick={() => setSummaryVisible(false)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 99999,
+              background: 'rgba(0,0,0,0.75)',
+              backdropFilter: 'blur(8px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 20,
+            }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                width: 'min(500px, 100%)',
+                background: 'var(--bg-card)',
+                border: '2px solid var(--gold)',
+                borderRadius: 18,
+                padding: 22,
+                boxShadow: '0 24px 80px rgba(0,0,0,.5)',
+              }}
+            >
+              <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--gold)', marginBottom: 4 }}>
+                ✅ Sesión completada
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 16, fontWeight: 700 }}>
+                {sessionSummary.tool.toUpperCase()} · {new Date(sessionSummary.timestamp).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+
+              {Object.keys(sessionSummary.dimensionGains).length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 900, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                    LO QUE SUBIÓ HOY
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {Object.entries(sessionSummary.dimensionGains).map(([dim, gain]) => {
+                      if (!gain || gain <= 0) return null;
+                      const dimLabels: any = { understanding: 'Comprensión', memory: 'Memoria', application: 'Aplicación', explanation: 'Explicación', exam: 'Examen' };
+                      return (
+                        <div key={dim} style={{
+                          padding: '5px 10px', borderRadius: 20,
+                          background: 'rgba(74,222,128,0.12)',
+                          border: '1px solid rgba(74,222,128,0.3)',
+                          fontSize: 11, fontWeight: 800, color: '#4ade80',
+                        }}>
+                          {dimLabels[dim]} +{gain}%
+                        </div>
+                      );
+                    })}
+                    {sessionSummary.overallGain > 0 && (
+                      <div style={{
+                        padding: '5px 10px', borderRadius: 20,
+                        background: 'rgba(214,178,111,0.15)',
+                        border: '1px solid rgba(214,178,111,0.4)',
+                        fontSize: 11, fontWeight: 900, color: 'var(--gold)',
+                      }}>
+                        Dominio total +{sessionSummary.overallGain}%
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {sessionSummary.conceptsImproved.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 900, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                    CONCEPTOS QUE MEJORARON
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {sessionSummary.conceptsImproved.map(c => (
+                      <span key={c} style={{
+                        padding: '4px 9px', borderRadius: 20,
+                        background: 'rgba(74,222,128,0.08)',
+                        border: '1px solid rgba(74,222,128,0.25)',
+                        fontSize: 11, fontWeight: 700, color: '#4ade80',
+                      }}>{c}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {sessionSummary.conceptsStillWeak.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 900, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                    TODAVÍA REQUIERE TRABAJO
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {sessionSummary.conceptsStillWeak.map(c => (
+                      <span key={c} style={{
+                        padding: '4px 9px', borderRadius: 20,
+                        background: 'rgba(249,115,22,0.08)',
+                        border: '1px solid rgba(249,115,22,0.25)',
+                        fontSize: 11, fontWeight: 700, color: '#f97316',
+                      }}>{c}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{
+                padding: '10px 14px', borderRadius: 10,
+                background: 'rgba(214,178,111,0.08)',
+                border: '1px solid rgba(214,178,111,0.25)',
+                marginBottom: 16,
+                fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45,
+              }}>
+                <strong style={{ color: 'var(--gold)', fontWeight: 900 }}>Siguiente paso: </strong>
+                {sessionSummary.nextRecommendedTool.toUpperCase()}
+                {sessionSummary.nextRecommendedConcept && ` · enfócate en "${sessionSummary.nextRecommendedConcept}"`}
+              </div>
+
+              <button
+                onClick={() => setSummaryVisible(false)}
+                style={{
+                  width: '100%', padding: '12px',
+                  borderRadius: 12, border: '2px solid var(--gold)',
+                  background: 'var(--gold)', color: '#111',
+                  fontWeight: 900, fontSize: 14, cursor: 'pointer',
+                }}
+              >
+                Continuar →
+              </button>
+            </div>
+          </div>
+        )}
+
         {modalApunte && temaActual && (
           <ModalApunte
             onClose={() => setModalApunte(false)}
