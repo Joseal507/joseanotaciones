@@ -13,7 +13,6 @@ import {
   validateMaterialBlueprint,
 } from './blueprint'
 import type { MaterialBlueprint, MaterialTopic, BlueprintBuildParams } from './blueprint'
-import { alaiJson } from '../alai'
 
 // ── Chunking (mismo patrón que análisis) ─────────────────────
 function splitIntoChunks(text: string, chunkSize = 4500): string[] {
@@ -33,31 +32,43 @@ function splitIntoChunks(text: string, chunkSize = 4500): string[] {
   return chunks.filter(Boolean)
 }
 
-// ── Wrapper de alaiJson con retry (mismo patrón que safeAlaiJson) ──
-async function safeAlaiJson(prompt: string, maxTokens = 5000): Promise<any> {
+// ── Wrapper que llama a /api/analizar-teorico (funciona desde cliente) ──
+async function safeAlaiJson(prompt: string, _maxTokens = 5000): Promise<any> {
   try {
-    return await alaiJson({
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.25,
-      maxTokens,
-      json: true,
+    const res = await fetch('/api/analizar-teorico', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: 'blueprint_analysis',
+        blueprintPrompt: prompt,
+        materialTitle: 'blueprint',
+        maxLength: 'medium',
+        contenido: '',
+      }),
     })
-  } catch (firstError: any) {
-    console.warn('⚠️ blueprint safeAlaiJson primer intento falló:', firstError?.message)
-    try {
-      return await alaiJson({
-        messages: [{
-          role: 'user',
-          content: prompt + '\n\nIMPORTANTE: Devuelve SOLO JSON válido. No markdown. No texto extra.',
-        }],
-        temperature: 0.15,
-        maxTokens: Math.min(maxTokens, 5200),
-        json: true,
-      })
-    } catch (secondError: any) {
-      console.warn('⚠️ blueprint segundo intento falló:', secondError?.message)
+
+    if (!res.ok) {
+      console.warn('⚠️ blueprint API falló:', res.status)
       return null
     }
+
+    const data = await res.json()
+    const rawText = data.blueprint || data.blueprintRaw || data.analysis || data.content || ''
+
+    // Parsear JSON del texto
+    let parsed = null
+    try { parsed = JSON.parse(rawText.trim()) } catch {}
+    if (!parsed) {
+      const match = rawText.match(/\{[\s\S]*\}/)
+      if (match) {
+        try { parsed = JSON.parse(match[0]) } catch {}
+      }
+    }
+
+    return parsed
+  } catch (err: any) {
+    console.warn('⚠️ blueprint safeAlaiJson falló:', err?.message)
+    return null
   }
 }
 

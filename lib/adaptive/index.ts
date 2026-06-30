@@ -185,7 +185,6 @@ export type { TopicMasteryScore } from './blueprint'
 // ── Strategy enrichment ──────────────────────────────────────────
 export { enrichStrategyWhyWithTopics } from './strategy'
 
-
 // ── AdaptiveContext universal ────────────────────────────────────
 export {
   buildAdaptiveContext,
@@ -193,8 +192,6 @@ export {
   buildFocusInstruction,
 } from './adaptiveContext'
 export type { AdaptiveContext } from './adaptiveContext'
-
-
 
 // ── Exam Prediction ──────────────────────────────────────────────
 export { buildExamPrediction } from './adaptiveContext'

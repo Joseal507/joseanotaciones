@@ -45,8 +45,6 @@ import AdaptiveSessionComplete from "./adaptive/AdaptiveSessionComplete";
 import AdaptiveDebugPanel from "./adaptive/AdaptiveDebugPanel";
 import StudyALBook from "./adaptive/book/StudyALBook";
 import BookPreparation from "./adaptive/book/BookPreparation";
-import BookSessionRunner from "./adaptive/book/BookSessionRunner";
-import DiagnosticSessionRunner from "./adaptive/book/DiagnosticSessionRunner";
 import AdaptiveSessionV2 from "./adaptive/book/AdaptiveSessionV2";
 import ProcessStyleSelector from "./adaptive/book/ProcessStyleSelector";
 import type { ProcessStyle } from "./adaptive/book/ProcessStyleSelector";
@@ -340,14 +338,42 @@ export default function StudyALProcess({
   }, [localMasteryState, masteryState, persistMasteryState]);
 
   // ── Handlers modo adaptativo ─────────────────────────────────────
-  const handleSetupComplete = useCallback(async (setup: AdaptiveProgramSetupType) => {
+  // Guardar el setup pendiente mientras se elige estilo
+  const [pendingSetup, setPendingSetup] = useState<AdaptiveProgramSetupType | null>(null);
+
+  const handleSetupComplete = useCallback((setup: AdaptiveProgramSetupType) => {
+    // SOLO guardar el setup y mostrar el selector de estilo
+    // NO generar nada todavía
+    setPendingSetup(setup);
+
+    const savedStyle = processStyle || (localMasteryState as any)?.processStyle;
+    if (!savedStyle) {
+      setShowStyleSelector(true);
+    } else {
+      // Ya tiene estilo guardado, generar directo
+      if (!processStyle) setProcessStyle(savedStyle);
+      generateProgramWithStyle(setup, savedStyle);
+    }
+  }, [processStyle, localMasteryState]);
+
+  // Generar blueprint + programa DESPUÉS de elegir estilo
+  const generateProgramWithStyle = useCallback(async (
+    setup: AdaptiveProgramSetupType,
+    style: ProcessStyle,
+  ) => {
     const baseMastery = (localMasteryState || masteryState) as MaterialMastery | null;
 
-    // ── Construir blueprint antes de generar el programa ────────
+    console.log('🔵 [generate] INICIO | style:', style);
+    // FORZAR null para que el render muestre BookPreparation
+    setAdaptiveProgram(null);
+    setIsBuildingBlueprint(true);
+    setPendingSetup(null);
+    console.log('🔵 [generate] States reseteados');
+
     let blueprint: MaterialBlueprint | null = materialBlueprint;
 
+    // FASE 1: Construir blueprint si no existe
     if (!blueprint && materialContent && materialContent.trim().length > 100) {
-      setIsBuildingBlueprint(true);
       try {
         const materialTitle =
           materiales?.[0]?.nombre ||
@@ -365,9 +391,6 @@ export default function StudyALProcess({
           loadLearningMemory(materialId) || createEmptyLearningMemory(materialId);
         setLearningMemory(loadedLearningMemory);
 
-        const bpPayload = { materialId, materialTitle, contentLength: materialContent.length };
-        setLastApiPayload(bpPayload);
-
         blueprint = await fetchAndBuildBlueprint({
           materialId,
           materialTitle,
@@ -379,13 +402,19 @@ export default function StudyALProcess({
       } catch (err) {
         console.error('[StudyAL] Error construyendo blueprint:', err);
         blueprint = null;
-      } finally {
-        setIsBuildingBlueprint(false);
       }
     }
 
-    const program = generateAdaptiveProgram(baseMastery || null, setup, blueprint, learningMemory || null, userProfileData || null);
+    // FASE 2: Generar programa
+    const program = generateAdaptiveProgram(
+      baseMastery || null,
+      setup,
+      blueprint,
+      learningMemory || null,
+      userProfileData || null,
+    );
 
+    // FASE 3: Persistir
     if (baseMastery?.sessionKey) {
       const updated: MaterialMastery = {
         ...baseMastery,
@@ -395,19 +424,16 @@ export default function StudyALProcess({
         adaptiveProgram: program,
         materialBlueprint: blueprint,
         lastUpdated: Date.now(),
-      };
+      } as any;
+      (updated as any).processStyle = style;
       persistMasteryState(updated);
     }
 
+    // FASE 4: AHORA SÍ activar el libro (todo está listo)
+    console.log('🟢 [generate] FIN - activando libro con', program?.sessions?.length, 'sesiones');
     setAdaptiveProgram(program);
-    // Si ya hay processStyle guardado, ir directo. Sino, mostrar selector.
-    const savedStyle = processStyle || (localMasteryState as any)?.processStyle;
-    if (!savedStyle) {
-      setShowStyleSelector(true);
-    } else {
-      if (!processStyle) setProcessStyle(savedStyle);
-      setAdaptiveView(savedStyle === 'book' ? 'book' : 'home');
-    }
+    setIsBuildingBlueprint(false);
+    setAdaptiveView(style === 'book' ? 'book' : 'home');
   }, [
     localMasteryState,
     masteryState,
@@ -415,6 +441,8 @@ export default function StudyALProcess({
     materialBlueprint,
     materialContent,
     materiales,
+    learningMemory,
+    userProfileData,
   ]);
 
   const handleStartSession = useCallback(() => {
@@ -806,8 +834,44 @@ export default function StudyALProcess({
   // RENDER — MODO ADAPTATIVO
   // ════════════════════════════════════════════════════════════════
   if (processMode === 'adaptive') {
-    // Sin programa → mostrar setup
+    console.log('🟡 [RENDER] adaptive | adaptiveProgram:', !!adaptiveProgram, '| showStyleSelector:', showStyleSelector, '| pendingSetup:', !!pendingSetup, '| isBuildingBlueprint:', isBuildingBlueprint, '| adaptiveView:', adaptiveView);
+    // Sin programa → mostrar setup O selector de estilo
     if (!adaptiveProgram) {
+      // Si está mostrando el style selector después del setup
+      if (showStyleSelector && pendingSetup) {
+        return (
+          <ProcessStyleSelector
+            onSelect={(style) => {
+              setProcessStyle(style);
+              if (localMasteryState) {
+                const updated = { ...localMasteryState, processStyle: style } as any;
+                setLocalMasteryState(updated);
+                saveMaterialMastery(updated);
+              }
+              console.log('🟣 [Selector] Estilo elegido:', style, '| pendingSetup:', !!pendingSetup);
+              setShowStyleSelector(false);
+              generateProgramWithStyle(pendingSetup, style);
+            }}
+          />
+        );
+      }
+
+      // Si está generando (después de elegir estilo, antes de tener programa)
+      if (isBuildingBlueprint || pendingSetup) {
+        const stage: 'analyzing' | 'designing' | 'ready' =
+          !materialBlueprint ? 'analyzing' :
+          !adaptiveProgram ? 'designing' :
+          'ready';
+        return (
+          <BookPreparation
+            stage={stage}
+            topicsCount={materialBlueprint?.topics?.length}
+            sessionsCount={adaptiveProgram?.sessions?.length}
+          />
+        );
+      }
+
+      // Default: mostrar setup
       return (
         <AdaptiveProgramSetupModal
           onComplete={handleSetupComplete}
@@ -867,21 +931,6 @@ export default function StudyALProcess({
           />
         )}
         {/* Style Selector — primera vez */}
-        {showStyleSelector && (
-          <ProcessStyleSelector
-            onSelect={(style) => {
-              setProcessStyle(style);
-              // Guardar processStyle en mastery para persistencia
-              if (localMasteryState) {
-                const updated = { ...localMasteryState, processStyle: style } as any;
-                setLocalMasteryState(updated);
-                saveMaterialMastery(updated);
-              }
-              setShowStyleSelector(false);
-              setAdaptiveView(style === 'book' ? 'book' : 'home');
-            }}
-          />
-        )}
 
         {/* Book View — solo cuando TODO está listo */}
         {adaptiveView === 'book' && (() => {

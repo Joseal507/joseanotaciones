@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { alaiRequest } from '../../../../lib/alai'
-import { reason, designLessonPrompt } from '../../../../lib/adaptive/reasoningEngine'
-import type { ReasoningContext } from '../../../../lib/adaptive/reasoningEngine'
 
 export const maxDuration = 60
 
@@ -14,108 +12,81 @@ export async function POST(request: NextRequest) {
     const targetConcepts: string[] = ctx.targetConcepts || body.targetConcepts || []
     const materialSlice: string = ctx.materialSlice || body.contenido || body.content || ''
     const weakConcepts: string[] = ctx.weakConcepts || body.weakConcepts || []
-    const criticalConcepts: string[] = ctx.criticalConcepts || body.criticalConcepts || []
     const overallMastery: number = ctx.overallMastery ?? 0
     const userProfile = ctx.userProfile || body.userProfile || null
-    const learningMemory = body.learningMemory || null
-    const isFirstSession = body.isFirstSession === true
-    const isFirstSessionForTopic = body.isFirstSessionForTopic !== false
-    const sessionNumber: number = body.sessionNumber || ctx.sessionNumber || 1
-    const totalSessions: number = body.totalSessions || 1
-    const daysToExam: number | null = body.daysToExam ?? null
-    const targetScore: number = body.targetScore || 80
-    const topicAttempts: number = body.topicAttempts || 0
-    const recentFailures: number = body.recentFailures || 0
-    const lastSessionFormat: string | undefined = body.lastSessionFormat
-    const lastSessionScore: number | undefined = body.lastSessionScore
+    const mode: string = body.mode || 'explain'
 
-    // Construir contexto de razonamiento
-    const reasoningCtx: ReasoningContext = {
-      topic: {
-        id: ctx.topicId || 'unknown',
-        title: topicTitle,
-        description: '',
-        concepts: targetConcepts.map(name => ({
-          name, definition: '', importance: 'major' as const, difficulty: 50, practiceType: 'recall' as const,
-        })),
-        difficulty: ctx.difficulty || 50,
-        importance: 70,
-        estimatedMinutes: 20,
-        practiceNeeds: ['understand' as const],
-        commonMistakes: [],
-      } as any,
-      topicMastery: ctx.topicScore || 0,
-      topicAttempts,
-      recentFailures,
-      blueprint: { topics: [] } as any,
-      relatedDominatedTopics: body.relatedDominatedTopics || [],
-      relatedWeakTopics: body.relatedWeakTopics || [],
-      userProfile,
-      learningMemory,
-      weakConcepts,
-      criticalConcepts,
-      overallMastery,
-      daysToExam,
-      targetScore,
-      sessionNumber,
-      totalSessions,
-      isFirstSessionEver: isFirstSession,
-      isFirstSessionForTopic,
-      lastSessionFormat,
-      lastSessionScore,
-    }
+    const carreraNote = userProfile?.carrera
+      ? `\nEl estudiante estudia ${userProfile.carrera}. Conecta con su campo si aplica naturalmente.`
+      : ''
 
-    // RAZONAR
-    const reasoning = reason(reasoningCtx)
-    console.log(`[Reasoning] "${topicTitle}" → intent: ${reasoning.intent}`)
-    console.log(`[Reasoning] Variance:`, reasoning.sessionVariance)
+    const conceptsList = targetConcepts.length > 0
+      ? `Conceptos a cubrir: ${targetConcepts.join(', ')}.`
+      : ''
 
-    // DISEÑAR el prompt según el reasoning
-    const prompt = designLessonPrompt({
-      reasoning,
-      ctx: reasoningCtx,
-      materialSlice,
-    })
+    const weakNote = weakConcepts.length > 0
+      ? `Conceptos débiles del estudiante: ${weakConcepts.join(', ')}. Explica estos con más cuidado.`
+      : ''
+
+    const masteryNote = overallMastery < 20
+      ? 'El estudiante NO SABE NADA de este tema. Empieza desde cero absoluto. NO asumas conocimiento previo.'
+      : overallMastery < 50
+      ? 'El estudiante tiene conocimiento básico. Define términos cuando aparezcan.'
+      : 'El estudiante tiene algo de base. Puedes profundizar.'
+
+    const prompt = `Eres un profesor excelente. Tu trabajo: explicar "${topicTitle}" usando SOLO el material proporcionado.
+
+${masteryNote}
+${conceptsList}
+${weakNote}
+${carreraNote}
+
+MATERIAL DE REFERENCIA:
+${materialSlice.slice(0, 6000)}
+
+REGLAS:
+- Explica SOLO lo que está en el material. No inventes.
+- Empieza con algo que despierte curiosidad, no con una definición.
+- Define términos técnicos cuando aparezcan.
+- Usa ejemplos concretos del material.
+- Si el estudiante no sabe nada, NO uses "como probablemente recuerdas" ni "como ya sabes".
+- Máximo 300 palabras. Calidad sobre cantidad.
+- No uses markdown excesivo.
+
+Devuelve SOLO JSON válido:
+{
+  "content": "La explicación completa, clara, conversacional y basada en el material",
+  "keyIdea": "La idea más importante en 1 frase"
+}`
 
     const rawText = await alaiRequest(async (client: any, model: (m?: string) => string) => {
       const res = await client.chat.completions.create({
         model: model(),
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.75, // más alta para más variabilidad
-        max_tokens: 2800,
+        temperature: 0.5,
+        max_tokens: 1500,
       })
       return res.choices?.[0]?.message?.content || ''
     })
 
-    // Parsear
-    let lesson: any = null
-    try {
-      lesson = JSON.parse(String(rawText).trim())
-    } catch {
+    let parsed: any = null
+    try { parsed = JSON.parse(String(rawText).trim()) } catch {}
+    if (!parsed) {
       const match = String(rawText).match(/\{[\s\S]*\}/)
-      if (match) {
-        try { lesson = JSON.parse(match[0]) } catch {}
-      }
+      if (match) try { parsed = JSON.parse(match[0]) } catch {}
     }
 
-    if (!lesson || !lesson.hook) {
-      return NextResponse.json({
-        success: true,
-        lesson: null,
-        reasoning: reasoning,
-        content: `Vamos a trabajar "${topicTitle}". ${reasoning.reasoning}`,
-        topicTitle,
-      })
-    }
+    const content = parsed?.content || String(rawText).trim()
+    const keyIdea = parsed?.keyIdea || ''
 
-    console.log(`[Reasoning] Lesson generada: ${lesson.explanationBlocks?.length || 0} bloques, ${lesson.checkpoints?.length || 0} checkpoints`)
+    console.log(`[Adaptive Explain] "${topicTitle}" → ${content.length} chars`)
 
     return NextResponse.json({
       success: true,
-      lesson,
-      reasoning,  // ← el frontend puede mostrar la decisión pedagógica
-      analysis: lesson.hook,
-      content: lesson.hook,
+      content,
+      analysis: content,
+      explanation: content,
+      keyIdea,
       topicTitle,
     })
 

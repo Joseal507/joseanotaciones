@@ -478,120 +478,52 @@ function buildSessionsFromBlueprint(
   userProfile?: UserProfile | null,
 ): AdaptiveSession[] {
   const sessions: AdaptiveSession[] = []
-  const { order, totalSessions } = strategy
 
-  // Ordenar temas: primero por prerequisitos (topológico), luego por importancia
-  // Esto garantiza que el estudiante aprende los temas base antes que los avanzados
+  // Ordenar temas por prerequisitos y importancia
   const topicsByImportance = getTopicsByImportance(blueprint)
   const topics = topologicalSortTopics(topicsByImportance)
 
-  // Distribuir sesiones entre temas
-  // Cada tema puede tener 1-3 sesiones según su complejidad y la estrategia
+  // ═══════════════════════════════════════════════════════════════
+  // REGLA: 1 SESIÓN = 1 TOPIC
+  // El orquestador (/api/adaptive/think) decide las herramientas
+  // dentro de cada sesión. No multiplicar sesiones por purposes.
+  // ═══════════════════════════════════════════════════════════════
   let sessionNum = 1
 
-  // ── Rutas dinámicas por perfil del topic ───────────────────────
-  const topicRoutes = buildTopicRoutes(topics, strategy, learningMemory)
-
-  for (const route of topicRoutes) {
-    if (sessions.length >= totalSessions) break
-    const { topic, purpose: routePurpose } = route
-    const purpose = routePurpose as SessionPurpose
+  for (const topic of topics) {
     const conceptNames = getTopicConceptNames(topic)
-    const weakConceptNames = conceptNames
-      .filter(name =>
-        strategy.priorityConcepts.some(p =>
-          p.toLowerCase().includes(name.toLowerCase().slice(0, 8)) ||
-          name.toLowerCase().includes(p.toLowerCase().slice(0, 8))
-        )
-      )
-      .slice(0, 3)
 
-    // Título específico: "Respiración celular: entender glucólisis y ciclo de Krebs"
-    const sessionTitle = buildSessionTitle(topic, purpose)
-    const sessionObjective = buildSessionObjective(topic, purpose)
-    const evidenceGoal = buildEvidenceGoal(topic)
-
-    // ── Decidir formato según topic + perfil ─────────────────────
-    const sessionFormat = decideSessionFormat({
-      topic,
-      topicScore: 0,  // primera vez = 0
-      sessionPurpose: purpose,
-      daysToExam: null,  // se calcula en runtime
-      hasFailedBefore: false,
-      isFirstTimeWithTopic: true,
-      userProfile: null,
-      learningMemory,
-    })
-
-    // Pasos según purpose
-    const steps = (() => {
-      switch (purpose) {
-        case 'understand': return stepsUnderstand(topic.title)
-        case 'organize':   return stepsOrganize(topic.title)
-        case 'memorize':   return stepsMemorize(topic.title)
-        case 'apply':      return stepsApply(topic.title)
-        case 'simulate':   return stepsSimulate(topic.title)
-        case 'repair':
-          return stepsRepair(
-            weakConceptNames.length > 0
-              ? weakConceptNames.join(', ')
-              : conceptNames.slice(0, 2).join(', ')
-          )
-        default: return stepsUnderstand(topic.title)
-      }
-    })()
-
-    const estimatedMinutes = Math.min(
-      dailyMinutes,
-      topic.estimatedMinutes || 18
+    // Costo cognitivo del topic
+    const conceptCount = (topic.concepts || []).length
+    const cognitiveCost = Math.min(100,
+      (topic.difficulty ?? 50) * 0.6 + (conceptCount * 5)
     )
 
+    const profileMinutesFactor = userProfile?.academicLevel === 'basico' ? 0.75
+      : userProfile?.academicLevel === 'avanzado' ? 1.1
+      : 1.0
+
+    const estimatedMinutes = cognitiveCost > 70
+      ? Math.min(dailyMinutes || 45, Math.round((topic.estimatedMinutes || 20) * 0.75 * profileMinutesFactor))
+      : Math.min(dailyMinutes || 45, Math.round((topic.estimatedMinutes || 20) * profileMinutesFactor))
+
+    // Crear UNA sesión por topic
     const session = makeSession({
       sessionNumber: sessionNum++,
-      title: sessionTitle,
-      objective: sessionObjective,
+      title: topic.title,
+      objective: buildSessionObjective(topic, 'understand'),
       estimatedMinutes,
-      purpose,
-      steps,
-      expectedDomainGain: purpose === 'simulate' ? 15 : purpose === 'apply' ? 12 : 10,
+      purpose: 'understand' as SessionPurpose,
+      steps: stepsUnderstand(topic.title),
+      expectedDomainGain: 12,
       status: sessions.length === 0 ? 'available' : 'locked',
-      // Topic context — lo que va a las APIs
-      topicId: topic.id,
-      topicTitle: topic.title,
-      targetConcepts: conceptNames.slice(0, 6),
-      sourcePages: topic.sourcePages,
-      evidenceGoal,
-      blueprintConfidence: blueprint.confidence,
-      sessionFormat,  // ← formato decidido por teaching engine
-    })
-
-    sessions.push(session)
-  }
-
-  // Si faltan sesiones hasta totalSessions, completar con repair o simulate
-  // usando los topics más importantes
-  while (sessions.length < totalSessions) {
-    const topicIndex = sessions.length % topics.length
-    const topic = topics[topicIndex]
-    const isLast = sessions.length === totalSessions - 1
-    const purpose: SessionPurpose = isLast ? 'simulate' : 'repair'
-    const conceptNames = getTopicConceptNames(topic)
-
-    const session = makeSession({
-      sessionNumber: sessionNum++,
-      title: buildSessionTitle(topic, purpose),
-      objective: buildSessionObjective(topic, purpose),
-      estimatedMinutes: Math.min(dailyMinutes, isLast ? 25 : 15),
-      purpose,
-      steps: isLast ? stepsSimulate(topic.title) : stepsRepair(conceptNames.slice(0, 2).join(', ')),
-      expectedDomainGain: isLast ? 15 : 10,
-      status: 'locked',
       topicId: topic.id,
       topicTitle: topic.title,
       targetConcepts: conceptNames.slice(0, 6),
       sourcePages: topic.sourcePages,
       evidenceGoal: buildEvidenceGoal(topic),
       blueprintConfidence: blueprint.confidence,
+      sessionFormat: 'discovery',
     })
 
     sessions.push(session)

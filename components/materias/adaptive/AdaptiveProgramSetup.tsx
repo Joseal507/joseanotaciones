@@ -63,8 +63,7 @@ export default function AdaptiveProgramSetup({ onComplete, onCancel }: Props) {
   const [targetScore, setTargetScore] = useState(80)
   // dailyMinutes ya no se pregunta — default interno
   const dailyMinutes = 45
-  const [generating, setGenerating] = useState(false)
-
+  
   const canContinue =
     (step === 1 && knowledgeLevel !== null) ||
     (step === 2 && examDate !== null) ||
@@ -76,18 +75,14 @@ export default function AdaptiveProgramSetup({ onComplete, onCancel }: Props) {
       return
     }
 
-    // Paso 4 → generar
+    // Paso final → enviar setup y cerrar (la generación pasa después)
     if (!knowledgeLevel || !examDate) return
-    setGenerating(true)
-
-    setTimeout(() => {
-      onComplete({
-        initialKnowledgeLevel: knowledgeLevel,
-        targetScore,
-        examDate,
-        dailyMinutes,
-      })
-    }, 1800)
+    onComplete({
+      initialKnowledgeLevel: knowledgeLevel,
+      targetScore,
+      examDate,
+      dailyMinutes,
+    })
   }
 
   const scoreLabel =
@@ -96,38 +91,16 @@ export default function AdaptiveProgramSetup({ onComplete, onCancel }: Props) {
     targetScore >= 75 ? 'Notable' :
     targetScore >= 65 ? 'Bien' : 'Aprobar'
 
-  if (generating) {
-    return (
-      <div style={styles.overlay}>
-        <div style={styles.card}>
-          <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-            <div style={{ fontSize: 48, marginBottom: 20 }}>🤖</div>
-            <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--gold)', marginBottom: 12 }}>
-              ALAI está creando tu programa...
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-              Analizando tu nivel de conocimiento<br />
-              y diseñando el camino más eficiente.
-            </div>
-            <div style={styles.loader}>
-              <div style={styles.loaderBar} />
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div style={styles.overlay}>
       <div style={styles.card}>
         {/* Header */}
         <div style={{ marginBottom: 28 }}>
           <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-faint)', letterSpacing: 1, marginBottom: 8 }}>
-            PROGRAMA ADAPTATIVO · PASO {step} DE 4
+            PROGRAMA ADAPTATIVO · PASO {step} DE 3
           </div>
           <div style={styles.progressBar}>
-            <div style={{ ...styles.progressFill, width: `${(step / 4) * 100}%` }} />
+            <div style={{ ...styles.progressFill, width: `${(step / 3) * 100}%` }} />
           </div>
         </div>
 
@@ -284,7 +257,7 @@ export default function AdaptiveProgramSetup({ onComplete, onCancel }: Props) {
               cursor: canContinue ? 'pointer' : 'not-allowed',
             }}
           >
-            {step === 3 ? 'Crear mi programa →' : 'Continuar →'}
+            Siguiente →
           </button>
         </div>
       </div>
