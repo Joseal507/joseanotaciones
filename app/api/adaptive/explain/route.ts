@@ -85,7 +85,7 @@ ${alreadyExplained.includes(focusConcept)
           procedure: `El estudiante no sigue el proceso de "${focusConcept}" correctamente. Numera cada paso y explica por qué ese orden.`,
           argument: `El estudiante no puede argumentar sobre "${focusConcept}". Presenta la posición, luego el contraargumento, luego la síntesis.`,
         }
-        return failureInstructions[failureType] || \`El estudiante NO entendió "${focusConcept}". Reexplícalo desde OTRO ángulo completamente diferente. Más simple.\`
+        return failureInstructions[failureType] || `El estudiante NO entendió "${focusConcept}". Reexplícalo desde OTRO ángulo completamente diferente. Más simple.`
       })(),
     }
 

@@ -92,9 +92,18 @@ EVALÚA con estas 5 dimensiones y suma los puntos:
 SUMA LAS 5 = score real (0-100). NO uses siempre el mismo número.
 
 Ejemplos reales:
-- Respuesta mínima ("fue importante") → score ~18
-- Respuesta buena pero incompleta → score ~65-72
-- Respuesta completa con conexiones propias → score ~88-94
+- Respuesta mínima ("fue importante") → score ~15-20
+- Respuesta que menciona 1-2 ideas clave sin conectar → score ~40-55
+- Respuesta que explica el mecanismo con sus palabras → score ~65-75
+- Respuesta que conecta ideas, menciona causa y consecuencia → score ~78-88
+- Respuesta que explica, aplica y conecta con otros conceptos → score ~90-97
+
+IMPORTANTE: 
+- Si la respuesta menciona el problema que resuelve el concepto + el mecanismo + una consecuencia = mínimo 80 puntos.
+- Si la respuesta usa sus propias palabras correctamente y cubre la idea central = mínimo 65 puntos.
+- Si solo menciona la idea central sin explicar = máximo 45 puntos.
+- "No sé nada" o respuesta vacía = máximo 10 puntos.
+- NUNCA dar 0 si el estudiante escribió algo relevante aunque sea parcial.
 
 TONO del feedback según score:
 - 90+: empieza con "Exacto." o "Perfecto."
