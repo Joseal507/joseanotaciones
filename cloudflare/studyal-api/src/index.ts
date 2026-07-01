@@ -279,19 +279,32 @@ export default {
 
         const rows = await env.DB.prepare(query).bind(...binds).all()
 
-        const sessions = (rows.results || []).map((row: any) => ({
-          id: row.id,
-          temaId: row.tema_id,
-          enfoque: row.enfoque,
-          materialIds: safeJson(row.material_ids, []),
-          selectedPages: safeJson(row.selected_pages, undefined),
-          flashcards: safeJson(row.flashcards, undefined),
-          notes: safeJson(row.notes, undefined),
-          materialText: row.material_text || undefined,
-          currentPhase: row.current_phase || undefined,
-          createdAt: Number(row.created_at || Date.now()),
-          lastOpenedAt: Number(row.last_opened_at || Date.now()),
-        }))
+        const sessions = (rows.results || []).map((row: any) => {
+          const mode = row.process_mode || row.study_mode || 'free'
+          return {
+            id: row.id,
+            temaId: row.tema_id,
+            enfoque: row.enfoque,
+            processMode: mode,
+            studyMode: mode,
+            materialIds: safeJson(row.material_ids, []),
+            selectedPages: safeJson(row.selected_pages, undefined),
+            flashcards: safeJson(row.flashcards, undefined),
+            notes: safeJson(row.notes, undefined),
+            materialText: row.material_text || undefined,
+            currentPhase: row.current_phase || undefined,
+            // ── Estado adaptive completo ──
+            adaptiveProgram: safeJson(row.adaptive_program, undefined),
+            processStyle: row.process_style || undefined,
+            targetScore: row.target_score != null ? Number(row.target_score) : undefined,
+            examDate: row.exam_date || undefined,
+            examDateCustom: row.exam_date_custom || undefined,
+            materialBlueprint: safeJson(row.material_blueprint, undefined),
+            masterySnapshot: safeJson(row.mastery_snapshot, undefined),
+            createdAt: Number(row.created_at || Date.now()),
+            lastOpenedAt: Number(row.last_opened_at || Date.now()),
+          }
+        })
 
         return json({ ok: true, sessions })
       }
@@ -305,23 +318,54 @@ export default {
         const id = body.id || crypto.randomUUID()
         const now = Number(body.last_opened_at || Date.now())
         const createdAt = Number(body.created_at || now)
+        const mode = body.process_mode || body.study_mode || 'free'
+
+        // Asegurar columnas existen (ALTER TABLE seguro)
+        const newCols = [
+          ["process_mode", "TEXT DEFAULT 'free'"],
+          ["study_mode", "TEXT DEFAULT 'free'"],
+          ["adaptive_program", "TEXT"],
+          ["process_style", "TEXT"],
+          ["target_score", "INTEGER"],
+          ["exam_date", "TEXT"],
+          ["exam_date_custom", "TEXT"],
+          ["material_blueprint", "TEXT"],
+          ["mastery_snapshot", "TEXT"],
+        ]
+        for (const [col, def] of newCols) {
+          try {
+            await env.DB.prepare(`ALTER TABLE study_sessions ADD COLUMN ${col} ${def}`).run()
+          } catch (_) {}
+        }
 
         await env.DB.prepare(`
           INSERT INTO study_sessions (
-            id, user_id, tema_id, enfoque, material_ids, selected_pages,
+            id, user_id, tema_id, enfoque, process_mode, study_mode,
+            material_ids, selected_pages,
             flashcards, notes, material_text, current_phase,
+            adaptive_program, process_style, target_score, exam_date, exam_date_custom,
+            material_blueprint, mastery_snapshot,
             created_at, last_opened_at, updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
           ON CONFLICT(id) DO UPDATE SET
             tema_id = excluded.tema_id,
             enfoque = excluded.enfoque,
+            process_mode = excluded.process_mode,
+            study_mode = excluded.study_mode,
             material_ids = excluded.material_ids,
             selected_pages = excluded.selected_pages,
             flashcards = COALESCE(excluded.flashcards, study_sessions.flashcards),
             notes = COALESCE(excluded.notes, study_sessions.notes),
             material_text = COALESCE(excluded.material_text, study_sessions.material_text),
             current_phase = COALESCE(excluded.current_phase, study_sessions.current_phase),
+            adaptive_program = COALESCE(excluded.adaptive_program, study_sessions.adaptive_program),
+            process_style = COALESCE(excluded.process_style, study_sessions.process_style),
+            target_score = COALESCE(excluded.target_score, study_sessions.target_score),
+            exam_date = COALESCE(excluded.exam_date, study_sessions.exam_date),
+            exam_date_custom = COALESCE(excluded.exam_date_custom, study_sessions.exam_date_custom),
+            material_blueprint = COALESCE(excluded.material_blueprint, study_sessions.material_blueprint),
+            mastery_snapshot = COALESCE(excluded.mastery_snapshot, study_sessions.mastery_snapshot),
             last_opened_at = excluded.last_opened_at,
             updated_at = datetime('now')
         `).bind(
@@ -329,17 +373,26 @@ export default {
           body.user_id,
           body.tema_id,
           body.enfoque,
+          mode,
+          mode,
           JSON.stringify(body.material_ids || []),
           body.selected_pages ? JSON.stringify(body.selected_pages) : null,
           body.flashcards ? JSON.stringify(body.flashcards) : null,
           body.notes ? JSON.stringify(body.notes) : null,
           body.material_text || null,
           body.current_phase || null,
+          body.adaptive_program ? JSON.stringify(body.adaptive_program) : null,
+          body.process_style || null,
+          body.target_score ?? null,
+          body.exam_date || null,
+          body.exam_date_custom || null,
+          body.material_blueprint ? JSON.stringify(body.material_blueprint) : null,
+          body.mastery_snapshot ? JSON.stringify(body.mastery_snapshot) : null,
           createdAt,
           now
         ).run()
 
-        return json({ ok: true, session: { id } })
+        return json({ ok: true, session: { id, processMode: mode, studyMode: mode } })
       }
 
       if (url.pathname === "/study-sessions/delete" && request.method === "POST") {

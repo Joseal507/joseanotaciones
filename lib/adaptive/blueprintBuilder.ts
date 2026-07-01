@@ -301,6 +301,13 @@ function sanitizeTopics(topics: any[]): RawExtractedTopic[] {
       estimatedMinutes: typeof t.estimatedMinutes === 'number'
         ? Math.min(60, Math.max(5, t.estimatedMinutes))
         : 15,
+      primaryKnowledgeType: (['conceptual','narrative','procedural','memoristic','mathematical','argumentative','causal','visual'].includes(t.primaryKnowledgeType || t.knowledgeType)
+        ? (t.primaryKnowledgeType || t.knowledgeType)
+        : 'conceptual') as 'conceptual' | 'narrative' | 'procedural' | 'memoristic' | 'mathematical' | 'argumentative' | 'causal' | 'visual',
+      knowledgeTypes: (Array.isArray(t.knowledgeTypes)
+        ? t.knowledgeTypes.filter((k: string) => ['conceptual','narrative','procedural','memoristic','mathematical','argumentative','causal','visual'].includes(k))
+        : [['conceptual','narrative','procedural','memoristic','mathematical','argumentative','causal','visual'].includes(t.primaryKnowledgeType || t.knowledgeType) ? (t.primaryKnowledgeType || t.knowledgeType) : 'conceptual']
+      ) as Array<'conceptual' | 'narrative' | 'procedural' | 'memoristic' | 'mathematical' | 'argumentative' | 'causal' | 'visual'>,
       practiceNeeds: Array.isArray(t.practiceNeeds)
         ? t.practiceNeeds.filter((n: string) =>
             ['understand', 'memorize', 'apply', 'simulate'].includes(n)
@@ -685,7 +692,11 @@ function buildSynthesisPrompt(params: {
 
   // Estimar cuántos topics esperados según tamaño del material
   // ~2000-3000 chars por topic, mínimo 3, máximo 12
-  const expectedTopics = Math.max(3, Math.min(12, Math.round(totalChars / 2500)))
+  // Más granular: 1 topic por cada ~1800 chars, mínimo 4 para materiales medianos
+  const expectedTopics = Math.max(
+    totalChars > 10000 ? 6 : totalChars > 5000 ? 4 : 3,
+    Math.min(15, Math.round(totalChars / 1800))
+  )
 
   const dataBlock = [
     'IDEAS EXTRAÍDAS:',
@@ -711,11 +722,33 @@ ${dataBlock}
 
 INSTRUCCIONES:
 
-1. Identifica los ${expectedTopics} TOPICS principales del material (puede variar entre ${Math.max(2, expectedTopics - 2)} y ${expectedTopics + 2})
-2. Cada topic debe ser una UNIDAD DE APRENDIZAJE específica
-3. NO uses topics genéricos como "Introducción" o "Conceptos básicos"
-4. Cada topic agrupa 3-7 conceptos relacionados
-5. Los conceptos vienen de la lista de "Conceptos extraídos"
+1. Identifica AL MENOS ${expectedTopics} TOPICS del material (puede llegar hasta ${expectedTopics + 3})
+2. Cada topic debe ser una UNIDAD DE APRENDIZAJE que se pueda dominar en una sesión
+3. NO agrupes temas que merecen su propia sesión. Ejemplo: "Aminoácidos" y "Enlace peptídico" son topics SEPARADOS
+4. NO uses topics genéricos como "Introducción" o "Conceptos básicos"
+5. Cada topic agrupa 2-5 conceptos MUY relacionados entre sí
+6. Si un concepto es grande o complejo, merece su propio topic
+7. Los conceptos vienen de la lista de "Conceptos extraídos"
+8. Prioriza GRANULARIDAD sobre agrupación — es mejor tener 8 topics específicos que 4 genéricos
+9. Para cada topic, identifica:
+   a) "primaryKnowledgeType": el tipo DOMINANTE del topic
+   b) "knowledgeTypes": TODOS los tipos que aplican (puede ser mixto, ej: ["conceptual","mathematical","causal"])
+   c) Para CADA concepto dentro del topic, identifica su "knowledgeType" específico y su "learningGoal"
+   
+   Tipos disponibles:
+   - "conceptual": teorías, modelos, definiciones (ej: Modelo de Bohr, ADN)
+   - "narrative": historia, biografías, eventos, deportes (ej: Falcons, Revolución)
+   - "procedural": pasos, algoritmos, procesos, técnicas (ej: cómo hacer una cirugía)
+   - "memoristic": taxonomías, anatomía, vocabulario, listas (ej: huesos del cuerpo)
+   - "mathematical": fórmulas, cálculos, estadística (ej: derivadas, probabilidad)
+   - "argumentative": filosofía, derecho, ética, debate (ej: argumentos, posiciones)
+   - "causal": economía, ecología, causa-efecto (ej: inflación, ecosistemas)
+   - "visual": geografía, arquitectura, diseño, diagramas (ej: mapas, estructuras)
+   
+   learningGoal por concepto (elige el más apropiado):
+   build_intuition, explain_concept, interpret_formula, solve_problem, compare_models,
+   memorize_terms, identify_structure, apply_to_case, argue_position, analyze_cause_effect,
+   follow_procedure, synthesize_topic
 
 EJEMPLOS BUENOS de topics:
 - "Estructura molecular de los lípidos saturados"
@@ -732,13 +765,17 @@ Devuelve SOLO JSON válido:
       "difficulty": 60,
       "importance": 80,
       "estimatedMinutes": 15,
+      "primaryKnowledgeType": "conceptual",
+      "knowledgeTypes": ["conceptual", "mathematical"],
       "concepts": [
         {
           "name": "Nombre del concepto",
           "definition": "Definición breve",
           "importance": "critical" | "major" | "supporting",
           "difficulty": 50,
-          "practiceType": "recall" | "application" | "analysis"
+          "practiceType": "recall" | "application" | "analysis",
+          "knowledgeType": "conceptual",
+          "learningGoal": "explain_concept"
         }
       ]
     }
@@ -755,10 +792,12 @@ ${dataBlock}
 
 INSTRUCTIONS:
 
-1. Identify the ${expectedTopics} main TOPICS (can vary ${Math.max(2, expectedTopics - 2)} to ${expectedTopics + 2})
-2. Each topic = a SPECIFIC learning unit
-3. NO generic topics like "Introduction"
-4. Each topic groups 3-7 related concepts
+1. Identify AT LEAST ${expectedTopics} TOPICS (can be up to ${expectedTopics + 3})
+2. Each topic = a learning unit that can be mastered in one session
+3. DON'T group topics that deserve separate sessions. Example: "Amino acids" and "Peptide bonds" are SEPARATE topics
+4. NO generic topics like "Introduction"
+5. Each topic groups 2-5 CLOSELY related concepts
+6. Prioritize GRANULARITY over grouping — 8 specific topics > 4 generic ones
 
 Return ONLY valid JSON:
 {

@@ -31,59 +31,6 @@ const sameId = (a: any, b: any) => String(a || "") === String(b || "");
 const normalizeMaterialIdsFromDocs = (docs: any[] = []) =>
   docs.map(getMaterialKey).filter(Boolean);
 
-const normalizeIdStrict = (v: any) => String(v || "").trim();
-
-const buildSelectedMaterialsFingerprint = (
-  docs: any[] = [],
-  seleccionResult?: any,
-) => {
-  const matIds = docs
-    .map((d: any) => normalizeIdStrict(getMaterialKey(d)))
-    .filter(Boolean)
-    .sort();
-
-  const matsKey = matIds.join("|");
-
-  const pagesKey = Array.isArray(seleccionResult) && seleccionResult.length
-    ? seleccionResult
-        .map((s: any) => {
-          const matId = normalizeIdStrict(s?.materialId);
-          const pages = Array.isArray(s?.pages)
-            ? [...new Set(s.pages.map(Number).filter((n: number) => Number.isFinite(n) && n > 0))].sort((a: number, b: number) => a - b)
-            : [];
-          return `${matId}:${pages.join(",")}`;
-        })
-        .filter(Boolean)
-        .sort()
-        .join("|")
-    : "";
-
-  return `${matsKey}__PAGES__${pagesKey}`;
-};
-
-const buildSessionMaterialsFingerprint = (session: any) => {
-  const matIds = (session?.materialIds || [])
-    .map((id: any) => normalizeIdStrict(id))
-    .filter(Boolean)
-    .sort();
-
-  const matsKey = matIds.join("|");
-
-  const selectedPages = session?.selectedPages || {};
-  const pagesKey = Object.entries(selectedPages)
-    .map(([matId, pages]) => {
-      const cleanPages = Array.isArray(pages)
-        ? [...new Set((pages as any[]).map(Number).filter((n) => Number.isFinite(n) && n > 0))].sort((a, b) => a - b)
-        : [];
-      return `${normalizeIdStrict(matId)}:${cleanPages.join(",")}`;
-    })
-    .filter(Boolean)
-    .sort()
-    .join("|");
-
-  return `${matsKey}__PAGES__${pagesKey}`;
-};
-
 function hexToRgb(hex: string) {
   const clean = String(hex || "")
     .replace("#", "")
@@ -1040,10 +987,6 @@ export default function TemaView({
   // ── ID de sesión a reanudar (cuando se hace "seguir estudiando") ──
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
   const [resumeProcessMode, setResumeProcessMode] = useState<'free' | 'adaptive' | null>(null);
-  // Ref para el modo elegido — nunca se pisa por guards o re-renders
-  const chosenModeRef = useRef<'free' | 'adaptive' | null>(null);
-
-
 
   // ── Modal de confirmación de borrado ──
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -1660,35 +1603,6 @@ export default function TemaView({
   }, [tema.documentos, selectedIds]);
 
 
-  // Guard: si la selección actual no coincide con la sesión resumida, limpiar resume viejo
-  useEffect(() => {
-    if (!resumeSessionId) return;
-
-    const resumeSession = activeSessions.find((s) => s.id === resumeSessionId);
-    if (!resumeSession) {
-      setResumeSessionId(null);
-      setResumeProcessMode("free" as any);
-      setStudyMode("free");
-      return;
-    }
-
-    const currentFP = buildSelectedMaterialsFingerprint(
-      selectedDocs,
-      seleccionResult,
-    );
-    const resumeFP = buildSessionMaterialsFingerprint(resumeSession);
-
-    if (currentFP !== resumeFP) {
-      setResumeSessionId(null);
-      setResumeProcessMode("free" as any);
-      // Solo limpiar studyMode si el usuario no eligió un modo explícitamente
-      if (!chosenModeRef.current) {
-        setStudyMode("free");
-      }
-    }
-  }, [selectedDocs, seleccionResult, resumeSessionId, activeSessions]);
-
-
   useEffect(() => {
     if (!pendingCoachTool) return;
     if (showCoach) return;
@@ -1863,9 +1777,6 @@ export default function TemaView({
       );
       const clickedSession = matSessions[0] || null;
 
-      setResumeSessionId(null);
-      setResumeProcessMode('free' as any);
-      setStudyMode('free');
       setSelectedIds((prev) => {
         // ¿La selección actual coincide con alguna sesión completa?
         const currentMatchesSession = activeSessions.find((s) => {
@@ -2033,16 +1944,10 @@ export default function TemaView({
         masteryState={reconstructedMasteryState}
         masterySnapshot={masterySnapshot}
         initialMode={(() => {
-          // 1. El usuario eligió modo explícito
+          // Si el usuario eligió un modo explícito recién, ESE es la ley.
           if (studyMode) return studyMode;
-          // 2. Modo de reanudación ya resuelto
+          // Si estamos reanudando una sesión específica, usamos su modo.
           if (resumeProcessMode) return resumeProcessMode;
-          // 3. Si hay resumeSessionId, intentar leer el modo real de esa sesión
-          if (resumeSessionId) {
-            const resumed = activeSessions.find((s) => s.id === resumeSessionId);
-            const resumedMode = (resumed as any)?.processMode || resumed?.studyMode;
-            if (resumedMode === 'adaptive' || resumedMode === 'free') return resumedMode;
-          }
           return 'free';
         })()}
         temaId={tema?.id}
@@ -2063,7 +1968,6 @@ export default function TemaView({
         }}
         onClose={() => {
           setOpenTeorico(false);
-          chosenModeRef.current = null; // Limpiar modo elegido al cerrar
           // NO borrar studyMode/resumeProcessMode al cerrar
           // para que "seguir estudiando" recuerde el modo correcto
           refreshSessions();
@@ -2996,73 +2900,21 @@ export default function TemaView({
         expanded.includes("material") &&
         (() => {
           // ── Detectar si la selección actual coincide con una sesión guardada ──
-          const normalizeId = (v: any) => String(v || '').trim();
-
-          const selectedMatIds = selectedDocs
-            .map((d: any) => normalizeId(getMaterialKey(d)))
-            .filter(Boolean)
-            .sort();
-
-          const selectedKey = selectedMatIds.join('|');
-
-          const currentSelectedPagesKey = (() => {
-            if (!Array.isArray(seleccionResult) || !seleccionResult.length) return '';
-            const normalized = seleccionResult
-              .map((s: any) => {
-                const matId = normalizeId(s?.materialId);
-                const pages = Array.isArray(s?.pages)
-                  ? [...new Set(s.pages.map(Number).filter((n: number) => Number.isFinite(n) && n > 0))].sort((a: number, b: number) => a - b)
-                  : [];
-                return `${matId}:${pages.join(',')}`;
-              })
-              .filter(Boolean)
-              .sort();
-            return normalized.join('|');
-          })();
-
-          // Blindaje máximo por fingerprint exacto de selección
-          const currentSelectionFingerprint = buildSelectedMaterialsFingerprint(
-            selectedDocs,
-            seleccionResult,
+          const selectedMatIds = selectedDocs.map((d: any) =>
+            getMaterialKey(d),
           );
-
+          // Buscar TODAS las sesiones que matcheen este material
           const allMatchingSessions = activeSessions.filter((s) => {
-            const sessionFingerprint = buildSessionMaterialsFingerprint(s);
-
-            // Match exacto por materiales + páginas
-            if (currentSelectionFingerprint === sessionFingerprint) return true;
-
-            // Compatibilidad hacia atrás:
-            // si la selección actual NO tiene páginas y la sesión tampoco,
-            // permitir match exacto solo por materiales
-            const sessionMatIds = (s.materialIds || [])
-              .map((id: any) => normalizeId(id))
-              .filter(Boolean)
-              .sort();
-
-            const sessionKey = sessionMatIds.join('|');
-            if (!sessionKey || sessionKey !== selectedKey) return false;
-
-            if (!currentSelectedPagesKey) {
-              const hasSessionPages =
-                !!(s as any)?.selectedPages &&
-                Object.keys((s as any).selectedPages || {}).length > 0;
-              return !hasSessionPages;
-            }
-
-            return false;
+            if (s.materialIds.length !== selectedMatIds.length) return false;
+            const sessionSet = new Set(s.materialIds.map(String));
+            return selectedMatIds.every((id: string) =>
+              sessionSet.has(String(id)),
+            );
           });
-
-          const sortedMatchingSessions = [...allMatchingSessions].sort(
-            (a, b) => Number(b.lastOpenedAt || 0) - Number(a.lastOpenedAt || 0)
-          );
-
-          const adaptiveSession =
-            sortedMatchingSessions.find(
-              (s) => s.processMode === 'adaptive' || s.studyMode === 'adaptive'
-            ) || null;
-
-          const matchingSession = adaptiveSession || sortedMatchingSessions[0] || null;
+          // Preferir sesión adaptive sobre free
+          // Preferir sesión adaptive; si hay varias del mismo modo, la más reciente
+          const adaptiveSession = allMatchingSessions.find(s => s.processMode === 'adaptive' || s.studyMode === 'adaptive') || null;
+          const matchingSession = adaptiveSession || allMatchingSessions[0] || null;
           const isResumeMode = !!matchingSession;
           return (
             <div
@@ -4507,18 +4359,11 @@ export default function TemaView({
             if (id === "teorico" || id === "matematico" || id === "mixto") {
               const enfoqueId = id as any;
               // ── Buscar sesión existente que coincida con selección actual + enfoque ──
-              const currentFP = buildSelectedMaterialsFingerprint(selectedDocs, seleccionResult);
               const matchingSession = activeSessions.find((s) => {
                 if (s.enfoque !== enfoqueId) return false;
-                // Usar fingerprint exacto para evitar reanudar sesión de otro material
-                const sessionFP = buildSessionMaterialsFingerprint(s);
-                if (currentFP !== sessionFP) {
-                  // Compatibilidad: si no hay páginas en ninguno, comparar solo materialIds
-                  const sessionMatIds = (s.materialIds || []).map(String).sort().join('|');
-                  const currentMatIds = selectedDocs.map((d: any) => String(getMaterialKey(d))).filter(Boolean).sort().join('|');
-                  return sessionMatIds === currentMatIds && !currentFP.includes('__PAGES__') || false;
-                }
-                return true;
+                if (s.materialIds.length !== selectedIds.length) return false;
+                const setA = new Set(s.materialIds);
+                return selectedIds.every((matId) => setA.has(matId));
               });
 
               if (matchingSession && matchingSession.selectedPages) {
@@ -4565,7 +4410,6 @@ export default function TemaView({
         <ModeSelector
           onSelectMode={(mode) => {
             setStudyMode(mode);
-            chosenModeRef.current = mode; // Guardar en ref — nunca se pisa
             setShowModeSelector(false);
 
             // ── GUARDAR SESIÓN ACTIVA con el modo elegido ──────
@@ -4599,18 +4443,11 @@ export default function TemaView({
               console.warn("Error guardando sesión al elegir modo:", e);
             }
 
-            // Solo saltar selección si el seleccionResult corresponde a los materiales actuales
-            const currentMatIds = selectedDocs.map((d: any) => String(d?.materialId || d?.id || '')).filter(Boolean).sort().join('|');
-            const seleccionMatIds = Array.isArray(seleccionResult)
-              ? [...new Set(seleccionResult.map((s: any) => String(s?.materialId || '')).filter(Boolean))].sort().join('|')
-              : '';
-            const seleccionMatchesCurrent = seleccionMatIds && seleccionMatIds === currentMatIds;
-
-            if (seleccionMatchesCurrent && chosenModeRef.current !== 'adaptive') {
-              // seleccionResult válido y no es nueva sesión adaptive — saltar selección
+            // Si ya hay seleccionResult (venía de sesión existente), saltar a StudyALProcess
+            if (Array.isArray(seleccionResult) && seleccionResult.length > 0) {
               setOpenTeorico(true);
             } else {
-              // Siempre pedir páginas en adaptive o si no hay selección válida
+              // Si no, ir a seleccionar páginas
               setShowSeleccion(true);
             }
           }}
@@ -4680,8 +4517,6 @@ export default function TemaView({
               if (tema?.id && enfoqueElegido && matIds.length > 0) {
                 // Determinar modo real: studyMode > sesión existente adaptive > 'free'
                 const _seleccionMode: 'free' | 'adaptive' = (() => {
-                  // chosenModeRef es la fuente de verdad — el usuario lo eligió explícitamente
-                  if (chosenModeRef.current) return chosenModeRef.current;
                   if (studyMode) return studyMode;
                   if (resumeProcessMode) return resumeProcessMode;
                   const existing = activeSessions.find(s => matIds.every((id: string) => s.materialIds.includes(id)));
@@ -4701,8 +4536,6 @@ export default function TemaView({
                 });
                 savedSessionId = sess.id;
                 setResumeSessionId(sess.id);
-                setResumeProcessMode(_seleccionMode);
-                setStudyMode(_seleccionMode);
                 refreshSessions();
                 console.log("💾 Sesión SeleccionPaginas:", sess.id, "| processMode:", _seleccionMode);
               }

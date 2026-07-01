@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
 
     const rawText = await alaiRequest(async (client: any, modelFn: (m?: string) => string) => {
       const res = await client.chat.completions.create({
-        model: modelFn(),
+        model: modelFn('llama-3.3-70b-versatile'),
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
         max_tokens: 900,

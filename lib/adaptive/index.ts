@@ -258,3 +258,7 @@ export {
   loadCachedUserProfile,
 } from './userProfile'
 export type { UserProfile } from './userProfile'
+
+
+export type { SessionLength } from './program'
+export { SESSION_LENGTH_CONFIG } from './program'

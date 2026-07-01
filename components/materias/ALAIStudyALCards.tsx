@@ -2280,9 +2280,11 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
           upsertSession({
             temaId: sess.temaId,
             enfoque: sess.enfoque,
+            processMode: (sess.processMode || sess.studyMode || 'free') as any,
             materialIds: sess.materialIds,
             selectedPages: sess.selectedPages,
-            flashcards: flashcards,          });
+            flashcards: flashcards,
+          });
           console.log('💾 Cache guardado:', flashcards.length, 'flashcards en', sessionId);
         }
       } catch (e) {

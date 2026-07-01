@@ -515,7 +515,7 @@ function buildSessionsFromBlueprint(
       estimatedMinutes,
       purpose: 'understand' as SessionPurpose,
       steps: stepsUnderstand(topic.title),
-      expectedDomainGain: 12,
+      expectedDomainGain: 18,
       status: sessions.length === 0 ? 'available' : 'locked',
       topicId: topic.id,
       topicTitle: topic.title,
@@ -705,27 +705,18 @@ function analyzeMastery(mastery: MaterialMastery | null): MasteryProfile {
 // GENERADOR PRINCIPAL
 // ═══════════════════════════════════════════════════════════════
 
-export function generateAdaptiveProgram(
+export async function generateAdaptiveProgram(
   mastery: MaterialMastery | null,
   setup: AdaptiveProgramSetup,
   blueprint?: MaterialBlueprint | null,
   learningMemory?: LearningMemory | null,
   userProfile?: UserProfile | null,
-): AdaptiveProgram {
+): Promise<AdaptiveProgram> {
   const daysToExam = getDaysToExam(setup.examDate)
 
-  // ── Ajuste por perfil del usuario ────────────────────────────
-  const profileAdjustment = userProfile
-    ? getProfileStrategyAdjustment(userProfile, daysToExam)
-    : null
-
-  // Análisis del mastery actual
+  // Análisis y estrategia (sigue calculándose para que el updater/replanner lo use)
   analyzeMastery(mastery)
-
-  // Construir estrategia
   const strategy = buildStudyStrategy(mastery, setup, null, blueprint)
-
-  // Enriquecer con utilidad
   const enrichedStrategy = enrichStrategyWithUtility(
     strategy,
     mastery,
@@ -736,17 +727,49 @@ export function generateAdaptiveProgram(
   )
 
   let sessions: AdaptiveSession[]
+  let planRationale = ''
 
-  // ── CON BLUEPRINT: sesiones ancladas a temas reales ──────────
+  // ── CON BLUEPRINT: ALAI diseña el programa ──────────────
   if (blueprint && blueprint.topics.length > 0 && blueprint.validationPassed) {
-    console.log(`[Generator] Usando blueprint: ${blueprint.topics.length} temas, confidence: ${blueprint.confidence}%`)
-    sessions = buildSessionsFromBlueprint(blueprint, enrichedStrategy, setup.dailyMinutes, learningMemory ?? null, userProfile ?? null)
-  } else {
-    // ── SIN BLUEPRINT: fallback con conceptos genéricos ─────────
-    if (blueprint) {
-      console.log(`[Generator] Blueprint disponible pero no válido (confidence: ${blueprint.confidence}%) — usando fallback`)
+    console.log(`[Generator] Pidiendo a ALAI diseñar programa | ${blueprint.topics.length} topics | sessionLength: ${setup.sessionLength || 'medium'}`)
+
+    try {
+      const res = await fetch('/api/adaptive/plan-program', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          blueprint,
+          setup,
+          userProfile,
+          mastery,
+          learningMemory,
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err?.error || `plan-program falló: ${res.status}`)
+      }
+
+      const data = await res.json()
+      if (!data.success || !Array.isArray(data.sessions) || data.sessions.length === 0) {
+        throw new Error(data?.error || 'ALAI no devolvió sesiones')
+      }
+
+      planRationale = data.rationale || ''
+      sessions = sessionsFromPlan(data.sessions, blueprint, enrichedStrategy)
+      console.log(`[Generator] ✅ ALAI diseñó ${sessions.length} sesiones`)
+    } catch (err: any) {
+      console.error('[Generator] plan-program falló:', err.message)
+      // No fallback silencioso — propagar el error
+      throw new Error(err?.message || 'ALAI está ocupado. Intenta de nuevo en un momento.')
     }
-    sessions = buildSessionsFromStrategy(enrichedStrategy, learningMemory ?? null)
+  } else {
+    // ── SIN BLUEPRINT VÁLIDO: error claro al usuario ──────
+    if (blueprint) {
+      console.log(`[Generator] Blueprint no válido (confidence: ${blueprint.confidence}%)`)
+    }
+    throw new Error('No se pudo analizar el material lo suficiente para diseñar un programa adaptativo. Sube material con más contenido o intenta de nuevo.')
   }
 
   // Normalizar: numeración correcta, primera disponible
@@ -760,17 +783,107 @@ export function generateAdaptiveProgram(
     id: uid(),
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    materialIds: mastery
-      ? [mastery.materialId].filter(Boolean)
-      : [],
+    materialIds: mastery ? [mastery.materialId].filter(Boolean) : [],
     setup,
     status: 'active',
     sessions,
     currentSessionIndex: 0,
     strategy: enrichedStrategy,
-    // Guardar blueprint en el programa para que replanner y updater lo usen
     materialBlueprint: blueprint ?? null,
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Construir sesiones del programa desde el plan de ALAI
+// Cada sesión queda con steps=[] — el plan-session los llenará on-demand
+// ═══════════════════════════════════════════════════════════════
+function sessionsFromPlan(
+  planSessions: any[],
+  blueprint: MaterialBlueprint,
+  strategy: StudyStrategy,
+): AdaptiveSession[] {
+  const topicById = new Map(blueprint.topics.map(t => [t.id, t]))
+
+  // Construir también mapa por título para resolver cuando el LLM usa títulos en vez de IDs
+  const topicByTitle = new Map(blueprint.topics.map(t => [t.title.toLowerCase().trim(), t]))
+  const topicByPartialTitle = new Map<string, MaterialTopic>()
+  for (const t of blueprint.topics) {
+    // Indexar por palabras clave del título
+    const words = t.title.toLowerCase().split(/\s+/).filter(w => w.length > 3)
+    for (const w of words) {
+      if (!topicByPartialTitle.has(w)) topicByPartialTitle.set(w, t)
+    }
+  }
+
+  return planSessions.map((ps: any, idx: number) => {
+    // Resolver topics agrupados en esta sesión
+    const rawTopicIds: string[] = Array.isArray(ps.topicIds) ? ps.topicIds : []
+    
+    // Resolver cada ID — el LLM a veces devuelve "Topic 1", "Topic 2" en vez del ID real
+    const resolvedTopics = rawTopicIds
+      .map(id => {
+        // Intento 1: ID exacto
+        if (topicById.has(id)) return topicById.get(id)!
+        
+        // Intento 2: "Topic N" → usar el Nth topic del blueprint
+        const topicNMatch = id.match(/^topic\s*(\d+)$/i)
+        if (topicNMatch) {
+          const n = parseInt(topicNMatch[1]) - 1
+          if (n >= 0 && n < blueprint.topics.length) return blueprint.topics[n]
+        }
+        
+        // Intento 3: buscar por título exacto
+        if (topicByTitle.has(id.toLowerCase().trim())) return topicByTitle.get(id.toLowerCase().trim())!
+        
+        // Intento 4: buscar por palabra clave en el título
+        const words = id.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3)
+        for (const w of words) {
+          if (topicByPartialTitle.has(w)) return topicByPartialTitle.get(w)!
+        }
+        
+        return undefined
+      })
+      .filter((t): t is MaterialTopic => !!t)
+      // Eliminar duplicados
+      .filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i)
+
+    // Si no se resolvió ningún topic, usar el del índice como fallback
+    const primaryTopic = resolvedTopics[0] || blueprint.topics[idx % blueprint.topics.length]
+
+    // Conceptos agregados de todos los topics de esta sesión
+    const allConcepts = resolvedTopics.length > 0
+      ? resolvedTopics.flatMap(t => getTopicConceptNames(t)).slice(0, 12)
+      : getTopicConceptNames(primaryTopic).slice(0, 8)
+
+    // Páginas agregadas
+    const allPages = Array.from(new Set(
+      resolvedTopics.length > 0
+        ? resolvedTopics.flatMap(t => t.sourcePages || [])
+        : (primaryTopic.sourcePages || [])
+    )).sort((a, b) => a - b)
+
+    return makeSession({
+      sessionNumber: idx + 1,
+      title: String(ps.title || primaryTopic.title),
+      objective: String(ps.objective || buildSessionObjective(primaryTopic, 'understand')),
+      estimatedMinutes: Number(ps.estimatedMinutes) || 22,
+      purpose: (ps.purpose || 'understand') as SessionPurpose,
+      steps: [],  // ← VACÍO: plan-session los genera on-demand
+      expectedDomainGain: Number(ps.expectedDomainGain) || 10,
+      status: idx === 0 ? 'available' : 'locked',
+      topicId: primaryTopic.id,
+      topicTitle: primaryTopic.title,
+      targetConcepts: allConcepts,
+      sourcePages: allPages,
+      evidenceGoal: buildEvidenceGoal(primaryTopic),
+      blueprintConfidence: blueprint.confidence,
+      sessionFormat: 'discovery',
+      groupedTopicIds: rawTopicIds.length > 1 ? rawTopicIds : undefined,
+      planRationale: String(ps.rationale || ''),
+      plannedAt: Date.now(),
+      planVersion: 1,
+    } as any)
+  })
 }
 
 // Re-exportar para consumidores

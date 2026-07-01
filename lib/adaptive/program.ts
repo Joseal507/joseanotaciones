@@ -6,6 +6,45 @@
 
 export type KnowledgeLevel = 'zero' | 'some' | 'review' | 'practice'
 
+// ── Preferencia de duración de sesión ──
+// Define profundidad y cantidad de actividades por sesión.
+// El dominio final es el mismo; solo cambia el ritmo y la extensión.
+export type SessionLength = 'short' | 'medium' | 'long'
+
+export const SESSION_LENGTH_CONFIG: Record<SessionLength, {
+  label: string
+  description: string
+  emoji: string
+  targetMinutes: number
+  activitiesPerSession: { min: number; max: number }
+  explanationDepth: 'concise' | 'balanced' | 'deep'
+}> = {
+  short: {
+    label: 'Cortas',
+    description: 'Explicaciones concisas, más sesiones',
+    emoji: '⚡',
+    targetMinutes: 12,
+    activitiesPerSession: { min: 3, max: 5 },
+    explanationDepth: 'concise',
+  },
+  medium: {
+    label: 'Medias',
+    description: 'Balance entre explicación y práctica',
+    emoji: '⚖️',
+    targetMinutes: 22,
+    activitiesPerSession: { min: 5, max: 8 },
+    explanationDepth: 'balanced',
+  },
+  long: {
+    label: 'Largas',
+    description: 'Profundas, menos cambios entre sesiones',
+    emoji: '🌊',
+    targetMinutes: 35,
+    activitiesPerSession: { min: 7, max: 12 },
+    explanationDepth: 'deep',
+  },
+}
+
 export type SessionPurpose =
   | 'understand'
   | 'organize'
@@ -15,6 +54,7 @@ export type SessionPurpose =
   | 'repair'
 
 export type StepType =
+  // Básicas (legacy, siguen funcionando)
   | 'explain'
   | 'active_recall'
   | 'micro_flashcards'
@@ -22,6 +62,21 @@ export type StepType =
   | 'mini_exam'
   | 'coach_feedback'
   | 'repair'
+  // Expandidas (catálogo nuevo de actividades pedagógicas)
+  | 'analogy'              // analogía con algo conocido
+  | 'concrete_example'     // ejemplo concreto del material
+  | 'visualization'        // describir visualmente / dibujar mental
+  | 'mind_map'             // mapa mental del topic
+  | 'timeline'             // línea de tiempo de eventos/procesos
+  | 'classification'       // clasificar elementos en categorías
+  | 'comparison'           // comparar dos conceptos
+  | 'case_study'           // caso aplicado (clínico/práctico)
+  | 'application'          // aplicar a un problema nuevo
+  | 'synthesis'            // sintetizar varios conceptos
+  | 'inverse_teaching'     // que el estudiante explique como si enseñara
+  | 'error_detection'      // identificar errores en una explicación dada
+  | 'concept_mapping'      // relacionar conceptos entre sí
+  | 'metacognition'        // reflexionar sobre el propio aprendizaje
 
 export type StepEngine =
   | 'analisis'
@@ -47,6 +102,14 @@ export interface AdaptiveStep {
   estimatedMinutes: number
   evidenceRequired: boolean
   status: StepStatus
+
+  // ── Diseño pedagógico (Fase 2: planeación por ALAI) ──
+  pedagogicalReason?: string       // por qué ALAI eligió este step
+  expectedEvidence?: string[]      // qué evidencia se espera recolectar
+  conceptsTargeted?: string[]      // conceptos específicos que toca este step
+  difficulty?: 'easy' | 'medium' | 'hard'
+  fallbackIfFails?: StepType       // qué hacer si el estudiante falla aquí
+
   result?: {
     score?: number
     correct?: boolean
@@ -78,6 +141,12 @@ export interface AdaptiveSession {
   sessionFormat?: string  // discovery | practice_drill | deep_dive | rapid_review | exam_simulation | repair_dialogue | application | memorization         // qué debe demostrar el estudiante
   blueprintConfidence?: number  // 0-100 confianza del blueprint en este topic
 
+  // ── Planeación (Fase 2: por ALAI) ──
+  plannedAt?: number               // timestamp cuando ALAI diseñó la sesión
+  planRationale?: string           // explicación de ALAI de por qué eligió esta estructura
+  planVersion?: number             // si se re-planeó, qué versión es
+  groupedTopicIds?: string[]       // si la sesión cubre varios topics agrupados
+
   // Se llenan al completar
   domainBefore?: number
   domainAfter?: number
@@ -89,6 +158,7 @@ export interface AdaptiveSession {
 // ── Setup ───────────────────────────────────────────────────────
 export interface AdaptiveProgramSetup {
   initialKnowledgeLevel: KnowledgeLevel
+  sessionLength: SessionLength      // NUEVO: preferencia de duración
   targetScore: number
   examDate: string | null
   dailyMinutes?: number
@@ -148,6 +218,21 @@ export const DOMAIN_GAIN_BY_STEP_TYPE: Record<StepType, number> = {
   active_recall: 10,
   micro_flashcards: 8,
   micro_quiz: 12,
+  // Nuevas actividades
+  analogy: 4,
+  concrete_example: 4,
+  visualization: 5,
+  mind_map: 6,
+  timeline: 5,
+  classification: 7,
+  comparison: 7,
+  case_study: 12,
+  application: 14,
+  synthesis: 10,
+  inverse_teaching: 15,
+  error_detection: 11,
+  concept_mapping: 8,
+  metacognition: 6,
   mini_exam: 15,
   coach_feedback: 5,
   repair: 8,
@@ -175,6 +260,7 @@ export const SESSION_PURPOSE_EMOJI: Record<SessionPurpose, string> = {
 }
 
 export const STEP_TYPE_INSTRUCTION: Record<StepType, string> = {
+  // Básicas (legacy)
   explain: 'Vamos a ver la idea principal.',
   active_recall: 'Ahora vamos a comprobar qué recuerdas.',
   micro_flashcards: 'Vamos a anclar estos conceptos en tu memoria.',
@@ -182,6 +268,21 @@ export const STEP_TYPE_INSTRUCTION: Record<StepType, string> = {
   mini_exam: 'Vamos a simular una prueba real.',
   coach_feedback: 'Revisemos cómo vas.',
   repair: 'Vamos a corregir lo que falló.',
+  // Expandidas
+  analogy: 'Vamos a compararlo con algo que ya conoces.',
+  concrete_example: 'Veamos un ejemplo concreto del material.',
+  visualization: 'Vamos a visualizar el concepto.',
+  mind_map: 'Vamos a mapear las ideas y sus relaciones.',
+  timeline: 'Ordenemos los eventos en el tiempo.',
+  classification: 'Clasifiquemos los elementos en categorías.',
+  comparison: 'Comparemos dos conceptos relacionados.',
+  case_study: 'Veamos un caso aplicado.',
+  application: 'Apliquemos el concepto a un problema nuevo.',
+  synthesis: 'Sinteticemos lo aprendido.',
+  inverse_teaching: 'Ahora tú explícalo como si fueras el profesor.',
+  error_detection: 'Identifica el error en esta explicación.',
+  concept_mapping: 'Relacionemos los conceptos entre sí.',
+  metacognition: 'Reflexiona sobre lo que aprendiste.',
 }
 
 // ── Helper: días hasta examen ────────────────────────────────────

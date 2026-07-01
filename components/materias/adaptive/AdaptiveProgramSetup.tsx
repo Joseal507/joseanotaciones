@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { AdaptiveProgramSetup } from '../../../lib/adaptive'
+import type { AdaptiveProgramSetup, SessionLength } from '../../../lib/adaptive'
 import { getExamDateLabel } from '../../../lib/adaptive'
 
 interface Props {
@@ -9,32 +9,36 @@ interface Props {
   onCancel: () => void
 }
 
-type Step = 1 | 2 | 3
+type Step = 1 | 2 | 3 | 4
 
 const KNOWLEDGE_OPTIONS = [
+  { key: 'zero' as const, title: 'Nunca lo he visto', desc: 'Es un tema completamente nuevo para mí.', emoji: '🌱' },
+  { key: 'some' as const, title: 'Lo conozco un poco', desc: 'He visto algo pero no lo tengo claro.', emoji: '📖' },
+  { key: 'review' as const, title: 'Quiero repasarlo', desc: 'Ya lo estudié antes y necesito refrescarlo.', emoji: '🔄' },
+  { key: 'practice' as const, title: 'Ya lo domino, quiero practicar', desc: 'Me sé el tema, solo quiero consolidarlo.', emoji: '🎯' },
+]
+
+const SESSION_LENGTH_OPTIONS: { key: SessionLength; title: string; desc: string; emoji: string; sub: string }[] = [
   {
-    key: 'zero' as const,
-    title: 'Nunca lo he visto',
-    desc: 'Es un tema completamente nuevo para mí.',
-    emoji: '🌱',
+    key: 'short',
+    title: 'Cortas',
+    desc: 'Explicaciones concisas, más sesiones',
+    emoji: '⚡',
+    sub: '~12 min · ritmo ágil',
   },
   {
-    key: 'some' as const,
-    title: 'Lo conozco un poco',
-    desc: 'He visto algo pero no lo tengo claro.',
-    emoji: '📖',
+    key: 'medium',
+    title: 'Medias',
+    desc: 'Balance entre explicación y práctica',
+    emoji: '⚖️',
+    sub: '~22 min · ritmo equilibrado',
   },
   {
-    key: 'review' as const,
-    title: 'Quiero repasarlo',
-    desc: 'Ya lo estudié antes y necesito refrescarlo.',
-    emoji: '🔄',
-  },
-  {
-    key: 'practice' as const,
-    title: 'Ya lo domino, quiero practicar',
-    desc: 'Me sé el tema, solo quiero consolidarlo.',
-    emoji: '🎯',
+    key: 'long',
+    title: 'Largas',
+    desc: 'Profundas, menos cambios entre sesiones',
+    emoji: '🌊',
+    sub: '~35 min · profundidad máxima',
   },
 ]
 
@@ -48,37 +52,29 @@ const EXAM_DATE_OPTIONS = [
   { key: 'no_exam', label: 'Sin examen', sub: 'Solo estudiar' },
 ]
 
-const DAILY_OPTIONS = [
-  { value: 15, label: '15 min', sub: 'Muy poco tiempo' },
-  { value: 30, label: '30 min', sub: 'Sesión corta' },
-  { value: 45, label: '45 min', sub: 'Sesión normal' },
-  { value: 60, label: '1 hora', sub: 'Sesión completa' },
-  { value: 90, label: '90 min', sub: 'Sesión larga' },
-]
-
-export default function AdaptiveProgramSetup({ onComplete, onCancel }: Props) {
+export default function AdaptiveProgramSetupComponent({ onComplete, onCancel }: Props) {
   const [step, setStep] = useState<Step>(1)
   const [knowledgeLevel, setKnowledgeLevel] = useState<AdaptiveProgramSetup['initialKnowledgeLevel'] | null>(null)
+  const [sessionLength, setSessionLength] = useState<SessionLength | null>(null)
   const [examDate, setExamDate] = useState<string | null>(null)
   const [targetScore, setTargetScore] = useState(80)
-  // dailyMinutes ya no se pregunta — default interno
   const dailyMinutes = 45
-  
+
   const canContinue =
     (step === 1 && knowledgeLevel !== null) ||
-    (step === 2 && examDate !== null) ||
-    step === 3
+    (step === 2 && sessionLength !== null) ||
+    (step === 3 && examDate !== null) ||
+    step === 4
 
   const handleContinue = () => {
-    if (step < 3) {
+    if (step < 4) {
       setStep((prev) => (prev + 1) as Step)
       return
     }
-
-    // Paso final → enviar setup y cerrar (la generación pasa después)
-    if (!knowledgeLevel || !examDate) return
+    if (!knowledgeLevel || !sessionLength || !examDate) return
     onComplete({
       initialKnowledgeLevel: knowledgeLevel,
+      sessionLength,
       targetScore,
       examDate,
       dailyMinutes,
@@ -97,22 +93,18 @@ export default function AdaptiveProgramSetup({ onComplete, onCancel }: Props) {
         {/* Header */}
         <div style={{ marginBottom: 28 }}>
           <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-faint)', letterSpacing: 1, marginBottom: 8 }}>
-            PROGRAMA ADAPTATIVO · PASO {step} DE 3
+            PROGRAMA ADAPTATIVO · PASO {step} DE 4
           </div>
           <div style={styles.progressBar}>
-            <div style={{ ...styles.progressFill, width: `${(step / 3) * 100}%` }} />
+            <div style={{ ...styles.progressFill, width: `${(step / 4) * 100}%` }} />
           </div>
         </div>
 
         {/* PASO 1 — Nivel de conocimiento */}
         {step === 1 && (
           <div>
-            <div style={styles.stepTitle}>
-              ¿Qué tanto sabes de este tema?
-            </div>
-            <div style={styles.stepSub}>
-              ALAI ajustará el punto de partida según tu respuesta.
-            </div>
+            <div style={styles.stepTitle}>¿Qué tanto sabes de este tema?</div>
+            <div style={styles.stepSub}>ALAI ajustará el punto de partida según tu respuesta.</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
               {KNOWLEDGE_OPTIONS.map((opt) => (
                 <button
@@ -121,23 +113,15 @@ export default function AdaptiveProgramSetup({ onComplete, onCancel }: Props) {
                   style={{
                     ...styles.optionBtn,
                     borderColor: knowledgeLevel === opt.key ? 'var(--gold)' : 'var(--border-color2)',
-                    background: knowledgeLevel === opt.key
-                      ? 'color-mix(in srgb, var(--gold) 10%, transparent)'
-                      : 'transparent',
+                    background: knowledgeLevel === opt.key ? 'color-mix(in srgb, var(--gold) 10%, transparent)' : 'transparent',
                   }}
                 >
                   <span style={{ fontSize: 22 }}>{opt.emoji}</span>
                   <div style={{ textAlign: 'left' }}>
-                    <div style={{
-                      fontSize: 14,
-                      fontWeight: 900,
-                      color: knowledgeLevel === opt.key ? 'var(--gold)' : 'var(--text-primary)',
-                    }}>
+                    <div style={{ fontSize: 14, fontWeight: 900, color: knowledgeLevel === opt.key ? 'var(--gold)' : 'var(--text-primary)' }}>
                       {opt.title}
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
-                      {opt.desc}
-                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>{opt.desc}</div>
                   </div>
                   {knowledgeLevel === opt.key && (
                     <span style={{ marginLeft: 'auto', color: 'var(--gold)', fontSize: 18 }}>✓</span>
@@ -148,21 +132,49 @@ export default function AdaptiveProgramSetup({ onComplete, onCancel }: Props) {
           </div>
         )}
 
-        {/* PASO 2 — Fecha de examen */}
+        {/* PASO 2 — Duración de sesión (NUEVO) */}
         {step === 2 && (
           <div>
-            <div style={styles.stepTitle}>
-              ¿Cuándo es tu examen?
+            <div style={styles.stepTitle}>¿Cómo te gustaría que fueran tus sesiones?</div>
+            <div style={styles.stepSub}>
+              Esto solo cambia el ritmo y la extensión. El dominio final será el mismo en cualquier opción.
             </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
+              {SESSION_LENGTH_OPTIONS.map((opt) => (
+                <button
+                  key={opt.key}
+                  onClick={() => setSessionLength(opt.key)}
+                  style={{
+                    ...styles.optionBtn,
+                    borderColor: sessionLength === opt.key ? 'var(--gold)' : 'var(--border-color2)',
+                    background: sessionLength === opt.key ? 'color-mix(in srgb, var(--gold) 10%, transparent)' : 'transparent',
+                  }}
+                >
+                  <span style={{ fontSize: 28 }}>{opt.emoji}</span>
+                  <div style={{ textAlign: 'left', flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 900, color: sessionLength === opt.key ? 'var(--gold)' : 'var(--text-primary)' }}>
+                      {opt.title}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{opt.desc}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4, fontStyle: 'italic' }}>{opt.sub}</div>
+                  </div>
+                  {sessionLength === opt.key && (
+                    <span style={{ marginLeft: 'auto', color: 'var(--gold)', fontSize: 18 }}>✓</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* PASO 3 — Fecha de examen */}
+        {step === 3 && (
+          <div>
+            <div style={styles.stepTitle}>¿Cuándo es tu examen?</div>
             <div style={styles.stepSub}>
               Esto determina cuántas sesiones tendrá tu programa y su intensidad.
             </div>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 8,
-              marginTop: 20,
-            }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 20 }}>
               {EXAM_DATE_OPTIONS.map((opt) => (
                 <button
                   key={opt.key}
@@ -170,66 +182,38 @@ export default function AdaptiveProgramSetup({ onComplete, onCancel }: Props) {
                   style={{
                     ...styles.optionBtnSmall,
                     borderColor: examDate === opt.key ? 'var(--gold)' : 'var(--border-color2)',
-                    background: examDate === opt.key
-                      ? 'color-mix(in srgb, var(--gold) 10%, transparent)'
-                      : 'transparent',
+                    background: examDate === opt.key ? 'color-mix(in srgb, var(--gold) 10%, transparent)' : 'transparent',
                   }}
                 >
-                  <div style={{
-                    fontSize: 14,
-                    fontWeight: 900,
-                    color: examDate === opt.key ? 'var(--gold)' : 'var(--text-primary)',
-                  }}>
+                  <div style={{ fontSize: 14, fontWeight: 900, color: examDate === opt.key ? 'var(--gold)' : 'var(--text-primary)' }}>
                     {opt.label}
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>
-                    {opt.sub}
-                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>{opt.sub}</div>
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* PASO 3 — Nota objetivo */}
-        {step === 3 && (
+        {/* PASO 4 — Nota objetivo */}
+        {step === 4 && (
           <div>
-            <div style={styles.stepTitle}>
-              ¿Qué nota quieres sacar?
-            </div>
-            <div style={styles.stepSub}>
-              ALAI calibrará la profundidad del programa a este objetivo.
-            </div>
+            <div style={styles.stepTitle}>¿Qué nota quieres sacar?</div>
+            <div style={styles.stepSub}>ALAI calibrará la profundidad del programa a este objetivo.</div>
             <div style={{
-              marginTop: 28,
-              padding: '24px 20px',
-              borderRadius: 14,
-              border: '1.5px solid var(--border-color2)',
-              background: 'rgba(255,255,255,0.02)',
-              textAlign: 'center',
+              marginTop: 28, padding: '24px 20px', borderRadius: 14,
+              border: '1.5px solid var(--border-color2)', background: 'rgba(255,255,255,0.02)', textAlign: 'center',
             }}>
-              <div style={{ fontSize: 56, fontWeight: 900, color: 'var(--gold)', lineHeight: 1 }}>
-                {targetScore}
-              </div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-secondary)', marginTop: 4 }}>
-                {scoreLabel}
-              </div>
+              <div style={{ fontSize: 56, fontWeight: 900, color: 'var(--gold)', lineHeight: 1 }}>{targetScore}</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-secondary)', marginTop: 4 }}>{scoreLabel}</div>
               <input
                 type="range"
-                min={60}
-                max={100}
-                step={5}
+                min={60} max={100} step={5}
                 value={targetScore}
                 onChange={(e) => setTargetScore(Number(e.target.value))}
                 style={{ width: '100%', marginTop: 20, accentColor: '#d6b26f' }}
               />
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                fontSize: 11,
-                color: 'var(--text-faint)',
-                marginTop: 8,
-              }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-faint)', marginTop: 8 }}>
                 <span>60 · Aprobar</span>
                 <span>80 · Notable</span>
                 <span>100 · Perfecto</span>
@@ -237,8 +221,6 @@ export default function AdaptiveProgramSetup({ onComplete, onCancel }: Props) {
             </div>
           </div>
         )}
-
-        {/* PASO 4 eliminado — ALAI decide cuánto necesita cada sesión */}
 
         {/* Footer */}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 28, gap: 12 }}>
@@ -251,13 +233,9 @@ export default function AdaptiveProgramSetup({ onComplete, onCancel }: Props) {
           <button
             onClick={handleContinue}
             disabled={!canContinue}
-            style={{
-              ...styles.btnPrimary,
-              opacity: canContinue ? 1 : 0.4,
-              cursor: canContinue ? 'pointer' : 'not-allowed',
-            }}
+            style={{ ...styles.btnPrimary, opacity: canContinue ? 1 : 0.4, cursor: canContinue ? 'pointer' : 'not-allowed' }}
           >
-            Siguiente →
+            {step === 4 ? 'Generar programa →' : 'Siguiente →'}
           </button>
         </div>
       </div>
@@ -267,113 +245,31 @@ export default function AdaptiveProgramSetup({ onComplete, onCancel }: Props) {
 
 const styles = {
   overlay: {
-    position: 'fixed' as const,
-    inset: 0,
-    zIndex: 999,
-    background: 'rgba(0,0,0,0.80)',
-    backdropFilter: 'blur(10px)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
+    position: 'fixed' as const, inset: 0, zIndex: 999, background: 'rgba(0,0,0,0.80)',
+    backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
   },
   card: {
-    width: 'min(520px, 100%)',
-    background: 'var(--bg-card)',
-    border: '2px solid var(--gold)',
-    borderRadius: 20,
-    boxShadow: '0 32px 80px rgba(0,0,0,.5)',
-    padding: 28,
-    maxHeight: '90vh',
-    overflowY: 'auto' as const,
+    width: 'min(520px, 100%)', background: 'var(--bg-card)', border: '2px solid var(--gold)',
+    borderRadius: 20, boxShadow: '0 32px 80px rgba(0,0,0,.5)', padding: 28, maxHeight: '90vh', overflowY: 'auto' as const,
   },
-  stepTitle: {
-    fontSize: 22,
-    fontWeight: 900,
-    color: 'var(--text-primary)',
-    lineHeight: 1.2,
-    marginBottom: 8,
-  },
-  stepSub: {
-    fontSize: 13,
-    color: 'var(--text-muted)',
-    lineHeight: 1.5,
-  },
-  progressBar: {
-    height: 4,
-    borderRadius: 999,
-    background: 'var(--border-color2)',
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    background: 'var(--gold)',
-    borderRadius: 999,
-    transition: 'width 0.3s ease',
-  },
+  stepTitle: { fontSize: 22, fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1.2, marginBottom: 8 },
+  stepSub: { fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 },
+  progressBar: { height: 4, borderRadius: 999, background: 'var(--border-color2)', overflow: 'hidden' },
+  progressFill: { height: '100%', background: 'var(--gold)', borderRadius: 999, transition: 'width 0.3s ease' },
   optionBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 14,
-    padding: '14px 16px',
-    borderRadius: 14,
-    border: '2px solid',
-    cursor: 'pointer',
-    textAlign: 'left' as const,
-    transition: 'all 0.15s ease',
+    display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 14,
+    border: '2px solid', cursor: 'pointer', textAlign: 'left' as const, transition: 'all 0.15s ease',
   },
   optionBtnSmall: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    alignItems: 'flex-start',
-    padding: '12px 14px',
-    borderRadius: 12,
-    border: '2px solid',
-    cursor: 'pointer',
-    transition: 'all 0.15s ease',
-  },
-  optionBtnRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 14,
-    padding: '12px 16px',
-    borderRadius: 12,
-    border: '2px solid',
-    cursor: 'pointer',
-    transition: 'all 0.15s ease',
+    display: 'flex', flexDirection: 'column' as const, alignItems: 'flex-start', padding: '12px 14px',
+    borderRadius: 12, border: '2px solid', cursor: 'pointer', transition: 'all 0.15s ease',
   },
   btnPrimary: {
-    padding: '12px 22px',
-    borderRadius: 12,
-    border: '2px solid var(--gold)',
-    background: 'var(--gold)',
-    color: '#111',
-    fontWeight: 900,
-    fontSize: 14,
-    transition: 'all 0.15s ease',
+    padding: '12px 22px', borderRadius: 12, border: '2px solid var(--gold)', background: 'var(--gold)',
+    color: '#111', fontWeight: 900, fontSize: 14, transition: 'all 0.15s ease',
   },
   btnSecondary: {
-    padding: '12px 18px',
-    borderRadius: 12,
-    border: '1.5px solid var(--border-color2)',
-    background: 'transparent',
-    color: 'var(--text-faint)',
-    fontWeight: 800,
-    fontSize: 13,
-    cursor: 'pointer',
-  },
-  loader: {
-    marginTop: 28,
-    height: 4,
-    borderRadius: 999,
-    background: 'var(--border-color2)',
-    overflow: 'hidden',
-  },
-  loaderBar: {
-    height: '100%',
-    width: '40%',
-    background: 'var(--gold)',
-    borderRadius: 999,
-    animation: 'loaderSlide 1.2s ease infinite',
+    padding: '12px 18px', borderRadius: 12, border: '1.5px solid var(--border-color2)',
+    background: 'transparent', color: 'var(--text-faint)', fontWeight: 800, fontSize: 13, cursor: 'pointer',
   },
 }

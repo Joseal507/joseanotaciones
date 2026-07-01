@@ -364,8 +364,13 @@ export function fullReplanProgram(
       const newSessions: AdaptiveSession[] = []
       let sessionNum = startSessionNumber
 
+      // Garantizar que todos los topics pendientes tengan sesión
+      // totalSessions puede ser menor que orderedTopics — ajustarlo
+      const minSessionsNeeded = orderedTopics.length + 1 // +1 para sesión integradora final
+      const effectiveTotalSessions = Math.max(enriched.totalSessions, minSessionsNeeded)
+
       for (const topic of orderedTopics) {
-        if (newSessions.length >= enriched.totalSessions) break
+        if (newSessions.length >= effectiveTotalSessions) break
 
         const tm = topicMastery.find(t => t.topicId === topic.id)
         const topicScore = tm?.score ?? 0
@@ -479,7 +484,32 @@ export function fullReplanProgram(
       }
 
       remainingSessions = newSessions
-      console.log(`[Replanner] Plan explícito: ${remainingSessions.length} sesiones | críticos:${criticalTopics.length} débiles:${weakTopics.length}`)
+      // ── SESIÓN INTEGRADORA FINAL si hay más de 2 topics cubiertos ──
+      if (orderedTopics.length >= 2 && newSessions.length > 0) {
+        const { buildSessionTitle, buildSessionObjective } = require('./blueprint')
+        const allConceptNames = orderedTopics
+          .flatMap(t => (t.concepts || []).map((c: any) => c.name))
+          .slice(0, 8)
+
+        const integrationSession: AdaptiveSession = {
+          id: Math.random().toString(36).slice(2, 10),
+          sessionNumber: sessionNum++,
+          title: 'Integración y cierre',
+          objective: `Conectar y consolidar todo lo aprendido: ${orderedTopics.slice(0, 3).map(t => t.title).join(', ')}`,
+          estimatedMinutes: Math.min(program.setup.dailyMinutes, 25),
+          purpose: 'simulate' as any,
+          status: 'locked',
+          expectedDomainGain: 15,
+          steps: [],
+          topicId: orderedTopics[0]?.id,
+          topicTitle: 'Integración completa',
+          targetConcepts: allConceptNames,
+          evidenceGoal: 'Demostrar dominio integrado de todos los conceptos del material',
+        }
+        newSessions.push(integrationSession)
+      }
+
+      console.log(`[Replanner] Plan explícito: ${newSessions.length} sesiones | críticos:${criticalTopics.length} débiles:${weakTopics.length}`)
 
     } catch (err) {    console.warn('[Replanner] Error en replan con blueprint, usando fallback:', err)
     }

@@ -24,7 +24,7 @@ export default function BookPreparation({ stage, topicsCount, sessionsCount }: P
       sub: 'ALAI está identificando los temas centrales',
     },
     designing: {
-      title: 'Diseñando tu programa',
+      title: 'ALAI está diseñando tu programa',
       sub: topicsCount
         ? `Encontré ${topicsCount} temas. Construyendo el camino...`
         : 'Construyendo el camino de aprendizaje',

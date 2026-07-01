@@ -48,7 +48,7 @@ Devuelve SOLO JSON:
 
     const rawText = await alaiRequest(async (client: any, model: (m?: string) => string) => {
       const res = await client.chat.completions.create({
-        model: model(),
+        model: model('llama-3.3-70b-versatile'),
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.45,
         max_tokens: 2000,

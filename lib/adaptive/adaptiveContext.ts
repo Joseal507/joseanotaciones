@@ -147,55 +147,66 @@ function buildMaterialSlice(
   targetConcepts: string[],
 ): string {
   const MAX_CHARS = 6000
-  const PREFIX_CHARS = 600  // siempre incluir el inicio para contexto
+  const totalLen = materialContent.length
 
-  const prefix = materialContent.slice(0, PREFIX_CHARS)
-
-  // 1. Si hay sourcePages → intentar páginas reales primero
-  if (sourcePages.length > 0) {
-    // Intentar detectar páginas reales en el material
-    const pageMap = []
-
-    if (pageMap.length >= 2) {
-      const realSlice = ''
-      if (realSlice.length > 400) {
-        return realSlice
-      }
-    }
-
-    // Fallback: estimado por chars
-    const charsPerPage = 1600
-    const minPage = Math.min(...sourcePages)
-    const maxPage = Math.max(...sourcePages)
-    const startChar = Math.max(0, (minPage - 1) * charsPerPage)
-    const endChar = Math.min(materialContent.length, maxPage * charsPerPage + 1200)
-    const pageSlice = materialContent.slice(startChar, endChar)
-
-    if (pageSlice.length > 400) {
-      const combined = prefix + '\n\n' + pageSlice
-      return combined.slice(0, MAX_CHARS)
-    }
+  // Material corto (< 8000 chars) → devolver TODO siempre
+  if (totalLen <= 8000) {
+    return materialContent.slice(0, MAX_CHARS)
   }
 
-  // 2. Si hay targetConcepts → buscar fragmentos donde aparecen
+  const PREFIX_CHARS = 500
+  const prefix = materialContent.slice(0, PREFIX_CHARS)
+
+  // 1. BUSCAR POR CONCEPTOS PRIMERO (más preciso que páginas estimadas)
   if (targetConcepts.length > 0) {
     const fragments: string[] = []
     const contentLower = materialContent.toLowerCase()
 
-    for (const concept of targetConcepts.slice(0, 3)) {
-      const conceptLower = concept.toLowerCase().slice(0, 10)
-      let idx = contentLower.indexOf(conceptLower)
-      while (idx !== -1 && fragments.length < 6) {
-        const start = Math.max(0, idx - 200)
-        const end = Math.min(materialContent.length, idx + 800)
-        fragments.push(materialContent.slice(start, end))
-        idx = contentLower.indexOf(conceptLower, idx + 1)
+    for (const concept of targetConcepts.slice(0, 4)) {
+      // Buscar múltiples variantes del concepto
+      const searches = [
+        concept.toLowerCase().slice(0, 15),
+        concept.toLowerCase().split(' ')[0], // primera palabra
+        concept.toLowerCase().split(' ').slice(-1)[0], // última palabra
+      ].filter(s => s.length >= 4)
+
+      for (const search of searches) {
+        let idx = contentLower.indexOf(search)
+        let found = 0
+        while (idx !== -1 && found < 3 && fragments.length < 8) {
+          // Ventana amplia: 400 chars antes + 1200 chars después
+          const start = Math.max(0, idx - 400)
+          const end = Math.min(totalLen, idx + 1200)
+          const fragment = materialContent.slice(start, end)
+          // Evitar duplicados
+          if (!fragments.some(f => f.slice(0, 50) === fragment.slice(0, 50))) {
+            fragments.push(fragment)
+          }
+          idx = contentLower.indexOf(search, idx + 100)
+          found++
+        }
       }
     }
 
     if (fragments.length > 0) {
-      const conceptSlice = [...new Set(fragments)].join('\n\n---\n\n')
-      const combined = prefix + '\n\n' + conceptSlice
+      const conceptSlice = fragments.join('\n\n--- · ---\n\n')
+      const combined = prefix + '\n\n=== Material relevante ===\n\n' + conceptSlice
+      return combined.slice(0, MAX_CHARS)
+    }
+  }
+
+  // 2. SOURCEAGES como fallback cuando no hay match por conceptos
+  if (sourcePages.length > 0) {
+    // Estimar chars por página con mínimo de 800 chars/página
+    const charsPerPage = Math.max(800, Math.floor(totalLen / Math.ceil(totalLen / 1600)))
+    const minPage = Math.min(...sourcePages)
+    const maxPage = Math.max(...sourcePages)
+    const startChar = Math.max(0, (minPage - 1) * charsPerPage - 200)
+    const endChar = Math.min(totalLen, maxPage * charsPerPage + 2000)
+    const pageSlice = materialContent.slice(startChar, endChar)
+
+    if (pageSlice.length > 300) {
+      const combined = prefix + '\n\n' + pageSlice
       return combined.slice(0, MAX_CHARS)
     }
   }

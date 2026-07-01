@@ -17,6 +17,8 @@ export interface TopicConcept {
   prerequisites?: string[]    // ids de otros conceptos
   commonConfusions?: string[]
   practiceType: 'recall' | 'application' | 'explanation' | 'analysis'
+  knowledgeType?: 'conceptual' | 'narrative' | 'procedural' | 'memoristic' | 'mathematical' | 'argumentative' | 'causal' | 'visual'  // tipo específico de este concepto
+  learningGoal?: string               // objetivo cognitivo de este concepto
 }
 
 export interface TopicEvidenceRequirement {
@@ -43,6 +45,11 @@ export interface MaterialTopic {
   difficulty: number            // 0-100 promedio del tema
   importance: number            // 0-100 qué tan importante es para el examen
   estimatedMinutes: number      // cuánto tarda en dominarse
+
+  // Tipo de conocimiento — determina la estrategia pedagógica
+  // Tipo de conocimiento — puede ser mixto
+  primaryKnowledgeType: 'conceptual' | 'narrative' | 'procedural' | 'memoristic' | 'mathematical' | 'argumentative' | 'causal' | 'visual'
+  knowledgeTypes: Array<'conceptual' | 'narrative' | 'procedural' | 'memoristic' | 'mathematical' | 'argumentative' | 'causal' | 'visual'>
 
   // Qué tipo de práctica necesita
   practiceNeeds: Array<'understand' | 'memorize' | 'apply' | 'simulate'>

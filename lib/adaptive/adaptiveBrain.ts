@@ -231,23 +231,27 @@ export function updateModel(
 ): StudentModel {
   const updated: StudentModel = JSON.parse(JSON.stringify(model))
 
-  // ── Actualizar comprensión del concepto ──────────────
-  if (interaction.conceptTested && updated.concepts[interaction.conceptTested] !== undefined) {
+  // ── Actualizar comprensión del concepto SOLO con evidencia real ──
+  // Si score es 0 (caso de explain sin evidencia), no tocar el concepto
+  if (interaction.conceptTested && updated.concepts[interaction.conceptTested] !== undefined && interaction.score > 0) {
     const prev = updated.concepts[interaction.conceptTested]
     updated.concepts[interaction.conceptTested] = Math.round(prev * 0.4 + interaction.score * 0.6)
 
     if (updated.concepts[interaction.conceptTested] >= 75 && !updated.memory.masteredConcepts.includes(interaction.conceptTested)) {
       updated.memory.masteredConcepts.push(interaction.conceptTested)
+      console.log(`[adaptiveBrain] Concepto dominado: ${interaction.conceptTested}`)
     }
   }
 
-  // ── Actualizar COMPRENSIÓN (qué tan claro tiene las cosas) ──
-  if (interaction.score >= 70) {
-    updated.comprehension.level = Math.min(100, updated.comprehension.level + 4)
-    updated.comprehension.stability = Math.min(100, updated.comprehension.stability + 8)
-  } else if (interaction.score < 40) {
-    updated.comprehension.level = Math.max(0, updated.comprehension.level - 3)
-    updated.comprehension.stability = Math.max(0, updated.comprehension.stability - 5)
+  // ── Actualizar COMPRENSIÓN solo con evidencia real ──
+  if (interaction.score > 0) {
+    if (interaction.score >= 70) {
+      updated.comprehension.level = Math.min(100, updated.comprehension.level + 4)
+      updated.comprehension.stability = Math.min(100, updated.comprehension.stability + 8)
+    } else if (interaction.score < 40) {
+      updated.comprehension.level = Math.max(0, updated.comprehension.level - 3)
+      updated.comprehension.stability = Math.max(0, updated.comprehension.stability - 5)
+    }
   }
 
   // ── Actualizar MOTIVACIÓN (cómo se siente) ──────────
@@ -958,18 +962,83 @@ function describeStudent(
 // ═══════════════════════════════════════════════════════════════
 // IS COMPLETE — guardrail final
 // ═══════════════════════════════════════════════════════════════
-export function isSessionComplete(model: StudentModel, blocksCompleted: number, maxBlocks: number = 6): boolean {
-  // Todos los micro-objetivos terminados
-  const allDone = model.microObjectives.every(mo => mo.status === 'mastered' || mo.status === 'skipped')
-  if (allDone) return true
+export function isSessionComplete(model: StudentModel, blocksCompleted: number, maxBlocks: number = 8): boolean {
+  if (blocksCompleted < 3) return false
 
-  // Hit max blocks (guardrail anti-loop)
+  // Todos los micro-objetivos cumplidos
+  const allDone = model.microObjectives.length > 0 &&
+    model.microObjectives.every(mo => mo.status === 'mastered' || mo.status === 'skipped')
+  if (allDone && blocksCompleted >= 4) return true
+
+  // Todos los conceptos ≥75% Y hay evidencia
+  const conceptScores = Object.values(model.concepts)
+  if (conceptScores.length > 0) {
+    const allMastered = conceptScores.every(s => s >= 75)
+    if (allMastered && blocksCompleted >= 4 && model.memory.masteredConcepts.length > 0) {
+      return true
+    }
+  }
+
+  // Max blocks (anti-loop)
   if (blocksCompleted >= maxBlocks) return true
 
-  // Estudiante exhausto
-  if (model.motivation.energy < 25 && blocksCompleted >= 4) return true
+  // Estudiante exhausto con evidencia
+  if (model.motivation.energy < 25 && blocksCompleted >= 5 && model.memory.masteredConcepts.length > 0) {
+    return true
+  }
 
   return false
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SAFETY NET: si el LLM no actualiza scores correctamente,
+// usar el historial directo para decidir dominio
+// ═══════════════════════════════════════════════════════════════
+export function computeDominationFromHistory(
+  model: StudentModel,
+  history: Array<{ type: string; score?: number; concept?: string; isExposure?: boolean }>,
+): StudentModel {
+  const updated: StudentModel = JSON.parse(JSON.stringify(model))
+
+  // Agrupar evidencias reales por concepto
+  const evidenceByConcept: Record<string, number[]> = {}
+  for (const h of history) {
+    if (h.isExposure) continue
+    if (typeof h.score !== 'number') continue
+    if (!h.concept) continue
+    if (!evidenceByConcept[h.concept]) evidenceByConcept[h.concept] = []
+    evidenceByConcept[h.concept].push(h.score)
+  }
+
+  // Por cada concepto del modelo, calcular score basado en evidencia
+  for (const conceptName of Object.keys(updated.concepts)) {
+    const evidences = evidenceByConcept[conceptName] || []
+    // Buscar también fuzzy match: si el concepto del history contiene palabras del modelo
+    if (evidences.length === 0) {
+      for (const [evConcept, evScores] of Object.entries(evidenceByConcept)) {
+        const a = conceptName.toLowerCase()
+        const b = evConcept.toLowerCase()
+        if (a.includes(b) || b.includes(a)) {
+          evidences.push(...evScores)
+        }
+      }
+    }
+    if (evidences.length === 0) continue
+
+    const avgScore = evidences.reduce((a, b) => a + b, 0) / evidences.length
+    const prev = updated.concepts[conceptName]
+    // Subir hacia el avgScore (suavizado)
+    const next = Math.round(prev * 0.3 + avgScore * 0.7)
+    if (next > prev) {
+      updated.concepts[conceptName] = next
+      if (next >= 75 && !updated.memory.masteredConcepts.includes(conceptName)) {
+        updated.memory.masteredConcepts.push(conceptName)
+        console.log(`[adaptiveBrain] 🎯 Concepto dominado por evidencia histórica: ${conceptName} (${next}%)`)
+      }
+    }
+  }
+
+  return updated
 }
 
 // ═══════════════════════════════════════════════════════════════
