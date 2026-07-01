@@ -31,6 +31,25 @@ export async function POST(request: NextRequest) {
       // El recallPrompt viene del explain — pregunta exacta que se usó
       const recallPrompt = body.recallPrompt || ''
 
+      // Pre-validar respuestas vacías o sin contenido
+      const msgLower = message.toLowerCase().trim()
+      const isEmptyResponse = msgLower.length < 10 ||
+        ['no sé', 'no se', 'no sé nada', 'no se nada', 'nada', 'no sé esto', 'no entiendo'].some(p => msgLower === p || msgLower.startsWith(p))
+
+      if (isEmptyResponse) {
+        return NextResponse.json({
+          success: true,
+          score: Math.floor(Math.random() * 8) + 3, // 3-10
+          failureType: 'memory',
+          correctThings: 'No hay elementos correctos que destacar en esta respuesta.',
+          wrongOrMissing: 'La respuesta no contiene información suficiente. Es necesario explicar al menos la idea central.',
+          keyExplanation: '',
+          answerToDubts: '',
+          keyIdea: '',
+          message: '',
+        })
+      }
+
       const feedbackPrompt = `Eres un profesor evaluando la respuesta de un estudiante.
 
 TEMA: "${topicTitle}"

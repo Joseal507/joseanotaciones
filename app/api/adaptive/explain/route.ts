@@ -199,8 +199,23 @@ Devuelve SOLO JSON:
       const match = String(rawText).match(/\{[\s\S]*\}/)
       if (match) try { parsed = JSON.parse(match[0]) } catch {}
     }
+    // Si el rawText empieza con { pero no parseó, intentar extraer campos manualmente
+    if (!parsed && String(rawText).includes('"content"')) {
+      const contentMatch = String(rawText).match(/"content"\s*:\s*"([\s\S]*?)"(?:\s*,|\s*\})/);
+      if (contentMatch) parsed = { content: contentMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"') }
+    }
 
     let content = parsed?.content || String(rawText).trim()
+    // Si el content es un JSON string crudo, limpiarlo
+    if (content.trim().startsWith('{') && content.includes('"content"')) {
+      try {
+        const inner = JSON.parse(content)
+        if (inner.content) {
+          content = inner.content
+          if (!parsed?.keyIdea && inner.keyIdea) parsed = { ...parsed, keyIdea: inner.keyIdea, recallPrompt: inner.recallPrompt }
+        }
+      } catch {}
+    }
     // Limpiar markdown residual
     content = content.replace(/\*\*/g, '').replace(/\*/g, '').replace(/#{1,6}\s/g, '')
     if (content.length > 0) content = content.charAt(0).toUpperCase() + content.slice(1)

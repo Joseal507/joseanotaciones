@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "simulate": "npx tsx scripts/simulate.ts"
+    "simulate": "npx tsx scripts/simulate-local.ts",
+    "regression": "npx tsx scripts/simulate-local.ts all novato"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1033.0",
