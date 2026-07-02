@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { alaiRequest } from '../../../lib/alai';
+import { alaiRequest } from '../../../../lib/alai';
 
 export async function POST(req: NextRequest) {
   try {

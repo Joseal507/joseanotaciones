@@ -85,6 +85,22 @@ export function useMultiContent(
   const [error, setError] = useState<string | undefined>();
   const fetchedRef = useRef(false);
 
+  const materialsKey = JSON.stringify(
+    (materials || []).map(m => ({
+      id: m.id,
+      materialId: m.materialId,
+      hasContenido: !!(m.contenido && m.contenido.trim().length > 0),
+      kind: m.kind || '',
+    }))
+  );
+
+  useEffect(() => {
+    fetchedRef.current = false;
+    setTexts({});
+    setError(undefined);
+    setStatus('idle');
+  }, [materialsKey]);
+
   useEffect(() => {
     if (!enabled || materials.length === 0) return;
     if (fetchedRef.current) return;

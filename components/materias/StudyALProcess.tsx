@@ -435,84 +435,82 @@ export default function StudyALProcess({
     // SIEMPRE regenerar blueprint — el viejo puede ser de otro material
     let blueprint: MaterialBlueprint | null = null;
 
-    if (materialContent && materialContent.trim().length > 100) {
-      try {
-        const materialTitle =
-          materiales?.[0]?.nombre ||
-          materiales?.[0]?.name ||
-          baseMastery?.materialName ||
-          'Material';
+    const materialTitle =
+      materiales?.[0]?.nombre ||
+      materiales?.[0]?.name ||
+      baseMastery?.materialName ||
+      'Material';
 
-        const materialId =
-          baseMastery?.materialId ||
-          materiales?.[0]?.materialId ||
-          materiales?.[0]?.id ||
-          'mat_default';
+    const materialId =
+      baseMastery?.materialId ||
+      materiales?.[0]?.materialId ||
+      materiales?.[0]?.id ||
+      'mat_default';
 
-        const loadedLearningMemory =
-          loadLearningMemory(materialId) || createEmptyLearningMemory(materialId);
-        setLearningMemory(loadedLearningMemory);
+    const loadedLearningMemory =
+      loadLearningMemory(materialId) || createEmptyLearningMemory(materialId);
+    setLearningMemory(loadedLearningMemory);
 
-        // Blueprint + programa via API (evita importar código de servidor en el cliente)
-        const genRes = await fetch('/api/adaptive/generate-program', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            materialId,
-            materialTitle,
-            materialContent,
-            mastery: baseMastery || null,
-            setup,
-            learningMemory: learningMemory || null,
-            userProfile: userProfileData || null,
-          }),
-        })
-
-        const genData = await genRes.json()
-
-        if (!genRes.ok || !genData.success) {
-          throw new Error(genData?.error || 'Error generando programa')
-        }
-
-        blueprint = genData.blueprint
-        setMaterialBlueprint(blueprint);
-        console.log('[StudyAL] Blueprint construido:', blueprint?.topics?.length, 'temas');
-      } catch (err: any) {
-        console.error('[StudyAL] Error construyendo blueprint:', err);
-        blueprint = null;
-        setIsBuildingBlueprint(false)
-        setAdaptiveProgram(null)
-        alert('ALAI está ocupado en este momento. Intenta generar tu programa de nuevo en unos segundos.')
-        return
-      }
+    if (contentStatus === 'loading' || contentStatus === 'idle') {
+      setIsBuildingBlueprint(false)
+      setAdaptiveProgram(null)
+      alert('Todavía estamos cargando el contenido del material. Espera unos segundos e inténtalo de nuevo.')
+      return
     }
 
-    // FASE 2: Programa ya generado en la API
+    if (contentStatus === 'error') {
+      setIsBuildingBlueprint(false)
+      setAdaptiveProgram(null)
+      alert('No se pudo cargar el contenido del material. Intenta abrirlo de nuevo.')
+      return
+    }
+
+    if (!materialContent || materialContent.trim().length <= 100) {
+      console.error('[StudyALProcess] materialContent vacío o insuficiente', {
+        contentStatus,
+        chars: materialContent?.length || 0,
+        materiales: (materiales || []).map((m: any) => ({
+          id: m?.id,
+          materialId: m?.materialId,
+          nombre: m?.nombre || m?.name,
+          hasContenido: !!(m?.contenido && String(m.contenido).trim().length > 0),
+        })),
+      })
+      setIsBuildingBlueprint(false)
+      setAdaptiveProgram(null)
+      alert('El contenido del material todavía no está listo. Espera un momento e inténtalo otra vez.')
+      return
+    }
+
+    // FASE 1 + 2: Blueprint y programa vía API
     let program: AdaptiveProgram
     try {
-      // El programa viene incluido en la respuesta del blueprint
-      if (!(blueprint as any)?._program) {
-        // Si no viene el programa, hacer segunda llamada
-        const progRes = await fetch('/api/adaptive/generate-program', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            materialId,
-            materialTitle,
-            materialContent,
-            mastery: baseMastery || null,
-            setup,
-            learningMemory: learningMemory || null,
-            userProfile: userProfileData || null,
-          }),
-        })
-        const progData = await progRes.json()
-        if (!progRes.ok || !progData.success) throw new Error(progData?.error || 'Error generando programa')
-        program = progData.program
-        blueprint = progData.blueprint
-        setMaterialBlueprint(blueprint)
-      } else {
-        program = (blueprint as any)._program
+      const genRes = await fetch('/api/adaptive/generate-program', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          materialId,
+          materialTitle,
+          materialContent,
+          mastery: baseMastery || null,
+          setup,
+          learningMemory: loadedLearningMemory || null,
+          userProfile: userProfileData || null,
+        }),
+      })
+
+      const genData = await genRes.json()
+
+      if (!genRes.ok || !genData.success || !genData.program) {
+        throw new Error(genData?.error || 'Error generando programa')
+      }
+
+      blueprint = genData.blueprint || null
+      program = genData.program
+
+      if (blueprint) {
+        setMaterialBlueprint(blueprint);
+        console.log('[StudyAL] Blueprint construido:', blueprint?.topics?.length, 'temas');
       }
     } catch (err: any) {
       console.error('[StudyALProcess] generateAdaptiveProgram falló:', err?.message)
@@ -774,16 +772,16 @@ export default function StudyALProcess({
       }
     }
 
-    // Calcular nuevo dominio — garantizar que siempre sube
-    // Calcular dominio nuevo — siempre debe subir al menos domainGain
-    const minNewDomain = Math.min(100, currentDomain + result.domainGain)
+    // Calcular nuevo dominio — garantizar que siempre sube o se mantiene
+    const domainBeforeSession = sessionDomainBefore || currentDomain
+    const minNewDomain = Math.min(100, domainBeforeSession + Math.max(0, result.domainGain))
     let newDomain = minNewDomain
     if (updatedMastery) {
       try {
         const nextSnapshot = calculateMasterySnapshot(updatedMastery)
-        // Tomar el mayor: snapshot calculado vs domainGain mínimo garantizado
-        newDomain = Math.max(nextSnapshot.overallMastery, minNewDomain)
-        console.log('📈 [domain] antes:', currentDomain, '| gain:', result.domainGain, '| snapshot:', nextSnapshot.overallMastery, '| final:', newDomain)
+        // NUNCA puede bajar del dominio que tenía antes de esta sesión
+        newDomain = Math.max(nextSnapshot.overallMastery, minNewDomain, domainBeforeSession)
+        console.log('📈 [domain] antes:', domainBeforeSession, '| gain:', result.domainGain, '| snapshot:', nextSnapshot.overallMastery, '| final:', newDomain)
       } catch {
         newDomain = minNewDomain
       }
@@ -1198,7 +1196,7 @@ export default function StudyALProcess({
 
         {/* Book View — solo cuando TODO está listo */}
         {adaptiveView === 'book' && (() => {
-          const materialReady = !!(materialContent && materialContent.trim().length >= 100);
+          const materialReady = contentStatus === 'ready' && !!(materialContent && materialContent.trim().length >= 100);
           const blueprintReady = !!materialBlueprint && !isBuildingBlueprint;
           const programReady = !!(adaptiveProgram && adaptiveProgram.sessions && adaptiveProgram.sessions.length > 0);
           const fullyReady = materialReady && blueprintReady && programReady;
