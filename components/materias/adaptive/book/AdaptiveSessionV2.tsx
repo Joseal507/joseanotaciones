@@ -935,14 +935,19 @@ export default function AdaptiveSessionV2({
     setFinalizing(true)
     setShowCelebration(true)
 
-    // Fórmula mejorada: domainGain basado en avgScore con piso mínimo
-    // Una sesión completada siempre debe subir al menos algo
+    // Fórmula honesta: domainGain refleja lo que realmente aprendió el estudiante
+    // Si score < 40: dominio no sube → sistema genera sesión de repair
+    // Si score 40-60: sube poco → necesita refuerzo
+    // Si score 60-80: sube normal
+    // Si score > 80: sube más → sesión excelente
     const baseGain = session.expectedDomainGain || 15
-    const scoreMultiplier = avgScore >= 80 ? 1.2 : avgScore >= 60 ? 1.0 : avgScore >= 40 ? 0.7 : 0.4
-    const domainGain = Math.max(
-      Math.round(avgScore >= 50 ? 8 : 4),  // piso mínimo por completar
-      Math.round((avgScore / 100) * baseGain * scoreMultiplier)
-    )
+    const scoreMultiplier = avgScore >= 80 ? 1.2 : avgScore >= 60 ? 1.0 : avgScore >= 40 ? 0.6 : 0.0
+    const domainGain = avgScore < 40
+      ? 0  // No aprendió — repair session se activa en updater
+      : Math.max(
+          Math.round(avgScore >= 60 ? 6 : 3),  // piso mínimo solo si aprendió algo
+          Math.round((avgScore / 100) * baseGain * scoreMultiplier)
+        )
 
     const finalMemory = { ...sessionMemoryRef.current, completedAt: Date.now() }
     saveSessionMemory(finalMemory)

@@ -1,3 +1,4 @@
+import { alaiRequest } from '../alai'
 // ═══════════════════════════════════════════════════════════════
 // StudyAL — Blueprint Builder
 // Llama al análisis de ALAI para extraer temas reales del material
@@ -35,36 +36,22 @@ function splitIntoChunks(text: string, chunkSize = 4500): string[] {
 // ── Wrapper que llama a /api/analizar-teorico (funciona desde cliente) ──
 async function safeAlaiJson(prompt: string, _maxTokens = 5000): Promise<any> {
   try {
-    const res = await fetch('/api/analizar-teorico', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        mode: 'blueprint_analysis',
-        blueprintPrompt: prompt,
-        materialTitle: 'blueprint',
-        maxLength: 'medium',
-        contenido: '',
-      }),
+    const rawText = await alaiRequest(async (client: any, model: (m?: string) => string) => {
+      const res = await client.chat.completions.create({
+        model: model('llama-3.3-70b-versatile'),
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        max_tokens: _maxTokens,
+      })
+      return res.choices?.[0]?.message?.content || ''
     })
 
-    if (!res.ok) {
-      console.warn('⚠️ blueprint API falló:', res.status)
-      return null
-    }
-
-    const data = await res.json()
-    const rawText = data.blueprint || data.blueprintRaw || data.analysis || data.content || ''
-
-    // Parsear JSON del texto
-    let parsed = null
-    try { parsed = JSON.parse(rawText.trim()) } catch {}
+    let parsed: any = null
+    try { parsed = JSON.parse(String(rawText).trim()) } catch {}
     if (!parsed) {
-      const match = rawText.match(/\{[\s\S]*\}/)
-      if (match) {
-        try { parsed = JSON.parse(match[0]) } catch {}
-      }
+      const match = String(rawText).match(/\{[\s\S]*\}/)
+      if (match) try { parsed = JSON.parse(match[0]) } catch {}
     }
-
     return parsed
   } catch (err: any) {
     console.warn('⚠️ blueprint safeAlaiJson falló:', err?.message)
@@ -730,7 +717,9 @@ INSTRUCCIONES:
 6. Si un concepto es grande o complejo, merece su propio topic
 7. Los conceptos vienen de la lista de "Conceptos extraídos"
 8. Prioriza GRANULARIDAD sobre agrupación — es mejor tener 8 topics específicos que 4 genéricos
-9. Para cada topic, identifica:
+9. Para cada topic incluye "commonMistakes": lista de 1-2 errores conceptuales típicos que cometen los estudiantes
+   Ejemplo: ["Confunden enlace fosfodiéster con puentes de hidrógeno", "No entienden la antiparalelidad"]
+10. Para cada topic, identifica:
    a) "primaryKnowledgeType": el tipo DOMINANTE del topic
    b) "knowledgeTypes": TODOS los tipos que aplican (puede ser mixto, ej: ["conceptual","mathematical","causal"])
    c) Para CADA concepto dentro del topic, identifica su "knowledgeType" específico y su "learningGoal"
@@ -767,6 +756,7 @@ Devuelve SOLO JSON válido:
       "estimatedMinutes": 15,
       "primaryKnowledgeType": "conceptual",
       "knowledgeTypes": ["conceptual", "mathematical"],
+      "commonMistakes": ["error conceptual típico 1", "error típico 2"],
       "concepts": [
         {
           "name": "Nombre del concepto",

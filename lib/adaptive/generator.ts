@@ -1,3 +1,4 @@
+import { alaiRequest } from '../alai'
 // ═══════════════════════════════════════════════════════════════
 // StudyAL — Generador de Programa Adaptativo v2
 // Ahora usa MaterialBlueprint para crear sesiones con temas reales.
@@ -734,24 +735,17 @@ export async function generateAdaptiveProgram(
     console.log(`[Generator] Pidiendo a ALAI diseñar programa | ${blueprint.topics.length} topics | sessionLength: ${setup.sessionLength || 'medium'}`)
 
     try {
-      const res = await fetch('/api/adaptive/plan-program', {
+      // Importar la route directamente para evitar fetch HTTP
+      const routePath = require('path').resolve(process.cwd(), 'app/api/adaptive/plan-program/route')
+      const { POST: planProgramPOST } = await import(routePath)
+      const req = new Request('http://local/plan-program', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          blueprint,
-          setup,
-          userProfile,
-          mastery,
-          learningMemory,
-        }),
+        body: JSON.stringify({ blueprint, setup, userProfile, mastery, learningMemory }),
       })
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err?.error || `plan-program falló: ${res.status}`)
-      }
-
+      const res = await planProgramPOST(req as any)
       const data = await res.json()
+
       if (!data.success || !Array.isArray(data.sessions) || data.sessions.length === 0) {
         throw new Error(data?.error || 'ALAI no devolvió sesiones')
       }

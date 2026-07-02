@@ -175,29 +175,86 @@ REGLAS ABSOLUTAS:
 - Cada oración debe enseñar algo NUEVO — nunca repetir lo que ya se explicó
 - Si ya se explicó este concepto antes, dar un ángulo diferente: otra analogía, otro ejemplo, otra consecuencia
 
-Devuelve SOLO JSON:
-{
-  "content": "La explicación completa en texto plano sin markdown",
-  "keyIdea": "La frase ancla (solo la frase, sin el prefijo Para recordar:)",
-  "conceptCovered": "${focusConcept}",
-  "recallPrompt": "Pregunta específica que verifique comprensión real — no trivia, sino entendimiento"
-}`
+FORMATO DE RESPUESTA (sigue este formato exacto, sin JSON, sin markdown):
+
+EXPLICACION: [escribe aquí la explicación completa en texto plano]
+KEYIDEA: [una frase de máximo 12 palabras que resuma lo más importante]
+RECALL: [una pregunta concreta que verifique comprensión real]`
 
     const rawText = await alaiRequest(async (client: any, model: (m?: string) => string) => {
       const res = await client.chat.completions.create({
         model: model('llama-3.3-70b-versatile'),
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.4,
-        max_tokens: 1200,
+        max_tokens: 2000,
       })
       return res.choices?.[0]?.message?.content || ''
     })
 
+    const rawStr = String(rawText).trim()
     let parsed: any = null
-    try { parsed = JSON.parse(String(rawText).trim()) } catch {}
+
+    // ESTRATEGIA 1: JSON válido (groq)
+    try { parsed = JSON.parse(rawStr) } catch {}
     if (!parsed) {
-      const match = String(rawText).match(/\{[\s\S]*\}/)
+      const match = rawStr.match(/\{[\s\S]*?\}/)
       if (match) try { parsed = JSON.parse(match[0]) } catch {}
+    }
+
+    // ESTRATEGIA 2: Formato EXPLICACION/KEYIDEA/RECALL (texto plano)
+    if (!parsed || !parsed.content) {
+      const expMatch = rawStr.match(/EXPLICACION:\s*([\s\S]*?)(?=KEYIDEA:|$)/i)
+      const keyMatch = rawStr.match(/KEYIDEA:\s*([^\n]+)/i)
+      const recMatch = rawStr.match(/RECALL:\s*([^\n]+)/i)
+      if (expMatch?.[1]?.trim()) {
+        parsed = {
+          content: expMatch[1].trim(),
+          keyIdea: (keyMatch?.[1] || '').trim(),
+          recallPrompt: (recMatch?.[1] || '').trim(),
+          conceptCovered: focusConcept,
+        }
+      }
+    }
+
+    // ESTRATEGIA 3: Formato con === marcadores ===
+    if (!parsed || !parsed.content) {
+      const expMatch = rawStr.match(/===EXPLICACION===([\s\S]*?)(?:===|$)/i)
+      const keyMatch = rawStr.match(/===KEYIDEA===([\s\S]*?)(?:===|$)/i)
+      const recMatch = rawStr.match(/===RECALL===([\s\S]*?)(?:===|$)/i)
+      if (expMatch?.[1]?.trim()) {
+        parsed = {
+          content: expMatch[1].trim(),
+          keyIdea: (keyMatch?.[1] || '').trim(),
+          recallPrompt: (recMatch?.[1] || '').trim(),
+          conceptCovered: focusConcept,
+        }
+      }
+    }
+
+    // ESTRATEGIA 4: texto plano directo (cualquier modelo)
+    if (!parsed || !parsed.content) {
+      parsed = { content: rawStr, keyIdea: '', recallPrompt: '', conceptCovered: focusConcept }
+    }
+
+    // POST-PROCESAMIENTO: extraer keyIdea y recallPrompt del content si faltan
+    if (parsed && parsed.content) {
+      // JSON anidado dentro de content
+      if (parsed.content.trim().startsWith('{')) {
+        try {
+          const inner = JSON.parse(parsed.content)
+          if (inner.content) parsed = { ...parsed, ...inner }
+        } catch {}
+      }
+      // "Para recordar:" en el texto
+      if (!parsed.keyIdea) {
+        const m = parsed.content.match(/Para recordar[:\s]+(.+?)(?:\n|$)/i)
+        if (m) { parsed.keyIdea = m[1].trim(); parsed.content = parsed.content.replace(m[0], '').trim() }
+      }
+      // Primera pregunta como recallPrompt
+      if (!parsed.recallPrompt) {
+        const m = parsed.content.match(/¿[^?]+\?/)
+        if (m) parsed.recallPrompt = m[0].trim()
+      }
     }
     // Si el rawText empieza con { pero no parseó, intentar extraer campos manualmente
     if (!parsed && String(rawText).includes('"content"')) {
