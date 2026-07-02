@@ -30,10 +30,40 @@ type ActivityType =
   | 'quiz'              // Quiz (cualquier tipo)
   | 'flashcards'        // Ver flashcards
   | 'flashcard_repaso'  // Repaso espaciado de flashcards
-  | 'recall'            // Recall activo
+  | 'recall'            // Recall activo (legacy)
+  | 'active_recall'     // Recall activo (nuevo)
   | 'reflection'        // Reflexión metacognitiva
   | 'reflection_chat'   // Chat post-reflexión
   | 'practice'          // Práctica opcional al final
+  | 'context'           // Contexto previo
+  | 'analogy'           // Analogía
+  | 'worked_example'    // Ejemplo trabajado
+  | 'step_by_step'      // Paso a paso
+  | 'guided_practice'   // Práctica guiada
+  | 'micro_quiz'        // Mini quiz
+  | 'comparison'        // Comparación
+  | 'cause_effect'      // Causa y efecto
+  | 'position_a'        // Posición A
+  | 'position_b'        // Posición B
+  | 'identify'          // Identificación
+  | 'case_study'        // Caso de estudio
+  | 'actors'            // Actores
+  | 'harder_problem'    // Problema difícil
+  | 'micro_flashcards'  // Micro flashcards
+  | 'metacognition'     // Metacognición
+  | 'repair'            // Reparación
+  | 'coach_feedback'    // Feedback del coach
+  | 'mini_exam'         // Mini examen
+
+type KnowledgeType =
+  | 'conceptual' | 'procedural' | 'mathematical' | 'medical'
+  | 'legal' | 'historical' | 'narrative' | 'classification'
+  | 'memorization' | 'causal' | 'argumentative' | 'memoristic' | 'visual'
+
+type LearningGoal =
+  | 'explain_concept' | 'apply_to_case' | 'solve_problem'
+  | 'memorize_facts' | 'compare_contrast' | 'argue_position'
+  | 'identify_pattern' | 'simulate_exam'
 
 interface SessionStep {
   id: string
@@ -46,6 +76,9 @@ interface SessionStep {
   count?: number
   isOptional?: boolean
   isFallback?: boolean
+  actType?: ActivityType
+  knowledgeType?: KnowledgeType
+  learningGoal?: LearningGoal
 }
 
 export default function AdaptiveSessionV2({
@@ -223,7 +256,7 @@ export default function AdaptiveSessionV2({
       } else if (RECALL_TYPES.has(step.type)) {
         plan.push({
           id: step.id || genId(),
-          type: 'recall',
+          type: 'active_recall',
           concept,
           concepts: step.conceptsTargeted,
           instruction: step.instruction,
@@ -374,9 +407,9 @@ export default function AdaptiveSessionV2({
           body: JSON.stringify({
             ...payload,
             mode: (step as any).mode || 'explain',
-            actType: (step as any).actType || 'explain',
-            knowledgeType: (step as any).knowledgeType || 'conceptual',
-            learningGoal: (step as any).learningGoal || 'explain_concept',
+            actType: step.actType || 'explain',
+            knowledgeType: step.knowledgeType || 'conceptual',
+            learningGoal: step.learningGoal || 'explain_concept',
             alreadyExplained: explainedConceptsRef.current,
             lastExplanation: lastExplanationRef.current.slice(0, 1000),
             // Pasar failureType para que ALAI adapte la explicación
@@ -408,9 +441,9 @@ export default function AdaptiveSessionV2({
             questionTypes: step.questionTypes,
             count: step.count || 2,
             previousTypes: previousQuizTypesRef.current,
-            actType: (step as any).actType || 'micro_quiz',
-            knowledgeType: (step as any).knowledgeType || 'conceptual',
-            learningGoal: (step as any).learningGoal || 'explain_concept',
+            actType: step.actType || 'micro_quiz',
+            knowledgeType: step.knowledgeType || 'conceptual',
+            learningGoal: step.learningGoal || 'explain_concept',
           }),
         })
         if (!res.ok) throw new Error('quiz failed')
@@ -432,7 +465,7 @@ export default function AdaptiveSessionV2({
           setRepasoCards(cards)
         }
 
-      } else if (step.type === 'recall') {
+      } else if (step.type === 'active_recall') {
         const res = await fetch('/api/adaptive/explain', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -481,14 +514,14 @@ export default function AdaptiveSessionV2({
       if (currentStepData?.concept) {
         const actType = currentStepData.type === 'quiz' ? 'quiz'
           : currentStepData.type === 'flashcards' ? 'flashcard'
-          : currentStepData.type === 'recall' ? 'recall' : 'explain'
+          : currentStepData.type === 'active_recall' ? 'recall' : 'explain'
         sessionMemoryRef.current = updateConceptState(sessionMemoryRef.current, currentStepData.concept, {
           activityType: actType as any, score,
         })
       }
 
       // Si falló quiz/recall → insertar reexplicación
-      if (score < 50 && (currentStepData?.type === 'quiz' || currentStepData?.type === 'recall')) {
+      if (score < 50 && (currentStepData?.type === 'quiz' || currentStepData?.type === 'active_recall')) {
         const concept = currentStepData.concept || ''
         const fails = (failCount[concept] || 0) + 1
         setFailCount(prev => ({ ...prev, [concept]: fails }))
@@ -626,7 +659,7 @@ export default function AdaptiveSessionV2({
           ...serializeAdaptiveContext(adaptiveCtx),
           message: recallText,
           concept: currentStep?.concept,
-          stepType: 'recall',
+          stepType: 'active_recall',
           evaluateWithFeedback: true,
           recallPrompt: lastRecallPromptRef.current || currentContent?.recallPrompt || '',
           lastExplanation: lastExplanationRef.current.slice(0, 2000),
@@ -890,9 +923,9 @@ export default function AdaptiveSessionV2({
       if (!conceptEvidenceMap[h.concept]) {
         conceptEvidenceMap[h.concept] = { scores: [], hasApplication: false }
       }
-      if (h.type === 'quiz' || h.type === 'recall' || h.type === 'active_recall') {
+      if (h.type === 'quiz' || h.type === 'active_recall' || h.type === 'active_recall') {
         conceptEvidenceMap[h.concept].scores.push(h.score || 0)
-        if (h.type === 'recall' || h.type === 'active_recall') {
+        if (h.type === 'active_recall' || h.type === 'active_recall') {
           conceptEvidenceMap[h.concept].hasApplication = true
         }
       }
@@ -1182,7 +1215,7 @@ export default function AdaptiveSessionV2({
             )}
 
             {/* ── RECALL ───────────────────────────────────────── */}
-            {!loading && currentStep?.type === 'recall' && (
+            {!loading && currentStep?.type === 'active_recall' && (
               <RecallBlock
                 instruction={currentContent?.recallPrompt || currentStep.instruction || `Explica "${currentStep.concept}" con tus palabras.`}
                 concept={currentStep.concept}

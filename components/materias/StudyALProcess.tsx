@@ -682,7 +682,6 @@ export default function StudyALProcess({
           inferredType === 'micro_quiz' || 
           inferredType === 'mini_exam' ||
           inferredType === 'active_recall' ||
-          inferredType === 'recall' ||
           (inferredType === 'explain' && score >= 80) // explain con score alto = recall implícito
         )
 
@@ -691,7 +690,7 @@ export default function StudyALProcess({
         const tool = engineToTool[inferredEngine] || 'alai'
         // Recall activo vale más que quiz — demuestra comprensión real
         const scoreMultiplier = isEvidenceStep
-          ? (inferredType === 'active_recall' || inferredType === 'recall' ? 1.2 : 1.0)
+          ? (inferredType === 'active_recall' ? 1.2 : 1.0)
           : 0.1
         const adjustedScore = Math.min(100, Math.round(score * scoreMultiplier))
         if (adjustedScore < 8) continue

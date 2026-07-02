@@ -226,6 +226,77 @@ function uid(): string {
   return Math.random().toString(36).slice(2, 10)
 }
 
+type BlueprintKnowledgeType =
+  | 'conceptual'
+  | 'narrative'
+  | 'procedural'
+  | 'memoristic'
+  | 'mathematical'
+  | 'argumentative'
+  | 'causal'
+  | 'visual'
+
+function inferKnowledgeProfile(params: {
+  title?: string
+  description?: string
+  concepts?: Array<{ name?: string; definition?: string }>
+}): {
+  primaryKnowledgeType: BlueprintKnowledgeType
+  knowledgeTypes: BlueprintKnowledgeType[]
+} {
+  const text = [
+    params.title || '',
+    params.description || '',
+    ...(params.concepts || []).flatMap(c => [c?.name || '', c?.definition || ''])
+  ].join(' ').toLowerCase()
+
+  const detected = new Set<BlueprintKnowledgeType>()
+  const has = (arr: string[]) => arr.some(x => text.includes(x))
+
+  if (has(['calcular', 'cálculo', 'formula', 'fórmula', 'ecuación', 'ka', 'kb', 'kw', 'ph', 'poh', 'ice', 'log', 'concentración'])) {
+    detected.add('mathematical')
+  }
+  if (has(['paso', 'procedimiento', 'método', 'metodo', 'resolver', 'tabla ice', 'cómo', 'como'])) {
+    detected.add('procedural')
+  }
+  if (has(['causa', 'efecto', 'porque', 'por qué', 'provoca', 'genera', 'desplaza', 'equilibrio'])) {
+    detected.add('causal')
+  }
+  if (has(['historia', 'año', 'página', 'pagina', 'autor'])) {
+    detected.add('narrative')
+  }
+  if (has(['clasifica', 'tipo', 'tipos', 'diferencia', 'categoría', 'categoria', 'definición', 'definicion'])) {
+    detected.add('conceptual')
+  }
+  if (has(['recordar', 'memoria', 'memoriza'])) {
+    detected.add('memoristic')
+  }
+  if (has(['diagrama', 'mapa', 'visual', 'esquema', 'gráfica', 'grafica'])) {
+    detected.add('visual')
+  }
+  if (has(['argumenta', 'justifica', 'demuestra', 'defiende'])) {
+    detected.add('argumentative')
+  }
+
+  if (detected.size === 0) detected.add('conceptual')
+
+  const knowledgeTypes = Array.from(detected)
+  const priority: BlueprintKnowledgeType[] = [
+    'mathematical',
+    'procedural',
+    'causal',
+    'argumentative',
+    'conceptual',
+    'memoristic',
+    'narrative',
+    'visual',
+  ]
+  const primaryKnowledgeType =
+    priority.find(k => detected.has(k)) || 'conceptual'
+
+  return { primaryKnowledgeType, knowledgeTypes }
+}
+
 export function fallbackBlueprintFromText(
   materialContent: string,
   materialId: string,
@@ -279,6 +350,10 @@ export function fallbackBlueprintFromText(
       : `Parte ${i + 1} del material`
 
     const topicId = uid()
+    const kProfile = inferKnowledgeProfile({
+      title: topicTitle,
+      description: chunk.slice(0, 200),
+    })
 
     // Conceptos básicos desde keywords del chunk
     const chunkWords = chunk.toLowerCase().split(/\s+/)
@@ -319,6 +394,8 @@ export function fallbackBlueprintFromText(
       difficulty: 50,
       importance: i === 0 ? 80 : 60,
       estimatedMinutes: 15,
+      primaryKnowledgeType: kProfile.primaryKnowledgeType,
+      knowledgeTypes: kProfile.knowledgeTypes,
       practiceNeeds: ['understand', 'memorize'],
       evidenceRequirement: {
         minCorrectAnswers: 3,
@@ -492,7 +569,13 @@ export function buildMaterialBlueprint(params: BlueprintBuildParams): MaterialBl
       }
     }
 
-    const topic: MaterialTopic = {
+      const knowledgeProfile = inferKnowledgeProfile({
+        title: raw.title?.trim(),
+        description: raw.description || `Tema ${i + 1} del material`,
+        concepts,
+      })
+
+      const topic: MaterialTopic = {
       id: topicId,
       title: raw.title.trim(),
       subtitle: raw.subtitle,
@@ -503,6 +586,8 @@ export function buildMaterialBlueprint(params: BlueprintBuildParams): MaterialBl
       difficulty: raw.difficulty ?? avgDifficulty,
       importance: raw.importance ?? (i === 0 ? 90 : Math.max(40, 80 - i * 10)),
       estimatedMinutes: raw.estimatedMinutes ?? Math.max(10, concepts.length * 4),
+      primaryKnowledgeType: knowledgeProfile.primaryKnowledgeType,
+      knowledgeTypes: knowledgeProfile.knowledgeTypes,
       practiceNeeds,
       prerequisites: raw.prerequisites,
       commonMistakes: raw.commonMistakes,
