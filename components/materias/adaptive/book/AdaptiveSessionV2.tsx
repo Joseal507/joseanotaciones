@@ -223,18 +223,24 @@ export default function AdaptiveSessionV2({
         }
 
       } else if (QUIZ_TYPES.has(step.type)) {
-        // Pasar el actType al quiz para que sepa qué tipo de pregunta generar
-        plan.push({
-          id: step.id || genId(),
-          type: 'quiz',
-          concept,
-          concepts: step.conceptsTargeted,
-          instruction: step.instruction,
-          count: step.type === 'mini_exam' ? 5 : 2,
-          actType: step.type,
-          knowledgeType: meta.knowledgeType,
-          learningGoal: meta.learningGoal,
-        })
+        // Deduplicar: no agregar quiz del mismo concepto si ya hay uno reciente (últimos 3 pasos)
+        const recentSteps = plan.slice(-3)
+        const recentQuizSameConcept = recentSteps.some(
+          p => p.type === 'quiz' && p.concept === concept && p.actType === step.type
+        )
+        if (!recentQuizSameConcept) {
+          plan.push({
+            id: step.id || genId(),
+            type: 'quiz',
+            concept,
+            concepts: step.conceptsTargeted,
+            instruction: step.instruction,
+            count: step.type === 'mini_exam' ? 5 : 2,
+            actType: step.type,
+            knowledgeType: meta.knowledgeType,
+            learningGoal: meta.learningGoal,
+          })
+        }
 
       } else if (FLASH_TYPES.has(step.type)) {
         plan.push({
@@ -758,10 +764,22 @@ export default function AdaptiveSessionV2({
         } catch {}
       }
       const cleanStr = (s: any) => String(s || '').replace(/\*\*/g, '').replace(/\*/g, '').replace(/#{1,6}\s/g, '')
+      // Limpiar JSON crudo si viene embebido en el texto
+      const cleanJson = (s: any) => {
+        const str = cleanStr(s)
+        // Si parece JSON, intentar parsear y extraer solo el texto relevante
+        if (str.startsWith('{') || str.includes('"score"')) {
+          try {
+            const parsed = JSON.parse(str)
+            return parsed.keyExplanation || parsed.wrongOrMissing || parsed.correctThings || str
+          } catch {}
+        }
+        return str
+      }
       setReflectionFeedback({
         score: Number(feedback.score) || 60,
         correctThings: cleanStr(feedback.correctThings),
-        wrongOrMissing: cleanStr(feedback.wrongOrMissing),
+        wrongOrMissing: cleanJson(feedback.wrongOrMissing),
         keyExplanation: cleanStr(feedback.keyExplanation),
         answerToDubts: cleanStr(feedback.answerToDubts),
         keyIdea: cleanStr(feedback.keyIdea),
