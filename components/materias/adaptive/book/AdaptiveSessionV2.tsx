@@ -526,19 +526,25 @@ export default function AdaptiveSessionV2({
         })
       }
 
-      // Si falló quiz/recall → insertar reexplicación
+      // Si falló quiz/recall → decidir si hace falta repair real
       if (score < 50 && (currentStepData?.type === 'quiz' || currentStepData?.type === 'active_recall')) {
         const concept = currentStepData.concept || ''
         const fails = (failCount[concept] || 0) + 1
         setFailCount(prev => ({ ...prev, [concept]: fails }))
 
-        if (fails <= 1) {
-          // Insertar reexplicación + nuevo quiz
+        const failedRecall = currentStepData?.type === 'active_recall'
+        const needsRepair = failedRecall || fails >= 2
+
+        if (needsRepair) {
+          // Insertar reexplicación + quiz simple SOLO cuando hay bloqueo real
           const reexplainStep: SessionStep = {
             id: 'reex_' + genId(), type: 'explain',
             concept, concepts: currentStepData.concepts,
-            instruction: `Volvamos a "${concept}" desde un ángulo diferente — esta vez con un ejemplo distinto.`,
+            instruction: `Volvamos a "${concept}" desde otro ángulo. Esta vez lo veremos más simple y con un ejemplo concreto.`,
             mode: 'repair',
+            actType: 'explain',
+            knowledgeType: currentStepData.knowledgeType,
+            learningGoal: currentStepData.learningGoal,
           }
           const reQuizStep: SessionStep = {
             id: 'req_' + genId(), type: 'quiz',
