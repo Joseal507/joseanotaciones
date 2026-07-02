@@ -65,9 +65,9 @@ function generateStudentResponse(
   }
   // Novato: respuesta básica que mejora con cada sesión
   if (sessionScore >= 40) {
-    return `${concept} ${sentences[0] || 'es un concepto importante'}.`
+    return `${concept} es ${sentences[0] || 'un concepto importante'}. ${sentences[1] || ''}`
   }
-  return `Creo que ${concept} tiene que ver con ${sentences[0]?.slice(0, 50) || 'este tema'}.`
+  return `Creo que ${concept} tiene que ver con ${sentences[0]?.slice(0, 80) || 'este tema'}. No estoy seguro de todos los detalles.`
 }
 
 // ── Simula una sesión completa ────────────────────────────────────

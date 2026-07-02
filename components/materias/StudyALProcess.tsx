@@ -11,8 +11,7 @@ import {
 } from "../../lib/masteryEngine";
 import type { MaterialMastery, ToolId } from "../../lib/masteryEngine";
 import {
-  generateAdaptiveProgram,
-  fetchAndBuildBlueprint,
+  // generateAdaptiveProgram y fetchAndBuildBlueprint movidos a API route
   enrichStrategyWhyWithTopics,
   loadLearningMemory,
   saveLearningMemory,
@@ -454,35 +453,71 @@ export default function StudyALProcess({
           loadLearningMemory(materialId) || createEmptyLearningMemory(materialId);
         setLearningMemory(loadedLearningMemory);
 
-        blueprint = await fetchAndBuildBlueprint({
-          materialId,
-          materialTitle,
-          materialContent,
-        });
+        // Blueprint + programa via API (evita importar código de servidor en el cliente)
+        const genRes = await fetch('/api/adaptive/generate-program', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            materialId,
+            materialTitle,
+            materialContent,
+            mastery: baseMastery || null,
+            setup,
+            learningMemory: learningMemory || null,
+            userProfile: userProfileData || null,
+          }),
+        })
 
+        const genData = await genRes.json()
+
+        if (!genRes.ok || !genData.success) {
+          throw new Error(genData?.error || 'Error generando programa')
+        }
+
+        blueprint = genData.blueprint
         setMaterialBlueprint(blueprint);
-        console.log('[StudyAL] Blueprint construido:', blueprint.topics.length, 'temas');
-      } catch (err) {
+        console.log('[StudyAL] Blueprint construido:', blueprint?.topics?.length, 'temas');
+      } catch (err: any) {
         console.error('[StudyAL] Error construyendo blueprint:', err);
         blueprint = null;
+        setIsBuildingBlueprint(false)
+        setAdaptiveProgram(null)
+        alert('ALAI está ocupado en este momento. Intenta generar tu programa de nuevo en unos segundos.')
+        return
       }
     }
 
-    // FASE 2: Generar programa (ahora async: ALAI diseña la estructura)
+    // FASE 2: Programa ya generado en la API
     let program: AdaptiveProgram
     try {
-      program = await generateAdaptiveProgram(
-        baseMastery || null,
-        setup,
-        blueprint,
-        learningMemory || null,
-        userProfileData || null,
-      );
+      // El programa viene incluido en la respuesta del blueprint
+      if (!(blueprint as any)?._program) {
+        // Si no viene el programa, hacer segunda llamada
+        const progRes = await fetch('/api/adaptive/generate-program', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            materialId,
+            materialTitle,
+            materialContent,
+            mastery: baseMastery || null,
+            setup,
+            learningMemory: learningMemory || null,
+            userProfile: userProfileData || null,
+          }),
+        })
+        const progData = await progRes.json()
+        if (!progRes.ok || !progData.success) throw new Error(progData?.error || 'Error generando programa')
+        program = progData.program
+        blueprint = progData.blueprint
+        setMaterialBlueprint(blueprint)
+      } else {
+        program = (blueprint as any)._program
+      }
     } catch (err: any) {
       console.error('[StudyALProcess] generateAdaptiveProgram falló:', err?.message)
       setIsBuildingBlueprint(false)
       setAdaptiveProgram(null)
-      // Mostrar error visible al usuario
       alert('ALAI está ocupado en este momento. Intenta generar tu programa de nuevo en unos segundos.')
       return
     }
@@ -858,13 +893,33 @@ export default function StudyALProcess({
       saveAdaptiveProgram(updatedProgram);
     }
 
-    setAdaptiveView(processStyle === 'book' ? 'book' : 'complete');
+    // ── Verificar si ya dominó el material completo ──────────
+    const allSessionsDone = updatedProgram.sessions.every(
+      s => s.status === 'completed' || s.status === 'skipped'
+    )
+    const domainReachedTarget = newDomain >= (targetScore || 80)
+    const remainingSessions = updatedProgram.sessions.filter(
+      s => s.status !== 'completed' && s.status !== 'skipped'
+    ).length
+
+    if (allSessionsDone || (domainReachedTarget && remainingSessions === 0)) {
+      // Material dominado — ir a pantalla de dominio completo
+      setAdaptiveView('complete')
+    } else if (domainReachedTarget && remainingSessions > 0) {
+      // Llegó al target pero quedan sesiones — mostrar opción de continuar o terminar
+      console.log(`✅ [dominio] Target ${targetScore} alcanzado con ${remainingSessions} sesiones restantes`)
+      setAdaptiveView(processStyle === 'book' ? 'book' : 'complete')
+    } else {
+      // Sigue aprendiendo — continuar flujo normal
+      setAdaptiveView(processStyle === 'book' ? 'book' : 'complete')
+    }
   }, [
     adaptiveProgram,
     currentDomain,
     localMasteryState,
     masteryState,
     masteryContext,
+    targetScore,
     persistMasteryState,
     saveAdaptiveProgram,
   ]);

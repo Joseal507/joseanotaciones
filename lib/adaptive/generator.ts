@@ -736,8 +736,7 @@ export async function generateAdaptiveProgram(
 
     try {
       // Importar la route directamente para evitar fetch HTTP
-      const routePath = require('path').resolve(process.cwd(), 'app/api/adaptive/plan-program/route')
-      const { POST: planProgramPOST } = await import(routePath)
+      const { POST: planProgramPOST } = await import('../../app/api/adaptive/plan-program/route')
       const req = new Request('http://local/plan-program', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

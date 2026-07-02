@@ -50,12 +50,25 @@ export async function POST(request: NextRequest) {
         })
       }
 
+      // Calibrar expectativas según nivel del estudiante
+      const masteryLevel = overallMastery < 20 ? 'NIVEL CERO (primera vez viendo esto)' :
+        overallMastery < 40 ? 'NIVEL BÁSICO (conocimiento inicial)' :
+        overallMastery < 60 ? 'NIVEL INTERMEDIO (en desarrollo)' :
+        overallMastery < 80 ? 'NIVEL AVANZADO (buen dominio)' : 'NIVEL EXPERTO'
+
       const feedbackPrompt = `Eres un profesor evaluando la respuesta de un estudiante.
 
 TEMA: "${topicTitle}"
 CONCEPTO EVALUADO: "${concept}"
+NIVEL DEL ESTUDIANTE: ${masteryLevel} (dominio actual: ${overallMastery}/100)
 ${recallPrompt ? `PREGUNTA QUE SE LE HIZO: "${recallPrompt}"` : ''}
 TIPO DE ACTIVIDAD: ${stepType}
+
+CALIBRACIÓN SEGÚN NIVEL:
+- NIVEL CERO: si explica la idea central con sus palabras = mínimo 60 puntos. No exijas conexiones entre conceptos.
+- NIVEL BÁSICO: si explica + da un ejemplo = mínimo 65 puntos.
+- NIVEL INTERMEDIO: si conecta 2 ideas = mínimo 70 puntos.
+- NIVEL AVANZADO/EXPERTO: exige conexiones, aplicaciones y matices.
 
 MATERIAL DE REFERENCIA:
 ${materialSlice.slice(0, 4000)}
