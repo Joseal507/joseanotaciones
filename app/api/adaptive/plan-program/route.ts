@@ -217,7 +217,23 @@ ${topicsSummary}
     }
 
     if (!parsed?.sessions?.length) {
-      return NextResponse.json({ success: false, error: 'ALAI no devolvió un programa válido' }, { status: 503 })
+      const raw = String(rawText || '').slice(0, 800)
+      console.error('[plan-program] FALLO — rawText:', raw)
+      console.error('[plan-program] FALLO — parsed:', JSON.stringify(parsed)?.slice(0, 300))
+      // Intentar extraer array de sessions si viene en formato diferente
+      const arrMatch = raw.match(/\[\s*\{[\s\S]*\}\s*\]/)
+      if (arrMatch) {
+        try {
+          const sessions = JSON.parse(arrMatch[0])
+          if (Array.isArray(sessions) && sessions.length > 0) {
+            parsed = { sessions }
+            console.log('[plan-program] ✅ sessions extraídas del array directo')
+          }
+        } catch {}
+      }
+      if (!parsed?.sessions?.length) {
+        return NextResponse.json({ success: false, error: 'ALAI no devolvió un programa válido' }, { status: 503 })
+      }
     }
 
     const sessions = parsed.sessions.map((s: any, i: number) => ({
