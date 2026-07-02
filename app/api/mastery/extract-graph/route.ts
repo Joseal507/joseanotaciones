@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Groq from 'groq-sdk';
-
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+import { alaiRequest } from '../../../lib/alai';
 
 export async function POST(req: NextRequest) {
   try {
@@ -47,14 +45,17 @@ RESPONDE SOLO con JSON válido:
   ]
 }`;
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.2,
-      max_tokens: 2000,
+    const text = await alaiRequest(async (client: any, modelFn: (m?: string) => string) => {
+      const res = await client.chat.completions.create({
+        model: modelFn('llama-3.3-70b-versatile'),
+        messages: [
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.2,
+        max_tokens: 4000,
+      });
+      return res.choices[0]?.message?.content || '';
     });
-
-    const text = completion.choices[0]?.message?.content || '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
 
     if (!jsonMatch) {
