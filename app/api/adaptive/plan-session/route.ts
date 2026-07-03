@@ -169,6 +169,26 @@ function buildTutorPlan(params: {
     }
   }
 
+  // GARANTÍA: toda sesión debe tener al menos 1 evaluación
+  const hasEvaluation = steps.some(s =>
+    s.type === 'micro_quiz' || s.type === 'active_recall' || s.type === 'mini_exam'
+  )
+  if (!hasEvaluation && activeConcepts.length > 0) {
+    const fallbackConcept = activeConcepts[0].concept
+    steps.push({
+      id: genId(), type: 'micro_quiz', engine: 'quiz',
+      title: `Verificación: ${fallbackConcept}`,
+      instruction: `Demuestra que entendiste "${fallbackConcept}".`,
+      conceptsTargeted: [fallbackConcept],
+      estimatedMinutes: 2, evidenceRequired: true, status: 'pending',
+      metadata: {
+        knowledgeType: dominantKnowledgeType,
+        learningGoal: pedagogicalPlan.learningGoal,
+        actType: 'micro_quiz',
+      },
+    })
+  }
+
   // Cierre metacognitivo
   const firstConcept = activeConcepts[0]?.concept || sessionTitle
   steps.push({
@@ -483,6 +503,46 @@ Devuelve SOLO JSON:
     })
 
     const levelLabel = isLevelZero ? 'NIVEL CERO' : `avg ${Math.round(avgScore)}%`
+    // GARANTÍA: nunca devolver 0 pasos
+    if (steps.length === 0) {
+      const fallbackConcept = sessionBlueprint.title
+      steps.push(
+        {
+          id: genId(), type: 'explain', engine: 'analisis',
+          title: `Aprendiendo: ${fallbackConcept}`,
+          instruction: `Explica "${fallbackConcept}" desde cero con sus ideas principales.`,
+          conceptsTargeted: [fallbackConcept],
+          estimatedMinutes: 3, evidenceRequired: false, status: 'pending',
+          metadata: { knowledgeType: dominantKnowledgeType, learningGoal: 'explain_concept', actType: 'explain' },
+        },
+        {
+          id: genId(), type: 'micro_quiz', engine: 'quiz',
+          title: `¿Entendiste "${fallbackConcept}"?`,
+          instruction: `Demuestra que entendiste "${fallbackConcept}".`,
+          conceptsTargeted: [fallbackConcept],
+          estimatedMinutes: 2, evidenceRequired: true, status: 'pending',
+          metadata: { knowledgeType: dominantKnowledgeType, learningGoal: 'explain_concept', actType: 'micro_quiz' },
+        },
+        {
+          id: genId(), type: 'active_recall', engine: 'alai',
+          title: `Explícalo tú: ${fallbackConcept}`,
+          instruction: `Explica "${fallbackConcept}" con tus propias palabras.`,
+          conceptsTargeted: [fallbackConcept],
+          estimatedMinutes: 3, evidenceRequired: true, status: 'pending',
+          metadata: { knowledgeType: dominantKnowledgeType, learningGoal: 'explain_concept', actType: 'active_recall' },
+        },
+        {
+          id: genId(), type: 'metacognition', engine: 'alai',
+          title: 'Cierre de sesión',
+          instruction: `¿Qué aprendiste hoy sobre "${fallbackConcept}"? ¿Qué te quedó claro y qué necesitas repasar?`,
+          conceptsTargeted: [fallbackConcept],
+          estimatedMinutes: 2, evidenceRequired: true, status: 'pending',
+          metadata: { knowledgeType: dominantKnowledgeType, learningGoal: 'explain_concept' },
+        }
+      )
+      console.warn(`[plan-session] ⚠ 0 pasos detectado → fallback aplicado para "${fallbackConcept}"`)
+    }
+
     console.log(`[plan-session] ✅ ${steps.length} pasos | "${sessionBlueprint.title}" | ${dominantKnowledgeType} | ${levelLabel}`)
 
     return NextResponse.json({

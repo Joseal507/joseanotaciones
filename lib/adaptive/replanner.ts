@@ -509,7 +509,36 @@ export function fullReplanProgram(
         newSessions.push(integrationSession)
       }
 
-      console.log(`[Replanner] Plan explícito: ${newSessions.length} sesiones | críticos:${criticalTopics.length} débiles:${weakTopics.length}`)
+      // GARANTÍA: nunca devolver 0 sesiones si hay débiles o críticos
+    if (newSessions.length === 0 && (criticalTopics.length > 0 || weakTopics.length > 0)) {
+      const weakList = [...criticalTopics, ...weakTopics].slice(0, 4)
+      const weakTitles = [...new Set(weakList.map((t: any) => t.topicTitle).filter(Boolean))]
+      const weakTopicIds = [...new Set(weakList.map((t: any) => t.topicId).filter(Boolean))]
+      const rescueSession: AdaptiveSession = {
+        id: uid(),
+        sessionNumber: program.sessions.length + 1,
+        title: 'Reparar conceptos débiles',
+        topicTitle: weakTitles[0] || 'Reparación',
+        objective: weakTitles.length > 0
+          ? `Trabajar: ${weakTitles.join(', ')}`
+          : 'Reforzar los conceptos más débiles.',
+        purpose: 'repair',
+        status: 'locked',
+        estimatedMinutes: 20,
+        expectedDomainGain: 15,
+        steps: [],
+        targetConcepts: [],
+        evidenceGoal: 'Demostrar comprensión de los conceptos débiles antes de continuar.',
+        blueprintConfidence: 70,
+        sessionFormat: 'discovery',
+        topicId: weakTopicIds[0] || 'repair',
+        sourcePages: [],
+      }
+      newSessions.push(rescueSession)
+      console.log(`[Replanner] ⚠ 0 sesiones con débiles → sesión de reparación forzada`)
+    }
+
+    console.log(`[Replanner] Plan explícito: ${newSessions.length} sesiones | críticos:${criticalTopics.length} débiles:${weakTopics.length}`)
 
     } catch (err) {    console.warn('[Replanner] Error en replan con blueprint, usando fallback:', err)
     }

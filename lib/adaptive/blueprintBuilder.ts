@@ -509,8 +509,26 @@ export interface BuildBlueprintOptions {
   preExtractedTopics?: RawExtractedTopic[]
 }
 
+function cleanEditorialNoise(text: string): string {
+  // Solo eliminar líneas que son CLARAMENTE ruido editorial
+  // Ser conservador — mejor dejar ruido que eliminar contenido real
+  return String(text || '')
+    .split('\n')
+    .filter(line => {
+      const l = line.trim()
+      if (!l) return true // mantener líneas vacías como separadores
+      // Solo eliminar copyright explícito en línea propia corta
+      if (l.length < 80 && /^©|^Copyright/i.test(l)) return false
+      // Eliminar "Todos los derechos reservados" solo si es la línea completa
+      if (/^todos los derechos reservados\.?$/i.test(l)) return false
+      return true
+    })
+    .join('\n')
+}
+
 export async function fetchAndBuildBlueprint(params: BlueprintBuildParams): Promise<MaterialBlueprint> {
-  const { materialContent, materialId, materialTitle } = params
+  const { materialContent: rawMaterialContent, materialId, materialTitle } = params
+  const materialContent = cleanEditorialNoise(String(rawMaterialContent || ''))
   const lang = detectLang(materialContent)
 
   if (!materialContent || materialContent.length < 200) {

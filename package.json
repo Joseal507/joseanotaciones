@@ -12,7 +12,8 @@
     "simulate-pdf": "npx tsx scripts/simulate-pdf.ts",
     "regression-pdf": "npx tsx scripts/simulate-pdf.ts scripts/fixtures/ novato",
     "full-session": "npx tsx scripts/full-session.ts",
-    "simulate-mastery": "npx tsx scripts/simulate-mastery.ts"
+    "simulate-mastery": "npx tsx scripts/simulate-mastery.ts",
+    "simulate-batch": "npx tsx scripts/simulate-batch.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1033.0",

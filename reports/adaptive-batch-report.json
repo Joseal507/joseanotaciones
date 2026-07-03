@@ -1,0 +1,215 @@
+[
+  {
+    "file": "clutch2.pdf",
+    "chars": 11481,
+    "topics": 3,
+    "sessionsGenerated": 8,
+    "sessionsSimulated": 6,
+    "overallScore": 59,
+    "status": "FAIL",
+    "knowledgeTypesUsed": [
+      "mathematical"
+    ],
+    "learningGoalsUsed": [
+      "explain_concept",
+      "apply_to_case",
+      "solve_problem"
+    ],
+    "conceptsDominated": [
+      "Equilibrio químico",
+      "Constante de equilibrio",
+      "Ley de velocidad",
+      "Constante de equilibrio Kc",
+      "Cociente de la reacción Q"
+    ],
+    "weakConcepts": [
+      "Constante de equilibrio (K)",
+      "Reacción inversa"
+    ],
+    "problems": [],
+    "sessions": [
+      {
+        "sessionNumber": 1,
+        "title": "Fundamentos del equilibrio químico y velocidad de ",
+        "purpose": "understand",
+        "knowledgeType": "mathematical",
+        "learningGoal": "explain_concept",
+        "sequence": [
+          "explain",
+          "worked_example",
+          "guided_practice",
+          "micro_quiz",
+          "active_recall"
+        ],
+        "quizScore": 50,
+        "quizGenerated": true,
+        "quizQuestionsCount": 2,
+        "recallScore": 73,
+        "finalScore": 64,
+        "repairsActivated": 0,
+        "failureType": "none",
+        "conceptsDominated": [
+          "Equilibrio químico",
+          "Constante de equilibrio",
+          "Ley de velocidad"
+        ],
+        "weakConcepts": [],
+        "advancedWhileConfused": false,
+        "repeatedQuizConcept": false,
+        "quizzesPerConcept": {
+          "Equilibrio químico": 1
+        }
+      },
+      {
+        "sessionNumber": 2,
+        "title": "Constantes de equilibrio: K, Kc y Kp",
+        "purpose": "understand",
+        "knowledgeType": "mathematical",
+        "learningGoal": "explain_concept",
+        "sequence": [
+          "explain",
+          "worked_example",
+          "guided_practice",
+          "micro_quiz",
+          "active_recall"
+        ],
+        "quizScore": 0,
+        "quizGenerated": true,
+        "quizQuestionsCount": 2,
+        "recallScore": 53,
+        "finalScore": 32,
+        "repairsActivated": 2,
+        "failureType": "relation",
+        "conceptsDominated": [],
+        "weakConcepts": [
+          "Equilibrio químico",
+          "Constante de equilibrio",
+          "Ley de velocidad"
+        ],
+        "advancedWhileConfused": false,
+        "repeatedQuizConcept": false,
+        "quizzesPerConcept": {
+          "Equilibrio químico": 1
+        }
+      },
+      {
+        "sessionNumber": 3,
+        "title": "Refuerzo necesario",
+        "purpose": "repair",
+        "knowledgeType": "mathematical",
+        "learningGoal": "explain_concept",
+        "sequence": [
+          "explain",
+          "worked_example",
+          "guided_practice",
+          "active_recall"
+        ],
+        "quizScore": 100,
+        "quizGenerated": true,
+        "quizQuestionsCount": 1,
+        "recallScore": 50,
+        "finalScore": 70,
+        "repairsActivated": 1,
+        "failureType": "none",
+        "conceptsDominated": [],
+        "weakConcepts": [],
+        "advancedWhileConfused": false,
+        "repeatedQuizConcept": false,
+        "quizzesPerConcept": {
+          "Refuerzo necesario": 1
+        }
+      },
+      {
+        "sessionNumber": 4,
+        "title": "Reacciones inversas, netas y equilibrio heterogéne",
+        "purpose": "understand",
+        "knowledgeType": "mathematical",
+        "learningGoal": "explain_concept",
+        "sequence": [
+          "explain",
+          "worked_example",
+          "guided_practice",
+          "micro_quiz",
+          "active_recall"
+        ],
+        "quizScore": 50,
+        "quizGenerated": true,
+        "quizQuestionsCount": 2,
+        "recallScore": 48,
+        "finalScore": 49,
+        "repairsActivated": 1,
+        "failureType": "relation",
+        "conceptsDominated": [],
+        "weakConcepts": [
+          "Constante de equilibrio (K)",
+          "Equilibrio químico",
+          "Reacción inversa"
+        ],
+        "advancedWhileConfused": false,
+        "repeatedQuizConcept": false,
+        "quizzesPerConcept": {
+          "Constante de equilibrio (K)": 1
+        }
+      },
+      {
+        "sessionNumber": 5,
+        "title": "Refuerzo necesario",
+        "purpose": "repair",
+        "knowledgeType": "mathematical",
+        "learningGoal": "apply_to_case",
+        "sequence": [
+          "worked_example",
+          "guided_practice",
+          "micro_quiz",
+          "active_recall"
+        ],
+        "quizScore": 100,
+        "quizGenerated": true,
+        "quizQuestionsCount": 1,
+        "recallScore": 50,
+        "finalScore": 70,
+        "repairsActivated": 1,
+        "failureType": "none",
+        "conceptsDominated": [],
+        "weakConcepts": [],
+        "advancedWhileConfused": false,
+        "repeatedQuizConcept": false,
+        "quizzesPerConcept": {
+          "Refuerzo necesario": 1
+        }
+      },
+      {
+        "sessionNumber": 6,
+        "title": "Cociente de reacción Q y Principio de Le Châtelier",
+        "purpose": "apply",
+        "knowledgeType": "mathematical",
+        "learningGoal": "solve_problem",
+        "sequence": [
+          "explain",
+          "worked_example",
+          "guided_practice",
+          "micro_quiz",
+          "active_recall"
+        ],
+        "quizScore": 100,
+        "quizGenerated": true,
+        "quizQuestionsCount": 2,
+        "recallScore": 50,
+        "finalScore": 70,
+        "repairsActivated": 1,
+        "failureType": "none",
+        "conceptsDominated": [
+          "Equilibrio químico",
+          "Constante de equilibrio Kc",
+          "Cociente de la reacción Q"
+        ],
+        "weakConcepts": [],
+        "advancedWhileConfused": false,
+        "repeatedQuizConcept": false,
+        "quizzesPerConcept": {
+          "Equilibrio químico": 1
+        }
+      }
+    ]
+  }
+]

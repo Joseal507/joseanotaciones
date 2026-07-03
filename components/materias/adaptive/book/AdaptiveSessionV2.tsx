@@ -81,6 +81,68 @@ interface SessionStep {
   learningGoal?: LearningGoal
 }
 
+// ═══════════════════════════════════════════════════════════════
+// REPAIR CYCLE — ciclo de reparación según knowledgeType
+// ═══════════════════════════════════════════════════════════════
+function buildRepairCycle(
+  concept: string,
+  concepts: string[] | undefined,
+  kt: string,
+  lg: string,
+  isBlocked: boolean
+): SessionStep[] {
+  const id = () => 'repair_' + Math.random().toString(36).slice(2, 8)
+
+  // Instrucción de repair según tipo de conocimiento
+  const repairInstruction = isBlocked
+    ? `Volvamos a "${concept}" desde cero. Esta vez con un ejemplo muy concreto y simple.`
+    : `Profundicemos en "${concept}" desde otro ángulo para aclarar lo que faltó.`
+
+  // Paso 1: reexplicación simple siempre
+  const explainStep: SessionStep = {
+    id: id(), type: 'explain', concept, concepts,
+    instruction: repairInstruction,
+    mode: 'repair', actType: 'explain', knowledgeType: kt as any, learningGoal: lg as any,
+  }
+
+  // Paso 2: ejemplo o analogía según tipo
+  const deepenStep: SessionStep = {
+    id: id(), type: 'explain', concept, concepts,
+    instruction: kt === 'mathematical' || kt === 'procedural'
+      ? `Resolvamos juntos un ejemplo paso a paso de "${concept}".`
+      : kt === 'medical' || kt === 'causal'
+      ? `Analicemos la cadena causa-efecto de "${concept}" con un caso concreto.`
+      : kt === 'legal' || kt === 'argumentative'
+      ? `Apliquemos "${concept}" a un caso simple con argumento directo.`
+      : kt === 'memoristic'
+      ? `Agrupa los elementos de "${concept}" en categorías para recordarlos mejor.`
+      : `Veamos "${concept}" desde una analogía diferente para que quede claro.`,
+    mode: kt === 'mathematical' || kt === 'procedural' ? 'worked_example' : 'analogy',
+    actType: kt === 'mathematical' || kt === 'procedural' ? 'worked_example' : 'analogy',
+    knowledgeType: kt as any, learningGoal: lg as any,
+  }
+
+  // Paso 3: verificación simple
+  const verifyStep: SessionStep = {
+    id: id(), type: 'quiz', concept, concepts,
+    instruction: `Una pregunta simple para verificar que "${concept}" quedó claro.`,
+    count: 1, isFallback: true,
+    actType: 'micro_quiz', knowledgeType: kt as any, learningGoal: lg as any,
+  }
+
+  // Si estaba bloqueado (< 40), agregar recall corto final
+  if (isBlocked) {
+    const recallStep: SessionStep = {
+      id: id(), type: 'active_recall', concept, concepts,
+      instruction: `En una frase, ¿qué es "${concept}"? No mires el material.`,
+      actType: 'active_recall', knowledgeType: kt as any, learningGoal: lg as any,
+    }
+    return [explainStep, deepenStep, verifyStep, recallStep]
+  }
+
+  return [explainStep, verifyStep]
+}
+
 export default function AdaptiveSessionV2({
   session, materialContent, masteryContext, onSessionComplete, onClose,
 }: Props) {
@@ -619,36 +681,37 @@ export default function AdaptiveSessionV2({
       setChatMessages(prev => [...prev, { role: 'alai', text: response }])
 
       // Detectar si el usuario no entendió → insertar repair
-      const noUnderstandPatterns = /no entend|no sé|no se|confund|no pude|me perdí|no me quedó|no me quedo|no captè|ayuda|no comprend/i
-      if (noUnderstandPatterns.test(message) && currentStep?.type !== 'reflection_chat') {
+      // Detectar confusión profunda — activar rescue mode
+      const confusedPatterns = /no entend|no sé|no se|confund|me perdí|me perdi|no me quedó|no me quedo|no captè|no captè|no comprend|muchas dudas|explícame todo|explicame todo|no sé nada|no sé nada/i
+      const isGeneralConfusion = /muchas dudas|explícame todo|explicame todo|no sé nada|no entendí nada|no entendi nada/i
+
+      if (confusedPatterns.test(message)) {
         const repairConcept = currentStep?.concept || session.targetConcepts?.[0] || ''
+        const kt = currentStep?.knowledgeType || 'conceptual'
+        const lg = currentStep?.learningGoal || 'explain_concept'
+
         if (repairConcept) {
-          const repairStep: SessionStep = {
-            id: 'repair_' + genId(),
-            type: 'explain',
-            concept: repairConcept,
-            concepts: currentStep?.concepts,
-            instruction: `Volvamos a "${repairConcept}" desde otro ángulo.`,
-            mode: 'repair',
-            actType: 'explain',
-            knowledgeType: (currentStep as any)?.knowledgeType,
-            learningGoal: (currentStep as any)?.learningGoal,
-          }
-          const simpleQuizStep: SessionStep = {
-            id: 'rq_' + genId(),
-            type: 'quiz',
-            concept: repairConcept,
-            concepts: currentStep?.concepts,
-            instruction: `Una pregunta simple sobre "${repairConcept}".`,
-            count: 1,
-            isFallback: true,
-          }
+          // Confusión general → rescue mode completo (4 pasos)
+          // Confusión parcial → repair simple (2 pasos)
+          const isBlocked = isGeneralConfusion.test(message)
+          const repairCycle = buildRepairCycle(repairConcept, currentStep?.concepts, kt, lg, isBlocked)
+
           setPlan(prev => {
             const currentIdx = planIndexRef.current
             const newPlan = [...prev]
-            newPlan.splice(currentIdx + 1, 0, repairStep, simpleQuizStep)
+            newPlan.splice(currentIdx + 1, 0, ...repairCycle)
             return newPlan
           })
+
+          // Si es confusión general, agregar mensaje especial
+          if (isBlocked) {
+            setChatMessages(prev => [...prev, {
+              role: 'alai',
+              text: `Veo que hay una duda más profunda. Antes de seguir, vamos a trabajar "${repairConcept}" desde cero con un enfoque diferente. No te preocupes — esto es normal y vamos a resolverlo paso a paso.`
+            }])
+            setChatLoading(false)
+            return
+          }
         }
       }
     } catch {
@@ -700,40 +763,24 @@ export default function AdaptiveSessionV2({
         keyIdea: cleanStr(feedback.keyIdea),
       })
 
-      // Repair inteligente según tipo de fallo
-      if (realScore < 60 && failureType !== 'none') {
-        const concept = currentStep?.concept || ''
-        const kt = (currentStep as any)?.knowledgeType || 'conceptual'
-        
-        // No hardcodear repairMode — pasar failureType a ALAI para que decida
-        // ALAI usará failureType + knowledgeType para elegir la mejor estrategia
-        const repairMode = 'repair' // modo especial que indica a explain que adapte según failureType
-        
-        if (concept && !planRef.current.some(s => s.id.startsWith('repair_'))) {
-          const repairStep: SessionStep = {
-            id: 'repair_' + genId(),
-            type: 'explain',
-            concept,
-            concepts: currentStep?.concepts,
-            instruction: getRepairInstruction(failureType, concept),
-            mode: 'repair',
-            actType: repairMode,
-            knowledgeType: kt,
-            learningGoal: (currentStep as any)?.learningGoal,
-          }
-          const simpleQuiz: SessionStep = {
-            id: 'rq_' + genId(),
-            type: 'quiz',
-            concept,
-            concepts: currentStep?.concepts,
-            instruction: `Una pregunta más simple sobre "${concept}".`,
-            count: 1,
-            isFallback: true,
-          }
+      // Recall < 40 = bloqueo conceptual — repair profundo inmediato
+      // Recall 40-60 = comprensión parcial — repair simple
+      const concept = currentStep?.concept || ''
+      const kt = currentStep?.knowledgeType || 'conceptual'
+      const lg = currentStep?.learningGoal || 'explain_concept'
+
+      if (realScore < 60 && concept) {
+        const isBlocked = realScore < 40
+        const alreadyRepairing = planRef.current.some(s => s.id.startsWith('repair_'))
+
+        if (!alreadyRepairing) {
+          // Ciclo de repair según knowledgeType
+          const repairCycle: SessionStep[] = buildRepairCycle(concept, currentStep?.concepts, kt, lg, isBlocked)
+
           setPlan(prev => {
             const currentIdx = planIndexRef.current
             const newPlan = [...prev]
-            newPlan.splice(currentIdx + 1, 0, repairStep, simpleQuiz)
+            newPlan.splice(currentIdx + 1, 0, ...repairCycle)
             return newPlan
           })
         }
@@ -791,6 +838,27 @@ export default function AdaptiveSessionV2({
         keyIdea: cleanStr(feedback.keyIdea),
       })
     } catch { setReflectionFeedback({ score: 60, keyExplanation: 'Gracias por tu reflexión.' }) }
+
+    // NO marcar como dominado si el estudiante expresó confusión
+    const confusedInReflection = /no entend|no entendí|no entendi|no sé|no se|me perdí|me perdi|no comprend|estoy perdido|no me quedó|no me quedo|nada claro/i
+    if (confusedInReflection.test(reflectionText)) {
+      const concept = currentStep?.concept
+      if (concept) {
+        setConceptsImproved(prev => prev.filter(c => c !== concept))
+        console.log(`⚠ [Reflection] "${concept}" desmarcado — estudiante expresó confusión`)
+      }
+      // Insertar sesión de rescue antes de cerrar
+      const kt = currentStep?.knowledgeType || 'conceptual'
+      const lg = currentStep?.learningGoal || 'explain_concept'
+      const rescueSteps = buildRepairCycle(concept || session.topicTitle, currentStep?.concepts, kt, lg, true)
+      setPlan(prev => {
+        const currentIdx = planIndexRef.current
+        const newPlan = [...prev]
+        newPlan.splice(currentIdx + 1, 0, ...rescueSteps)
+        return newPlan
+      })
+    }
+
     setLoading(false)
   }
 

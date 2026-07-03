@@ -451,11 +451,22 @@ export default function StudyALProcess({
       loadLearningMemory(materialId) || createEmptyLearningMemory(materialId);
     setLearningMemory(loadedLearningMemory);
 
-    if (contentStatus === 'loading' || contentStatus === 'idle') {
-      setIsBuildingBlueprint(false)
-      setAdaptiveProgram(null)
-      alert('Todavía estamos cargando el contenido del material. Espera unos segundos e inténtalo de nuevo.')
-      return
+    // Si ya hay materialContent, seguir sin importar el status
+    if (materialContent && materialContent.trim().length > 100) {
+      console.log(`✅ [generate] Contenido ya disponible (${materialContent.length} chars), continuando`)
+    } else if (contentStatus === 'loading' || contentStatus === 'idle') {
+      console.log('⏳ [generate] Esperando a que cargue el contenido...')
+      // Esperar máximo 10s
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 1000))
+        if (materialContent && materialContent.trim().length > 100) break
+      }
+      if (!materialContent || materialContent.trim().length <= 100) {
+        setIsBuildingBlueprint(false)
+        setAdaptiveProgram(null)
+        alert('El contenido del material está tardando. Recarga la página.')
+        return
+      }
     }
 
     if (contentStatus === 'error') {

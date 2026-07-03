@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     const targetConcepts: string[] = ctx.targetConcepts || body.targetConcepts || []
     const materialSlice: string = ctx.materialSlice || body.contenido || body.content || ''
     const overallMastery: number = ctx.overallMastery ?? 0
-    const count: number = Math.min(Number(body.count) || 2, 5)
+    let count: number = Math.min(Number(body.count) || 2, 5)
     const focusConcept: string = body.focusConcept || body.focus || body.concept || targetConcepts[0] || ''
     const lastExplanation: string = body.lastExplanation || ''
     const sessionNumber: number = body.sessionNumber || ctx.sessionNumber || 1
@@ -35,18 +35,87 @@ export async function POST(request: NextRequest) {
       conceptual: overallMastery >= 50 ? 'multi_select' : 'multiple_choice',
     }
 
-    // Elegir tipo de pregunta según knowledgeType, actType y nivel
+    // ═══════════════════════════════════════════════════════════
+    // ALAI decide el tipo de evaluación basándose en la explicación
+    // ═══════════════════════════════════════════════════════════
     let questionType = 'multiple_choice'
-    if (!isLevelZero) {
-      const suggestedByKnowledge = knowledgeQuizTypes[knowledgeType]
-      const avoidType = previousTypes[previousTypes.length - 1]
+    let decidedCount = count
+    let evalStrategy = ''
 
-      if (actType === 'comparison' && avoidType !== 'true_false') questionType = 'true_false'
-      else if (actType === 'cause_effect' && overallMastery >= 30 && avoidType !== 'multi_select') questionType = 'multi_select'
-      else if (actType === 'actors' && avoidType !== 'matching' && overallMastery >= 40) questionType = 'matching'
-      else if (suggestedByKnowledge && suggestedByKnowledge !== avoidType) questionType = suggestedByKnowledge
-      else questionType = 'multiple_choice'
+    if (lastExplanation.length > 100) {
+      try {
+        const decisionPrompt = `Eres un pedagogo experto. Un estudiante acaba de leer esta explicación:
+
+"${lastExplanation.slice(0, 2000)}"
+
+CONCEPTO: "${focusConcept}"
+TIPO DE CONOCIMIENTO: ${knowledgeType}
+NIVEL: ${isLevelZero ? 'CERO (primera vez)' : overallMastery < 40 ? 'BÁSICO' : overallMastery < 70 ? 'INTERMEDIO' : 'AVANZADO'}
+
+Decide cómo evaluarlo mejor. NO uses siempre multiple_choice. Analiza el contenido:
+
+- Si la explicación tiene un EJEMPLO NUMÉRICO (ej: "Matías tiene 5 manzanas, Pedro le da 3, ¿cuántas tiene?") → usa "short_answer" o "fill_blank" con VALORES DIFERENTES para probar comprensión real, no memoria del ejemplo.
+- Si es una DEFINICIÓN clara → usa "short_answer" (que explique con sus palabras) o "true_false" con afirmaciones sutiles.
+- Si son PASOS o PROCEDIMIENTO → usa "matching" (ordenar) o "short_answer" (describir el proceso).
+- Si son CATEGORÍAS o CLASIFICACIÓN → usa "matching" o "multi_select".
+- Si es una OPINIÓN/ARGUMENTO → usa "short_answer" (defender posición).
+- Si es COMPARACIÓN → usa "true_false" con afirmaciones o "matching".
+- Si es MEMORIZACIÓN pura (fechas, nombres) → usa "fill_blank" o "multiple_choice".
+- Si es FÓRMULA → usa "fill_blank" (completar la fórmula) o "short_answer" (aplicar a caso nuevo).
+- Si es un CONCEPTO ABSTRACTO complejo → usa "short_answer" (explicar con palabras propias).
+- Solo usa "multiple_choice" cuando NO haya mejor opción.
+
+Decide también CUÁNTAS preguntas (1-3). Si el concepto es complejo, 1 pregunta profunda. Si es simple, 2-3 rápidas.
+
+Devuelve SOLO JSON:
+{
+  "questionType": "multiple_choice|true_false|multi_select|matching|short_answer|fill_blank",
+  "count": 1-3,
+  "reasoning": "breve razón (10 palabras max)",
+  "generateNewValues": true/false
+}`
+
+        const decisionText = await alaiRequest(async (client: any, modelFn: (m?: string) => string) => {
+          const res = await client.chat.completions.create({
+            model: modelFn('llama-3.3-70b-versatile'),
+            messages: [{ role: 'user', content: decisionPrompt }],
+            temperature: 0.4,
+            max_tokens: 200,
+          })
+          return res.choices?.[0]?.message?.content || ''
+        })
+
+        let decision: any = null
+        try { decision = JSON.parse(decisionText) } catch {
+          const match = String(decisionText).match(/\{[\s\S]*\}/)
+          if (match) try { decision = JSON.parse(match[0]) } catch {}
+        }
+
+        if (decision?.questionType) {
+          questionType = decision.questionType
+          decidedCount = Math.min(3, Math.max(1, Number(decision.count) || count))
+          evalStrategy = decision.reasoning || ''
+          console.log(`[Quiz Decision] tipo: ${questionType} | count: ${decidedCount} | razón: ${evalStrategy}`)
+        } else {
+          console.warn(`[Quiz Decision] JSON sin questionType. Raw: ${String(decisionText).slice(0, 200)}`)
+        }
+      } catch (err: any) {
+        console.warn('[Quiz Decision] falló, usando fallback:', err.message?.slice(0, 60))
+        // Fallback a lógica original
+        if (!isLevelZero) {
+          const suggestedByKnowledge = knowledgeQuizTypes[knowledgeType]
+          const avoidType = previousTypes[previousTypes.length - 1]
+          if (actType === 'comparison' && avoidType !== 'true_false') questionType = 'true_false'
+          else if (actType === 'cause_effect' && overallMastery >= 30 && avoidType !== 'multi_select') questionType = 'multi_select'
+          else if (actType === 'actors' && avoidType !== 'matching' && overallMastery >= 40) questionType = 'matching'
+          else if (suggestedByKnowledge && suggestedByKnowledge !== avoidType) questionType = suggestedByKnowledge
+          else questionType = 'multiple_choice'
+        }
+      }
     }
+
+    // Usar decidedCount en vez de count original
+    count = decidedCount
 
     // El contexto de evaluación es SIEMPRE lo que acaba de leer
     const evaluationContext = lastExplanation.length > 100
