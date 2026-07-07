@@ -1,559 +1,342 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { alaiRequest } from '../../../../lib/alai'
+import { alaiRequest, safeParseJson } from '../../../../lib/alai'
 
 export const maxDuration = 60
 
-function genId(): string {
-  return Math.random().toString(36).slice(2, 10)
+// ── Assessment Strategy Engine ───────────────────────────────────
+// Decide el mejor tipo de evaluación según el objetivo cognitivo
+function selectAssessmentTypes(
+  knowledgeType: string,
+  learningObjectives: string[],
+  subjectArea: string,
+): string[] {
+  // Por tipo de conocimiento
+  const byKnowledge: Record<string, string[]> = {
+    memorization: ['fill_blank', 'matching', 'multiple_choice', 'true_false', 'micro_flashcards'],
+    conceptual: ['multiple_choice', 'true_false', 'open_explanation', 'comparison', 'active_recall'],
+    narrative: ['ordering', 'matching', 'multiple_choice', 'true_false', 'actors', 'comparison'],
+    causal: ['cause_effect', 'ordering', 'multiple_choice', 'true_false', 'case_study'],
+    procedural: ['ordering', 'fill_blank', 'step_by_step', 'worked_example', 'error_detection'],
+    application: ['case_study', 'harder_problem', 'comparison', 'active_recall'],
+    analysis: ['comparison', 'cause_effect', 'error_detection', 'case_study', 'open_explanation'],
+    mathematical: ['fill_blank', 'worked_example', 'harder_problem', 'error_detection', 'ordering'],
+    medical: ['case_study', 'cause_effect', 'comparison', 'ordering', 'true_false'],
+    legal: ['case_study', 'matching', 'multiple_choice', 'comparison', 'true_false'],
+    historical: ['ordering', 'matching', 'cause_effect', 'comparison', 'true_false'],
+    argumentative: ['comparison', 'true_false', 'open_explanation', 'case_study'],
+    visual: ['matching', 'multiple_choice', 'ordering', 'identify'],
+  }
+
+  const base = byKnowledge[knowledgeType] || byKnowledge.conceptual
+
+  // Por área del material — override si aplica
+  const bySubject: Record<string, string[]> = {
+    math: ['fill_blank', 'worked_example', 'harder_problem', 'error_detection'],
+    medical: ['case_study', 'cause_effect', 'comparison', 'ordering'],
+    legal: ['case_study', 'matching', 'comparison'],
+    history: ['ordering', 'matching', 'cause_effect', 'comparison'],
+    science: ['fill_blank', 'ordering', 'cause_effect', 'worked_example'],
+  }
+
+  const subjectTypes = bySubject[subjectArea] || []
+
+  // Combinar sin duplicar, priorizando los del área
+  const combined = [...new Set([...subjectTypes, ...base])]
+  return combined.slice(0, 5)
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ESTRATEGIAS POR TIPO DE CONOCIMIENTO
-// Cada tipo produce una secuencia diferente de actividades
-// ═══════════════════════════════════════════════════════════════
-const KNOWLEDGE_STRATEGIES: Record<string, {
-  label: string
-  sequence: string[]
-  explainStyle: string
-}> = {
-  mathematical: {
-    label: 'Matemático — ejemplo resuelto + práctica guiada',
-    sequence: ['explain', 'worked_example', 'guided_practice', 'micro_quiz', 'active_recall'],
-    explainStyle: 'Empieza con la intuición del concepto. Muestra el mecanismo con un ejemplo numérico del material. No des solo definiciones.',
-  },
-  medical: {
-    label: 'Médico — mecanismo fisiológico + caso clínico',
-    sequence: ['context', 'explain', 'cause_effect', 'micro_quiz', 'case_study', 'active_recall'],
-    explainStyle: 'Usa el flujo fisiológico: estructura → función → mecanismo → consecuencia → patología. Incluye datos concretos del material.',
-  },
-  legal: {
-    label: 'Jurídico — norma + principio + caso + argumento',
-    sequence: ['explain', 'context', 'comparison', 'micro_quiz', 'case_study', 'active_recall'],
-    explainStyle: 'Sigue: norma → principio que la sustenta → caso de aplicación → argumento jurídico → consecuencia. No solo definas.',
-  },
-  argumentative: {
-    label: 'Argumentativo — posiciones + contraargumentos',
-    sequence: ['context', 'explain', 'position_a', 'position_b', 'micro_quiz', 'active_recall'],
-    explainStyle: 'Presenta el argumento, luego el contraargumento, luego la síntesis. Invita a razonar.',
-  },
-  narrative: {
-    label: 'Narrativo — contexto + actores + conflicto + legado',
-    sequence: ['context', 'actors', 'explain', 'comparison', 'micro_quiz', 'active_recall'],
-    explainStyle: 'Sigue: contexto histórico → actores clave → conflicto o evento central → consecuencias → legado. Cuenta una historia.',
-  },
-  procedural: {
-    label: 'Procedimental — paso a paso + práctica guiada',
-    sequence: ['explain', 'step_by_step', 'guided_practice', 'micro_quiz', 'active_recall'],
-    explainStyle: 'Numera los pasos. Explica el por qué de cada uno. Luego guía al estudiante a ejecutarlo.',
-  },
-  memoristic: {
-    label: 'Memorístico — identificación + flashcards + recall',
-    sequence: ['explain', 'micro_flashcards', 'identify', 'micro_quiz', 'active_recall'],
-    explainStyle: 'Agrupa elementos relacionados. Usa patrones y asociaciones. No listes sin estructura.',
-  },
-  causal: {
-    label: 'Causal — causa → mecanismo → efecto → predicción',
-    sequence: ['context', 'explain', 'cause_effect', 'micro_quiz', 'case_study', 'active_recall'],
-    explainStyle: 'Sigue la cadena: qué causa X → cómo funciona el mecanismo → qué efectos produce → qué predicciones se pueden hacer.',
-  },
-  conceptual: {
-    label: 'Conceptual — intuición + modelo + aplicación',
-    sequence: ['explain', 'analogy', 'micro_quiz', 'comparison', 'active_recall'],
-    explainStyle: 'Construye la intuición antes de la definición formal. Usa analogía. Luego aplica a caso concreto.',
-  },
-  visual: {
-    label: 'Visual — estructura + identificación + relaciones',
-    sequence: ['explain', 'identify', 'micro_flashcards', 'micro_quiz', 'active_recall'],
-    explainStyle: 'Describe la estructura visualmente con palabras. Qué está conectado con qué. Qué forma tiene. Qué partes lo componen.',
-  },
+// ── Generar secuencia pedagógica por unidad ──────────────────────
+// Para cada unidad de cobertura, generar la secuencia correcta de actividades
+function buildUnitSequence(
+  unit: any,
+  studentLevel: string,
+  subjectArea: string,
+  isFirstUnit: boolean,
+): string {
+  const kt = unit.knowledgeType || 'conceptual'
+  const objectives = unit.learningObjectives || []
+  const assessTypes = selectAssessmentTypes(kt, objectives, subjectArea)
+
+  const level = studentLevel === 'zero' || studentLevel === 'some' ? 'beginner' : 'intermediate'
+
+  let sequence = ''
+
+  if (isFirstUnit) {
+    sequence = `
+UNIDAD: "${unit.title}"
+OBJETIVOS DE APRENDIZAJE:
+${objectives.map((o: string) => `- ${o}`).join('\n')}
+
+TEXTO DEL MATERIAL PARA ESTA UNIDAD:
+"${unit.rawTextReference}"
+
+HECHOS CLAVE A ENSEÑAR:
+${(unit.keyFacts || []).map((f: string) => `- ${f}`).join('\n')}
+
+SECUENCIA RECOMENDADA:
+1. explain — Presentar el concepto usando el texto exacto del material
+2. ${assessTypes[0] || 'true_false'} — Verificar reconocimiento básico
+3. analogy o worked_example — Si el concepto es difícil, dar analogía o ejemplo
+4. ${assessTypes[1] || 'multiple_choice'} — Verificar comprensión
+5. active_recall — El estudiante explica con sus palabras`
+  } else {
+    sequence = `
+UNIDAD: "${unit.title}"
+OBJETIVOS:
+${objectives.map((o: string) => `- ${o}`).join('\n')}
+
+TEXTO: "${unit.rawTextReference}"
+
+HECHOS: ${(unit.keyFacts || []).slice(0, 3).map((f: string) => f).join(' | ')}
+
+EVALUACIÓN RECOMENDADA: ${assessTypes.join(', ')}`
+  }
+
+  return sequence
 }
 
-const FALLBACK_STRATEGY = KNOWLEDGE_STRATEGIES.conceptual
-
-function buildTutorPlan(params: {
-  concepts: Array<{ concept: string; score: number; status: 'new' | 'weak' | 'medium' | 'strong'; knowledgeType?: string; learningGoal?: string }>
-  dominantKnowledgeType: string
-  sessionLength: string
-  sessionTitle: string
-  mustReinforce: string[]
-  isLevelZero: boolean
-  pedagogicalPlan: {
-    learningGoal: string
-    commonFailure: string
-    masteryEvidence: string
-    bestSequence: string[]
-    depth: 'low' | 'medium' | 'high'
-  }
-}): any[] {
-  const { concepts, dominantKnowledgeType, sessionLength, sessionTitle, mustReinforce, isLevelZero, pedagogicalPlan } = params
-  const steps: any[] = []
-
-  const maxConcepts = sessionLength === 'short' ? 2 : sessionLength === 'long' ? 4 : 3
-  const strategy = KNOWLEDGE_STRATEGIES[dominantKnowledgeType] || FALLBACK_STRATEGY
-
-  const activeConcepts = [
-    ...concepts.filter(c => mustReinforce.includes(c.concept)),
-    ...concepts.filter(c => c.status === 'new' && !mustReinforce.includes(c.concept)),
-    ...concepts.filter(c => c.status === 'weak' && !mustReinforce.includes(c.concept)),
-    ...concepts.filter(c => c.status === 'medium'),
-  ].slice(0, maxConcepts)
-
-  if (activeConcepts.length === 0) return []
-
-  // Secuencia del pedagogicalPlan o fallback a estrategia del tipo
-  const baseSequence = pedagogicalPlan.bestSequence.length > 0
-    ? pedagogicalPlan.bestSequence
-    : strategy.sequence
-
-  const maxPerConcept = pedagogicalPlan.depth === 'low' ? 2 : pedagogicalPlan.depth === 'high' ? 5 : 3
-
-  for (let conceptIdx = 0; conceptIdx < activeConcepts.length; conceptIdx++) {
-    const conceptObj = activeConcepts[conceptIdx]
-    const c = conceptObj.concept
-    const isNew = conceptObj.status === 'new' || conceptObj.status === 'weak'
-    const conceptKt = (conceptObj as any).knowledgeType || dominantKnowledgeType
-    const conceptLg = (conceptObj as any).learningGoal || pedagogicalPlan.learningGoal
-
-    // Variar secuencia entre conceptos para evitar plantilla repetitiva
-    const conceptSequence = conceptIdx === 0
-      ? baseSequence.slice(0, maxPerConcept + 1)
-      : (() => {
-          const teachStep = isNew ? ['explain'] : []
-          const rest = baseSequence.filter(a => a !== 'explain' && a !== 'metacognition')
-          const rotated = [...rest.slice(conceptIdx % rest.length), ...rest.slice(0, conceptIdx % rest.length)]
-          return [...teachStep, ...rotated].slice(0, maxPerConcept)
-        })()
-
-    for (const actType of conceptSequence) {
-      const meta = { knowledgeType: conceptKt, learningGoal: conceptLg, actType, explainStyle: strategy.explainStyle }
-
-      if (['explain', 'context', 'analogy', 'worked_example', 'step_by_step', 'guided_practice'].includes(actType)) {
-        if (isNew || conceptIdx === 0) {
-          steps.push({
-            id: genId(), type: 'explain', engine: 'analisis',
-            title: getStepTitle(actType, c),
-            instruction: getExplainInstruction(actType, c, conceptKt, isLevelZero, pedagogicalPlan.commonFailure, strategy.explainStyle),
-            conceptsTargeted: [c],
-            estimatedMinutes: 3, evidenceRequired: false, status: 'pending',
-            metadata: meta,
-          })
-        }
-      } else if (['micro_quiz', 'comparison', 'cause_effect', 'position_a', 'position_b', 'identify', 'case_study', 'actors', 'harder_problem'].includes(actType)) {
-        steps.push({
-          id: genId(), type: 'micro_quiz', engine: 'quiz',
-          title: getStepTitle(actType, c),
-          instruction: getQuizInstruction(actType, c, conceptKt, pedagogicalPlan.masteryEvidence),
-          conceptsTargeted: [c],
-          estimatedMinutes: 2, evidenceRequired: true, status: 'pending',
-          metadata: meta,
-        })
-      } else if (actType === 'micro_flashcards') {
-        steps.push({
-          id: genId(), type: 'micro_flashcards', engine: 'flashcards',
-          title: `Flashcards: ${c}`,
-          instruction: `Memoriza los conceptos clave de "${c}".`,
-          conceptsTargeted: [c],
-          estimatedMinutes: 3, evidenceRequired: false, status: 'pending',
-          metadata: meta,
-        })
-      } else if (actType === 'active_recall') {
-        steps.push({
-          id: genId(), type: 'active_recall', engine: 'alai',
-          title: `Explícalo tú: ${c}`,
-          instruction: getRecallInstruction(c, conceptKt, conceptLg),
-          conceptsTargeted: [c],
-          estimatedMinutes: 3, evidenceRequired: true, status: 'pending',
-          metadata: meta,
-        })
-      }
-    }
-  }
-
-  // GARANTÍA: toda sesión debe tener al menos 1 evaluación
-  const hasEvaluation = steps.some(s =>
-    s.type === 'micro_quiz' || s.type === 'active_recall' || s.type === 'mini_exam'
-  )
-  if (!hasEvaluation && activeConcepts.length > 0) {
-    const fallbackConcept = activeConcepts[0].concept
-    steps.push({
-      id: genId(), type: 'micro_quiz', engine: 'quiz',
-      title: `Verificación: ${fallbackConcept}`,
-      instruction: `Demuestra que entendiste "${fallbackConcept}".`,
-      conceptsTargeted: [fallbackConcept],
-      estimatedMinutes: 2, evidenceRequired: true, status: 'pending',
-      metadata: {
-        knowledgeType: dominantKnowledgeType,
-        learningGoal: pedagogicalPlan.learningGoal,
-        actType: 'micro_quiz',
-      },
-    })
-  }
-
-  // Cierre metacognitivo
-  const firstConcept = activeConcepts[0]?.concept || sessionTitle
-  steps.push({
-    id: genId(), type: 'metacognition', engine: 'alai',
-    title: 'Cierre de sesión',
-    instruction: getMetacognitionInstruction(dominantKnowledgeType, firstConcept, activeConcepts.map(c => c.concept)),
-    conceptsTargeted: activeConcepts.map(c => c.concept),
-    estimatedMinutes: 3, evidenceRequired: true, status: 'pending',
-    metadata: { knowledgeType: dominantKnowledgeType, learningGoal: pedagogicalPlan.learningGoal },
-  })
-
-  return steps
-}
-
-function getStepTitle(actType: string, concept: string): string {
-  const titles: Record<string, string> = {
-    explain: `Aprendiendo: ${concept}`,
-    context: `Contexto: ${concept}`,
-    analogy: `Analogía: ${concept}`,
-    worked_example: `Ejemplo resuelto: ${concept}`,
-    step_by_step: `Paso a paso: ${concept}`,
-    guided_practice: `Práctica guiada: ${concept}`,
-    micro_quiz: `¿Entendiste "${concept}"?`,
-    comparison: `Comparación: ${concept}`,
-    cause_effect: `Causa y efecto: ${concept}`,
-    position_a: `Argumento: ${concept}`,
-    position_b: `Contraargumento: ${concept}`,
-    identify: `Identifica: ${concept}`,
-    case_study: `Caso aplicado: ${concept}`,
-    actors: `Actores: ${concept}`,
-    harder_problem: `Problema avanzado: ${concept}`,
-    active_recall: `Explícalo tú: ${concept}`,
-  }
-  return titles[actType] || concept
-}
-
-function getExplainInstruction(actType: string, concept: string, kt: string, isLevelZero: boolean, commonFailure: string, explainStyle: string): string {
-  const base = isLevelZero
-    ? `Vamos a aprender "${concept}" desde cero. Lee con atención.`
-    : `Profundizamos en "${concept}". Presta atención al mecanismo.`
-
-  const byType: Record<string, string> = {
-    context: `Antes de entrar en "${concept}", necesitas el contexto. ¿Qué existía antes? ¿Qué problema resuelve?`,
-    analogy: `Para entender "${concept}", lo veremos desde una analogía. Error común: ${commonFailure || 'confundir los términos'}.`,
-    worked_example: `Vamos a resolver un ejemplo de "${concept}" paso a paso. Observa el proceso completo. Estilo: ${explainStyle}`,
-    step_by_step: `"${concept}" es un proceso. Lo vemos paso a paso. No te saltes ninguno.`,
-    guided_practice: `Practicamos "${concept}" juntos. Sigue el razonamiento en cada paso.`,
-    explain: `${explainStyle ? explainStyle + ' ' : ''}${base}`,
-  }
-  return byType[actType] || base
-}
-
-function getQuizInstruction(actType: string, concept: string, kt: string, masteryEvidence: string): string {
-  const byType: Record<string, string> = {
-    micro_quiz: `Basándote en lo que acabas de leer sobre "${concept}", responde.`,
-    comparison: `Compara "${concept}" con lo que viste antes. ¿Cuál es la diferencia clave?`,
-    cause_effect: `¿Qué causa "${concept}" y qué consecuencias produce?`,
-    position_a: `¿Cuál es el primer argumento sobre "${concept}"?`,
-    position_b: `¿Cuál es el contraargumento sobre "${concept}"?`,
-    identify: `Identifica "${concept}" en el siguiente contexto.`,
-    case_study: `Aplica "${concept}" a este caso concreto.`,
-    actors: `¿Quiénes son los actores clave en "${concept}" y qué rol tiene cada uno?`,
-    harder_problem: `Ahora un problema más difícil sobre "${concept}". Requiere aplicar lo aprendido.`,
-  }
-  return byType[actType] || `Demuestra que entendiste "${concept}".`
-}
-
-function getRecallInstruction(concept: string, kt: string, learningGoal: string): string {
-  const byGoal: Record<string, string> = {
-    solve_problem: `Describe el proceso para resolver un problema con "${concept}". ¿Qué pasos seguirías?`,
-    explain_concept: `Explica "${concept}" con tus propias palabras, como si se lo enseñaras a alguien que no sabe nada.`,
-    apply_to_case: `¿Cómo aplicarías "${concept}" en un caso real? Da un ejemplo concreto.`,
-    argue_position: `¿Cuál es el argumento más fuerte sobre "${concept}"? Defiéndelo.`,
-    analyze_cause_effect: `¿Qué causa "${concept}" y qué consecuencias produce? Explica la cadena.`,
-    memorize_terms: `Lista y define los términos más importantes de "${concept}".`,
-    follow_procedure: `Describe el procedimiento de "${concept}" paso a paso.`,
-    compare_models: `Compara "${concept}" con lo que existía antes. ¿Qué cambió?`,
-  }
-  const byKt: Record<string, string> = {
-    mathematical: `Sin mirar el material, resuelve un ejemplo de "${concept}" y explica cada paso.`,
-    medical: `Explica el mecanismo de "${concept}": ¿qué estructura está involucrada, qué función cumple y qué pasa si falla?`,
-    legal: `Aplica "${concept}" a un caso concreto: ¿qué norma aplica, qué principio la sustenta y cuál sería la conclusión jurídica?`,
-    narrative: `Cuenta la historia de "${concept}" con tus palabras: contexto, actores, conflicto y legado.`,
-  }
-  return byGoal[learningGoal] || byKt[kt] || `Explica "${concept}" con tus propias palabras.`
-}
-
-function getMetacognitionInstruction(kt: string, firstConcept: string, allConcepts: string[]): string {
-  const byKt: Record<string, string> = {
-    mathematical: `Para cerrar:\n1. ¿Puedes resolver un ejercicio de "${firstConcept}" sin ayuda?\n2. ¿Qué parte del proceso todavía te confunde?\n3. ¿Cuándo usarías esto en la práctica?`,
-    medical: `Para cerrar:\n1. ¿Puedes explicar el mecanismo de "${firstConcept}" sin mirar el material?\n2. ¿Qué pasa clínicamente si este mecanismo falla?\n3. ¿Qué todavía no tienes claro?`,
-    legal: `Para cerrar:\n1. ¿Puedes aplicar "${firstConcept}" a un caso concreto?\n2. ¿Cuál es el argumento más difícil de refutar?\n3. ¿Qué principio jurídico lo sustenta?`,
-    narrative: `Para cerrar:\n1. ¿Puedes contar la historia de "${firstConcept}" con tus palabras?\n2. ¿Qué fue lo más sorprendente?\n3. ¿Qué conexión tiene con lo que ya sabías?`,
-  }
-  return byKt[kt] || `Para cerrar:\n1. ¿Qué fue lo más importante que aprendiste sobre "${allConcepts.join('", "')}"?\n2. ¿Qué todavía no tienes claro?\n3. ¿Puedes explicarlo con tus propias palabras?`
-}
-
-// ═══════════════════════════════════════════════════════════════
-// MAIN HANDLER
-// ═══════════════════════════════════════════════════════════════
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const body = await req.json()
-    const sessionBlueprint = body.sessionBlueprint
-    const topicsData = body.topics || []
-    const sessionLength = body.sessionLength || 'medium'
-    const previousEvidence = body.previousEvidence || {}
-    const userProfile = body.userProfile || null
-    const handoffNote: string = body.handoffNote || ''
-    const mustStartWith: string[] = body.mustStartWith || []
-    const mustReinforce: string[] = body.mustReinforce || []
-    const canSkip: string[] = body.canSkip || []
-    const sessionNumber: number = body.sessionNumber || 1
+    const body = await request.json()
+    const {
+      sessionBlueprint,
+      topics,
+      coverageUnits,          // NUEVO — unidades reales del análisis
+      materialTextForSession, // NUEVO — texto del material para esta sesión
+      sessionLength = 'medium',
+      previousEvidence = {},
+      userProfile = null,
+      sessionNumber = 1,
+      subjectArea = 'general',
+      studentLevel = 'some',
+    } = body
 
-    if (!sessionBlueprint || topicsData.length === 0) {
-      return NextResponse.json({ success: false, error: 'sessionBlueprint y topics requeridos' }, { status: 400 })
+    const targetMinutes = { short: 12, medium: 22, long: 35 }[sessionLength as string] || 22
+    const maxActs = { short: 5, medium: 8, long: 12 }[sessionLength as string] || 8
+    const depth = sessionLength === 'short' ? 'concise' : sessionLength === 'long' ? 'deep' : 'balanced'
+
+    // ── Construir contexto REAL del material ─────────────────────
+    // Prioridad: coverageUnits del análisis > topics del blueprint
+    let unitsContext = ''
+    let assessmentStrategyContext = ''
+
+    if (coverageUnits && coverageUnits.length > 0) {
+      // Usar las unidades del análisis profundo — tienen texto real
+      unitsContext = coverageUnits.map((unit: any, i: number) =>
+        buildUnitSequence(unit, studentLevel, subjectArea, i === 0)
+      ).join('\n\n---\n\n')
+
+      // Estrategias de evaluación por unidad
+      assessmentStrategyContext = coverageUnits.map((unit: any) => {
+        const types = selectAssessmentTypes(unit.knowledgeType || 'conceptual', unit.learningObjectives || [], subjectArea)
+        return `• "${unit.title}" → mejor evaluado con: ${types.join(', ')}`
+      }).join('\n')
+
+    } else if (topics && topics.length > 0) {
+      // Fallback: usar topics del blueprint
+      unitsContext = topics.map((t: any) => {
+        const concepts = (t.concepts || []).map((c: any) => {
+          const evidence = previousEvidence?.[c.name]
+          const level = evidence !== undefined
+            ? evidence < 30 ? 'NO SABE' : evidence < 60 ? 'SABE POCO' : 'SABE'
+            : 'SIN DATOS'
+          return `  • ${c.name} (${level})`
+        }).join('\n')
+        return `TEMA: ${t.title}\n${concepts}`
+      }).join('\n\n')
     }
 
-    // Nivel del estudiante
-    const allScores = Object.values(previousEvidence) as number[]
-    const avgScore = allScores.length > 0
-      ? allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length : -1
-    const isLevelZero = avgScore < 0 || (avgScore < 15 && sessionNumber <= 2)
+    // Texto del material para esta sesión específica
+    const materialContext = materialTextForSession
+      ? `\nTEXTO DEL MATERIAL PARA USAR EN ESTA SESIÓN:\n${materialTextForSession.slice(0, 4000)}`
+      : ''
 
-    // Detectar knowledgeType dominante
-    const knowledgeTypeCounts: Record<string, number> = {}
-    for (const t of topicsData) {
-      const kt = t.primaryKnowledgeType || t.knowledgeType || 'conceptual'
-      knowledgeTypeCounts[kt] = (knowledgeTypeCounts[kt] || 0) + 1
-      for (const kt2 of (t.knowledgeTypes || [])) {
-        knowledgeTypeCounts[kt2] = (knowledgeTypeCounts[kt2] || 0) + 0.5
-      }
-    }
-    const dominantKnowledgeType = Object.entries(knowledgeTypeCounts)
-      .sort((a, b) => b[1] - a[1])[0]?.[0] || 'conceptual'
+    const prompt = `Eres un tutor experto diseñando una sesión de estudio. Tu trabajo es enseñar el material REAL del documento al estudiante.
 
-    // Clasificar conceptos
-    const allConcepts: Array<{ name: string; score: number; knowledgeType?: string; learningGoal?: string }> = []
-    for (const topic of topicsData) {
-      const topicKt = topic.primaryKnowledgeType || topic.knowledgeType || 'conceptual'
-      for (const concept of (topic.concepts || [])) {
-        allConcepts.push({
-          name: concept.name,
-          score: previousEvidence[concept.name] ?? -1,
-          knowledgeType: concept.knowledgeType || topicKt,
-          learningGoal: concept.learningGoal || 'explain_concept',
-        })
-      }
-    }
+SESIÓN #${sessionNumber} | ${targetMinutes} minutos | ${depth} | max ${maxActs} actividades
+OBJETIVO: ${sessionBlueprint?.objective || 'Aprender el contenido'}
+PROPÓSITO: ${sessionBlueprint?.purpose || 'understand'}
+ÁREA: ${subjectArea}
 
-    const conceptGroups = allConcepts.map(c => ({
-      concept: c.name,
-      score: c.score,
-      knowledgeType: c.knowledgeType,
-      learningGoal: c.learningGoal,
-      status: (
-        canSkip.includes(c.name) && c.score >= 75 ? 'strong' :
-        mustStartWith.includes(c.name) || mustReinforce.includes(c.name) ? 'weak' :
-        c.score < 0 ? 'new' :
-        c.score < 40 ? 'weak' :
-        c.score < 70 ? 'medium' : 'strong'
-      ) as 'new' | 'weak' | 'medium' | 'strong',
-    }))
+═══════════════════════════════════════════
+UNIDADES DE ESTA SESIÓN (con texto real del material):
+═══════════════════════════════════════════
+${unitsContext}
+${materialContext}
 
-    // ALAI genera el pedagogicalPlan
-    const strategy = KNOWLEDGE_STRATEGIES[dominantKnowledgeType] || FALLBACK_STRATEGY
-    const newConcepts = conceptGroups.filter(c => c.status === 'new' || c.status === 'weak').map(c => c.concept)
-    const profileNote = userProfile ? [
-      userProfile.carrera ? `Carrera: ${userProfile.carrera}` : '',
-      userProfile.academicLevel ? `Nivel: ${userProfile.academicLevel}` : '',
-    ].filter(Boolean).join(' | ') : ''
+═══════════════════════════════════════════
+ESTRATEGIAS DE EVALUACIÓN POR UNIDAD:
+═══════════════════════════════════════════
+${assessmentStrategyContext}
 
-    const planPrompt = `Eres un diseñador pedagógico experto. Antes de generar cualquier actividad, RAZONA como un profesor experto que analiza cómo enseñar este topic específico.
+═══════════════════════════════════════════
+REGLAS ABSOLUTAS:
+═══════════════════════════════════════════
+1. TODA explicación debe basarse en el texto real del material. No inventar.
+2. TODA pregunta debe usar información específica del documento (nombres, fechas, eventos reales).
+3. Usar el tipo de evaluación correcto para cada objetivo cognitivo — NO siempre multiple_choice.
+4. La secuencia correcta por unidad es:
+   - explain (con texto real) → mini evaluación → [si falla: reexplicar] → recall
+5. Si hay múltiples unidades, cada una tiene su propia explicación + evaluación.
+6. Progresión de dificultad: reconocimiento → comprensión → aplicación → análisis.
+7. NUNCA hacer 3 explicaciones seguidas sin una evaluación.
+8. El recall final debe ser diferente al recall del medio — pedir síntesis completa.
 
-═══ INFORMACIÓN DEL TOPIC ═══
-SESIÓN: "${sessionBlueprint.title}"
-OBJETIVO: ${sessionBlueprint.objective || 'dominar el topic'}
-TIPO DE CONOCIMIENTO: ${dominantKnowledgeType}
-CONTEXTO DEL TIPO: ${strategy.label}
-CONCEPTOS: ${newConcepts.slice(0, 5).join(', ') || conceptGroups.slice(0, 3).map(c => c.concept).join(', ')}
+TIPOS DE ACTIVIDAD DISPONIBLES:
+explain, context, analogy, worked_example, step_by_step,
+micro_quiz, mini_exam, active_recall, micro_flashcards,
+case_study, comparison, cause_effect, ordering, matching,
+fill_blank, true_false, error_detection, actors, identify,
+harder_problem, inverse_teaching, metacognition
 
-═══ ESTUDIANTE ═══
-NIVEL: ${isLevelZero ? 'CERO — nunca vio esto' : `Promedio previo: ${Math.round(avgScore)}%`}
-SESIÓN #: ${sessionNumber}
-${profileNote ? `PERFIL: ${profileNote}` : ''}
-${handoffNote ? `SESIÓN ANTERIOR: ${handoffNote}` : ''}
+REGLA DE SELECCIÓN:
+- Para hechos/personas/fechas → ordering, matching, fill_blank, true_false
+- Para causas/consecuencias → cause_effect, ordering, case_study
+- Para comparaciones → comparison, matching, true_false
+- Para procesos → ordering, step_by_step, error_detection
+- Para conceptos abstractos → analogy, comparison, active_recall
+- Para aplicación → case_study, harder_problem
+- NUNCA usar solo multiple_choice — es el tipo menos eficiente para aprender
 
-═══ RAZONA PRIMERO — responde estas 5 preguntas antes de diseñar ═══
-
-PREGUNTA 1 — learningGoal:
-¿Qué debe poder HACER el estudiante al terminar esta sesión?
-No "aprender X" sino un verbo de acción observable: explicar, calcular, identificar, argumentar, aplicar, comparar, predecir.
-Elige: build_intuition | explain_concept | interpret_formula | solve_problem | compare_models | memorize_terms | identify_structure | apply_to_case | argue_position | analyze_cause_effect | follow_procedure | synthesize_topic
-
-PREGUNTA 2 — commonFailure:
-¿Por qué la gente normalmente falla en ESTE topic específico?
-No genérico. Ejemplo real:
-- Funciones: "confunden dominio con rango y no entienden por qué f(x) tiene un único valor"
-- Bohr: "memorizan la fórmula pero no entienden por qué existe, no pueden usarla en contexto"
-- Contratos: "no distinguen cuándo aplica cada tipo de cláusula en un caso real"
-
-PREGUNTA 3 — masteryEvidence:
-¿Qué demostraría que el estudiante realmente dominó este topic?
-Observable y concreto. Ejemplo:
-- "puede calcular la derivada de una función sin ver el material"
-- "puede explicar por qué el corazón en insuficiencia no bombea bien"
-- "puede argumentar cuál parte del contrato protege al comprador"
-
-PREGUNTA 4 — bestSequence:
-¿Cuál es la secuencia de actividades que mejor enseña ESTE topic?
-NO copies plantillas. Razona desde el tipo de conocimiento:
-
-Si es MATEMÁTICO (funciones, derivadas, integrales):
-→ El estudiante necesita ver el mecanismo antes de practicarlo
-→ Ejemplo: ["explain", "worked_example", "guided_practice", "micro_quiz", "active_recall"]
-
-Si es MÉDICO/FISIOLÓGICO (ciclo cardíaco, metabolismo):
-→ El estudiante necesita el mecanismo + consecuencia clínica
-→ Ejemplo: ["context", "explain", "cause_effect", "case_study", "micro_quiz", "active_recall"]
-
-Si es JURÍDICO (normas, contratos, derechos):
-→ El estudiante necesita norma → caso → argumento
-→ Ejemplo: ["explain", "context", "case_study", "comparison", "micro_quiz", "active_recall"]
-
-Si es NARRATIVO/HISTÓRICO (eventos, personajes, legado):
-→ El estudiante necesita contexto + actores + consecuencias
-→ Ejemplo: ["context", "actors", "explain", "comparison", "micro_quiz", "active_recall"]
-
-Si es MEMORÍSTICO (anatomía, taxonomías, vocabulario):
-→ El estudiante necesita ver + identificar + recordar
-→ Ejemplo: ["explain", "micro_flashcards", "identify", "micro_quiz", "active_recall"]
-
-Si es CONCEPTUAL (modelos, teorías):
-→ El estudiante necesita intuición antes que definición
-→ Ejemplo: ["explain", "analogy", "comparison", "micro_quiz", "active_recall"]
-
-ACTIVIDADES DISPONIBLES:
-explain, context, analogy, worked_example, step_by_step, guided_practice,
-micro_quiz, comparison, cause_effect, position_a, position_b, identify,
-case_study, actors, harder_problem, micro_flashcards, active_recall, metacognition
-
-Máximo ${sessionLength === 'short' ? 3 : sessionLength === 'long' ? 6 : 5} actividades. Solo las necesarias.
-
-PREGUNTA 5 — depth:
-¿Qué profundidad necesita este topic?
-- low: concepto simple, una explicación basta
-- medium: concepto moderado, necesita explicación + práctica
-- high: concepto complejo, necesita múltiples aproximaciones
-
-═══ AHORA GENERA EL DISEÑO PEDAGÓGICO ═══
-Devuelve SOLO JSON:
+Devuelve SOLO este JSON:
 {
-  "learningGoal": "explain_concept" (usa SIEMPRE inglés: build_intuition|explain_concept|interpret_formula|solve_problem|compare_models|memorize_terms|identify_structure|apply_to_case|argue_position|analyze_cause_effect|follow_procedure|synthesize_topic),
-  "commonFailure": "error específico y concreto de este topic",
-  "masteryEvidence": "qué demuestra dominio real y observable",
-  "bestSequence": ["actividad1", "actividad2", "actividad3"],
-  "depth": "low|medium|high",
-  "reason": "En 1-2 oraciones: por qué esta secuencia específica para ESTE topic con ESTE estudiante"
+  "steps": [
+    {
+      "id": "step_1",
+      "type": "explain",
+      "conceptsTargeted": ["Nombre exacto del concepto del material"],
+      "instruction": "Instrucción MUY ESPECÍFICA para ALAI: qué enseñar, qué citar del material, qué aspecto priorizar. Incluir hechos específicos del material que DEBE mencionar.",
+      "assessmentObjective": "recognition|comprehension|application|transfer|retention",
+      "metadata": {
+        "knowledgeType": "conceptual",
+        "learningGoal": "explain_concept",
+        "difficulty": 30,
+        "estimatedMinutes": 4,
+        "usesRealMaterial": true
+      }
+    }
+  ],
+  "sessionObjectives": [
+    "Al terminar esta sesión el estudiante podrá..."
+  ],
+  "sessionSummary": "Qué aprenderá el estudiante en esta sesión"
 }`
 
-    let pedagogicalPlan = {
-      learningGoal: 'explain_concept',
-      commonFailure: 'memorizar sin entender',
-      masteryEvidence: 'puede explicarlo con sus palabras',
-      bestSequence: strategy.sequence,
-      depth: 'medium' as 'low' | 'medium' | 'high',
-      reason: 'estrategia base por tipo de conocimiento',
-    }
-
-    try {
-      const rawPlan = await alaiRequest(async (client: any, modelFn: (m?: string) => string) => {
-        const res = await client.chat.completions.create({
-          model: modelFn('llama-3.3-70b-versatile'),
-          messages: [{ role: 'user', content: planPrompt }],
-          temperature: 0.4,
-          max_tokens: 800,
-        })
-        return res.choices?.[0]?.message?.content || ''
+    const result = await alaiRequest(async (client: any, modelFn: (m?: string) => string) => {
+      const res = await client.chat.completions.create({
+        model: modelFn(),
+        messages: [
+        {
+          role: 'system',
+          content: 'Diseñas sesiones pedagógicas usando el texto real del material. Nunca inventas información. Siempre basas las explicaciones y preguntas en el documento.',
+        },
+        { role: 'user', content: prompt },
+      ],
+        temperature: 0.35,
+        max_tokens: 3500,
       })
-
-      let parsedPlan: any = null
-      try { parsedPlan = JSON.parse(String(rawPlan).trim()) } catch {}
-      if (!parsedPlan) {
-        const m = String(rawPlan).match(/\{[\s\S]*\}/)
-        if (m) try { parsedPlan = JSON.parse(m[0]) } catch {}
-      }
-
-      if (parsedPlan?.bestSequence?.length) {
-        const validDepths = ['low', 'medium', 'high']
-        pedagogicalPlan = {
-          learningGoal: parsedPlan.learningGoal || pedagogicalPlan.learningGoal,
-          commonFailure: parsedPlan.commonFailure || pedagogicalPlan.commonFailure,
-          masteryEvidence: parsedPlan.masteryEvidence || pedagogicalPlan.masteryEvidence,
-          bestSequence: Array.isArray(parsedPlan.bestSequence) ? parsedPlan.bestSequence : strategy.sequence,
-          depth: (validDepths.includes(parsedPlan.depth) ? parsedPlan.depth : 'medium') as 'low' | 'medium' | 'high',
-          reason: parsedPlan.reason || pedagogicalPlan.reason,
-        }
-        console.log(`[plan-session] 🧠 ${dominantKnowledgeType} | ${pedagogicalPlan.learningGoal} | seq: ${pedagogicalPlan.bestSequence.join('→')}`)
-      }
-    } catch (err) {
-      console.warn('[plan-session] pedagogicalPlan LLM falló, usando estrategia base')
-    }
-
-    const steps = buildTutorPlan({
-      concepts: conceptGroups,
-      dominantKnowledgeType,
-      sessionLength,
-      sessionTitle: sessionBlueprint.title,
-      mustReinforce,
-      isLevelZero,
-      pedagogicalPlan,
+      const rawText = res?.choices?.[0]?.message?.content || ''
+      if (!rawText.trim()) throw new Error('ALAI_EMPTY_RESPONSE')
+      return { text: rawText, provider: 'unknown', model: 'unknown' }
     })
 
-    const levelLabel = isLevelZero ? 'NIVEL CERO' : `avg ${Math.round(avgScore)}%`
-    // GARANTÍA: nunca devolver 0 pasos
-    if (steps.length === 0) {
-      const fallbackConcept = sessionBlueprint.title
-      steps.push(
-        {
-          id: genId(), type: 'explain', engine: 'analisis',
-          title: `Aprendiendo: ${fallbackConcept}`,
-          instruction: `Explica "${fallbackConcept}" desde cero con sus ideas principales.`,
-          conceptsTargeted: [fallbackConcept],
-          estimatedMinutes: 3, evidenceRequired: false, status: 'pending',
-          metadata: { knowledgeType: dominantKnowledgeType, learningGoal: 'explain_concept', actType: 'explain' },
-        },
-        {
-          id: genId(), type: 'micro_quiz', engine: 'quiz',
-          title: `¿Entendiste "${fallbackConcept}"?`,
-          instruction: `Demuestra que entendiste "${fallbackConcept}".`,
-          conceptsTargeted: [fallbackConcept],
-          estimatedMinutes: 2, evidenceRequired: true, status: 'pending',
-          metadata: { knowledgeType: dominantKnowledgeType, learningGoal: 'explain_concept', actType: 'micro_quiz' },
-        },
-        {
-          id: genId(), type: 'active_recall', engine: 'alai',
-          title: `Explícalo tú: ${fallbackConcept}`,
-          instruction: `Explica "${fallbackConcept}" con tus propias palabras.`,
-          conceptsTargeted: [fallbackConcept],
-          estimatedMinutes: 3, evidenceRequired: true, status: 'pending',
-          metadata: { knowledgeType: dominantKnowledgeType, learningGoal: 'explain_concept', actType: 'active_recall' },
-        },
-        {
-          id: genId(), type: 'metacognition', engine: 'alai',
-          title: 'Cierre de sesión',
-          instruction: `¿Qué aprendiste hoy sobre "${fallbackConcept}"? ¿Qué te quedó claro y qué necesitas repasar?`,
-          conceptsTargeted: [fallbackConcept],
-          estimatedMinutes: 2, evidenceRequired: true, status: 'pending',
-          metadata: { knowledgeType: dominantKnowledgeType, learningGoal: 'explain_concept' },
-        }
-      )
-      console.warn(`[plan-session] ⚠ 0 pasos detectado → fallback aplicado para "${fallbackConcept}"`)
+    let parsed = safeParseJson(result.text)
+    if (!parsed?.steps) {
+      const match = result.text.match(/\{[\s\S]*\}/)
+      if (match) parsed = safeParseJson(match[0])
     }
 
-    console.log(`[plan-session] ✅ ${steps.length} pasos | "${sessionBlueprint.title}" | ${dominantKnowledgeType} | ${levelLabel}`)
+    if (!parsed?.steps || !Array.isArray(parsed.steps) || parsed.steps.length === 0) {
+      console.error('[plan-session] Sin steps. Usando fallback.')
+      return NextResponse.json({
+        success: true,
+        steps: buildFallbackSteps(coverageUnits || topics || [], subjectArea, sessionLength),
+        sessionSummary: sessionBlueprint?.objective || 'Sesión de estudio',
+        isFallback: true,
+      })
+    }
+
+    // Validar que hay evaluación
+    const hasEval = parsed.steps.some((s: any) =>
+      ['micro_quiz', 'mini_exam', 'active_recall', 'case_study', 'harder_problem',
+       'comparison', 'cause_effect', 'ordering', 'matching', 'fill_blank',
+       'true_false', 'error_detection'].includes(s.type)
+    )
+
+    if (!hasEval) {
+      const lastConcept = parsed.steps[parsed.steps.length - 1]?.conceptsTargeted?.[0]
+      parsed.steps.push({
+        id: `auto_recall_${Date.now()}`,
+        type: 'active_recall',
+        conceptsTargeted: lastConcept ? [lastConcept] : [],
+        instruction: 'El estudiante explica con sus propias palabras los conceptos principales de esta sesión sin mirar el material.',
+        assessmentObjective: 'recall',
+        metadata: { knowledgeType: 'conceptual', learningGoal: 'explain_concept', difficulty: 50, estimatedMinutes: 4, usesRealMaterial: true },
+      })
+    }
+
+    // Garantizar cierre distinto si hay recall + metacognición
+    const recallIdx = parsed.steps.findIndex((s: any) => s.type === 'active_recall')
+    const metaIdx = parsed.steps.findIndex((s: any) => s.type === 'metacognition')
+    if (recallIdx >= 0 && metaIdx >= 0 && metaIdx > recallIdx) {
+      parsed.steps[metaIdx].instruction = `Cierre de sesión. Sin mirar el material responde: (1) ¿Qué fue lo más importante que aprendiste? (2) ¿Qué todavía no tienes claro? (3) Explica el tema completo en 3 oraciones.`
+    }
+
+    const trimmed = parsed.steps.slice(0, maxActs + 3)
+
+    console.log(`[plan-session] #${sessionNumber} | ${trimmed.length} steps | ${subjectArea} | ${depth}`)
 
     return NextResponse.json({
       success: true,
-      pedagogicalPlan,
-      rationale: pedagogicalPlan.reason,
-      steps,
+      steps: trimmed,
+      sessionObjectives: parsed.sessionObjectives || [],
+      sessionSummary: parsed.sessionSummary || '',
+      estimatedMinutes: targetMinutes,
+      isFallback: false,
     })
 
   } catch (err: any) {
-    console.error('[plan-session] Error:', err?.message)
-    return NextResponse.json({ success: false, error: 'ALAI está ocupado.' }, { status: 503 })
+    console.error('[plan-session]', err.message)
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 })
   }
+}
+
+function buildFallbackSteps(units: any[], subjectArea: string, sessionLength: string): any[] {
+  const id = () => `fb_${Math.random().toString(36).slice(2, 8)}`
+  const maxActs = { short: 4, medium: 6, long: 8 }[sessionLength as string] || 6
+  const steps: any[] = []
+
+  for (let i = 0; i < Math.min(units.length, 3); i++) {
+    const unit = units[i]
+    const title = unit?.title || unit?.topicTitle || 'el tema'
+
+    steps.push({
+      id: id(), type: 'explain',
+      conceptsTargeted: [title],
+      instruction: `Explica "${title}" usando el texto exacto del material. Cita hechos específicos.`,
+      metadata: { knowledgeType: unit?.knowledgeType || 'conceptual', learningGoal: 'explain_concept', difficulty: 40, estimatedMinutes: 5 },
+    })
+
+    const assessType = subjectArea === 'history' ? 'ordering' :
+      subjectArea === 'math' ? 'fill_blank' :
+      subjectArea === 'medical' ? 'cause_effect' : 'true_false'
+
+    steps.push({
+      id: id(), type: assessType,
+      conceptsTargeted: [title],
+      instruction: `Verifica comprensión de "${title}" con una pregunta específica del material.`,
+      metadata: { knowledgeType: unit?.knowledgeType || 'conceptual', learningGoal: 'explain_concept', difficulty: 45, estimatedMinutes: 4 },
+    })
+  }
+
+  if (steps.length < maxActs) {
+    steps.push({
+      id: id(), type: 'active_recall',
+      conceptsTargeted: units.slice(0, 3).map((u: any) => u?.title || 'el tema'),
+      instruction: 'Explica todo lo que aprendiste en esta sesión con tus propias palabras.',
+      metadata: { knowledgeType: 'conceptual', learningGoal: 'explain_concept', difficulty: 55, estimatedMinutes: 5 },
+    })
+  }
+
+  return steps.slice(0, maxActs)
 }

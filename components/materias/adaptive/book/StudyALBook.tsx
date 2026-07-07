@@ -481,6 +481,10 @@ function BookPageContent({ session, sessionIndex, side, onStartSession, isReady 
   const isCompleted = session.status === 'completed'
   const isAvailable = session.status === 'available'
   const isLocked = session.status === 'locked'
+  // Detectar si esta sesión YA tiene progreso (aunque no esté marcada in_progress)
+  const hasProgress = (session as any).status === 'in_progress' ||
+                      ((session as any).domainAfter !== undefined && (session as any).domainAfter !== 0) ||
+                      (Array.isArray((session as any).conceptsImproved) && (session as any).conceptsImproved.length > 0)
   const mainTitle = session.topicTitle || session.title || `Sesión ${sessionIndex + 1}`
 
   // Score de la sesión completada
@@ -657,7 +661,7 @@ function BookPageContent({ session, sessionIndex, side, onStartSession, isReady 
               animation: isReady ? 'pulseGold 2s ease infinite' : 'none',
             }}
           >
-            {isReady ? '▶ EMPEZAR ESTA SESIÓN' : '⏳ PREPARANDO...'}
+            {isReady ? (hasProgress ? '▶ CONTINUAR ESTA SESIÓN' : '▶ EMPEZAR ESTA SESIÓN') : '⏳ PREPARANDO...'}
           </button>
         )}
 

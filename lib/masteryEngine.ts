@@ -1,11 +1,10 @@
 import type { AdaptiveProgram } from './adaptive/program';
-import {
-  calculateTopicMastery,
-  buildConceptScoreMap,
-  getWeakTopics,
-  getCriticalTopics,
-  getDominatedTopics,
-} from './adaptive/blueprint';
+// Blueprint eliminado — funciones stub para no romper masteryEngine
+const calculateTopicMastery = (..._args: any[]): any[] => []
+const buildConceptScoreMap = (..._args: any[]): Record<string, number> => ({})
+const getWeakTopics = (..._args: any[]): any[] => []
+const getCriticalTopics = (..._args: any[]): any[] => []
+const getDominatedTopics = (..._args: any[]): any[] => []
 // ═══════════════════════════════════════════════════════════════
 // StudyAL Mastery Engine v2.0
 // Dominio real medido por evidencia, no por clics.
@@ -120,8 +119,8 @@ export interface MaterialMastery {
 
   // ── Material Blueprint ───────────────────────────────────────
   // Análisis completo del material — base del modo adaptativo
-  materialBlueprint?: import('./adaptive/blueprint').MaterialBlueprint | null
-  topics?: import('./adaptive/blueprint').MaterialTopic[]
+  materialBlueprint?: any | null
+  topics?: any[]
   conceptToTopicMap?: Record<string, string>  // conceptId → topicId
 
   // Herramientas

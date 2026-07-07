@@ -158,10 +158,11 @@ export interface AdaptiveSession {
 // ── Setup ───────────────────────────────────────────────────────
 export interface AdaptiveProgramSetup {
   initialKnowledgeLevel: KnowledgeLevel
-  sessionLength: SessionLength      // NUEVO: preferencia de duración
+  sessionLength: SessionLength
   targetScore: number
   examDate: string | null
   dailyMinutes?: number
+  evalPreference?: 'quick_test' | 'write_explain' | 'mix_everything'
 }
 
 // ── Program ─────────────────────────────────────────────────────
@@ -177,13 +178,16 @@ export interface AdaptiveProgram {
 
   // ── Material Blueprint embebido ──────────────────────────────
   // Si existe, el programa fue creado con análisis completo del material
-  materialBlueprint?: import('./blueprint').MaterialBlueprint | null
+  materialBlueprint?: any | null
+
+  // Análisis completo del material para usar texto real en sesiones
+  materialAnalysis?: any
 
   // La estrategia que ALAI usó para construir este programa
-  strategy?: import('./strategy').StudyStrategy
+  strategy?: any
 
   // Narrativa generada por ALAI
-  narrative?: import('./narrative').StrategyNarrative
+  narrative?: any
 
   // Historial de cambios de estrategia
   strategyHistory?: Array<{

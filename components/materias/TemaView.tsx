@@ -33,6 +33,12 @@ const normalizeMaterialIdsFromDocs = (docs: any[] = []) =>
 
 const normalizeIdStrict = (v: any) => String(v || "").trim();
 
+// ═══════════════════════════════════════════════════════════════
+// Sistema de sesiones unificado v3
+// ═══════════════════════════════════════════════════════════════
+import { loadMaterialSession, buildStableKey, type MaterialSessionState } from "../../lib/materialSession";
+const normalizeNameForMatch = (v: any) => String(v || "").trim().toLowerCase().replace(/\.pdf$/, "").replace(/\s+/g, " ");
+
 const buildSelectedMaterialsFingerprint = (
   docs: any[] = [],
   seleccionResult?: any,
@@ -1260,11 +1266,9 @@ export default function TemaView({
   const [openTeorico, setOpenTeorico] = useState(false);
   const [returningToEnfoque, setReturningToEnfoque] = useState(false);
   const [showSeleccion, setShowSeleccion] = useState(false);
-  const [enfoqueElegido, setEnfoqueElegido] = useState<
-    "teorico" | "matematico" | "mixto" | "practico" | "practico" | null
-  >(null);
+  const [enfoqueElegido, setEnfoqueElegido] = useState<"teorico" | "matematico" | "mixto" | "practico" | null>("teorico");
   const [showModeSelector, setShowModeSelector] = useState(false);
-  const [studyMode, setStudyMode] = useState<'free' | 'adaptive' | null>(null);
+  const [studyMode, setStudyMode] = useState<'free' | 'adaptive'>('free');
   const [seleccionResult, setSeleccionResult] = useState<
     SeleccionResult[] | null
   >(null);
@@ -2009,9 +2013,28 @@ export default function TemaView({
   const reconstructedMasteryState = useMemo(() => {
     if (!resumeSessionId || !openTeorico) return masteryState;
     const all = getSessionsByTema(tema?.id || '');
-    const sess = all.find(s => s.id === resumeSessionId);
+    let sess: any = all.find(s => s.id === resumeSessionId);
+
+    // Si la sesión clickeada NO tiene adaptiveProgram, buscar OTRA sesión del mismo material
+    // que sí lo tenga (puede haber varias sesiones — usar la que tiene el programa completo).
+    if (!sess?.adaptiveProgram) {
+      const currentMatIds = (sess?.materialIds || []).map(String).sort().join('|');
+      const alternative = all
+        .filter((s: any) => !!s.adaptiveProgram)
+        .filter((s: any) => {
+          const sMatIds = (s.materialIds || []).map(String).sort().join('|');
+          // Match por IDs exactos o solo hay 1 material total (asumir mismo)
+          return sMatIds === currentMatIds || ((s.materialIds || []).length === 1 && (sess?.materialIds || []).length === 1);
+        })
+        .sort((a: any, b: any) => Number(b.lastOpenedAt || 0) - Number(a.lastOpenedAt || 0))[0];
+      if (alternative) {
+        console.log('🔁 [TemaView] Sesión clickeada sin program — usando alternativa:', alternative.id);
+        sess = alternative;
+      }
+    }
+
     if (sess && (sess as any).adaptiveProgram) {
-      console.log('🔁 [TemaView] Reconstruyendo masteryState (memoizado) desde sesión:', sess.id, '| program sessions:', (sess as any).adaptiveProgram?.sessions?.length, '| style:', (sess as any).processStyle);
+      console.log('🔁 [TemaView] Reconstruyendo masteryState desde sesión:', sess.id, '| program sessions:', (sess as any).adaptiveProgram?.sessions?.length, '| style:', (sess as any).processStyle);
       return {
         ...(masteryState || {}),
         processMode: sess.processMode || 'adaptive',
@@ -2227,7 +2250,7 @@ export default function TemaView({
               .map((m: any) => m?.materialId || m?.id)
               .filter(Boolean) as string[];
 
-            if (tema?.id && enfoqueElegido && matIds.length > 0) {
+            if (tema?.id && matIds.length > 0) {
               // Leer el modo real desde la sesión activa que coincida con estos materiales
               const _matchingMode: 'free' | 'adaptive' = (() => {
                 if (studyMode) return studyMode; // El explícito manda
@@ -2242,10 +2265,11 @@ export default function TemaView({
                 processMode: _matchingMode,
                 studyMode: _matchingMode,
                 materialIds: matIds,
+                materialNames: matsSeleccionados.map((m: any) => String(m?.nombre || m?.name || '').trim()).filter(Boolean),
                 selectedPages: Object.keys(pagesByMat).length
                   ? pagesByMat
                   : undefined,
-              });
+              } as any);
               savedSessionId = sess.id;
               refreshSessions();
               console.log(
@@ -2473,11 +2497,12 @@ export default function TemaView({
                 processMode: _repasarMode,
                 studyMode: _repasarMode,
                 materialIds: matIds,
+                materialNames: matsSeleccionados.map((m: any) => String(m?.nombre || m?.name || '').trim()).filter(Boolean),
                 selectedPages: Object.keys(pagesByMat).length
                   ? pagesByMat
                   : undefined,
                 currentPhase: "repasar",
-              });
+              } as any);
               savedSessionId = sess.id;
               setResumeSessionId(sess.id);
               refreshSessions();
@@ -3026,44 +3051,77 @@ export default function TemaView({
             seleccionResult,
           );
 
+          // Nombres de los materiales seleccionados actualmente (para matching estable)
+          // Usa normalizeNameForMatch: lowercase, sin .pdf, espacios colapsados
+          const selectedMatNames = selectedDocs
+            .map((d: any) => normalizeNameForMatch(d?.nombre || d?.name || d?.title || ''))
+            .filter(Boolean)
+            .sort();
+          const selectedNamesKey = selectedMatNames.join('|');
+
           const allMatchingSessions = activeSessions.filter((s) => {
             const sessionFingerprint = buildSessionMaterialsFingerprint(s);
 
-            // Match exacto por materiales + páginas
+            // 1. Match exacto por materiales + páginas
             if (currentSelectionFingerprint === sessionFingerprint) return true;
 
-            // Compatibilidad hacia atrás:
-            // si la selección actual NO tiene páginas y la sesión tampoco,
-            // permitir match exacto solo por materiales
+            // 2. Match por IDs de materiales
             const sessionMatIds = (s.materialIds || [])
               .map((id: any) => normalizeId(id))
               .filter(Boolean)
               .sort();
 
             const sessionKey = sessionMatIds.join('|');
-            if (!sessionKey || sessionKey !== selectedKey) return false;
-
-            if (!currentSelectedPagesKey) {
-              const hasSessionPages =
-                !!(s as any)?.selectedPages &&
-                Object.keys((s as any).selectedPages || {}).length > 0;
-              return !hasSessionPages;
+            if (sessionKey && sessionKey === selectedKey) {
+              if (!currentSelectedPagesKey) {
+                const hasSessionPages =
+                  !!(s as any)?.selectedPages &&
+                  Object.keys((s as any).selectedPages || {}).length > 0;
+                return !hasSessionPages;
+              }
+              return false;
             }
+
+            // 3. Fallback: match por nombre del material (por si el ID cambió)
+            const sessionMatNames = ((s as any).materialNames || [])
+              .map((n: any) => normalizeNameForMatch(n))
+              .filter(Boolean)
+              .sort();
+            const sessionNamesKey = sessionMatNames.join('|');
+            if (sessionNamesKey && sessionNamesKey === selectedNamesKey) return true;
 
             return false;
           });
 
-          const sortedMatchingSessions = [...allMatchingSessions].sort(
-            (a, b) => Number(b.lastOpenedAt || 0) - Number(a.lastOpenedAt || 0)
-          );
+          // Ordenar priorizando: 1) tiene adaptiveProgram, 2) más reciente
+          const sortedMatchingSessions = [...allMatchingSessions].sort((a, b) => {
+            const aHasProg = !!(a as any).adaptiveProgram
+            const bHasProg = !!(b as any).adaptiveProgram
+            if (aHasProg && !bHasProg) return -1
+            if (!aHasProg && bHasProg) return 1
+            return Number(b.lastOpenedAt || 0) - Number(a.lastOpenedAt || 0)
+          });
 
-          const adaptiveSession =
-            sortedMatchingSessions.find(
-              (s) => s.processMode === 'adaptive' || s.studyMode === 'adaptive'
-            ) || null;
+          // ═══ SISTEMA UNIFICADO V3 ═══
+          // Fuente ÚNICA: materialSession por stableKey
+          const primaryDoc = selectedDocs[0]
+          const stableKey = primaryDoc ? buildStableKey(tema?.id || '', primaryDoc) : ''
+          const unifiedSession: MaterialSessionState | null = stableKey ? loadMaterialSession(stableKey) : null
+          const hasUnifiedAdaptive = !!(unifiedSession?.adaptiveProgram)
 
-          const matchingSession = adaptiveSession || sortedMatchingSessions[0] || null;
-          const isResumeMode = !!matchingSession;
+          // Sesiones viejas: solo para fallback de datos (no para decidir isResumeMode)
+          const adaptiveWithProgram = sortedMatchingSessions.find(
+            (s) => ((s.processMode === 'adaptive' || s.studyMode === 'adaptive') && !!(s as any).adaptiveProgram)
+          ) || null;
+
+          const matchingSession = adaptiveWithProgram || sortedMatchingSessions[0] || null;
+
+          // isResumeMode: SOLO TRUE si hay materialSession v3 con programa guardado
+          // Y el título del material guardado coincide con el seleccionado actualmente
+          const selectedTitle = (primaryDoc?.nombre || primaryDoc?.name || '').toLowerCase().replace(/\.pdf$/, '').trim()
+          const savedTitle = (unifiedSession?.materialTitle || '').toLowerCase().replace(/\.pdf$/, '').trim()
+          const titleMatches = selectedTitle && savedTitle && (selectedTitle === savedTitle || selectedTitle.includes(savedTitle) || savedTitle.includes(selectedTitle))
+          const isResumeMode = hasUnifiedAdaptive && titleMatches;
           return (
             <div
               style={{
@@ -3154,68 +3212,25 @@ export default function TemaView({
                 {/* BOTÓN ESTUDIAR / SEGUIR */}
                 <button
                   onClick={() => {
-                    if (isResumeMode && matchingSession) {
-                      const savedProcessMode = (matchingSession as any).processMode || matchingSession.studyMode || 'free';
+                    if (isResumeMode && unifiedSession) {
+                      // ── Fuente única: unifiedSession (materialSession v3) ──
+                      const resolvedMode: 'free' | 'adaptive' =
+                        unifiedSession.processMode === 'adaptive' ? 'adaptive' : 'free';
 
-                      // ── Saltar directo al enfoque guardado con sus páginas ──
-                      setEnfoqueElegido(matchingSession.enfoque as any);
-
-                      // Sincronizar los materiales seleccionados con los de la sesión reanudada
-                      const matIds = matchingSession.materialIds || [];
-                      setSelectedIds(
-                        matIds
-                          .map((id: string) => {
-                            const doc = tema.documentos?.find(
-                              (d: any) =>
-                                sameId(getMaterialKey(d), id) ||
-                                sameId(d.id, id),
-                            );
-                            return doc?.id || id;
-                          })
-                          .filter(Boolean),
-                      );
-                      if (matchingSession.selectedPages) {
-                        const rebuilt = matchingSession.materialIds.map(
-                          (matId: string, idx: number) => ({
-                            materialId: matId,
-                            materialIndex: idx,
-                            pages: matchingSession.selectedPages![matId] || [],
-                          }),
-                        );
-                        setSeleccionResult(rebuilt as any);
-                      }
-                      // Guardar sessionId para que ALAIStudyALCards pueda cargar el cache
-                      setResumeSessionId(matchingSession.id);
-                      // VERIFICAR MASTERY EN LOCALSTORAGE como fuente de verdad
-                      let resolvedMode: 'free' | 'adaptive' = 'free';
-                      try {
-                        const matIds = (matchingSession.materialIds || []);
-                        const sortedIds = [...matIds].sort().join('-');
-                        const masteryKey = 'studyal_mastery_v2_' + sortedIds;
-                        const rawMastery = localStorage.getItem(masteryKey);
-                        if (rawMastery) {
-                          const parsed = JSON.parse(rawMastery);
-                          if (parsed?.processMode === 'adaptive' || parsed?.adaptiveProgram) {
-                            resolvedMode = 'adaptive';
-                          }
-                        }
-                      } catch {}
-
-                      // Fallback a sesión si mastery no tiene info
-                      if (resolvedMode === 'free') {
-                        const sessionMode = (matchingSession as any).processMode || matchingSession.studyMode;
-                        if (sessionMode === 'adaptive') resolvedMode = 'adaptive';
+                      // sessionId del sistema viejo: solo si matchingSession existe (opcional)
+                      if (matchingSession?.id) {
+                        setResumeSessionId(matchingSession.id);
                       }
 
+                      console.log("✅ [v3] Continuando con materialSession:", stableKey, "| mode:", resolvedMode);
                       setStudyMode(resolvedMode);
                       setResumeProcessMode(resolvedMode);
                       setOpenTeorico(true);
-                      console.log("🔁 Continuando sesión:", matchingSession.id, "| resolvedMode:", resolvedMode);
                     } else {
                       setResumeSessionId(null);
-                      setResumeProcessMode('free' as any);
+                      setResumeProcessMode(null);
                       setStudyMode('free');
-                      setShowEnfoque(true);
+                      setShowModeSelector(true);
                     }
                   }}
                   className="study-btn-neon"
@@ -4498,71 +4513,10 @@ export default function TemaView({
         </div>
       )}
 
-      {showEnfoque && (
-        <EnfoqueWheel
-          color={themeColor}
-          materialesCount={selectedIds.length}
-          onClose={() => setShowEnfoque(false)}
-          onSelect={(id: string) => {
-            if (id === "teorico" || id === "matematico" || id === "mixto") {
-              const enfoqueId = id as any;
-              // ── Buscar sesión existente que coincida con selección actual + enfoque ──
-              const currentFP = buildSelectedMaterialsFingerprint(selectedDocs, seleccionResult);
-              const matchingSession = activeSessions.find((s) => {
-                if (s.enfoque !== enfoqueId) return false;
-                // Usar fingerprint exacto para evitar reanudar sesión de otro material
-                const sessionFP = buildSessionMaterialsFingerprint(s);
-                if (currentFP !== sessionFP) {
-                  // Compatibilidad: si no hay páginas en ninguno, comparar solo materialIds
-                  const sessionMatIds = (s.materialIds || []).map(String).sort().join('|');
-                  const currentMatIds = selectedDocs.map((d: any) => String(getMaterialKey(d))).filter(Boolean).sort().join('|');
-                  return sessionMatIds === currentMatIds && !currentFP.includes('__PAGES__') || false;
-                }
-                return true;
-              });
 
-              if (matchingSession && matchingSession.selectedPages) {
-                // ── Salto directo al enfoque con páginas guardadas ──
-                setEnfoqueElegido(enfoqueId);
-                const rebuilt = matchingSession.materialIds.map(
-                  (matId: string, idx: number) => ({
-                    materialId: matId,
-                    materialIndex: idx,
-                    pages: matchingSession.selectedPages![matId] || [],
-                  }),
-                );
-                setSeleccionResult(rebuilt as any);
-                setShowEnfoque(false);
-                // Si la sesión ya tenía un modo guardado, usarlo directamente
-                const savedMode = (matchingSession as any).processMode || matchingSession.studyMode;
-                if (savedMode) {
-                  setStudyMode(savedMode);
-                  setResumeProcessMode(savedMode);
-                  setResumeSessionId(matchingSession.id);
-                  setOpenTeorico(true);
-                } else {
-                  // Si no, preguntar el modo
-                  setShowModeSelector(true);
-                }
-                console.log(
-                  "🚀 Sesión existente, preguntando modo:",
-                  matchingSession.id,
-                );
-              } else {
-                // Flujo normal — primero modo, después páginas
-                setEnfoqueElegido(enfoqueId);
-                setShowEnfoque(false);
-                setShowModeSelector(true);
-              }
-            } else {
-              setShowEnfoque(false);
-            }
-          }}
-        />
-      )}
-
-      {showModeSelector && (
+            {showModeSelector && (
         <ModeSelector
+          materialesCount={selectedIds.length}
           onSelectMode={(mode) => {
             setStudyMode(mode);
             chosenModeRef.current = mode; // Guardar en ref — nunca se pisa
@@ -4606,6 +4560,7 @@ export default function TemaView({
               : '';
             const seleccionMatchesCurrent = seleccionMatIds && seleccionMatIds === currentMatIds;
 
+
             if (seleccionMatchesCurrent && chosenModeRef.current !== 'adaptive') {
               // seleccionResult válido y no es nueva sesión adaptive — saltar selección
               setOpenTeorico(true);
@@ -4622,7 +4577,7 @@ export default function TemaView({
         />
       )}
 
-      {showSeleccion && enfoqueElegido && (
+      {showSeleccion && (
         <SeleccionPaginas
           materiales={selectedDocs}
           enfoque={enfoqueElegido}
@@ -4677,7 +4632,7 @@ export default function TemaView({
                 }
               });
 
-              if (tema?.id && enfoqueElegido && matIds.length > 0) {
+              if (tema?.id && matIds.length > 0) {
                 // Determinar modo real: studyMode > sesión existente adaptive > 'free'
                 const _seleccionMode: 'free' | 'adaptive' = (() => {
                   // chosenModeRef es la fuente de verdad — el usuario lo eligió explícitamente
@@ -4712,7 +4667,7 @@ export default function TemaView({
 
             setShowSeleccion(false);
 
-            if (enfoqueElegido === "teorico") {
+            if (true) { // enfoque siempre es teórico
               setOpenTeorico(true);
             } else if (enfoqueElegido === "practico") {
               const matsSeleccionados = selectedDocs;

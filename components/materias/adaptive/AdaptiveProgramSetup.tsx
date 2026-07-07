@@ -9,7 +9,7 @@ interface Props {
   onCancel: () => void
 }
 
-type Step = 1 | 2 | 3 | 4
+type Step = 1 | 2 | 3 | 4 | 5
 
 const KNOWLEDGE_OPTIONS = [
   { key: 'zero' as const, title: 'Nunca lo he visto', desc: 'Es un tema completamente nuevo para mí.', emoji: '🌱' },
@@ -60,14 +60,17 @@ export default function AdaptiveProgramSetupComponent({ onComplete, onCancel }: 
   const [targetScore, setTargetScore] = useState(80)
   const dailyMinutes = 45
 
+  const [evalPreference, setEvalPreference] = useState<'quick_test' | 'write_explain' | 'mix_everything' | null>(null)
+
   const canContinue =
     (step === 1 && knowledgeLevel !== null) ||
     (step === 2 && sessionLength !== null) ||
     (step === 3 && examDate !== null) ||
-    step === 4
+    (step === 4) ||
+    (step === 5 && evalPreference !== null)
 
   const handleContinue = () => {
-    if (step < 4) {
+    if (step < 5) {
       setStep((prev) => (prev + 1) as Step)
       return
     }
@@ -78,7 +81,8 @@ export default function AdaptiveProgramSetupComponent({ onComplete, onCancel }: 
       targetScore,
       examDate,
       dailyMinutes,
-    })
+      evalPreference: evalPreference || 'mix_everything',
+    } as any)
   }
 
   const scoreLabel =
@@ -93,10 +97,10 @@ export default function AdaptiveProgramSetupComponent({ onComplete, onCancel }: 
         {/* Header */}
         <div style={{ marginBottom: 28 }}>
           <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-faint)', letterSpacing: 1, marginBottom: 8 }}>
-            PROGRAMA ADAPTATIVO · PASO {step} DE 4
+            PROGRAMA ADAPTATIVO · PASO {step} DE 5
           </div>
           <div style={styles.progressBar}>
-            <div style={{ ...styles.progressFill, width: `${(step / 4) * 100}%` }} />
+            <div style={{ ...styles.progressFill, width: `${(step / 5) * 100}%` }} />
           </div>
         </div>
 
@@ -222,6 +226,57 @@ export default function AdaptiveProgramSetupComponent({ onComplete, onCancel }: 
           </div>
         )}
 
+        {/* PASO 5 — Preferencia de evaluación */}
+        {step === 5 && (
+          <div>
+            <div style={styles.stepTitle}>¿Cómo prefieres que te evalúen?</div>
+            <div style={styles.stepSub}>Esto ayuda a ALAI a elegir el tipo de actividades que más te funcionan.</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
+              {[
+                {
+                  key: 'quick_test' as const,
+                  title: 'Evaluaciones rápidas',
+                  desc: 'Opción múltiple, verdadero/falso, completar, relacionar. Rápido y directo.',
+                  emoji: '⚡',
+                },
+                {
+                  key: 'write_explain' as const,
+                  title: 'Explicar con mis palabras',
+                  desc: 'Escribir explicaciones, respuestas abiertas, enseñar conceptos. Más profundo.',
+                  emoji: '✍️',
+                },
+                {
+                  key: 'mix_everything' as const,
+                  title: 'Mezcla de todo',
+                  desc: 'ALAI decide qué usar en cada momento. Variedad completa de formatos.',
+                  emoji: '🎯',
+                },
+              ].map((opt) => (
+                <button
+                  key={opt.key}
+                  onClick={() => setEvalPreference(opt.key)}
+                  style={{
+                    ...styles.optionBtn,
+                    borderColor: evalPreference === opt.key ? 'var(--gold)' : 'var(--border-color2)',
+                    background: evalPreference === opt.key ? 'color-mix(in srgb, var(--gold) 10%, transparent)' : 'transparent',
+                  }}
+                >
+                  <span style={{ fontSize: 22 }}>{opt.emoji}</span>
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontSize: 14, fontWeight: 900, color: evalPreference === opt.key ? 'var(--gold)' : 'var(--text-primary)' }}>
+                      {opt.title}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>{opt.desc}</div>
+                  </div>
+                  {evalPreference === opt.key && (
+                    <span style={{ marginLeft: 'auto', color: 'var(--gold)', fontSize: 18 }}>✓</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Footer */}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 28, gap: 12 }}>
           <button
@@ -235,7 +290,7 @@ export default function AdaptiveProgramSetupComponent({ onComplete, onCancel }: 
             disabled={!canContinue}
             style={{ ...styles.btnPrimary, opacity: canContinue ? 1 : 0.4, cursor: canContinue ? 'pointer' : 'not-allowed' }}
           >
-            {step === 4 ? 'Generar programa →' : 'Siguiente →'}
+            {step === 5 ? 'Generar programa →' : 'Siguiente →'}
           </button>
         </div>
       </div>

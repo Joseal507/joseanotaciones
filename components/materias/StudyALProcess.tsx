@@ -11,40 +11,83 @@ import {
 } from "../../lib/masteryEngine";
 import type { MaterialMastery, ToolId } from "../../lib/masteryEngine";
 import {
-  // generateAdaptiveProgram y fetchAndBuildBlueprint movidos a API route
-  enrichStrategyWhyWithTopics,
-  loadLearningMemory,
-  saveLearningMemory,
-  updateLearningMemory,
-  createEmptyLearningMemory,
-} from "../../lib/adaptive";
-import {
   buildUserProfile,
   cacheUserProfile,
   loadCachedUserProfile,
   buildProfileContext,
 } from "../../lib/adaptive/userProfile";
 import type { UserProfile } from "../../lib/adaptive/userProfile";
-import type { MaterialBlueprint } from "../../lib/adaptive";
 
-import {
-  updateAdaptiveProgramAfterSession,
-  getLatestStrategyChangeMessage,
-} from "../../lib/adaptive";
 import type {
   AdaptiveProgram,
   AdaptiveProgramSetup as AdaptiveProgramSetupType,
-  LearningMemory,
 } from "../../lib/adaptive";
 import { getCurrentSession, getNextAvailableSession } from "../../lib/adaptive";
+
+// Stubs mínimos — lógica adaptativa eliminada
+type MaterialBlueprint = any
+type LearningMemory = any
+const enrichStrategyWhyWithTopics = (..._args: any[]): any => null
+const loadLearningMemory = (_id: string): any => null
+const saveLearningMemory = (_m: any): void => {}
+const updateLearningMemory = (m: any, ..._args: any[]): any => m
+const createEmptyLearningMemory = (id: string): any => ({ materialId: id })
+// ═══════════════════════════════════════════════════════════════
+// Sistema de sesiones unificado v3
+// ═══════════════════════════════════════════════════════════════
+import {
+  saveMaterialSession,
+  loadMaterialSession,
+  buildStableKey,
+  createMaterialSession,
+  patchMaterialSession,
+} from "../../lib/materialSession";
+
+const updateAdaptiveProgramAfterSession = (p: any, ..._args: any[]): any => {
+  if (!p || !Array.isArray(p.sessions)) return p
+
+  const sessions = [...p.sessions]
+  const currentIdx = p.currentSessionIndex ?? 0
+
+  // 1. Desbloquear la siguiente sesión si la actual está completa
+  const currentSession = sessions[currentIdx]
+  if (currentSession && (currentSession.status === 'completed' || currentSession.status === 'skipped')) {
+    const nextIdx = currentIdx + 1
+    if (nextIdx < sessions.length) {
+      const next = sessions[nextIdx]
+      if (next && (next.status === 'locked' || !next.status)) {
+        sessions[nextIdx] = { ...next, status: 'available' }
+      }
+    }
+  }
+
+  // 2. Avanzar el índice si la actual se completó
+  const newCurrentIndex = (currentSession?.status === 'completed' || currentSession?.status === 'skipped')
+    ? Math.min(currentIdx + 1, sessions.length - 1)
+    : currentIdx
+
+  return {
+    ...p,
+    sessions,
+    currentSessionIndex: newCurrentIndex,
+    updatedAt: Date.now(),
+  }
+}
+const getLatestStrategyChangeMessage = (_p: any): string | null => null
+
 import AdaptiveProgramSetupModal from "./adaptive/AdaptiveProgramSetup";
+import AdaptiveSetupWithFlow from "./adaptive/AdaptiveSetupWithFlow";
+import AdaptiveFlowLoader from "./adaptive/AdaptiveFlowLoader";
 import AdaptiveProgramHome from "./adaptive/AdaptiveProgramHome";
-import AdaptiveSessionRunner from "./adaptive/AdaptiveSessionRunner";
 import AdaptiveSessionComplete from "./adaptive/AdaptiveSessionComplete";
-import AdaptiveDebugPanel from "./adaptive/AdaptiveDebugPanel";
 import StudyALBook from "./adaptive/book/StudyALBook";
 import BookPreparation from "./adaptive/book/BookPreparation";
 import AdaptiveSessionV2 from "./adaptive/book/AdaptiveSessionV2";
+import AdaptiveSessionView from "./adaptive/AdaptiveSessionView";
+import StudyALAdaptiveSesh from "./adaptive/v2/StudyALAdaptiveSesh";
+import StudyALSessionV3 from "./adaptive/v3/StudyALSessionV3";
+import AdaptiveV2Bootstrap from "./adaptive/v2/AdaptiveV2Bootstrap";
+import { convertPlanToProgram } from "../../lib/adaptive/v2/adapters/planToProgram";
 import ProcessStyleSelector from "./adaptive/book/ProcessStyleSelector";
 import type { ProcessStyle } from "./adaptive/book/ProcessStyleSelector";
 import { useSyncAdaptiveState } from "../../hooks/useSyncAdaptiveState";
@@ -140,6 +183,7 @@ export default function StudyALProcess({
   const [setupOpen, setSetupOpen] = useState(false);
   // Ref para guardar el initialMode original — nunca debe ser pisado por re-renders
   const initialModeRef = useRef<'free' | 'adaptive' | undefined>(initialMode);
+  const v3Restored = useRef(false);  // protege contra sobreescritura del restore viejo
   // Solo actualizar si viene un valor nuevo no-nulo
   if (initialMode && initialModeRef.current !== initialMode) {
     initialModeRef.current = initialMode;
@@ -165,7 +209,59 @@ export default function StudyALProcess({
   );
 
   // ── Estado del modo adaptativo ───────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // RESTAURACIÓN v3: leer de materialSession primero (fuente única)
+  // ═══════════════════════════════════════════════════════════════
+  const restoreFromMaterialSession = (): { program: AdaptiveProgram | null; style: any; blueprint: any } => {
+    try {
+      if (typeof window === 'undefined') {
+        console.log('[v3] skip: SSR')
+        return { program: null, style: null, blueprint: null }
+      }
+      if (!materiales || materiales.length === 0) {
+        console.log('[v3] skip: no materiales', materiales)
+        return { program: null, style: null, blueprint: null }
+      }
+      const primaryMat = materiales[0]
+      const effectiveTemaId = temaId || (masteryContext as any)?.temaId || (masteryState as any)?.temaId
+      console.log('[v3] intento restore: temaId=', effectiveTemaId, 'primaryMat=', {
+        id: primaryMat?.id, matId: primaryMat?.materialId, nombre: primaryMat?.nombre,
+        content_hash: primaryMat?.content_hash, pages: primaryMat?.pages_count,
+      })
+      if (!effectiveTemaId || !primaryMat) {
+        console.log('[v3] skip: falta temaId o primaryMat')
+        return { program: null, style: null, blueprint: null }
+      }
+
+      const stableKey = buildStableKey(effectiveTemaId, primaryMat)
+      console.log('[v3] stableKey construido:', stableKey)
+      const unified = stableKey ? loadMaterialSession(stableKey) : null
+      console.log('[v3] materialSession encontrada:', !!unified, unified ? { hasProgram: !!unified.adaptiveProgram, sessions: unified.adaptiveProgram?.sessions?.length } : null)
+      if (unified?.adaptiveProgram) {
+        console.log('✅ [v3] materialSession restaurada:', stableKey, '| sesiones:', unified.adaptiveProgram.sessions?.length)
+        return { program: unified.adaptiveProgram, style: unified.processStyle, blueprint: unified.materialBlueprint || null }
+      }
+    } catch (e) {
+      console.log('[v3] Error restore:', e)
+    }
+    return { program: null, style: null, blueprint: null }
+  }
+
   const [adaptiveProgram, setAdaptiveProgram] = useState<AdaptiveProgram | null>(() => {
+    // v3: intentar primero desde materialSession (fuente unificada)
+    const v3 = restoreFromMaterialSession()
+    if (v3.program) {
+      v3Restored.current = true
+      // Restaurar blueprint en siguiente tick
+      if (typeof window !== 'undefined' && (v3.blueprint || (v3.program as any)?.materialBlueprint)) {
+        setTimeout(() => {
+          setMaterialBlueprint(v3.blueprint || (v3.program as any)?.materialBlueprint || null)
+        }, 0)
+      }
+      console.log('✅ [v3] Programa restaurado en useState init | sesiones:', v3.program.sessions?.length)
+      return v3.program
+    }
+
     // Intentar desde masteryState prop
     if ((masteryState as any)?.adaptiveProgram) return (masteryState as any).adaptiveProgram;
     // Intentar desde localStorage
@@ -186,6 +282,8 @@ export default function StudyALProcess({
     (masteryState as any)?.materialBlueprint || null
   );
   const [isBuildingBlueprint, setIsBuildingBlueprint] = useState(false);
+  const [useNewAdaptiveFlow, setUseNewAdaptiveFlow] = useState(false);
+  const [newFlowMaterialText, setNewFlowMaterialText] = useState('');
   const [lastApiPayload, setLastApiPayload] = useState<Record<string, any> | null>(null);
   const [learningMemory, setLearningMemory] = useState<LearningMemory | null>(null);
   const [userProfileData, setUserProfileData] = useState<UserProfile | null>(null);
@@ -209,7 +307,68 @@ export default function StudyALProcess({
   const [showStyleSelector, setShowStyleSelector] = useState(false);
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
   const { saveAdaptiveState, loadAdaptiveState, forceSyncNow } = useSyncAdaptiveState();
-  const [adaptiveView, setAdaptiveView] = useState<AdaptiveView>('home');
+  const [adaptiveView, setAdaptiveView] = useState<AdaptiveView>(() => {
+    // Si v3 tiene programa, iniciar directo en 'book' (evita pestañeo home → book)
+    const v3Init = restoreFromMaterialSession()
+    if (v3Init.program) {
+      v3Restored.current = true
+      return 'book'
+    }
+    return 'home'
+  });
+
+  // NOTA: La restauración v3 se hace en los useState init (adaptiveProgram y adaptiveView).
+  // NO se necesita useEffect adicional — evita re-renders infinitos.
+
+  // ═══════════════════════════════════════════════════════════════
+  // AUTO-SYNC materialSession v3 (nuevo storage unificado)
+  // Cada vez que adaptiveProgram cambia, se sincroniza al storage v3
+  // usando el stableKey del material (temaId + content_hash o nombre+pages).
+  // ═══════════════════════════════════════════════════════════════
+  useEffect(() => {
+    if (!adaptiveProgram || !materiales || materiales.length === 0) return
+    const primaryMat = materiales[0]
+    const effectiveTemaId = temaId || (masteryContext as any)?.temaId || (masteryState as any)?.temaId
+    if (!effectiveTemaId || !primaryMat) return
+
+    const stableKey = buildStableKey(effectiveTemaId, primaryMat)
+    if (!stableKey) return
+
+    const materialTitle = String(primaryMat?.nombre || primaryMat?.name || 'Material')
+    // Setup: priorizar el del componente (tiene evalPreference real), fallback al del programa
+    const componentSetup = {
+      initialKnowledgeLevel: (masteryContext as any)?.setup?.initialKnowledgeLevel || 'some',
+      sessionLength: (masteryContext as any)?.setup?.sessionLength || 'medium',
+      targetScore: (masteryContext as any)?.setup?.targetScore || 80,
+      examDate: (masteryContext as any)?.setup?.examDate || null,
+      evalPreference: (masteryContext as any)?.setup?.evalPreference || 'mix_everything',
+    }
+    const setup = { ...componentSetup, ...((adaptiveProgram as any)?.setup || {}) }
+    const style = processStyle as any
+
+    // Cargar existente o crear
+    const existing = loadMaterialSession(stableKey)
+    if (existing) {
+      patchMaterialSession(stableKey, {
+        adaptiveProgram,
+        processMode: 'adaptive',
+        processStyle: style,
+        setup,
+        materialBlueprint: materialBlueprint || existing.materialBlueprint,
+      })
+    } else {
+      createMaterialSession({
+        stableKey,
+        temaId: effectiveTemaId,
+        materialTitle,
+        processMode: 'adaptive',
+        processStyle: style,
+        setup,
+        adaptiveProgram,
+        materialBlueprint: materialBlueprint || undefined,
+      })
+    }
+  }, [adaptiveProgram, materiales, processStyle, materialBlueprint])
   const [sessionDomainBefore, setSessionDomainBefore] = useState(0);
   const [sessionDomainAfter, setSessionDomainAfter] = useState(0);
   const [strategyChangeMessage, setStrategyChangeMessage] = useState<string | null>(null);
@@ -326,17 +485,45 @@ export default function StudyALProcess({
     setExamDateCustom(m.examDateCustom || '');
     // Verificar que el adaptiveProgram guardado corresponde a los materiales actuales
     const savedProgram = m.adaptiveProgram || null
-    const currentMatIds = (materiales || [])
-      .map((mat: any) => String(mat?.materialId || mat?.id || ''))
-      .filter(Boolean)
-      .sort()
-      .join('|')
-    const programMatIds = savedProgram
-      ? (savedProgram.materialIds || []).map(String).sort().join('|')
-      : ''
 
-    // Solo restaurar si los materialIds coinciden exactamente
-    const programMatchesMaterials = currentMatIds && programMatIds && currentMatIds === programMatIds
+    // Normalizar IDs — el programa puede guardarlos en distintos formatos
+    const normId = (v: any) => String(v || '').trim().toLowerCase()
+
+    const currentMatIds = (materiales || [])
+      .flatMap((mat: any) => [
+        mat?.materialId,
+        mat?.id,
+        mat?.nombre,
+        mat?.name,
+      ])
+      .map(normId)
+      .filter(Boolean)
+
+    const programMatIds = savedProgram
+      ? (savedProgram.materialIds || []).map(normId).filter(Boolean)
+      : []
+
+    // Nombres/títulos también como criterio (más estable que los IDs timestamp)
+    const programMatNames = savedProgram
+      ? [
+          ...((savedProgram as any).materialNames || []),
+          savedProgram.materialTitle,
+          ...((savedProgram.sessions || []).map((s: any) => s.topicTitle).filter(Boolean).slice(0, 3)),
+        ].map(normId).filter(Boolean)
+      : []
+
+    // Coincidencia: cualquier ID o nombre en común entre saved y current
+    const idsMatch = programMatIds.length > 0 && (
+      programMatIds.some(pid => currentMatIds.includes(pid)) ||
+      currentMatIds.some(cid => programMatIds.includes(cid))
+    )
+    const namesMatch = programMatNames.length > 0 && (
+      programMatNames.some(pn => currentMatIds.includes(pn)) ||
+      currentMatIds.some(cid => programMatNames.some(pn => pn.includes(cid) || cid.includes(pn)))
+    )
+
+    const programMatchesMaterials = idsMatch || namesMatch
+
     const programToRestore = programMatchesMaterials ? savedProgram : null
 
     if (!programMatchesMaterials && savedProgram) {
@@ -346,10 +533,16 @@ export default function StudyALProcess({
       })
     }
 
-    setAdaptiveProgram(programToRestore);
+    // Solo restaurar si: 1) hay programa para restaurar, O 2) v3 no ha restaurado nada
+    // La ref v3Restored protege contra race conditions entre effects
+    if (v3Restored.current) {
+      console.log('🛡️ [Restore] v3 ya restauró — ignorando restore viejo')
+    } else if (programToRestore) {
+      setAdaptiveProgram(programToRestore);
+    }
     // Restaurar processStyle si existe
     const savedStyle = (m as any).processStyle;
-    console.log('🔄 [Restore] adaptiveProgram:', !!programToRestore, '| processMode:', mode, '| processStyle:', savedStyle);
+    console.log('🔄 [Restore] adaptiveProgram:', !!programToRestore, '| processMode:', mode, '| processStyle:', savedStyle, '| v3 ya cargado:', !!adaptiveProgram);
     if (savedStyle && savedStyle !== processStyle) {
       setProcessStyle(savedStyle);
     }
@@ -403,6 +596,15 @@ export default function StudyALProcess({
   // Guardar el setup pendiente mientras se elige estilo
   const [pendingSetup, setPendingSetup] = useState<AdaptiveProgramSetupType | null>(null);
 
+  // ═══════════════════════════════════════════════════════════════
+  // FLAG v2 — cuando está activo, usa el nuevo sistema (analyze + planner)
+  // Cambia a false para volver al sistema viejo temporalmente
+  // ═══════════════════════════════════════════════════════════════
+  const USE_V2_ADAPTIVE = false;
+  const [v2BootstrapActive, setV2BootstrapActive] = useState(false);
+  const [v2PendingSetup, setV2PendingSetup] = useState<AdaptiveProgramSetupType | null>(null);
+  const [v2PendingStyle, setV2PendingStyle] = useState<ProcessStyle | null>(null);
+
   const handleSetupComplete = useCallback((setup: AdaptiveProgramSetupType) => {
     // SOLO guardar el setup y mostrar el selector de estilo
     // NO generar nada todavía
@@ -422,7 +624,21 @@ export default function StudyALProcess({
   const generateProgramWithStyle = useCallback(async (
     setup: AdaptiveProgramSetupType,
     style: ProcessStyle,
+    preflightData?: { analysis?: any; diagnosticResult?: any },
   ) => {
+    // ═══════════════════════════════════════════════════════════
+    // INTERCEPTAR SI v2 ESTÁ ACTIVO
+    // ═══════════════════════════════════════════════════════════
+    if (USE_V2_ADAPTIVE) {
+      console.log('🚀 [v2] Activando flujo v2 (analyze + planner)');
+      setProcessStyle(style);
+      setV2PendingSetup(setup);
+      setV2PendingStyle(style);
+      setV2BootstrapActive(true);
+      setPendingSetup(null);
+      return;
+    }
+
     const baseMastery = (localMasteryState || masteryState) as MaterialMastery | null;
 
     console.log('🔵 [generate] INICIO | style:', style);
@@ -507,6 +723,9 @@ export default function StudyALProcess({
           setup,
           learningMemory: loadedLearningMemory || null,
           userProfile: userProfileData || null,
+          // Datos del flujo adaptativo real (si ya se analizó el material)
+          analysis: preflightData?.analysis || null,
+          diagnosticResult: preflightData?.diagnosticResult || null,
         }),
       })
 
@@ -555,6 +774,7 @@ export default function StudyALProcess({
         studyMode: 'adaptive',
         processMode: 'adaptive',
         materialIds: matIds,
+        ...({ materialNames: (materiales || []).map((m: any) => String(m?.nombre || m?.name || '').trim()).filter(Boolean) } as any),
         adaptiveProgram: program,
         processStyle: style,
         targetScore,
@@ -1070,6 +1290,7 @@ export default function StudyALProcess({
           studyMode: 'adaptive',
           processMode: 'adaptive',
           materialIds: matIds,
+          ...({ materialNames: (materiales || []).map((m: any) => String(m?.nombre || m?.name || '').trim()).filter(Boolean) } as any),
           adaptiveProgram,
           processStyle: processStyle || undefined,
           targetScore,
@@ -1111,6 +1332,89 @@ export default function StudyALProcess({
       }
 
       // Si está generando (después de elegir estilo, antes de tener programa)
+      // ═══════════════════════════════════════════════════════════
+      // RENDER v2 BOOTSTRAP (si está activo)
+      // ═══════════════════════════════════════════════════════════
+      if (v2BootstrapActive && v2PendingSetup) {
+        const baseMastery = (localMasteryState || masteryState) as MaterialMastery | null;
+        const materialId = materiales?.[0]?.materialId || materiales?.[0]?.id || baseMastery?.materialId || 'mat_default';
+        const materialTitle = materiales?.[0]?.nombre || materiales?.[0]?.name || baseMastery?.materialName || 'Material';
+        const userId = (masteryContext as any)?.userProfile?.userId || 'user_default';
+
+        return (
+          <AdaptiveV2Bootstrap
+            userId={userId}
+            materialId={materialId}
+            materialTitle={materialTitle}
+            materialText={materialContent || ''}
+            totalPages={materiales?.[0]?.pages_count}
+            profile={userProfileData || (masteryContext as any)?.userProfile || {}}
+            setup={v2PendingSetup}
+            onReady={(plan, intelligence) => {
+              console.log('✅ [v2] Plan listo, convirtiendo a AdaptiveProgram');
+              const program = convertPlanToProgram(plan, intelligence, v2PendingSetup);
+              const style = v2PendingStyle || 'book';
+
+              // Guardar y activar
+              setAdaptiveProgram(program);
+              setMaterialBlueprint(program.materialBlueprint);
+              setV2BootstrapActive(false);
+              setV2PendingSetup(null);
+              setV2PendingStyle(null);
+              setIsBuildingBlueprint(false);
+              setAdaptiveView(style === 'book' ? 'book' : 'home');
+
+              // Persistir en mastery state
+              if (baseMastery?.sessionKey) {
+                const updated: MaterialMastery = {
+                  ...baseMastery,
+                  processMode: 'adaptive',
+                  targetScore: v2PendingSetup.targetScore,
+                  dailyMinutes: v2PendingSetup.dailyMinutes,
+                  adaptiveProgram: program,
+                  materialBlueprint: program.materialBlueprint,
+                  lastUpdated: Date.now(),
+                } as any;
+                (updated as any).processStyle = style;
+                persistMasteryState(updated);
+              }
+
+              // Guardar sesión activa
+              if (temaId) {
+                const matIds = materiales.map((m: any) => m?.materialId || m?.id).filter(Boolean);
+                upsertSession({
+                  temaId,
+                  enfoque: (enfoque || 'teorico') as any,
+                  studyMode: 'adaptive',
+                  processMode: 'adaptive',
+                  materialIds: matIds,
+                  ...({ materialNames: (materiales || []).map((m: any) => String(m?.nombre || m?.name || '').trim()).filter(Boolean) } as any),
+                  adaptiveProgram: program,
+                  processStyle: style,
+                  targetScore: v2PendingSetup.targetScore,
+                  examDate: v2PendingSetup.examDate || undefined,
+                  materialBlueprint: program.materialBlueprint,
+                  currentPhase: 'adaptive_active',
+                });
+              }
+            }}
+            onError={(err) => {
+              console.error('❌ [v2] Error en bootstrap:', err);
+              alert('Error preparando el modo adaptativo: ' + err);
+              setV2BootstrapActive(false);
+              setV2PendingSetup(null);
+              setV2PendingStyle(null);
+            }}
+            onCancel={() => {
+              setV2BootstrapActive(false);
+              setV2PendingSetup(null);
+              setV2PendingStyle(null);
+              onClose();
+            }}
+          />
+        );
+      }
+
       if (isBuildingBlueprint || pendingSetup) {
         const stage: 'analyzing' | 'designing' | 'ready' =
           !materialBlueprint ? 'analyzing' :
@@ -1125,10 +1429,27 @@ export default function StudyALProcess({
         );
       }
 
-      // Default: mostrar setup
+      // Default: mostrar setup con flujo adaptativo real
       return (
-        <AdaptiveProgramSetupModal
-          onComplete={handleSetupComplete}
+        <AdaptiveSetupWithFlow
+          materialText={materialContent || ''}
+          materialTitle={materiales?.[0]?.nombre || materiales?.[0]?.name || 'Material'}
+          materialIds={(materiales || []).map((m: any) => m?.materialId || m?.id).filter(Boolean)}
+          onComplete={({ plan, analysis, intake, diagnosticResult }) => {
+            // Convertir el resultado del flujo nuevo al formato que usa generateProgramWithStyle
+            const setup = {
+              initialKnowledgeLevel: intake.selfReportedLevel as any,
+              sessionLength: (intake.sessionDurationMinutes <= 12 ? 'short' : intake.sessionDurationMinutes >= 30 ? 'long' : 'medium') as any,
+              targetScore: Number(intake.targetGrade) || 80,
+              examDate: intake.examDate,
+              dailyMinutes: 45,
+              evalPreference: (intake as any).evalPreference || 'mix_everything',
+            }
+            const style = processStyle || 'book'
+            setProcessStyle(style)
+            // Llamar a generateProgramWithStyle con el análisis ya hecho
+            generateProgramWithStyle(setup, style, { analysis, diagnosticResult })
+          }}
           onCancel={onClose}
         />
       );
@@ -1141,24 +1462,21 @@ export default function StudyALProcess({
 
     if (adaptiveView === 'running' && currentSession) {
       const useBookStyle = processStyle === 'book';
-      const SessionComponent = useBookStyle ? AdaptiveSessionV2 : AdaptiveSessionRunner;
+      const SessionComponent = StudyALSessionV3;  // v3 con Knowledge Graph
 
       // Enriquecer masteryContext con datos que el componente de sesión necesita
       const enrichedMasteryContext = {
         ...(masteryContext || {}),
-        // Perfil del usuario para personalizar explicaciones
         userProfile: userProfileData || (masteryContext as any)?.userProfile || null,
-        // Blueprint para acceder a topics y conceptos reales
         materialBlueprint: materialBlueprint || (masteryContext as any)?.materialBlueprint || null,
-        // Programa completo para saber en qué sesión vamos
         adaptiveProgram: adaptiveProgram || null,
-        // Setup del programa
         setup: adaptiveProgram?.setup || null,
         sessionLength: adaptiveProgram?.setup?.sessionLength || 'medium',
-        // LearningMemory para adaptar estilo
         learningMemory: learningMemory || null,
-        // Título del material
         materialTitle: materiales?.[0]?.nombre || materiales?.[0]?.name || 'Material',
+        // NUEVO — análisis completo del material para usar texto real en sesiones
+        materialAnalysis: (adaptiveProgram as any)?.materialAnalysis ||
+          (masteryContext as any)?.materialAnalysis || null,
       }
 
       return (
@@ -1190,30 +1508,25 @@ export default function StudyALProcess({
     // Home del programa
     return (
       <>
-        {process.env.NODE_ENV === 'development' && (
-          <AdaptiveDebugPanel
-            program={adaptiveProgram}
-            materialContent={materialContent}
-            masteryState={localMasteryState}
-            masterySnapshot={localMasterySnapshot}
-            materialBlueprint={materialBlueprint}
-            isBuildingBlueprint={isBuildingBlueprint}
-            lastApiPayload={lastApiPayload}
-            learningMemory={learningMemory}
-          />
-        )}
+        
+
         {/* Style Selector — primera vez */}
 
         {/* Book View — solo cuando TODO está listo */}
         {adaptiveView === 'book' && (() => {
           const materialReady = contentStatus === 'ready' && !!(materialContent && materialContent.trim().length >= 100);
-          const blueprintReady = !!materialBlueprint && !isBuildingBlueprint;
+          // Blueprint es opcional — si se restauró de v3 puede no tenerlo
+          const blueprintReady = !isBuildingBlueprint;  // no bloquear por falta de blueprint
           const programReady = !!(adaptiveProgram && adaptiveProgram.sessions && adaptiveProgram.sessions.length > 0);
           const fullyReady = materialReady && blueprintReady && programReady;
 
           // Si no está listo, mostrar pantalla de preparación
           if (!fullyReady) {
+            // Si ya tenemos programa (restaurado de v3), mostrar "cargando" breve
+            // en vez de "analizando" que implica que aún no se hizo nada
+            const isRestored = v3Restored.current && programReady
             const stage: 'analyzing' | 'designing' | 'ready' =
+              isRestored ? 'ready' :
               !materialReady || isBuildingBlueprint ? 'analyzing' :
               !programReady ? 'designing' :
               'ready';
@@ -1223,6 +1536,7 @@ export default function StudyALProcess({
                 stage={stage}
                 topicsCount={materialBlueprint?.topics?.length}
                 sessionsCount={adaptiveProgram?.sessions?.length}
+                
               />
             );
           }

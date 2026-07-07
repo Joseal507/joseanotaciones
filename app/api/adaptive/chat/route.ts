@@ -56,7 +56,14 @@ export async function POST(request: NextRequest) {
         overallMastery < 60 ? 'NIVEL INTERMEDIO (en desarrollo)' :
         overallMastery < 80 ? 'NIVEL AVANZADO (buen dominio)' : 'NIVEL EXPERTO'
 
-      const feedbackPrompt = `Eres un profesor evaluando la respuesta de un estudiante.
+      const feedbackPrompt = `Eres un profesor evaluando la respuesta de un estudiante. Sé generoso y honesto.
+
+REGLAS DE EVALUACIÓN:
+- Si la respuesta menciona los puntos clave aunque sea de forma simple → score 70-85
+- Solo dar score < 50 si la respuesta está completamente equivocada o vacía
+- Si mencionó los elementos principales pero le faltó detalle → score 60-75
+- Si la respuesta es buena → score 75-90
+- El score debe reflejar COMPRENSIÓN, no perfección de redacción
 
 TEMA: "${topicTitle}"
 CONCEPTO EVALUADO: "${concept}"

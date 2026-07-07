@@ -1,23 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-export const maxDuration = 30
-
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url)
-    const materialId = searchParams.get('materialId')
-    if (!materialId) {
-      return NextResponse.json({ success: false, error: 'materialId requerido' }, { status: 400 })
-    }
-
-    // TODO: agregar auth cuando lib/auth esté disponible
-    // Por ahora devuelve null — client usa localStorage
-    return NextResponse.json({ success: true, state: null, source: 'not_found' })
-
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 })
-  }
-}
+// Storage en memoria del servidor — persiste mientras el servidor esté corriendo
+// Para persistencia real entre reinicios, los datos también van en localStorage del cliente
+const memoryStore = new Map<string, any>()
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,15 +10,31 @@ export async function POST(request: NextRequest) {
     const { materialId, state } = body
 
     if (!materialId || !state) {
-      return NextResponse.json({ success: false, error: 'materialId y state requeridos' }, { status: 400 })
+      return NextResponse.json({ success: false, error: 'Faltan datos' }, { status: 400 })
     }
 
-    // TODO: agregar auth y persistencia en Cloudflare KV
-    // Por ahora acepta el payload y devuelve ok
-    // El client ya guardó en localStorage antes de llamar aquí
-    console.log('[Sync] State recibido para material:', materialId, '- chars:', JSON.stringify(state).length)
+    memoryStore.set(materialId, {
+      ...state,
+      savedAt: Date.now(),
+    })
 
-    return NextResponse.json({ success: true, key: `adaptive:anonymous:${materialId}` })
+    return NextResponse.json({ success: true })
+  } catch (err: any) {
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 })
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const materialId = searchParams.get('materialId')
+
+    if (!materialId) {
+      return NextResponse.json({ success: false, error: 'Falta materialId' }, { status: 400 })
+    }
+
+    const state = memoryStore.get(materialId) || null
+    return NextResponse.json({ success: true, state })
 
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 })

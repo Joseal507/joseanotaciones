@@ -3,12 +3,15 @@ import React from 'react'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { AdaptiveSession } from '../../../../lib/adaptive'
-import {
-  createSessionMemory, updateConceptState, saveSessionMemory,
-  loadSessionMemory, getPriorityForNextSession,
-} from '../../../../lib/adaptive/sessionMemory'
-import type { SessionMemory } from '../../../../lib/adaptive/sessionMemory'
-import { buildAdaptiveContext, serializeAdaptiveContext } from '../../../../lib/adaptive/adaptiveContext'
+// Stubs — sessionMemory y adaptiveContext eliminados
+type SessionMemory = { sessionId: string; topicTitle: string; concepts: any[]; completedAt?: number; conceptStates?: Map<string, any> }
+const createSessionMemory = (sessionId: string, topicTitle: string, concepts: any[]): SessionMemory => ({ sessionId, topicTitle, concepts, conceptStates: new Map() })
+const updateConceptState = (mem: SessionMemory, ..._args: any[]): SessionMemory => mem
+const saveSessionMemory = (_m: SessionMemory): void => {}
+const loadSessionMemory = (_id: string): SessionMemory | null => null
+const getPriorityForNextSession = (_m: SessionMemory): { handoffNote: string; mustStartWith?: string[]; mustReinforce?: string[]; canSkip?: string[] } => ({ handoffNote: '', mustStartWith: [], mustReinforce: [], canSkip: [] })
+const buildAdaptiveContext = (params: any): any => ({ ...params, contenido: params.materialContent, materialSlice: params.materialContent })
+const serializeAdaptiveContext = (ctx: any): any => ctx
 import MatchingCanvas from './MatchingCanvas'
 
 interface Props {
@@ -999,13 +1002,13 @@ export default function AdaptiveSessionV2({
     // Si el avg score es muy bajo Y todavía hay conceptos sin verificar
     // Y no se ha intentado reforzar antes → insertar refuerzo antes de cerrar
     const MIN_PASSING_SCORE = 55
-    const conceptStates = Object.values(sessionMemoryRef.current.conceptStates)
-    const unverifiedConcepts = conceptStates.filter(s =>
-      s.status === 'unseen' || s.status === 'explained'
-    ).map(s => s.name)
-    const failedConcepts = conceptStates.filter(s =>
-      s.status === 'attempted' && (s.lastScore || 0) < MIN_PASSING_SCORE
-    ).map(s => s.name)
+    const conceptStates: any[] = Array.from((sessionMemoryRef.current.conceptStates as any)?.values?.() || [])
+    const unverifiedConcepts = conceptStates.filter((st: any) =>
+      st.status === 'unseen' || st.status === 'explained'
+    ).map((st: any) => st.name)
+    const failedConcepts = conceptStates.filter((st: any) =>
+      st.status === 'attempted' && (st.lastScore || 0) < MIN_PASSING_SCORE
+    ).map((st: any) => st.name)
 
     // Evidencia por concepto — no promediar globalmente
     // Un concepto puede estar en 100 y otro en 0: el promedio no dice nada
