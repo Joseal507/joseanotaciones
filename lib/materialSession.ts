@@ -31,6 +31,7 @@ export interface MaterialSessionState {
   // Programa adaptativo
   adaptiveProgram?: any
   materialBlueprint?: any
+  hasSeenIntro?: boolean
 
   // Metadata
   createdAt: number

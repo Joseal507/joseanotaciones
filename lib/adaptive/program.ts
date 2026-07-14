@@ -147,6 +147,12 @@ export interface AdaptiveSession {
   planVersion?: number             // si se re-planeó, qué versión es
   groupedTopicIds?: string[]       // si la sesión cubre varios topics agrupados
 
+  // ── Asignación determinista de micros del grafo v3 ──────────
+  // Llenado por el tutor al iniciar la sesión desde el grafo
+  assignedMicroIds?: string[]      // micros concretos asignados a esta sesión
+  requiredMicroIds?: string[]      // micros que deben completarse (subset de assigned)
+  retentionMicroIds?: string[]     // micros de repaso espaciado
+
   // Se llenan al completar
   domainBefore?: number
   domainAfter?: number

@@ -13,6 +13,12 @@ interface Props {
     domainGain: number
     conceptsImproved: string[]
     stepResults: Array<{ stepId: string; score?: number; correct?: boolean }>
+    materialCoveragePercent?: number
+    masteryPercent?: number
+    studiedMicros?: number
+    totalMicros?: number
+    weakMicroIds?: string[]
+    weakMicroNames?: string[]
   }) => void
   onClose: () => void
 }
@@ -27,13 +33,17 @@ export default function StudyALSessionV3({
   const [loadingMsg, setLoadingMsg] = useState('Preparando la sesión...')
   const [errorMsg, setErrorMsg] = useState('')
 
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [sessionId, setSessionId] = useState<string | null>(session.id || null)
   const [currentPage, setCurrentPage] = useState<any>(null)
   const [lastEvaluation, setLastEvaluation] = useState<any>(null)
   const [sessionSummary, setSessionSummary] = useState<any>(null)
   const [systemInfo, setSystemInfo] = useState<any>(null)
   const [showEvaluation, setShowEvaluation] = useState(false)
   const [conceptsMastered, setConceptsMastered] = useState<string[]>([])
+  const [coveragePercent, setCoveragePercent] = useState(0)
+  const [lastCoverageReport, setLastCoverageReport] = useState<any>(null)
+  const [pendingNextPage, setPendingNextPage] = useState<any>(null)
+  const [pendingSystemInfo, setPendingSystemInfo] = useState<any>(null)
 
   const hasStarted = useRef(false)
   const materialId = useRef<string>('')
@@ -54,7 +64,10 @@ export default function StudyALSessionV3({
       userId.current = profile.userId || 'user_default'
 
       const material = masteryContext?.materials?.[0] || masteryContext?.material
-      materialId.current = material?.materialId || material?.id || session.id || 'mat_default'
+      // FIX: usar materialId real del context (no session.id que cambia entre sesiones)
+      // Orden de prioridad: materialId explícito > material.materialId > material.id > mat_default
+      materialId.current = masteryContext?.materialId ||
+        material?.materialId || material?.id || 'mat_default'
 
       const materialTitle = material?.nombre || material?.name ||
                             (masteryContext as any)?.materialTitle ||
@@ -117,11 +130,20 @@ export default function StudyALSessionV3({
           studentAnswer,
           evalPreference: setup.evalPreference || 'mix_everything',
           initialKnowledgeLevel: setup.initialKnowledgeLevel || 'some',
+          // Propósito pedagógico de la sesión — cambia el comportamiento del tutor
+          sessionPurpose: session.purpose || 'understand',
+          sessionFormat: session.sessionFormat || 'discovery',
           // ← nuevo: enviar los topics de la sesión para que el tutor filtre micros
           sessionTopicTitles: [
             ...(session.targetConcepts || []),
             ...(session.topicTitle ? [session.topicTitle] : []),
+            // Fallback: usar title de la sesión si los anteriores están vacíos
+            ...((!(session.targetConcepts?.length) && !session.topicTitle && session.title)
+              ? [session.title]
+              : []),
           ].filter(Boolean),
+          // Restricción determinista — micros asignados a esta sesión del programa
+          assignedMicroIds: (session as any).assignedMicroIds || [],
         }),
       })
 
@@ -131,33 +153,48 @@ export default function StudyALSessionV3({
 
       if (data.sessionId) setSessionId(data.sessionId)
 
-      if (data.evaluation) {
+      // Siempre preparar la siguiente página
+      const nextPage = data.page ? {
+        id: 'page_' + Date.now(),
+        pageType: data.page.type || 'theory',
+        title: data.page.title,
+        content: data.page.content || { blocks: [] },
+        interaction: data.page.interaction,
+        topicId: data.systemInfo?.microId || '',
+        createdAt: Date.now(),
+      } : null
+
+      // Coverage siempre se actualiza
+      // Usar materialCoveragePercent (cobertura real estudiada) si existe
+      // Fallback a materialLearned (mastery ponderado) para compatibilidad
+      const coveragePct = data.coverageReport?.materialCoveragePercent
+        ?? data.coverageReport?.materialLearned
+      if (coveragePct !== undefined) {
+        setCoveragePercent(coveragePct)
+      }
+      if (data.coverageReport) {
+        setLastCoverageReport(data.coverageReport)
+      }
+
+      const hasEvaluation = !!data.evaluation
+      if (hasEvaluation) {
         setLastEvaluation(data.evaluation)
-        setShowEvaluation(true)  // SIEMPRE mostrar feedback
+        setShowEvaluation(true)
 
         if (data.evaluation.outcome === 'correct' && data.systemInfo?.activeMicro) {
           setConceptsMastered(prev =>
             prev.includes(data.systemInfo.activeMicro) ? prev : [...prev, data.systemInfo.activeMicro]
           )
         }
+
+        // Guardar la siguiente página Y systemInfo para mostrar después del feedback
+        if (nextPage) setPendingNextPage(nextPage)
+        if (data.systemInfo) setPendingSystemInfo(data.systemInfo)
       } else {
         setLastEvaluation(null)
         setShowEvaluation(false)
-      }
-
-      setSystemInfo(data.systemInfo)
-
-      if (data.page) {
-        const bookPage = {
-          id: 'page_' + Date.now(),
-          pageType: data.page.type || 'theory',
-          title: data.page.title,
-          content: data.page.content || { blocks: [] },
-          interaction: data.page.interaction,
-          topicId: data.systemInfo?.microId || '',
-          createdAt: Date.now(),
-        }
-        setCurrentPage(bookPage)
+        setSystemInfo(data.systemInfo)
+        if (nextPage) setCurrentPage(nextPage)
       }
 
       if (data.shouldCloseSession) {
@@ -185,9 +222,23 @@ export default function StudyALSessionV3({
 
   const handleContinue = async () => {
     if (phase === 'evaluating') return
+
+    // Si hay página pendiente del feedback anterior, mostrarla SIN llamar al tutor
+    if (pendingNextPage) {
+      setShowEvaluation(false)
+      setLastEvaluation(null)
+      setCurrentPage(pendingNextPage)
+      if (pendingSystemInfo) setSystemInfo(pendingSystemInfo)
+      setPendingNextPage(null)
+      setPendingSystemInfo(null)
+      setPhase('ready')
+      return
+    }
+
+    // Si no hay página pendiente, pedir siguiente al tutor
     setPhase('evaluating')
     setShowEvaluation(false)
-    setLastEvaluation(null)  // Limpiar feedback anterior
+    setLastEvaluation(null)
     setLoadingMsg('Preparando siguiente paso...')
     await callTutor(sessionId || undefined)
   }
@@ -199,6 +250,12 @@ export default function StudyALSessionV3({
         domainGain: Math.min(100, (systemInfo?.progress || 0)),
         conceptsImproved: conceptsMastered,
         stepResults: [],
+        materialCoveragePercent: lastCoverageReport?.materialCoveragePercent ?? coveragePercent,
+        masteryPercent: lastCoverageReport?.overallCoverage ?? Math.min(100, (systemInfo?.progress || 0)),
+        studiedMicros: lastCoverageReport?.studiedMicros ?? 0,
+        totalMicros: lastCoverageReport?.totalMicros ?? 0,
+        weakMicroIds: Array.isArray(lastCoverageReport?.weakMicros) ? lastCoverageReport.weakMicros.map((m: any) => m.microId) : [],
+        weakMicroNames: Array.isArray(lastCoverageReport?.weakMicros) ? lastCoverageReport.weakMicros.map((m: any) => m.microName) : [],
       })
     }, 2000)
   }
@@ -306,6 +363,12 @@ export default function StudyALSessionV3({
                 domainGain: Math.min(100, systemInfo?.progress || 0),
                 conceptsImproved: conceptsMastered,
                 stepResults: [],
+                materialCoveragePercent: lastCoverageReport?.materialCoveragePercent ?? coveragePercent,
+                masteryPercent: lastCoverageReport?.overallCoverage ?? Math.min(100, systemInfo?.progress || 0),
+                studiedMicros: lastCoverageReport?.studiedMicros ?? 0,
+                totalMicros: lastCoverageReport?.totalMicros ?? 0,
+                weakMicroIds: Array.isArray(lastCoverageReport?.weakMicros) ? lastCoverageReport.weakMicros.map((m: any) => m.microId) : [],
+                weakMicroNames: Array.isArray(lastCoverageReport?.weakMicros) ? lastCoverageReport.weakMicros.map((m: any) => m.microName) : [],
               })
             }}
             style={{
@@ -359,7 +422,7 @@ export default function StudyALSessionV3({
                 color: '#a8854a', marginBottom: 6, textTransform: 'uppercase',
               }}>
                 {session.title ? `${session.title} · ` : ''}
-                Concepto {(systemInfo.microsCompleted || 0) + 1} de {systemInfo.microsTotal || '?'}
+                Esta sesión: {systemInfo.microsCompleted || 0}/{systemInfo.microsTotal || '?'} conceptos · Material {coveragePercent}%
               </div>
             )}
             <div style={{ fontSize: 24, fontWeight: 800, color: '#2a1f14', lineHeight: 1.2 }}>
@@ -372,73 +435,14 @@ export default function StudyALSessionV3({
               background: 'rgba(214,178,111,.15)',
               fontSize: 13, fontWeight: 700, color: '#a8854a',
             }}>
-              {systemInfo.microsCompleted}/{systemInfo.microsTotal}
+              {systemInfo.microsCompleted}/{systemInfo.microsTotal} sesión
             </div>
           )}
         </div>
 
         {/* Razonamiento del motor oculto en producción */}
 
-        {/* FEEDBACK — cuando hay evaluación, se muestra SOLO esto con botón continuar */}
-        {showEvaluation && lastEvaluation && (
-          <div style={{
-            padding: '18px 22px', marginBottom: 20,
-            background: lastEvaluation.outcome === 'correct' ? 'rgba(90,138,58,.08)' :
-              lastEvaluation.outcome === 'partial' ? 'rgba(214,178,111,.08)' :
-              'rgba(139,26,26,.06)',
-            borderLeft: `4px solid ${lastEvaluation.outcome === 'correct' ? '#5a8a3a' :
-              lastEvaluation.outcome === 'partial' ? '#d6b26f' : '#8b1a1a'}`,
-            borderRadius: '0 10px 10px 0',
-          }}>
-            <div style={{
-              fontSize: 16, fontWeight: 800, marginBottom: 10,
-              color: lastEvaluation.outcome === 'correct' ? '#3a5a1e' :
-                lastEvaluation.outcome === 'partial' ? '#a8854a' : '#8b1a1a',
-            }}>
-              {lastEvaluation.outcome === 'correct' ? '✓ Correcto' :
-                lastEvaluation.outcome === 'partial' ? '◐ Casi' : '✗ Incorrecto'}
-            </div>
-
-            {lastEvaluation.whatWasCorrect && lastEvaluation.outcome === 'correct' && (
-              <div style={{ fontSize: 15, color: '#2a1f14', lineHeight: 1.6 }}>
-                {lastEvaluation.whatWasCorrect}
-              </div>
-            )}
-            {lastEvaluation.whatWasMissing && lastEvaluation.outcome !== 'correct' && (
-              <div style={{ fontSize: 15, color: '#2a1f14', lineHeight: 1.6, marginBottom: 10 }}>
-                {lastEvaluation.whatWasMissing}
-              </div>
-            )}
-            {lastEvaluation.correctAnswer && lastEvaluation.outcome !== 'correct' && (
-              <div style={{
-                padding: '14px 16px', marginTop: 10,
-                background: 'rgba(255,255,255,.5)', borderRadius: 8,
-                fontSize: 15, color: '#2a1f14', lineHeight: 1.6,
-                border: '1px solid rgba(42,31,20,.06)',
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: '#a8854a', marginBottom: 6, letterSpacing: 1 }}>
-                  RESPUESTA CORRECTA
-                </div>
-                {lastEvaluation.correctAnswer}
-              </div>
-            )}
-
-            {/* Botón para continuar después del feedback */}
-            <button
-              onClick={handleContinue}
-              style={{
-                width: '100%', padding: '14px',
-                background: '#2a1f14', color: '#f5ecd5',
-                border: 'none', borderRadius: 10,
-                fontFamily: 'Georgia, serif',
-                fontSize: 16, fontWeight: 700, cursor: 'pointer',
-                marginTop: 12,
-              }}
-            >
-              {lastEvaluation.outcome === 'correct' ? 'Continuar →' : 'Entendido, seguimos →'}
-            </button>
-          </div>
-        )}
+        {/* Feedback movido a PaginatedBookPage — inline debajo de la pregunta */}
 
         {phase === 'evaluating' && (
           <div style={{ textAlign: 'center', padding: '40px 20px' }}>
@@ -449,7 +453,7 @@ export default function StudyALSessionV3({
           </div>
         )}
 
-        {phase === 'ready' && currentPage && !showEvaluation && !currentPage.interaction && systemInfo?.activeMicro && (
+        {phase === 'ready' && currentPage && !currentPage.interaction && !showEvaluation && systemInfo?.activeMicro && (
           <AskWidget
             microName={systemInfo.activeMicro}
             microDefinition={currentPage.content?.blocks?.map((b: any) => b?.text).filter(Boolean).join(' ').slice(0, 500)}
@@ -457,12 +461,13 @@ export default function StudyALSessionV3({
             microFormulas={currentPage.content?.blocks?.filter((b: any) => b?.type === 'formula')}
           />
         )}
-        {phase === 'ready' && currentPage && !showEvaluation && (
+        {phase === 'ready' && currentPage && (
           <PaginatedBookPage
             page={currentPage}
             onSubmitAnswer={handleAnswer}
             onContinue={handleContinue}
             disabled={false}
+            evaluation={showEvaluation && lastEvaluation ? lastEvaluation : null}
           />
         )}
       </div>

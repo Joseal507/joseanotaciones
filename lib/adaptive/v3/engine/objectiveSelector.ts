@@ -35,6 +35,7 @@ export function selectObjective(
   microConcept: MicroConcept,
   sessionState: SessionState,
   initialKnowledgeLevel: string = 'some',
+  evalPreference: string = 'mix_everything',
 ): ObjectiveDecision {
   const { evidence, timeline, totalInteractions } = microState
 
@@ -61,19 +62,18 @@ export function selectObjective(
   // 2. ¿ACABA DE FALLAR? → Ayudar (no repetir)
   // ═══════════════════════════════════════════════════════════
   if (lastOutcome === 'incorrect') {
-    // Tras muchos fallos consecutivos, cambiar de estrategia (ilustrar con ejemplo)
-    // NUNCA avanzar sin haber acertado — un tutor sigue enseñando.
-    if (consecutiveFails >= 4) {
+    // Tras 3+ fallos consecutivos: cambiar completamente de estrategia
+    if (consecutiveFails >= 3) {
       return {
         objective: 'illustrate_with_example',
-        reason: `${consecutiveFails} fallos — cambiar estrategia con ejemplo concreto`,
+        reason: `${consecutiveFails} fallos consecutivos — cambiar estrategia con ejemplo concreto`,
         isFirstEncounter: false,
         requiresQuestion: false,
         requiresContent: true,
         suggestedContentType: 'example',
       }
     }
-    // Revelar respuesta y reexplicar
+    // Tras 1-2 fallos: revelar respuesta y reexplicar inmediatamente
     return {
       objective: 'reveal_answer',
       reason: 'Fallo reciente — mostrar la respuesta y reexplicar',
@@ -164,18 +164,121 @@ export function selectObjective(
 
   // ═══════════════════════════════════════════════════════════
   // 3. ¿YA SABE SUFICIENTE? → Avanzar
+  // El umbral depende del evalPreference del estudiante:
+  //
+  // QUICK_TEST: evaluación objetiva rigurosa
+  //   → Necesita 3 respuestas correctas de FORMATOS DISTINTOS
+  //   → Al menos 1 fill_blank (recall sin banco) o matching
+  //   → Garantiza que no fue azar (MCQ sola no basta)
+  //
+  // WRITE_EXPLAIN: demostración profunda
+  //   → Necesita 1 teach_back o open_response correcto
+  //   → + al menos 1 MCQ/TF de verificación base
+  //   → El teach_back es el cierre obligatorio antes de consolidar
+  //
+  // MIX_EVERYTHING: el sistema elige según tipo cognitivo
+  //   → Necesita 2 correctas variadas + 1 de recall o explicación
+  //   → Para tipos mathematical/procedural: fill_blank obligatorio
+  //   → Para tipos conceptual/causal: explain_why o teach_back
   // ═══════════════════════════════════════════════════════════
-  // Consolidar SOLO si el estudiante DEMOSTRÓ aprendizaje real.
-  // Nunca por número de interacciones — un tutor no salta sin evidencia.
-  // Umbral base: 2 correctas mínimo (isReadyToAdvanceEvidence puede exigir más según dificultad)
-  if (evidence.answeredCorrectly >= 2) {
-    return {
-      objective: 'consolidate',
-      reason: `${evidence.answeredCorrectly} correctas — listo para consolidar`,
-      isFirstEncounter: false,
-      requiresQuestion: false,
-      requiresContent: true,
-      suggestedContentType: 'summary',
+
+  // Analizar qué tipos de formatos ya se usaron
+  const formatsUsed = timeline
+    .filter(e => (e.metadata as any)?.formatUsed)
+    .map(e => (e.metadata as any)?.formatUsed as string)
+  const hasRecallFormat = formatsUsed.some(f =>
+    ['fill_blank', 'open_response', 'teach_back', 'explain_why', 'step_by_step_solver'].includes(f)
+  )
+  const hasExplainFormat = formatsUsed.some(f =>
+    ['open_response', 'teach_back', 'explain_why'].includes(f)
+  )
+  const distinctFormats = new Set(formatsUsed.filter(Boolean)).size
+
+  if (evalPreference === 'quick_test') {
+    // QUICK_TEST: 3 correctas con al menos 1 formato de recall
+    // fill_blank sin banco, matching, ordering — no solo MCQ
+    const needsRecall = !hasRecallFormat && evidence.answeredCorrectly >= 2
+    if (needsRecall) {
+      return {
+        objective: 'verify_understanding',
+        reason: 'quick_test requiere al menos 1 formato de recall antes de consolidar',
+        isFirstEncounter: false,
+        requiresQuestion: true,
+        requiresContent: false,
+        suggestedContentType: 'question',
+        forcedFormat: 'fill_blank',
+      }
+    }
+    // Con 3+ correctas Y recall demostrado → consolidar
+    if (evidence.answeredCorrectly >= 3 && hasRecallFormat) {
+      return {
+        objective: 'consolidate',
+        reason: `quick_test: ${evidence.answeredCorrectly} correctas con recall real — dominado`,
+        isFirstEncounter: false,
+        requiresQuestion: false,
+        requiresContent: true,
+        suggestedContentType: 'summary',
+      }
+    }
+
+  } else if (evalPreference === 'write_explain') {
+    // WRITE_EXPLAIN: necesita teach_back o open_response correcto
+    // El teach_back es el cierre obligatorio
+    const needsTeachBack = !hasExplainFormat && evidence.answeredCorrectly >= 1
+    if (needsTeachBack) {
+      return {
+        objective: 'verify_understanding',
+        reason: 'write_explain requiere que el estudiante explique con sus palabras',
+        isFirstEncounter: false,
+        requiresQuestion: true,
+        requiresContent: false,
+        suggestedContentType: 'question',
+        forcedFormat: 'teach_back',
+      }
+    }
+    // Con 1 MCQ base + 1 explain correcto → consolidar
+    if (evidence.answeredCorrectly >= 2 && hasExplainFormat) {
+      return {
+        objective: 'consolidate',
+        reason: `write_explain: explicó con sus palabras + verificación base — dominado`,
+        isFirstEncounter: false,
+        requiresQuestion: false,
+        requiresContent: true,
+        suggestedContentType: 'summary',
+      }
+    }
+
+  } else {
+    // MIX_EVERYTHING: 2 correctas variadas + 1 recall o explicación
+    const needsDepth = !hasRecallFormat && evidence.answeredCorrectly >= 2
+    if (needsDepth) {
+      // Para tipos matemáticos/procedurales: fill_blank de fórmula
+      // Para tipos conceptuales/causales: explain_why
+      const depthFormat = ['mathematical', 'procedural'].includes(microConcept.cognitiveType)
+        ? 'fill_blank'
+        : ['conceptual', 'causal', 'analytical'].includes(microConcept.cognitiveType)
+        ? 'explain_why'
+        : 'fill_blank'
+      return {
+        objective: 'verify_understanding',
+        reason: `mix_everything: necesita profundidad (${depthFormat}) antes de consolidar`,
+        isFirstEncounter: false,
+        requiresQuestion: true,
+        requiresContent: false,
+        suggestedContentType: 'question',
+        forcedFormat: depthFormat,
+      }
+    }
+    // Con 3 correctas variadas → consolidar
+    if (evidence.answeredCorrectly >= 3 && (hasRecallFormat || distinctFormats >= 2)) {
+      return {
+        objective: 'consolidate',
+        reason: `mix_everything: ${evidence.answeredCorrectly} correctas con variedad — dominado`,
+        isFirstEncounter: false,
+        requiresQuestion: false,
+        requiresContent: true,
+        suggestedContentType: 'summary',
+      }
     }
   }
 

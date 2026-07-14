@@ -271,6 +271,10 @@ export interface SessionState {
   sessionId: string
   userId: string
   materialId: string
+
+  // Micros asignados a ESTA sesión (no al grafo global)
+  requiredMicroIds?: string[]      // micros que esta sesión debe completar
+  retentionMicroIds?: string[]     // micros de repaso de sesiones anteriores
   
   // Progreso
   startedAt: number

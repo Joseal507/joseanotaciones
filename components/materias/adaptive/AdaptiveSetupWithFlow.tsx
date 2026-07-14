@@ -18,6 +18,7 @@ interface Props {
   materialText: string
   materialTitle: string
   materialIds: string[]
+  userId?: string | null
   onComplete: (result: {
     plan: AdaptiveProgramPlan
     analysis: MaterialAnalysis
@@ -28,7 +29,7 @@ interface Props {
 }
 
 // Convertir setup de 4 pasos → StudentIntake del sistema nuevo
-function setupToIntake(setup: AdaptiveProgramSetup, materialIds: string[]): StudentIntake {
+function setupToIntake(setup: AdaptiveProgramSetup, materialIds: string[], userId?: string | null): StudentIntake {
   const minutesMap: Record<string, number> = {
     short: 12,
     medium: 22,
@@ -44,6 +45,7 @@ function setupToIntake(setup: AdaptiveProgramSetup, materialIds: string[]): Stud
     examDate: setup.examDate || 'no_exam',
     targetGrade: grade,
     materialIds,
+    userId: userId || undefined,
     evalPreference: (setup as any).evalPreference || 'mix_everything',
   }
 }
@@ -52,6 +54,7 @@ export default function AdaptiveSetupWithFlow({
   materialText,
   materialTitle,
   materialIds,
+  userId,
   onComplete,
   onCancel,
 }: Props) {
@@ -88,12 +91,12 @@ export default function AdaptiveSetupWithFlow({
 
   // Manejar el submit del setup
   const handleSetupComplete = useCallback(async (setup: AdaptiveProgramSetup) => {
-    const intake = setupToIntake(setup, materialIds)
+    const intake = setupToIntake(setup, materialIds, userId)
 
     // Guardar intake para recuperarlo más tarde
     sessionStorage.setItem('adaptive_flow_intake', JSON.stringify(intake))
 
-    // Arrancar el flujo
+    // Arrancar el flujo en background
     await flow.runFullFlow(materialText, materialTitle, materialIds, intake)
   }, [flow.runFullFlow, materialText, materialTitle, materialIds])
 
@@ -155,13 +158,19 @@ export default function AdaptiveSetupWithFlow({
   }
 
   // Loading (analyzing, evaluating, planning)
+  // Mostrar IntroSession en vez del loader genérico
   if (flow.phase === 'analyzing' || flow.phase === 'evaluating' || flow.phase === 'planning') {
+    const IntroSession = require('./IntroSession').default
+    const topics = flow.analysis
+      ? (flow.analysis.totalCoverageUnits || []).map((u: any) => u.title).filter(Boolean)
+      : []
     return (
-      <AdaptiveFlowLoader
-        phase={flow.phase}
-        message={flow.loadingMessage}
+      <IntroSession
         materialTitle={materialTitle}
-        coverageUnitsFound={flow.analysis?.totalCoverageUnits.length}
+        materialText={materialText}
+        topicsFound={topics}
+        isReady={false}
+        onReady={() => {}}
       />
     )
   }

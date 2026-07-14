@@ -163,23 +163,45 @@ ${chunk.text}
 
 QUÉ ES UN MICROCONCEPTO:
 - Unidad atómica de aprendizaje enseñable en 2-3 minutos
-- Un microconcepto NO es un topic grande. Es una idea sola.
+- Un microconcepto NO es un topic grande. Es UNA sola idea.
+- REGLA CRÍTICA: Si el material menciona una persona, un evento, una fórmula,
+  un proceso, o una teoría, CADA UNO es un micro separado.
+
 - Ejemplos BUENOS:
+  ✓ "Niels Bohr" — quién era, vida, contexto (si el material lo menciona)
+  ✓ "Modelo atómico de Bohr" — la teoría específica
+  ✓ "Fórmula de energía de Bohr: En = -13.6 eV/n²"
+  ✓ "Interpretación de Copenhague" — qué propone
+  ✓ "Premio Nobel de Bohr 1922" — hecho específico
+  ✓ "Colaboración Bohr-Rutherford" — relación específica
   ✓ "Definición de pH"
-  ✓ "Fórmula del pH: pH = -log[H+]"
-  ✓ "Interpretación de escala de pH"
   ✓ "Michael Vick como quarterback"
-  ✓ "El impacto de Vick en la NFL"
-- Ejemplos MALOS (muy grandes):
-  ✗ "Química de ácidos y bases"
-  ✗ "Atlanta Falcons" (es un topic, no un micro)
+
+- Ejemplos MALOS (muy grandes, no son micros):
+  ✗ "Química de ácidos y bases" → demasiado grande
+  ✗ "La vida y obra de Niels Bohr" → fusiona varios micros
+  ✗ "Atlanta Falcons" → es un topic, no un micro
+
+TIPOS DE MICROCONCEPTOS QUE DEBES BUSCAR ACTIVAMENTE:
+1. PERSONAS específicas mencionadas — nombre, rol, contexto, aporte
+2. FECHAS y EVENTOS clave — qué pasó, cuándo, por qué importa
+3. TEORÍAS y MODELOS — nombre, qué propone, evidencia
+4. FÓRMULAS o ECUACIONES — expresión, variables, cuándo usar
+5. PROCESOS y PASOS — secuencia, por qué ese orden
+6. CONCEPTOS ABSTRACTOS — definición, características, diferencias
+7. CAUSAS y EFECTOS — qué causó qué, por qué
+8. COMPARACIONES — X vs Y, en qué se diferencian
+9. INSTITUCIONES u ORGANIZACIONES mencionadas
+10. LEGADOS o IMPACTOS — qué consecuencias tuvo
 
 REGLAS DE EXTRACCIÓN:
-1. Extrae entre 3 y 10 microconceptos de este fragmento
-2. Cada micro debe ser SEPARADAMENTE enseñable
-3. Usa citas EXACTAS del material en "sourceQuotes"
-4. NO inventes información. Solo lo que está en el fragmento.
-5. Los ejemplos, fórmulas, procedimientos y errores deben venir del texto
+1. Extrae entre 4 y 12 microconceptos de este fragmento
+2. Si ves una persona importante → es un micro propio
+3. Si ves una fórmula → es un micro propio
+4. Si ves un proceso con pasos → es un micro propio
+5. Usa citas EXACTAS del material en "sourceQuotes"
+6. NO inventes información. Solo lo que está en el fragmento.
+7. Los ejemplos, fórmulas, procedimientos y errores deben venir del texto
 
 Devuelve SOLO este JSON:
 

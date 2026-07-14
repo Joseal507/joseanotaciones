@@ -209,7 +209,7 @@ export function useAdaptiveFlow() {
       const res = await fetch('/api/adaptive/create-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ analysis, intake, diagnosticResult }),
+        body: JSON.stringify({ analysis, intake, diagnosticResult, userId: intake.userId || null }),
       })
 
       if (!res.ok) throw new Error(`Error ${res.status}`)
@@ -249,6 +249,12 @@ export function useAdaptiveFlow() {
   ) => {
     abortRef.current = false
 
+    // Guardar texto para que executePlanning pueda construir el grafo
+    try {
+      sessionStorage.setItem('adaptive_material_text', materialText.slice(0, 8000))
+      sessionStorage.setItem('adaptive_material_title', materialTitle)
+    } catch {}
+
     // 1. Analizar material
     const analysis = await analyzeMaterial(materialText, materialTitle, materialIds)
     if (!analysis || abortRef.current) return
@@ -267,8 +273,36 @@ export function useAdaptiveFlow() {
     intake: StudentIntake,
   ) => {
     if (!state.analysis) return
+
+    // ── Construir el grafo ANTES de crear el plan ─────────────────
+    // Así create-plan puede leerlo y calcular sesiones por complejidad real
+    const userId = intake.userId || null
+    const materialText = sessionStorage.getItem('adaptive_material_text') || ''
+    const materialTitle = sessionStorage.getItem('adaptive_material_title') || 'Material'
+
+    if (userId && materialText.length > 100) {
+      for (const matId of (intake.materialIds || [])) {
+        try {
+          setPhase('analyzing', 'Construyendo mapa de conocimiento...')
+          await fetch('/api/adaptive/v3/build-graph', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId,
+              materialId: matId,
+              materialTitle,
+              materialText: materialText.slice(0, 8000),
+              forceRefresh: false,
+            }),
+          })
+        } catch (e) {
+          console.warn('[Flow] build-graph falló (no crítico):', e)
+        }
+      }
+    }
+
     await createPlan(state.analysis, intake, state.diagnosticResult)
-  }, [state.analysis, state.diagnosticResult, createPlan])
+  }, [state.analysis, state.diagnosticResult, createPlan, setPhase])
 
   const reset = useCallback(() => {
     abortRef.current = true

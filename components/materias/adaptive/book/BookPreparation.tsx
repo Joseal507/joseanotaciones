@@ -21,19 +21,19 @@ export default function BookPreparation({ stage, topicsCount, sessionsCount }: P
   const messages = {
     analyzing: {
       title: 'Analizando tu material',
-      sub: 'ALAI está identificando los temas centrales',
+      sub: 'ALAI está leyendo cada página y encontrando los conceptos clave',
     },
     designing: {
-      title: 'ALAI está diseñando tu programa',
+      title: 'Creando preguntas personalizadas',
       sub: topicsCount
-        ? `Encontré ${topicsCount} temas. Construyendo el camino...`
-        : 'Construyendo el camino de aprendizaje',
+        ? `Encontré ${topicsCount} temas. Generando preguntas específicas de tu material...`
+        : 'Preparando evaluaciones basadas en tu material exacto',
     },
     ready: {
-      title: 'Listo',
+      title: 'Todo listo',
       sub: sessionsCount
-        ? `${sessionsCount} sesiones adaptadas para ti`
-        : 'Tu programa está listo',
+        ? `${sessionsCount} sesiones con preguntas de tu material`
+        : 'Tu programa personalizado está listo',
     },
   }
 

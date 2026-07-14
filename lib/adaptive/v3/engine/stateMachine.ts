@@ -18,6 +18,10 @@ import type {
   TeachingQueue,
 } from '../types'
 
+// Fusible: ningún micro puede tener más de este número de interacciones
+// Si se supera, se marca como estudiado con mastery bajo y se avanza
+export const MAX_INTERACTIONS_PER_MICRO = 6
+
 // ═══════════════════════════════════════════════════════════════
 // INICIALIZAR ESTADO DE UN MICRO
 // ═══════════════════════════════════════════════════════════════
@@ -57,14 +61,46 @@ export function initSessionState(params: {
   graph: KnowledgeGraph
   targetMinutes: number
   microIdsToTeach?: string[]  // Si no se pasa, usa todos los del grafo
+  priorMastery?: Record<string, any>  // Mastery global de sesiones anteriores
 }): SessionState {
   const now = Date.now()
   const microIds = params.microIdsToTeach || params.graph.microConcepts.map(m => m.id)
 
-  // Inicializar estado de cada micro
+  // Inicializar estado de cada micro — inyectar mastery previo si existe
   const microStates: Record<string, MicroState> = {}
   for (const microId of microIds) {
-    microStates[microId] = initMicroState(microId)
+    const prior = params.priorMastery?.[microId]
+    // Solo aplicar memoria previa si el estudiante ya respondió correctamente
+    // Si solo fue "introducido" pero sin aciertos reales → empezar de cero
+    if (prior && prior.answeredCorrectly > 0) {
+      // Este micro ya fue trabajado en sesiones anteriores — no empezar desde cero
+      const base = initMicroState(microId)
+      const microConcept = params.graph.microConcepts.find(m => m.id === microId)
+      microStates[microId] = {
+        ...base,
+        masteryLevel: prior.masteryLevel || base.masteryLevel,
+        isReady: prior.isReady || false,
+        totalInteractions: prior.answeredCorrectly + prior.answeredIncorrectly,
+        // Guardar nombre real del micro para el mastery storage
+        ...(microConcept ? { microName: microConcept.name } as any : {}),
+        evidence: {
+          ...base.evidence,
+          introduced: prior.introduced || false,
+          explainedByTutor: prior.explainedByTutor || false,
+          applied: prior.applied || false,
+          answeredCorrectly: prior.answeredCorrectly || 0,
+          answeredIncorrectly: prior.answeredIncorrectly || 0,
+        },
+      }
+    } else {
+      const microConceptFresh = params.graph.microConcepts.find(m => m.id === microId)
+      const freshState = initMicroState(microId)
+      if (microConceptFresh) {
+        (freshState as any).microName = microConceptFresh.name
+        ;(freshState as any).sourcePages = microConceptFresh.sourcePages || []
+      }
+      microStates[microId] = freshState
+    }
   }
 
   // Construir cola inicial usando topological sort
@@ -261,6 +297,10 @@ export function calculateMasteryLevel(
 export function isReadyToAdvance(microState: MicroState): boolean {
   const { masteryLevel, evidence, totalInteractions } = microState
 
+  // FUSIBLE: si superó el máximo de interacciones, avanzar siempre
+  // Evita bucles infinitos. El micro queda marcado como estudiado con mastery bajo.
+  if (totalInteractions >= MAX_INTERACTIONS_PER_MICRO) return true
+
   // Ya dominado
   if (masteryLevel === 'mastered' || masteryLevel === 'connected') return true
 
@@ -272,13 +312,14 @@ export function isReadyToAdvance(microState: MicroState): boolean {
     return true
   }
 
-  // REGLA CLAVE: NUNCA avanzar sin al menos 1 acierto real.
-  // Un tutor no debe dejar al estudiante sin aprender.
-  if (evidence.answeredCorrectly === 0) return false
+  // REGLA CLAVE: NUNCA avanzar sin al menos 1 intento real (enseñanza + 1 interacción)
+  if (evidence.answeredCorrectly === 0 && totalInteractions < 3) return false
 
-  // Struggling: solo pasar tras MUCHOS intentos Y con al menos 1 acierto
-  // (evita bucle infinito, pero no salta sin enseñar)
-  if (masteryLevel === 'struggling' && totalInteractions >= 10 && evidence.answeredCorrectly >= 1) return true
+  // Struggling: pasar si tuvo enseñanza + al menos 1 intento
+  if (masteryLevel === 'struggling' && totalInteractions >= 4 && evidence.answeredCorrectly >= 1) return true
+
+  // Si tuvo enseñanza y al menos 1 intento aunque no sea correcto, avanzar tras el fusible
+  if (evidence.introduced && totalInteractions >= MAX_INTERACTIONS_PER_MICRO) return true
 
   return false
 }
@@ -446,20 +487,31 @@ export function inferStudentState(sessionState: SessionState): SessionState['stu
 // ¿DEBERÍA CERRAR LA SESIÓN?
 // ═══════════════════════════════════════════════════════════════
 export function shouldCloseSession(sessionState: SessionState): boolean {
-  // Única razón válida: TODOS los micros de la sesión están completados
-  // (dominados o al menos entendidos parcialmente).
-  // NO cerramos por errores — un tutor debe seguir enseñando.
-  if (sessionState.queue.pendingMicroIds.length === 0 &&
-      sessionState.queue.postponedMicroIds.length === 0) {
-    return true
-  }
+  // CIERRE REAL: todos los micros requeridos deben haber sido trabajados
+  // (introducidos + practicados) y estar listos o haber alcanzado el fusible.
+  const requiredMicroIds: string[] =
+    ((sessionState as any).requiredMicroIds as string[]) ||
+    Array.from(new Set([
+      ...sessionState.queue.pendingMicroIds,
+      ...sessionState.queue.postponedMicroIds,
+      ...sessionState.queue.completedMicroIds,
+      ...(sessionState.queue.activeMicroId ? [sessionState.queue.activeMicroId] : []),
+    ]))
 
-  // Excedió el tiempo objetivo por MÁS del doble (ej: sesión de 15 min → 30+ min)
-  // Este es el único safety absoluto, pero muy generoso.
-  const minutesElapsed = sessionState.elapsedSeconds / 60
-  if (minutesElapsed > sessionState.targetMinutes * 2.5) return true
+  if (requiredMicroIds.length === 0) return false
 
-  return false
+  const allRequiredStudied = requiredMicroIds.every((microId: string) => {
+    const st = sessionState.microStates[microId]
+    if (!st) return false
+
+    const taught = !!(st.evidence?.introduced || st.evidence?.explainedByTutor)
+    const practiced = ((st.evidence?.answeredCorrectly || 0) + (st.evidence?.answeredIncorrectly || 0)) > 0
+    const readyOrFused = !!st.isReady || st.totalInteractions >= MAX_INTERACTIONS_PER_MICRO
+
+    return taught && practiced && readyOrFused
+  })
+
+  return allRequiredStudied
 }
 
 // ═══════════════════════════════════════════════════════════════

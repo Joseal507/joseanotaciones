@@ -38,31 +38,48 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Material insuficiente' }, { status: 400 })
     }
 
-    const textSlice = materialText.slice(0, 10000)
-    const detectedArea = subjectHint || detectSubjectArea(textSlice, materialTitle)
+    // Procesar el material completo en chunks para no perder contenido
+    const CHUNK_SIZE = 8000
+    const OVERLAP = 500
+    const fullText = materialText.trim()
+    const detectedArea = subjectHint || detectSubjectArea(fullText.slice(0, 5000), materialTitle)
 
-    // Prompt simplificado y más robusto para cualquier modelo
-    const prompt = `Analiza este documento y extrae su estructura de aprendizaje completa.
+    const chunks: string[] = []
+    let pos = 0
+    while (pos < fullText.length) {
+      const end = Math.min(pos + CHUNK_SIZE, fullText.length)
+      chunks.push(fullText.slice(pos, end))
+      if (end === fullText.length) break
+      pos += CHUNK_SIZE - OVERLAP
+    }
+
+    console.log(`[analyze-material] ${fullText.length} chars → ${chunks.length} chunks`)
+
+    const allUnitsRaw: any[] = []
+    const allConceptsRaw: any[] = []
+
+    for (let ci = 0; ci < chunks.length; ci++) {
+      const chunkText = chunks[ci]
+
+      const prompt = `Analiza este fragmento (parte ${ci + 1} de ${chunks.length}) del documento y extrae su estructura de aprendizaje.
 
 DOCUMENTO: "${materialTitle}"
 AREA: ${detectedArea}
-
-TEXTO:
-${textSlice}
+FRAGMENTO ${ci + 1}/${chunks.length}:
+${chunkText}
 
 INSTRUCCIONES:
-1. Identifica CADA sección, tema, persona, evento o concepto importante
+1. Identifica CADA sección, tema, persona, evento o concepto importante de ESTE fragmento
 2. Crea una coverageUnit por cada elemento relevante
-3. Usa citas textuales del documento
-4. Mínimo 5 unidades, máximo 20
+3. Usa citas textuales del fragmento
+4. Mínimo 2 unidades por fragmento, máximo 8 por fragmento
+5. NO repitas temas que ya habrían aparecido en fragmentos anteriores
 
 Responde con este JSON exacto:
 {
-  "subjectArea": "${detectedArea}",
-  "difficultyLevel": "basic",
   "coverageUnits": [
     {
-      "id": "u1",
+      "id": "u_${ci}_1",
       "title": "titulo del tema",
       "importance": "high",
       "knowledgeType": "conceptual",
@@ -73,10 +90,10 @@ Responde con este JSON exacto:
   ],
   "concepts": [
     {
-      "id": "c1",
+      "id": "c_${ci}_1",
       "name": "nombre",
       "explanation": "explicacion basada en el texto",
-      "sourceUnitIds": ["u1"],
+      "sourceUnitIds": ["u_${ci}_1"],
       "prerequisites": [],
       "relatedConcepts": [],
       "difficulty": 40,
@@ -86,51 +103,68 @@ Responde con este JSON exacto:
   ]
 }`
 
-    const result = await alaiRequest(async (client: any, modelFn: (m?: string) => string) => {
-      const res = await client.chat.completions.create({
-        model: modelFn(),
-        messages: [
-        {
-          role: 'system',
-          content: 'Eres un analizador de documentos. Respondes SOLO con JSON valido. Sin texto extra.',
-        },
-        { role: 'user', content: prompt },
-      ],
-        temperature: 0.1,
-        max_tokens: 6000,
-      })
-      const rawText = res?.choices?.[0]?.message?.content || ''
-      if (!rawText.trim()) throw new Error('ALAI_EMPTY_RESPONSE')
-      return { text: rawText, provider: 'unknown', model: 'unknown' }
+      try {
+        const result = await alaiRequest(async (client: any, modelFn: (m?: string) => string) => {
+          const res = await client.chat.completions.create({
+            model: modelFn(),
+            messages: [
+              {
+                role: 'system',
+                content: 'Eres un analizador de documentos. Respondes SOLO con JSON valido. Sin texto extra.',
+              },
+              { role: 'user', content: prompt },
+            ],
+            temperature: 0.1,
+            max_tokens: 4000,
+          })
+          const rawText = res?.choices?.[0]?.message?.content || ''
+          if (!rawText.trim()) throw new Error('ALAI_EMPTY_RESPONSE')
+          return { text: rawText, provider: 'unknown', model: 'unknown' }
+        })
+
+        let chunkParsed = safeParseJson(result.text)
+        if (!chunkParsed) {
+          const match = result.text.match(/\{[\s\S]*\}/)
+          if (match) chunkParsed = safeParseJson(match[0])
+        }
+
+        if (chunkParsed?.coverageUnits?.length > 0) {
+          allUnitsRaw.push(...chunkParsed.coverageUnits)
+          allConceptsRaw.push(...(chunkParsed.concepts || []))
+          console.log(`[analyze-material] Chunk ${ci + 1}/${chunks.length}: ${chunkParsed.coverageUnits.length} unidades`)
+        } else {
+          // Fallback por chunk: al menos 1 unidad del texto
+          const fallbackChunk = buildBasicAnalysis(chunkText, materialTitle, detectedArea)
+          allUnitsRaw.push(...fallbackChunk.coverageUnits)
+          console.log(`[analyze-material] Chunk ${ci + 1}/${chunks.length}: fallback ${fallbackChunk.coverageUnits.length} unidades`)
+        }
+      } catch (chunkErr: any) {
+        console.warn(`[analyze-material] Chunk ${ci + 1} falló: ${chunkErr.message}`)
+        // En error de chunk, usar fallback básico para no perder contenido
+        const fallbackChunk = buildBasicAnalysis(chunkText, materialTitle, detectedArea)
+        allUnitsRaw.push(...fallbackChunk.coverageUnits)
+      }
+    }
+
+    // Si no se extrajeron unidades de ningún chunk, usar fallback completo
+    if (allUnitsRaw.length === 0) {
+      const fallback = buildBasicAnalysis(fullText.slice(0, 8000), materialTitle, detectedArea)
+      allUnitsRaw.push(...fallback.coverageUnits)
+      allConceptsRaw.push(...fallback.concepts)
+    }
+
+    // Deduplicar unidades por título similar (evitar repetición entre chunks con overlap)
+    const seenTitles = new Set<string>()
+    const deduplicatedUnits = allUnitsRaw.filter((u: any) => {
+      const normalizedTitle = String(u.title || '').toLowerCase().trim().slice(0, 40)
+      if (seenTitles.has(normalizedTitle)) return false
+      seenTitles.add(normalizedTitle)
+      return true
     })
 
-    // Intentar parsear de múltiples formas
-    let parsed = safeParseJson(result.text)
-
-    if (!parsed) {
-      const match = result.text.match(/\{[\s\S]*\}/)
-      if (match) parsed = safeParseJson(match[0])
-    }
-
-    if (!parsed) {
-      // Intentar limpiar el texto y parsear
-      const cleaned = result.text
-        .replace(/^[^{]*/, '')  // quitar texto antes del primer {
-        .replace(/[^}]*$/, '')  // quitar texto después del último }
-        + '}'
-      parsed = safeParseJson(cleaned)
-    }
-
-    if (!parsed || !Array.isArray(parsed.coverageUnits) || parsed.coverageUnits.length === 0) {
-      console.error('[analyze-material] Parse failed. Raw text slice:', result.text.slice(0, 500))
-
-      // Fallback: crear análisis básico desde el texto
-      parsed = buildBasicAnalysis(textSlice, materialTitle, detectedArea)
-    }
-
-    // Enriquecer unidades
-    const coverageUnits: CoverageUnit[] = (parsed.coverageUnits || []).map((u: any, i: number) => ({
-      id: u.id || `u${i + 1}`,
+    // Enriquecer unidades con IDs únicos globales
+    const coverageUnits: CoverageUnit[] = deduplicatedUnits.map((u: any, i: number) => ({
+      id: `u${i + 1}`,
       title: u.title || `Tema ${i + 1}`,
       sourceMaterialId: materialIds?.[0] || 'material_1',
       rawTextReference: u.rawTextReference || u.title || '',
@@ -142,8 +176,17 @@ Responde con este JSON exacto:
       learningObjectives: u.learningObjectives || [`Aprender sobre ${u.title}`],
     }))
 
-    const concepts: ConceptNode[] = (parsed.concepts || []).map((c: any, i: number) => ({
-      id: c.id || `c${i + 1}`,
+    // Deduplicar conceptos por nombre
+    const seenConceptNames = new Set<string>()
+    const deduplicatedConcepts = allConceptsRaw.filter((c: any) => {
+      const normalizedName = String(c.name || '').toLowerCase().trim()
+      if (!normalizedName || seenConceptNames.has(normalizedName)) return false
+      seenConceptNames.add(normalizedName)
+      return true
+    })
+
+    const concepts: ConceptNode[] = deduplicatedConcepts.map((c: any, i: number) => ({
+      id: `c${i + 1}`,
       name: c.name || '',
       explanation: c.explanation || '',
       sourceUnitIds: c.sourceUnitIds || [coverageUnits[0]?.id].filter(Boolean),
@@ -156,8 +199,8 @@ Responde con este JSON exacto:
 
     const analysis: MaterialAnalysis = {
       materialTitle,
-      subjectArea: parsed.subjectArea || detectedArea,
-      difficultyLevel: parsed.difficultyLevel || 'intermediate',
+      subjectArea: detectedArea,
+      difficultyLevel: 'intermediate',
       totalCoverageUnits: coverageUnits,
       concepts,
       dependencies: [],
@@ -169,11 +212,10 @@ Responde con este JSON exacto:
       commonMistakes: [],
       examRelevantItems: [],
       analyzedAt: Date.now(),
-      documentStructure: parsed.documentStructure || null,
     } as any
 
-    console.log(`[analyze-material] OK: ${coverageUnits.length} unidades | ${concepts.length} conceptos | ${analysis.subjectArea}`)
-    console.log(`[analyze-material] Temas: ${coverageUnits.map(u => u.title).join(' | ')}`)
+    console.log(`[analyze-material] OK: ${coverageUnits.length} unidades (${chunks.length} chunks) | ${concepts.length} conceptos | ${analysis.subjectArea}`)
+    console.log(`[analyze-material] Temas: ${coverageUnits.map((u: CoverageUnit) => u.title).join(' | ')}`)
 
     return NextResponse.json({ success: true, analysis })
 

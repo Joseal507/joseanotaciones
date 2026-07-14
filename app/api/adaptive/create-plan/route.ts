@@ -6,6 +6,7 @@ import type {
   AdaptiveProgramPlan,
   AdaptiveSessionPlan,
 } from '../../../../lib/adaptive/types'
+import { loadGraph } from '../../../../lib/adaptive/v3/storage/graphStorage'
 
 export const maxDuration = 60
 
@@ -24,22 +25,82 @@ function getDaysFromExamDate(examDate: string): number {
 }
 
 // Número de sesiones según urgencia y nivel
+// ── Calcular sesiones desde la complejidad REAL del material ───
+// Fuente de verdad: grafo de conocimiento v3
 function calculateSessionCount(
   daysToExam: number,
   totalUnits: number,
   sessionMinutes: number,
   selfReportedLevel: string,
   diagnosticLevel: string,
+  graphTotalMinutes: number = 0,
+  graphTotalMicros: number = 0,
+  graphAvgDifficulty: number = 50,
+  graphCriticalPathLen: number = 0,
+  targetGrade: string = '80',
 ): number {
-  const unitsPerSession = sessionMinutes >= 35 ? 3 : sessionMinutes >= 20 ? 2 : 1.5
-  const baseNeeded = Math.ceil(totalUnits / unitsPerSession)
 
-  if (daysToExam === 0) return Math.min(baseNeeded, 3)    // hoy: máximo 3 sesiones comprimidas
-  if (daysToExam === 1) return Math.min(baseNeeded, 4)    // mañana: máximo 4
-  if (daysToExam <= 3) return Math.min(baseNeeded, 5)
-  if (daysToExam <= 7) return Math.min(baseNeeded, 7)
-  if (daysToExam <= 14) return Math.min(baseNeeded, 10)
-  return Math.min(baseNeeded, 15)
+  let baseNeeded: number
+
+  if (graphTotalMicros > 0) {
+    // 1) Sesiones mínimas por cantidad de micros
+    //    Zero: ~1 micro por sesión media
+    //    Some: ~1.5 micros por sesión media
+    //    Practice: ~2.5 micros por sesión media
+    const microsPerSession =
+      (selfReportedLevel === 'zero' || diagnosticLevel === 'zero') ? (sessionMinutes >= 35 ? 1.6 : sessionMinutes >= 20 ? 1.2 : 1.0) :
+      (selfReportedLevel === 'some') ? (sessionMinutes >= 35 ? 2.0 : sessionMinutes >= 20 ? 1.6 : 1.2) :
+      (selfReportedLevel === 'review') ? (sessionMinutes >= 35 ? 2.4 : sessionMinutes >= 20 ? 2.0 : 1.5) :
+      (selfReportedLevel === 'practice') ? (sessionMinutes >= 35 ? 3.0 : sessionMinutes >= 20 ? 2.5 : 2.0) : 1.5
+
+    const sessionsFromMicros = Math.ceil(graphTotalMicros / microsPerSession)
+
+    // 2) Sesiones mínimas por tiempo estimado del grafo
+    const levelFactor =
+      (selfReportedLevel === 'zero' || diagnosticLevel === 'zero') ? 1.4 :
+      (selfReportedLevel === 'some') ? 1.15 :
+      (selfReportedLevel === 'review') ? 0.95 :
+      (selfReportedLevel === 'practice') ? 0.7 : 1.0
+
+    const diffFactor =
+      graphAvgDifficulty < 30 ? 0.9 :
+      graphAvgDifficulty < 50 ? 1.0 :
+      graphAvgDifficulty < 70 ? 1.2 : 1.5
+
+    const targetFactor =
+      targetGrade === '100' ? 1.35 :
+      targetGrade === '90' ? 1.2 :
+      targetGrade === '80' ? 1.0 : 0.85
+
+    const adjustedMinutes = graphTotalMinutes * levelFactor * diffFactor * targetFactor
+    const sessionsFromMinutes = Math.ceil(adjustedMinutes / sessionMinutes)
+
+    // 3) Sesiones mínimas por camino crítico
+    const sessionsFromCriticalPath = graphCriticalPathLen > 0
+      ? Math.ceil(graphCriticalPathLen / 2)
+      : 0
+
+    // Elegir la mayor — la más exigente es la correcta
+    baseNeeded = Math.max(sessionsFromMicros, sessionsFromMinutes, sessionsFromCriticalPath)
+
+    console.log(`[calculateSessionCount] micros=${graphTotalMicros} → ${sessionsFromMicros} sesiones | minutes=${graphTotalMinutes}→${sessionsFromMinutes} | criticalPath=${graphCriticalPathLen}→${sessionsFromCriticalPath} | final=${baseNeeded}`)
+
+  } else {
+    const unitsPerSession = sessionMinutes >= 35 ? 3 : sessionMinutes >= 20 ? 2 : 1.5
+    const levelFactor =
+      (selfReportedLevel === 'zero' || diagnosticLevel === 'zero') ? 1.4 :
+      (selfReportedLevel === 'practice') ? 0.7 : 1.0
+    baseNeeded = Math.ceil((totalUnits / unitsPerSession) * levelFactor)
+    console.log(`[calculateSessionCount] Fallback: ${totalUnits} unidades → ${baseNeeded} sesiones`)
+  }
+
+  // Caps por urgencia del examen
+  if (daysToExam === 0) return Math.max(1, Math.min(baseNeeded, 3))
+  if (daysToExam === 1) return Math.max(2, Math.min(baseNeeded, 5))
+  if (daysToExam <= 3) return Math.max(2, Math.min(baseNeeded, 8))
+  if (daysToExam <= 7) return Math.max(3, Math.min(baseNeeded, 14))
+  if (daysToExam <= 14) return Math.max(4, Math.min(baseNeeded, 20))
+  return Math.max(4, Math.min(baseNeeded, 35))
 }
 
 export async function POST(request: NextRequest) {
@@ -49,10 +110,12 @@ export async function POST(request: NextRequest) {
       analysis,
       intake,
       diagnosticResult,
+      userId,
     }: {
       analysis: MaterialAnalysis
       intake: StudentIntake
       diagnosticResult?: any
+      userId?: string | null
     } = body
 
     if (!analysis || !intake) {
@@ -64,12 +127,41 @@ export async function POST(request: NextRequest) {
     const estimatedLevel = diagnosticResult?.estimatedLevel || intake.selfReportedLevel
     const totalUnits = analysis.totalCoverageUnits.length
 
+    // Intentar cargar el grafo v3 para obtener métricas reales del material
+    // El grafo ya calculó cuánto tiempo toma dominar el material completo
+    let graphTotalMinutes = 0
+    let graphTotalMicros = 0
+    let graphAvgDifficulty = 50
+    try {
+      // Intentar cargar grafo para cada materialId
+      const materialIds = intake.materialIds || []
+      for (const matId of materialIds) {
+        // Usar el userId REAL para cargar el grafo correcto del usuario
+        const graphUserId = userId || intake.userId || null
+        const existingGraph = graphUserId ? await loadGraph(graphUserId, matId) : null
+        if (existingGraph) {
+          graphTotalMinutes += existingGraph.estimatedTotalMinutes || 0
+          graphTotalMicros += existingGraph.totalMicros || 0
+          graphAvgDifficulty = existingGraph.averageDifficulty || 50
+          console.log(`[create-plan] Grafo cargado para ${matId}: ${existingGraph.totalMicros} micros, ${existingGraph.estimatedTotalMinutes}min, diff=${existingGraph.averageDifficulty}`)
+        }
+      }
+    } catch (e) {
+      console.warn('[create-plan] No se pudo cargar el grafo, usando fallback')
+    }
+
+    const graphCriticalPathLen = graphTotalMicros > 0 ? graphTotalMicros : 0
     const sessionCount = calculateSessionCount(
       daysToExam,
       totalUnits,
       intake.sessionDurationMinutes,
       intake.selfReportedLevel,
       estimatedLevel,
+      graphTotalMinutes,
+      graphTotalMicros,
+      graphAvgDifficulty,
+      graphCriticalPathLen,
+      intake.targetGrade,
     )
 
     const urgencyNote = isUrgent
@@ -174,17 +266,36 @@ Devuelve SOLO este JSON:
       (s.coverageUnitIds || []).forEach((id: string) => coveredUnitIds.add(id))
     })
 
-    // Unidades no cubiertas — agregarlas a la última sesión
+    // Distribuir unidades no cubiertas de forma equilibrada entre sesiones
     const uncoveredUnits = analysis.totalCoverageUnits.filter(u => !coveredUnitIds.has(u.id))
-    if (uncoveredUnits.length > 0) {
-      console.warn(`[create-plan] ${uncoveredUnits.length} unidades no cubiertas — agregando a última sesión`)
-      const lastSession = parsed.sessions[parsed.sessions.length - 1]
-      if (lastSession) {
-        lastSession.coverageUnitIds = [
-          ...(lastSession.coverageUnitIds || []),
-          ...uncoveredUnits.map(u => u.id),
+    if (uncoveredUnits.length > 0 && parsed.sessions.length > 0) {
+      console.warn(`[create-plan] ${uncoveredUnits.length} unidades no cubiertas — distribuyendo equilibradamente`)
+
+      // Preferir sesiones que no son de simulación final
+      const candidateSessions = parsed.sessions
+        .map((s: any, idx: number) => ({ s, idx }))
+        .filter(({ s }: any) => (s.sessionType || 'learning') !== 'simulation')
+
+      const targetPool = candidateSessions.length > 0
+        ? candidateSessions
+        : parsed.sessions.map((s: any, idx: number) => ({ s, idx }))
+
+      for (const unit of uncoveredUnits) {
+        // Asignar a la sesión con menor carga actual
+        targetPool.sort((a: any, b: any) => {
+          const aLoad = (a.s.coverageUnitIds || []).length
+          const bLoad = (b.s.coverageUnitIds || []).length
+          if (aLoad !== bLoad) return aLoad - bLoad
+          return a.idx - b.idx
+        })
+        const target = targetPool[0]
+        target.s.coverageUnitIds = [
+          ...(target.s.coverageUnitIds || []),
+          unit.id,
         ]
       }
+
+      console.log(`[create-plan] ${uncoveredUnits.length} unidades distribuidas entre ${targetPool.length} sesiones`)
     }
 
     // Construir el plan final

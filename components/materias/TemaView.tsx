@@ -988,6 +988,7 @@ export default function TemaView({
   masteryContext,
   onMasteryEvent,
   onInitMastery,
+  userId,
 }: any) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -2053,6 +2054,7 @@ export default function TemaView({
   if (openTeorico)
     return (
       <StudyALProcess
+        userId={userId || undefined}
         masteryState={reconstructedMasteryState}
         masterySnapshot={masterySnapshot}
         initialMode={(() => {

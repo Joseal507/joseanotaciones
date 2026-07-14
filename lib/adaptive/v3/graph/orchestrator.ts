@@ -9,6 +9,8 @@ import { chunkMaterial } from '../../v2/agents/chunker'
 import { extractMicrosParallel } from './microExtractor'
 import { assembleGraph } from './graphAssembler'
 import { resolveDependencies } from './dependencyResolver'
+import { buildQuestionBankForGraph } from './questionBank'
+import type { QuestionBank } from './questionBank'
 import type { KnowledgeGraph, MicroConcept } from '../types'
 
 export interface OrchestrationOptions {
@@ -22,6 +24,7 @@ export interface OrchestrationOptions {
 export interface OrchestrationResult {
   success: boolean
   graph?: KnowledgeGraph
+  questionBank?: Record<string, QuestionBank>
   stats: {
     chunkingMs: number
     extractionMs: number
@@ -105,6 +108,13 @@ export async function buildKnowledgeGraph(
   const assemblyMs = Date.now() - assemblyStart
 
   console.log(`✓ Ensamblaje: ${assemblyResult.stats.totalMicrosAfterDedupe} micros finales (${assemblyResult.stats.duplicatesRemoved} duplicados) en ${assemblyMs}ms`)
+
+  // Validar que se extrajeron suficientes micros para el tamaño del material
+  const expectedMinMicros = Math.max(3, Math.ceil(materialText.length / 1500))
+  if (assemblyResult.micros.length < expectedMinMicros) {
+    console.warn(`⚠ [Graph Builder] Solo ${assemblyResult.micros.length} micros para ${materialText.length} chars (esperado mínimo ${expectedMinMicros})`)
+    errors.push(`Pocos micros extraídos: ${assemblyResult.micros.length}/${expectedMinMicros} esperados`)
+  }
   console.log(`   Topic groups: ${assemblyResult.stats.topicGroupsCount}`)
 
   // ═══════════════════════════════════════════════════════════
@@ -155,9 +165,29 @@ export async function buildKnowledgeGraph(
   console.log(`   ─ Camino crítico: ${criticalPath.length} micros`)
   console.log(`   ─ Tiempo total estimado: ${graph.estimatedTotalMinutes} min`)
 
+  // ═══════════════════════════════════════════════════════════
+  // ETAPA 5: GENERAR QUESTION BANK
+  // ═══════════════════════════════════════════════════════════
+  const bankStart = Date.now()
+  if (onProgress) onProgress('building_bank', 0, 1)
+
+  let questionBank: Record<string, QuestionBank> | undefined = undefined
+  try {
+    questionBank = await buildQuestionBankForGraph(graph.microConcepts)
+    const totalQ = Object.values(questionBank).reduce((s, b) => s + b.totalQuestions, 0)
+    console.log(`✓ Question Bank: ${totalQ} preguntas para ${Object.keys(questionBank).length} micros`)
+  } catch (err: any) {
+    console.error('[Graph Builder] Question bank falló (no crítico):', err.message)
+    errors.push('Question bank: ' + err.message)
+  }
+
+  const bankMs = Date.now() - bankStart
+  if (onProgress) onProgress('building_bank', 1, 1)
+
   return {
     success: true,
     graph,
+    questionBank,
     stats: {
       chunkingMs,
       extractionMs,

@@ -22,10 +22,17 @@ interface Props {
   onSubmitAnswer: (answer: any) => void
   onContinue: () => void
   disabled?: boolean
+  evaluation?: {
+    outcome: 'correct' | 'partial' | 'incorrect'
+    whatWasCorrect?: string
+    whatWasMissing?: string
+    correctAnswer?: string
+  } | null
 }
 
-export default function PaginatedBookPage({ page, onSubmitAnswer, onContinue, disabled }: Props) {
+export default function PaginatedBookPage({ page, onSubmitAnswer, onContinue, disabled, evaluation }: Props) {
   const contentRef = useRef<HTMLDivElement>(null)
+  const feedbackRef = useRef<HTMLDivElement>(null)
 
   // Scroll al tope cuando cambia la página
   useEffect(() => {
@@ -33,6 +40,15 @@ export default function PaginatedBookPage({ page, onSubmitAnswer, onContinue, di
       contentRef.current.scrollTop = 0
     }
   }, [page?.id])
+
+  // Scroll automático al feedback cuando aparece
+  useEffect(() => {
+    if (evaluation && feedbackRef.current) {
+      setTimeout(() => {
+        feedbackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 150)
+    }
+  }, [evaluation])
 
   const hasInteraction = !!page?.interaction
   const blocks = page?.content?.blocks || []
@@ -63,20 +79,83 @@ export default function PaginatedBookPage({ page, onSubmitAnswer, onContinue, di
           </div>
         )}
 
-        {/* Interacción */}
+        {/* Interacción — se deshabilita cuando hay feedback */}
         {hasInteraction && (
-          <div style={interactionContainerStyle}>
+          <div style={{
+            ...interactionContainerStyle,
+            opacity: evaluation ? 0.5 : 1,
+            pointerEvents: evaluation ? 'none' : 'auto',
+          }}>
             <InteractionWidget
               interaction={page.interaction}
               onSubmit={onSubmitAnswer}
-              disabled={disabled}
+              disabled={disabled || !!evaluation}
             />
+          </div>
+        )}
+
+        {/* Feedback inline — aparece debajo de la interacción con scroll automático */}
+        {evaluation && (
+          <div ref={feedbackRef} style={{
+            marginTop: 20,
+            padding: '18px 22px',
+            background: evaluation.outcome === 'correct' ? 'rgba(90,138,58,.08)' :
+              evaluation.outcome === 'partial' ? 'rgba(214,178,111,.08)' :
+              'rgba(139,26,26,.06)',
+            borderLeft: `4px solid ${evaluation.outcome === 'correct' ? '#5a8a3a' :
+              evaluation.outcome === 'partial' ? '#d6b26f' : '#8b1a1a'}`,
+            borderRadius: '0 10px 10px 0',
+          }}>
+            <div style={{
+              fontSize: 16, fontWeight: 800, marginBottom: 10,
+              color: evaluation.outcome === 'correct' ? '#3a5a1e' :
+                evaluation.outcome === 'partial' ? '#a8854a' : '#8b1a1a',
+            }}>
+              {evaluation.outcome === 'correct' ? '✓ Correcto' :
+                evaluation.outcome === 'partial' ? '◐ Casi' : '✗ Incorrecto'}
+            </div>
+            {evaluation.whatWasCorrect && evaluation.outcome === 'correct' && (
+              <div style={{ fontSize: 15, color: '#2a1f14', lineHeight: 1.6, marginBottom: 12 }}>
+                {evaluation.whatWasCorrect}
+              </div>
+            )}
+            {evaluation.whatWasMissing && evaluation.outcome !== 'correct' && (
+              <div style={{ fontSize: 15, color: '#2a1f14', lineHeight: 1.6, marginBottom: 12 }}>
+                {evaluation.whatWasMissing}
+              </div>
+            )}
+            {evaluation.correctAnswer && evaluation.outcome !== 'correct' && (
+              <div style={{
+                padding: '14px 16px', marginBottom: 14,
+                background: 'rgba(255,255,255,.5)', borderRadius: 8,
+                fontSize: 15, color: '#2a1f14', lineHeight: 1.6,
+                border: '1px solid rgba(42,31,20,.06)',
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: '#a8854a', marginBottom: 6, letterSpacing: 1 }}>
+                  RESPUESTA CORRECTA
+                </div>
+                {evaluation.correctAnswer}
+              </div>
+            )}
+            <button
+              onClick={onContinue}
+              style={{
+                width: '100%', padding: '14px',
+                background: '#2a1f14', color: '#f5ecd5',
+                border: 'none', borderRadius: 10,
+                fontFamily: 'Georgia, serif',
+                fontSize: 16, fontWeight: 700, cursor: 'pointer',
+                marginTop: 4,
+              }}
+            >
+              {evaluation.outcome === 'correct' ? 'Continuar →' : 'Entendido, seguimos →'}
+            </button>
           </div>
         )}
       </div>
 
-      {/* Botón sticky en la parte inferior — siempre visible */}
-      {!hasInteraction && (
+      {/* Botón sticky en la parte inferior — solo cuando no hay interacción ni feedback */}
+      {!hasInteraction && !evaluation && (
         <div style={stickyFooterStyle}>
           <button onClick={onContinue} disabled={disabled} style={btnContinueStyle}>
             Entendido, continuar →

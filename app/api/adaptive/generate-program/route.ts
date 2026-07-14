@@ -7,6 +7,9 @@ import type {
   AdaptiveProgramSetup,
   SessionPurpose,
 } from '../../../../lib/adaptive/program'
+import { loadGraph, saveGraph } from '../../../../lib/adaptive/v3/storage/graphStorage'
+import { buildKnowledgeGraph } from '../../../../lib/adaptive/v3/graph/orchestrator'
+import { saveQuestionBank } from '../../../../lib/adaptive/v3/storage/questionBankStorage'
 
 export const maxDuration = 60
 
@@ -20,20 +23,45 @@ function getDaysToExam(examDate: string | null): number {
   return map[examDate] ?? 14
 }
 
-// ── Calcular sesiones según urgencia ────────────────────────────
+// ── Calcular sesiones según urgencia Y tamaño del material ─────
 function calcSessionCount(
   daysToExam: number,
   totalUnits: number,
   sessionLength: string,
+  materialPages: number = 0,
+  materialChars: number = 0,
 ): number {
   const unitsPerSession = sessionLength === 'long' ? 3 : sessionLength === 'short' ? 1.5 : 2
-  const base = Math.ceil(totalUnits / unitsPerSession)
+
+  // Estimar páginas desde chars si no se pasaron
+  const estimatedPages = materialPages > 0 ? materialPages : Math.ceil(materialChars / 1600)
+
+  // Factor de complejidad por tamaño del material:
+  // 1-5 páginas  → factor 1.0 (base)
+  // 6-15 páginas → factor 1.5
+  // 16-30 páginas → factor 2.0
+  // 31-50 páginas → factor 2.5
+  // 50+ páginas  → factor 3.0
+  const sizeFactor =
+    estimatedPages <= 5  ? 1.0 :
+    estimatedPages <= 15 ? 1.5 :
+    estimatedPages <= 30 ? 2.0 :
+    estimatedPages <= 50 ? 2.5 : 3.0
+
+  // Base de sesiones: si hay chars, usar tiempo estimado (1min/300chars densos)
+  // Si no, usar unidades de cobertura como fallback
+  const estimatedMinutes = materialChars > 0 ? Math.ceil(materialChars / 300) : 0
+  const base = estimatedMinutes > 0
+    ? Math.ceil(estimatedMinutes / unitsPerSession / 5)  // ~5min por unidad de sesión
+    : Math.ceil((totalUnits / unitsPerSession) * sizeFactor)
+
+  // Caps por urgencia del examen
   if (daysToExam === 0) return Math.max(1, Math.min(base, 3))
-  if (daysToExam === 1) return Math.max(2, Math.min(base, 4))
-  if (daysToExam <= 3) return Math.max(2, Math.min(base, 5))
-  if (daysToExam <= 7) return Math.max(3, Math.min(base, 7))
-  if (daysToExam <= 14) return Math.max(4, Math.min(base, 10))
-  return Math.max(4, Math.min(base, 14))
+  if (daysToExam === 1) return Math.max(2, Math.min(base, 5))
+  if (daysToExam <= 3) return Math.max(2, Math.min(base, 7))
+  if (daysToExam <= 7) return Math.max(3, Math.min(base, 10))
+  if (daysToExam <= 14) return Math.max(4, Math.min(base, 15))
+  return Math.max(4, Math.min(base, 25))
 }
 
 // ── Propósito de sesión según posición ──────────────────────────
@@ -175,7 +203,9 @@ export async function POST(request: NextRequest) {
 
     const daysToExam = getDaysToExam(setup?.examDate || null)
     const sessionLength = setup?.sessionLength || 'medium'
-    const targetScore = Number(setup?.targetScore) || 80
+    const targetScore = (setup?.targetScore != null && Number(setup.targetScore) > 0)
+      ? Math.min(100, Math.max(1, Number(setup.targetScore)))
+      : 80
     const knowledgeLevel = setup?.initialKnowledgeLevel || 'some'
 
     const isUrgent = daysToExam <= 1
@@ -216,7 +246,12 @@ export async function POST(request: NextRequest) {
     }
 
     const totalUnits = coverageUnits.length || 5
-    const sessionCount = calcSessionCount(daysToExam, totalUnits, sessionLength)
+    const totalConcepts = concepts.length || totalUnits
+    // Mínimo de sesiones: cada sesión cubre ~2 micros para nivel zero
+    // + 1 sesión de examen al final
+    const microsPerSession = sessionLength === 'long' ? 3 : sessionLength === 'short' ? 1 : 2
+    const minSessions = Math.ceil(totalConcepts / microsPerSession) + 1  // +1 para examen
+    const sessionCount = Math.max(minSessions, 3)  // mínimo 3 sesiones siempre
 
     // ── Generar plan de sesiones con ALAI ────────────────────────
     const urgencyNote = isUrgent
@@ -235,9 +270,11 @@ export async function POST(request: NextRequest) {
       .map((c: any) => c.name)
       .join(', ')
 
-    const prompt = `Diseña un plan de ${sessionCount} sesiones de estudio.
+    const prompt = `Diseña un plan de EXACTAMENTE ${sessionCount} sesiones de estudio.
 
-REGLA ABSOLUTA: El 100% del contenido debe estar cubierto. NUNCA eliminar temas.
+REGLA ABSOLUTA #1: Debes generar EXACTAMENTE ${sessionCount} sesiones. Ni más, ni menos.
+REGLA ABSOLUTA #2: El 100% del contenido debe estar cubierto. NUNCA eliminar temas.
+REGLA ABSOLUTA #3: Cada concepto del material debe aparecer en al menos una sesión.
 
 MATERIAL: "${materialTitle}"
 ÁREA: ${subjectArea}
@@ -304,6 +341,38 @@ Devuelve SOLO JSON:
       if (match) planData = safeParseJson(match[0])
     }
 
+    // Validar que el LLM generó el número correcto de sesiones
+    if (planData?.sessions && Array.isArray(planData.sessions) && planData.sessions.length < sessionCount) {
+      console.warn(`[generate-program] LLM generó ${planData.sessions.length} sesiones pero se pidieron ${sessionCount} — rellenando`)
+      // Rellenar con sesiones adicionales distribuyendo las unidades faltantes
+      const existingUnitIds = new Set(planData.sessions.flatMap((s: any) => s.coverageUnitIds || []))
+      const missingUnits = coverageUnits.filter((u: any) => !existingUnitIds.has(u.id))
+      while (planData.sessions.length < sessionCount - 1 && missingUnits.length > 0) {
+        const chunk = missingUnits.splice(0, 2)
+        planData.sessions.splice(planData.sessions.length - 1, 0, {
+          title: chunk.map((u: any) => u.title).join(' y '),
+          purpose: 'understand',
+          objective: `Aprender: ${chunk.map((u: any) => u.title).join(', ')}`,
+          topicTitle: chunk[0]?.title || 'Contenido adicional',
+          targetConcepts: chunk.map((u: any) => u.title),
+          coverageUnitIds: chunk.map((u: any) => u.id),
+          expectedDomainGain: 15,
+        })
+      }
+      // La última siempre es de simulación/repaso
+      if (planData.sessions.length < sessionCount) {
+        planData.sessions.push({
+          title: 'Repaso y simulación final',
+          purpose: 'simulate',
+          objective: 'Simular el examen y repasar todos los conceptos',
+          topicTitle: 'Repaso completo',
+          targetConcepts: concepts.slice(0, 4).map((c: any) => c.name || c),
+          coverageUnitIds: coverageUnits.map((u: any) => u.id),
+          expectedDomainGain: 10,
+        })
+      }
+    }
+
     if (!planData?.sessions || !Array.isArray(planData.sessions)) {
       // Fallback: generar plan básico sin IA
       planData = {
@@ -339,15 +408,84 @@ Devuelve SOLO JSON:
       ;(s.coverageUnitIds || []).forEach((id: string) => coveredUnitIds.add(id))
     })
 
-    // Agregar unidades faltantes a la última sesión
+    // Distribuir unidades faltantes de forma equilibrada entre sesiones
     const uncoveredIds = [...allUnitIds].filter(id => !coveredUnitIds.has(id))
     if (uncoveredIds.length > 0 && planData.sessions.length > 0) {
-      const lastSession = planData.sessions[planData.sessions.length - 1]
-      lastSession.coverageUnitIds = [
-        ...(lastSession.coverageUnitIds || []),
-        ...uncoveredIds,
-      ]
-      console.log(`[generate-program] ${uncoveredIds.length} unidades sin sesión → agregadas a última sesión`)
+      // Preferir sesiones que no son de simulación final
+      const candidateSessions = planData.sessions
+        .map((s: any, idx: number) => ({ s, idx }))
+        .filter(({ s }: any) => (s.purpose || 'understand') !== 'simulate')
+
+      const targetPool = candidateSessions.length > 0
+        ? candidateSessions
+        : planData.sessions.map((s: any, idx: number) => ({ s, idx }))
+
+      for (const unitId of uncoveredIds) {
+        // Asignar a la sesión con menor carga actual
+        targetPool.sort((a: any, b: any) => {
+          const aLoad = (a.s.coverageUnitIds || []).length
+          const bLoad = (b.s.coverageUnitIds || []).length
+          if (aLoad !== bLoad) return aLoad - bLoad
+          return a.idx - b.idx
+        })
+        const target = targetPool[0]
+        target.s.coverageUnitIds = [
+          ...(target.s.coverageUnitIds || []),
+          unitId,
+        ]
+      }
+
+      console.log(`[generate-program] ${uncoveredIds.length} unidades sin sesión → distribuidas entre ${targetPool.length} sesiones`)
+    }
+
+    // ── Cargar o construir grafo v3 para asignar microIds deterministas a cada sesión ──
+    let graphMicros: any[] = []
+    const effectiveUserId = userProfile?.userId || (mastery as any)?.userId || null
+
+    if (!effectiveUserId) {
+      throw new Error('No se puede generar un programa seguro sin userId para construir/cargar el grafo')
+    }
+
+    if (!materialId) {
+      throw new Error('No se puede generar un programa seguro sin materialId')
+    }
+
+    try {
+      let graph = await loadGraph(effectiveUserId, materialId)
+
+      // Si no existe grafo, construirlo on-the-fly ahora mismo
+      if (!graph) {
+        console.log('[generate-program] Grafo no encontrado — construyendo on-the-fly')
+        const built = await buildKnowledgeGraph({
+          materialId,
+          materialTitle,
+          materialText: materialContent,
+          subjectHint: subjectArea,
+        })
+
+        if (!built.success || !built.graph) {
+          throw new Error(built.error || 'No se pudo construir el grafo del material')
+        }
+
+        graph = built.graph
+        try {
+          await saveGraph(effectiveUserId, materialId, graph)
+          if (built.questionBank && Object.keys(built.questionBank).length > 0) {
+            await saveQuestionBank(effectiveUserId, materialId, built.questionBank)
+          }
+        } catch (saveErr: any) {
+          console.warn('[generate-program] Grafo construido pero no se pudo guardar en R2:', saveErr.message)
+        }
+      }
+
+      if (!graph || !graph.microConcepts || graph.microConcepts.length === 0) {
+        throw new Error('El grafo no contiene microconceptos; no es seguro generar un programa')
+      }
+
+      graphMicros = graph.microConcepts
+      console.log(`[generate-program] Grafo listo: ${graphMicros.length} micros para asignacion`)
+    } catch (e: any) {
+      throw new Error('[generate-program] No se pudo cargar ni construir el grafo: ' + (e.message || e))
     }
 
     // ── Construir AdaptiveProgram en el formato que espera el sistema ──
@@ -386,9 +524,232 @@ Devuelve SOLO JSON:
             purpose === 'organize' ? 'deep_dive' : 'discovery',
           planRationale: s.planRationale || '',
           coverageUnitIds: s.coverageUnitIds || [],
+          // ── Asignacion determinista de micros del grafo v3 ──
+          assignedMicroIds: [],   // se rellena en la fase de asignacion determinista
+          requiredMicroIds: [],   // se rellena en la fase de asignacion determinista
+          retentionMicroIds: [],  // se rellena en la fase de asignacion determinista
         } as AdaptiveSession & { coverageUnitIds: string[] }
       }
     )
+
+    // Variable para coverageAssignment — se llena en la fase 8/8 y se inyecta en program
+    let coverageAssignmentMeta: any = null
+
+    // ═══════════════════════════════════════════════════════════════
+    // FASE DE ASIGNACIÓN DETERMINISTA 8/8
+    // Garantiza que union(requiredMicroIds de teaching sessions) === allMicroIds
+    // ═══════════════════════════════════════════════════════════════
+    if (graphMicros.length > 0) {
+      const allGraphIds: string[] = graphMicros.map((m: any) => m.id)
+
+      const TEACHING_PURPOSES = new Set([
+        'understand', 'organize', 'memorize', 'interpret', 'apply', 'deep_dive', 'teach',
+      ])
+      const NON_TEACHING_PURPOSES = new Set([
+        'simulate', 'exam', 'review', 'repair',
+      ])
+
+      const normMicro = (str: string) => String(str || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+      // PASO 1: Asignar micros por matching semántico a sesiones de enseñanza
+      const usedMicroIds = new Set<string>()
+
+      for (const session of sessions) {
+        const purpose = session.purpose || 'understand'
+        if (!TEACHING_PURPOSES.has(purpose)) continue
+
+        const sessionTerms = [
+          ...(((session as any).coverageUnitIds || []) as string[]).map(normMicro),
+          ...(session.targetConcepts || []).map(normMicro),
+          normMicro(session.topicTitle || session.title || ''),
+        ].filter(Boolean)
+
+        const matched = graphMicros
+          .filter((m: any) => {
+            if (usedMicroIds.has(m.id)) return false
+            const mName = normMicro(m.name || '')
+            const mGroup = normMicro(m.topicGroup || '')
+            return sessionTerms.some((term: string) =>
+              term.length > 2 && (
+                mGroup.includes(term) || term.includes(mGroup) ||
+                mName.includes(term) || term.includes(mName)
+              )
+            )
+          })
+          .map((m: any) => m.id)
+
+        ;(session as any).requiredMicroIds = matched
+        ;(session as any).assignedMicroIds = matched
+        matched.forEach((id: string) => usedMicroIds.add(id))
+      }
+
+      // PASO 2: Detectar micros huérfanos (no asignados a ninguna teaching session)
+      const unassignedIds = allGraphIds.filter((id: string) => !usedMicroIds.has(id))
+
+      // Guardar cuántos asignó el LLM antes del rescate
+      const initiallyAssignedMicros = usedMicroIds.size
+
+      if (unassignedIds.length > 0) {
+        console.log(`[generate-program] ${unassignedIds.length} micros huérfanos — redistribuyendo (semánticamente)`)
+
+        const teachingSessions = sessions
+          .filter((s: any) => TEACHING_PURPOSES.has(s.purpose || 'understand'))
+          .map((s: any) => ({
+            session: s,
+            load: ((s.requiredMicroIds as string[]) || []).length,
+          }))
+
+        for (const orphanId of unassignedIds) {
+          const orphanMicro = graphMicros.find((m: any) => m.id === orphanId)
+          let placed = false
+
+          if (teachingSessions.length > 0) {
+            // Prioridad de compatibilidad:
+            // 1. topicGroup del micro coincide con términos de la sesión
+            // 2. prerequisitos del micro ya están en la sesión
+            // 3. coverageUnitIds similares
+            // 4. menor carga (último recurso)
+            const orphanName = normMicro(orphanMicro?.name || '')
+            const orphanGroup = normMicro(orphanMicro?.topicGroup || '')
+            const orphanPrereqs: string[] = orphanMicro?.prerequisites || []
+
+            let bestScore = -1
+            let bestIdx = 0
+
+            teachingSessions.forEach((ts, idx) => {
+              let score = 0
+              const sTerms = [
+                ...(((ts.session as any).coverageUnitIds || []) as string[]).map(normMicro),
+                ...(ts.session.targetConcepts || []).map(normMicro),
+                normMicro(ts.session.topicTitle || ts.session.title || ''),
+              ].filter(Boolean)
+
+              // Puntos por compatibilidad de topicGroup
+              if (orphanGroup && sTerms.some(t => t.includes(orphanGroup) || orphanGroup.includes(t))) {
+                score += 10
+              }
+              // Puntos por nombre del micro
+              if (orphanName && sTerms.some(t => t.length > 3 && (t.includes(orphanName.slice(0,8)) || orphanName.includes(t.slice(0,8))))) {
+                score += 6
+              }
+              // Puntos si los prerequisitos del micro ya están en esta sesión
+              const sessionRequired: string[] = (ts.session as any).requiredMicroIds || []
+              const prereqsInSession = orphanPrereqs.filter(pid => sessionRequired.includes(pid)).length
+              score += prereqsInSession * 4
+              // Penalizar por carga (menor carga = más espacio)
+              score -= ts.load * 0.5
+
+              if (score > bestScore) { bestScore = score; bestIdx = idx }
+            })
+
+            const best = teachingSessions[bestIdx]
+            const req: string[] = (best.session as any).requiredMicroIds || []
+            req.push(orphanId)
+            ;(best.session as any).requiredMicroIds = req
+            ;(best.session as any).assignedMicroIds = req
+            best.load = req.length
+            usedMicroIds.add(orphanId)
+            placed = true
+            console.log(`[generate-program] Huérfano '${orphanMicro?.name}' (score=${bestScore.toFixed(1)}) → '${best.session.title}'`)
+          }
+
+          if (!placed) {
+            // Crear sesión nueva de cobertura si no hay teaching sessions
+            const coverageSession: any = {
+              id: `session_coverage_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+              sessionNumber: sessions.length + 1,
+              title: 'Cobertura de conceptos adicionales',
+              objective: 'Completar el estudio de todos los conceptos del material',
+              estimatedMinutes: sessionLength === 'short' ? 12 : sessionLength === 'long' ? 35 : 22,
+              status: 'locked',
+              purpose: 'understand',
+              steps: [],
+              expectedDomainGain: 15,
+              topicId: `topic_coverage_${Date.now()}`,
+              topicTitle: 'Conceptos adicionales',
+              targetConcepts: [],
+              sourcePages: [],
+              evidenceGoal: 'Estudiar los conceptos pendientes',
+              sessionFormat: 'discovery',
+              planRationale: 'Sesión creada automáticamente para garantizar cobertura 100%',
+              coverageUnitIds: [],
+              requiredMicroIds: unassignedIds,
+              assignedMicroIds: unassignedIds,
+              retentionMicroIds: [],
+            }
+            sessions.push(coverageSession)
+            unassignedIds.forEach((id: string) => usedMicroIds.add(id))
+            console.log(`[generate-program] Nueva sesión de cobertura creada con ${unassignedIds.length} micros huérfanos`)
+            break
+          }
+        }
+      }
+
+      // PASO 3: Asignar sesiones de simulate/review/exam con retentionMicroIds
+      for (const session of sessions) {
+        const purpose = session.purpose || 'understand'
+        if (!NON_TEACHING_PURPOSES.has(purpose)) continue
+        ;(session as any).requiredMicroIds = []
+        ;(session as any).retentionMicroIds = allGraphIds
+        ;(session as any).assignedMicroIds = allGraphIds
+      }
+
+      // PASO 3b: Eliminar sesiones de enseñanza vacías (sin requiredMicroIds)
+      // Una sesión de enseñanza sin contenido no debe existir en el programa
+      const sessionsBeforeClean = sessions.length
+      const validSessions = sessions.filter((s: any) => {
+        const purpose = s.purpose || 'understand'
+        if (!TEACHING_PURPOSES.has(purpose)) return true  // no-teaching siempre pasa
+        const req = (s.requiredMicroIds as string[]) || []
+        return req.length > 0  // teaching solo pasa si tiene micros
+      })
+      const removedEmpty = sessionsBeforeClean - validSessions.length
+      if (removedEmpty > 0) {
+        console.log(`[generate-program] ${removedEmpty} sesiones de enseñanza vacías eliminadas`)
+        // Renumerar
+        validSessions.forEach((s: any, i: number) => { s.sessionNumber = i + 1 })
+        sessions.length = 0
+        sessions.push(...validSessions)
+      }
+
+      // PASO 4: Verificar invariante 8/8
+      const finalRequired = new Set(
+        sessions
+          .filter((s: any) => TEACHING_PURPOSES.has(s.purpose || 'understand'))
+          .flatMap((s: any) => (s.requiredMicroIds as string[]) || [])
+      )
+      const stillMissing = allGraphIds.filter((id: string) => !finalRequired.has(id))
+
+      if (stillMissing.length > 0) {
+        console.error(`[generate-program] INVARIANTE FALLIDA: ${stillMissing.length} micros siguen sin asignar`)
+      } else {
+        console.log(`[generate-program] ✅ Invariante 8/8 cumplida: ${finalRequired.size}/${allGraphIds.length} micros asignados`)
+      }
+
+      // PASO 5: Metadata de validación con calidad real del LLM
+      const rescuedOrphanMicros = allGraphIds.length - initiallyAssignedMicros
+      const initialAssignmentPercent = allGraphIds.length > 0
+        ? Math.round((initiallyAssignedMicros / allGraphIds.length) * 100)
+        : 0
+
+      coverageAssignmentMeta = {
+        totalGraphMicros: allGraphIds.length,
+        initiallyAssignedMicros,
+        rescuedOrphanMicros,
+        initialAssignmentPercent,
+        requiredAssignedMicros: finalRequired.size,
+        unassignedMicroIds: stillMissing,
+        duplicateRequiredMicroIds: [],
+        assignmentComplete: stillMissing.length === 0,
+      }
+      console.log(`[generate-program] LLM asignó ${initiallyAssignedMicros}/${allGraphIds.length} (${initialAssignmentPercent}%) | rescatados: ${rescuedOrphanMicros}`)
+    }
 
     // Blueprint mínimo para compatibilidad con el libro
     const blueprint = {
@@ -435,6 +796,8 @@ Devuelve SOLO JSON:
       materialBlueprint: blueprint,
       // NUEVO — guardar análisis completo para usar en sesiones
       materialAnalysis: analysis || null,
+      // Metadata de cobertura 8/8 — calculada en la fase de asignación determinista
+      ...(coverageAssignmentMeta ? { coverageAssignment: coverageAssignmentMeta } : {}),
       strategy: planData.strategy || {
         why: `Plan de ${sessions.length} sesiones adaptado a tu nivel y tiempo disponible.`,
         goals: ['Cubrir el 100% del material', `Alcanzar ${targetScore}% de dominio`],

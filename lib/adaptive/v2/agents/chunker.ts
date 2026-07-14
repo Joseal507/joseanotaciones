@@ -126,25 +126,52 @@ function removeRepeatedLines(text: string): string {
   // Contar ocurrencias de cada línea (normalizada)
   for (const line of lines) {
     const key = line.trim().toLowerCase()
-    if (key.length < 5 || key.length > 200) continue  // Ignorar muy cortas o muy largas
+    if (key.length < 5 || key.length > 200) continue
     counts.set(key, (counts.get(key) || 0) + 1)
   }
 
-  // Identificar líneas basura: aparecen 3+ veces
+  // Solo eliminar líneas repetidas que parezcan boilerplate real de PDF.
+  // NUNCA eliminar contenido académico normal solo por repetirse.
   const junk = new Set<string>()
   for (const [key, count] of counts) {
-    if (count >= 3) junk.add(key)
+    if (count >= 3 && looksLikeRepeatedBoilerplate(key)) {
+      junk.add(key)
+    }
   }
 
   if (junk.size === 0) return text
 
-  // Filtrar líneas basura
   const filtered = lines.filter(line => {
     const key = line.trim().toLowerCase()
     return !junk.has(key)
   })
 
   return filtered.join('\n')
+}
+
+function looksLikeRepeatedBoilerplate(line: string): boolean {
+  const t = line.trim()
+  if (t.length === 0 || t.length > 120) return false
+
+  // Copyright / editoriales
+  if (/[©®]/.test(t)) return true
+  if (/\b(copyright|all rights reserved|todos los derechos reservados)\b/i.test(t)) return true
+  if (/\b(prentice[- ]hall|pearson|mcgraw[- ]hill|elsevier|springer)\b/i.test(t)) return true
+
+  // URLs / emails / marcas de pie de página
+  if (/https?:\/\//i.test(t) || /www\./i.test(t) || /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(t)) return true
+
+  // Marcadores de página / slide muy típicos
+  if (/^(page|página|slide|diapositiva)\s*\d+$/i.test(t)) return true
+  if (/^\d+\s*\/\s*\d+$/.test(t)) return true
+
+  // Encabezados genéricos repetidos sin contenido semántico
+  if (/^(chapter|cap[íi]tulo|unidad|tema|section|sección)\s+\d+$/i.test(t)) return true
+
+  // Líneas muy cortas con fuerte pinta de footer
+  if (t.length <= 40 && /(isbn|issn|doi)/i.test(t)) return true
+
+  return false
 }
 
 /**

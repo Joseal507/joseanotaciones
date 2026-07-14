@@ -583,6 +583,7 @@ export interface StudentIntake {
   examDate: string
   targetGrade: string
   materialIds: string[]
+  userId?: string
   evalPreference?: 'quick_test' | 'write_explain' | 'mix_everything'
 }
 

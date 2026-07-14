@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { buildKnowledgeGraph } from '../../../../../lib/adaptive/v3/graph/orchestrator'
 import { loadGraph, saveGraph } from '../../../../../lib/adaptive/v3/storage/graphStorage'
+import { saveQuestionBank } from '../../../../../lib/adaptive/v3/storage/questionBankStorage'
 
 export const maxDuration = 180  // 3 minutos máx para materiales grandes
 
@@ -62,6 +63,14 @@ export async function POST(request: NextRequest) {
     // 4. Guardar en R2
     try {
       await saveGraph(userId, materialId, result.graph)
+      // Guardar también el banco de preguntas si se generó
+      if (result.questionBank && Object.keys(result.questionBank).length > 0) {
+        try {
+          await saveQuestionBank(userId, materialId, result.questionBank)
+        } catch (bankErr: any) {
+          console.error('[build-graph] Error guardando bank:', bankErr.message)
+        }
+      }
     } catch (err: any) {
       console.error('[build-graph] Error guardando:', err.message)
     }

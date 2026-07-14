@@ -988,6 +988,7 @@ const eliminarDocumento = async (id: string) => {
 
         {vista === 'tema' && temaActual && materiaActual && (
           <TemaView
+            userId={userId}
             materia={materiaActual}
             tema={temaActual}
             onBack={() => setVista('materias')}

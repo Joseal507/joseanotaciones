@@ -13,6 +13,16 @@ const SUB_TO_ASCII: Record<string, string> = {
 // Normalizar Unicode químico a ASCII, SIN colapsar espacios de texto normal
 function normalizeUnicode(text: string): string {
   let s = text
+  // FIX: colapsar fórmulas matemáticas partidas verticalmente
+  // Detectar bloques de 3+ líneas cortas consecutivas (cada una 1-4 chars)
+  // que contengan = o ^ o dígitos → son fórmulas rotas
+  s = s.replace(/(?:^|\n)((?:[A-Za-z0-9=+\-*/^_.,\s]{1,4}\n){3,}[A-Za-z0-9=+\-*/^_.,\s]{1,10})/g, (block) => {
+    // Si el bloque tiene = o ^ es fórmula
+    if (/[=^]/.test(block)) {
+      return '\n' + block.replace(/\s*\n\s*/g, '')
+    }
+    return block
+  })
   // Convertir subíndices Unicode a ASCII (H₃ → H3)
   s = s.replace(/[₀₁₂₃₄₅₆₇₈₉]/g, c => SUB_TO_ASCII[c] || c)
   // Convertir superíndices Unicode a ASCII (X⁺ → X+, X⁻ → X-)
@@ -87,8 +97,30 @@ function toLatex(expr: string): string {
   // Multiplicación con exponente implícito: 1x10-14 → 1 \times 10^{-14} (Unicode normalizado)
   s = s.replace(/(\d+(?:\.\d+)?)\s*[x×]\s*10(-\d+)(?!\d)/g, '$1 \\times 10^{$2}')
 
-  // Exponentes generales: X^-14 → X^{-14}
+  // Exponentes generales: X^-14 → X^{-14}, X^n → X^{n}, X^2n → X^{2n}
   s = s.replace(/\^(-?\d+)/g, '^{$1}')
+  s = s.replace(/\^([a-zA-Z])/g, '^{$1}')  // 4^n → 4^{n}
+  s = s.replace(/\^(\d*[a-zA-Z])/g, '^{$1}')  // x^2n → x^{2n}
+
+  // Subíndices explícitos: E_n → E_{n}, X_1 → X_{1}
+  s = s.replace(/([A-Za-z])_(\d+)/g, '$1_{$2}')
+  s = s.replace(/([A-Za-z])_([a-zA-Z])/g, '$1_{$2}')
+
+  // Variables con subíndice implícito: En → E_n, Vn → V_n (solo 2 chars)
+  // Solo cuando la variable es LETRA+letra en contexto de ecuación
+  // Ej: 'En = -13.6' → 'E_n = -13.6'
+  s = s.replace(/\b([A-Z])([a-z])\b(?=\s*=)/g, '$1_{$2}')
+
+  // División con dígito pegado a letra (n2 → n^2): SIEMPRE aplicar exponente
+  // Ej: 13.6/n2 → \frac{13.6}{n^{2}}, x/y3 → \frac{x}{y^{3}}
+  s = s.replace(/(-?\d+(?:\.\d+)?)\s*\/\s*([a-zA-Z])(\d+)/g, '\\frac{$1}{$2^{$3}}')
+  // Sin división: letra pegada a dígito al final (n2 → n^{2})
+  s = s.replace(/([a-zA-Z])(\d+)(?![a-zA-Z0-9])/g, '$1^{$2}')
+  // División con exponente marcado: 13.6/n^2 → \frac{13.6}{n^{2}}
+  s = s.replace(/(-?\d+(?:\.\d+)?)\s*\/\s*([a-zA-Z])\^\{?(\d+)\}?/g, '\\frac{$1}{$2^{$3}}')
+
+  // Unidades comunes: eV, keV, MeV → \text{eV}
+  s = s.replace(/\b(eV|keV|MeV|GeV|J|W|Hz|kg|mol|K)\b/g, '\\,\\text{$1}')
 
   return s
 }
@@ -170,6 +202,25 @@ function processSegment(text: string): string {
   // Detectar: $ \text{X}_{N}^{+|-} $ seguido de espacio y $ \text{otro}
   result = result.replace(/\$(\\text\{[A-Z][A-Za-z]*\}(?:_\{\d+\}(?:\\text\{[A-Z][A-Za-z]*\})?(?:_\{\d+\})?)+)\^([+\-])\$(\s+)\$/g,
     (_m, formulaLatex, sign, space) => '$' + formulaLatex + '$' + space + sign + ' $')
+
+  // Patrón 3.5: variables con subíndice implícito seguidas de = (En = ..., Vn = ...)
+  result = result.replace(/\b([A-Z][a-z])\s*=\s*(-?\d+(?:\.\d+)?[^,.;!?\n]*)/g, (m) => {
+    // Solo si contiene una unidad o operador matemático
+    if (/eV|keV|MeV|\^|\//.test(m)) {
+      return '$' + toLatex(m) + '$'
+    }
+    return m
+  })
+
+  // Patrón 3.6: exponentes sueltos: 4^n, x^2, a^b
+  result = result.replace(/\b([a-zA-Z0-9]+)\^(-?[a-zA-Z0-9]+)\b/g, (m, base, exp) => {
+    return '$' + base + '^{' + exp + '}$'
+  })
+
+  // Patrón 3.7: notación científica: 1x10^-14, 3x10^8, 2.5x10^-3
+  result = result.replace(/(\d+(?:\.\d+)?)\s*[x×]\s*10\^?(-?\d+)/g, (m, coef, exp) => {
+    return '$' + coef + ' \\times 10^{' + exp + '}$'
+  })
 
   // Patrón 4: iones sueltos sin dígitos: H+, OH-, Na+, Cl-
   // Restricción: NO capturar si después del +/- viene una fórmula química o mayúscula

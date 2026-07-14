@@ -76,25 +76,68 @@ export async function evaluateAnswer(input: EvaluationInput): Promise<Evaluation
 // ═══════════════════════════════════════════════════════════════
 function evaluateMultipleChoice(interaction: any, answer: any): EvaluationResult {
   const data = interaction.data
-  const correctIndex = data.correctIndex
   const options = data.options || []
-  const isCorrect = answer === correctIndex
+
+  // Compatibilidad:
+  // 1) Legacy: correctIndex + answer numérico
+  // 2) Nuevo: correctOptionIds / correctOptionId + options con { id, text }
+  const correctOptionIds: string[] = Array.isArray(data.correctOptionIds)
+    ? data.correctOptionIds
+    : data.correctOptionId ? [String(data.correctOptionId)] : []
+
+  const normalizeOptionId = (v: any) => String(v ?? '').trim()
+
+  let isCorrect = false
+  let chosenText = String(answer)
+
+  if (correctOptionIds.length > 0) {
+    const answerId = typeof answer === 'object' && answer !== null
+      ? normalizeOptionId(answer.id)
+      : normalizeOptionId(answer)
+
+    isCorrect = correctOptionIds.includes(answerId)
+
+    const chosenOption = Array.isArray(options)
+      ? options.find((o: any) => normalizeOptionId(o?.id) === answerId)
+      : null
+    chosenText = chosenOption?.text || chosenOption?.label || String(answerId)
+  } else {
+    const correctIndex = data.correctIndex
+    isCorrect = answer === correctIndex
+    chosenText = typeof answer === 'number'
+      ? (options[answer]?.text || options[answer]?.label || options[answer] || String(answer))
+      : String(answer)
+  }
 
   const explanation = data.explanation || data.reason || ''
-  const chosenText = typeof answer === 'number' && options[answer] ? options[answer] : String(answer)
 
   let whatWasCorrect = ''
   let whatWasMissing = ''
 
+  const correctDisplay = correctOptionIds.length > 0
+    ? (() => {
+        const firstId = correctOptionIds[0] || ''
+        const correctOption = Array.isArray(options)
+          ? options.find((o: any) => normalizeOptionId(o?.id) === firstId)
+          : null
+        return correctOption?.text || correctOption?.label || String(firstId)
+      })()
+    : (() => {
+        const correctIndex = data.correctIndex
+        return options[correctIndex]?.text || options[correctIndex]?.label || options[correctIndex] || ''
+      })()
+
   if (isCorrect) {
-    whatWasCorrect = `Elegiste "${options[correctIndex]}"`
+    whatWasCorrect = `Elegiste "${correctDisplay}"`
     if (explanation) whatWasCorrect += `. ${explanation}`
+    else whatWasCorrect += '. Esa es la respuesta correcta.'
   } else {
-    whatWasMissing = `La respuesta correcta era "${options[correctIndex]}"`
-    if (explanation) whatWasMissing += `. ${explanation}`
-    if (chosenText && chosenText !== options[correctIndex]) {
-      whatWasMissing += ` Elegiste "${chosenText}", que no es correcto.`
+    if (chosenText && chosenText !== correctDisplay) {
+      whatWasMissing = `Elegiste "${chosenText}", pero la respuesta correcta es "${correctDisplay}".`
+    } else {
+      whatWasMissing = `La respuesta correcta era "${correctDisplay}".`
     }
+    if (explanation) whatWasMissing += ` ${explanation}`
   }
 
   return {
@@ -102,7 +145,7 @@ function evaluateMultipleChoice(interaction: any, answer: any): EvaluationResult
     score: isCorrect ? 100 : 0,
     whatWasCorrect,
     whatWasMissing,
-    correctAnswer: options[correctIndex] || '',
+    correctAnswer: correctDisplay,
     errorDetected: !isCorrect ? data.explanation : undefined,
   }
 }
@@ -112,18 +155,27 @@ function evaluateMultipleChoice(interaction: any, answer: any): EvaluationResult
 // ═══════════════════════════════════════════════════════════════
 function evaluateTrueFalse(interaction: any, answer: any): EvaluationResult {
   const data = interaction.data
-  const isCorrect = answer === data.correctAnswer
+  // Normalizar: acepta true/false Y 0/1 Y "true"/"false"
+  const normalize = (v: any): boolean => {
+    if (typeof v === 'boolean') return v
+    if (v === 0 || v === 'false') return false
+    if (v === 1 || v === 'true') return true
+    return Boolean(v)
+  }
+  const normalizedAnswer = normalize(answer)
+  const normalizedCorrect = normalize(data.correctAnswer)
+  const isCorrect = normalizedAnswer === normalizedCorrect
 
   return {
     outcome: isCorrect ? 'correct' : 'incorrect',
     score: isCorrect ? 100 : 0,
     whatWasCorrect: isCorrect
-      ? `${data.correctAnswer ? 'Verdadero' : 'Falso'} es correcto${data.explanation ? '. ' + data.explanation : ''}`
+      ? `${normalizedCorrect ? 'Verdadero' : 'Falso'} es correcto${data.explanation ? '. ' + data.explanation : ''}`
       : '',
     whatWasMissing: isCorrect
       ? ''
-      : `La respuesta correcta era ${data.correctAnswer ? 'Verdadero' : 'Falso'}${data.explanation ? '. ' + data.explanation : ''}`,
-    correctAnswer: data.correctAnswer ? 'Verdadero' : 'Falso',
+      : `La respuesta correcta era ${normalizedCorrect ? 'Verdadero' : 'Falso'}${data.explanation ? '. ' + data.explanation : ''}`,
+    correctAnswer: normalizedCorrect ? 'Verdadero' : 'Falso',
   }
 }
 
@@ -136,12 +188,22 @@ function evaluateFillBlank(interaction: any, answer: any): EvaluationResult {
   // Si no hay correctAnswers explícito, intentar inferirlo
   let rawCorrectAnswers = data.correctAnswers || []
   
-  // FIX: Si correctAnswers está vacío pero hay bank, usar la primera opción del bank
-  // (el LLM a veces no genera correctAnswers pero sí pone la correcta en el bank)
-  if (rawCorrectAnswers.length === 0 && data.bank && data.bank.length > 0) {
-    // Intentar encontrar la correcta comparando con el template
-    // Si no podemos, aceptar la respuesta del estudiante si está en el bank
+  // REGLA ESTRICTA: correctAnswers SOLO viene de campos explícitos de respuesta correcta.
+  // NUNCA inferir del bank completo (bank puede tener opciones incorrectas como distractores).
+  // Si hay bank de 1 sola opción → es la correcta (no hay distractores posibles).
+  // Si hay bank de múltiples opciones → NO asumir cuál es la correcta sin correctAnswers explícito.
+  if (rawCorrectAnswers.length === 0 && data.bank && data.bank.length === 1) {
     rawCorrectAnswers = data.bank
+  }
+  // Si bank tiene múltiples opciones y no hay correctAnswers → marcar como no evaluable
+  if (rawCorrectAnswers.length === 0 && data.bank && data.bank.length > 1) {
+    return {
+      outcome: 'partial',
+      score: 50,
+      whatWasCorrect: 'Respuesta recibida',
+      whatWasMissing: 'No se pudo verificar — datos de pregunta incompletos',
+      correctAnswer: '',
+    }
   }
   
   // Si correctAnswer (singular) existe, usarlo
@@ -223,16 +285,24 @@ function evaluateFillBlank(interaction: any, answer: any): EvaluationResult {
     }
   }
 
+  // Si el LLM olvidó correctAnswers pero hay bank con 1 sola opción, esa es la correcta
+  let correctAns = (data.correctAnswers || [''])[0] || ''
+  if (!correctAns && data.bank && Array.isArray(data.bank)) {
+    // Si solo hay 1 opción en el bank, esa es la respuesta
+    if (data.bank.length === 1) correctAns = data.bank[0]
+    // Si hay múltiples y el estudiante eligió una del bank, aceptar la primera como referencia
+    else correctAns = data.bank[0] || ''
+  }
   return {
     outcome,
     score,
     whatWasCorrect: outcome !== 'incorrect'
-      ? '"' + answer + '" es ' + (outcome === 'correct' ? 'correcto' : 'parcialmente correcto') + (data.explanation ? '. ' + data.explanation : '')
+      ? '"' + answer + '" es ' + (outcome === 'correct' ? 'correcto' : 'parcialmente correcto') + (data.explanation ? '. ' + data.explanation : '. Bien recordado.')
       : '',
     whatWasMissing: outcome === 'correct'
       ? ''
-      : 'La respuesta correcta era "' + (data.correctAnswers || [''])[0] + '"' + (data.explanation ? '. ' + data.explanation : ''),
-    correctAnswer: (data.correctAnswers || [''])[0] || '',
+      : 'Respondiste "' + answer + '" pero la respuesta correcta era "' + correctAns + '".' + (data.explanation ? ' ' + data.explanation : ' Recuerda esta diferencia para el examen.'),
+    correctAnswer: correctAns,
   }
 }
 
@@ -362,29 +432,41 @@ function evaluateClassifyGroups(interaction: any, answer: any): EvaluationResult
 async function evaluateWithLLM(input: EvaluationInput): Promise<EvaluationResult> {
   const { interaction, studentAnswer, micro } = input
 
-  const prompt = `Evalúa esta respuesta como tutor humano. Sé JUSTO.
+  const prompt = `Evalúa esta respuesta como tutor humano. Sé JUSTO y PEDAGÓGICO.
 
 MICROCONCEPTO: ${micro.name}
-DEFINICIÓN: ${micro.fullDefinition}
+DEFINICIÓN COMPLETA: ${micro.fullDefinition}
 
 PREGUNTA: ${interaction.prompt}
 RESPUESTA DEL ESTUDIANTE: ${typeof studentAnswer === 'string' ? studentAnswer : JSON.stringify(studentAnswer)}
 
-CONTEXTO DEL MATERIAL:
+CITAS EXACTAS DEL MATERIAL:
 ${micro.sourceQuotes.map(q => '"' + q + '"').join('\n')}
 
-REGLAS:
+${micro.commonErrors.length > 0 ? 'ERRORES COMUNES DE ESTE CONCEPTO:\n' + micro.commonErrors.map(e => '- ' + e.description + ' → ' + e.correction).join('\n') : ''}
+
+REGLAS DE EVALUACIÓN:
 - Si respondió los conceptos correctos aunque parcial → outcome: "partial", score 60-80
 - Si menciona la idea central correctamente → outcome: "correct", score 80-100
 - Solo "incorrect" si score < 50
+
+REGLAS DE FEEDBACK PEDAGÓGICO:
+- whatWasCorrect: explica concretamente QUÉ dijo bien y POR QUÉ es correcto
+- whatWasMissing: explica exactamente QUÉ faltó o qué estuvo mal y POR QUÉ
+- correctAnswer: da la respuesta correcta COMPLETA con explicación pedagógica
+  * SIEMPRE incluye una cita EXACTA del material entre comillas simples
+  * Formato ideal: 'La respuesta es X. El material dice: [cita exacta del texto]'
+  * Menciona el concepto clave que el estudiante debe recordar
+  * Si hay un error común detectado, señálalo explícitamente
+  * Máximo 3 oraciones — claro, directo, pedagógico
 
 Devuelve SOLO JSON:
 {
   "outcome": "correct|partial|incorrect",
   "score": 0-100,
-  "whatWasCorrect": "qué estuvo bien",
-  "whatWasMissing": "qué faltó (vacío si perfecto)",
-  "correctAnswer": "la respuesta correcta según el material (1-2 oraciones)"
+  "whatWasCorrect": "qué estuvo bien y por qué (1-2 oraciones)",
+  "whatWasMissing": "qué faltó o qué estuvo mal y por qué (1-2 oraciones, vacío si perfecto)",
+  "correctAnswer": "respuesta correcta completa con explicación pedagógica usando el material (2-3 oraciones)"
 }`
 
   try {

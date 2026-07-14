@@ -80,8 +80,10 @@ import AdaptiveSetupWithFlow from "./adaptive/AdaptiveSetupWithFlow";
 import AdaptiveFlowLoader from "./adaptive/AdaptiveFlowLoader";
 import AdaptiveProgramHome from "./adaptive/AdaptiveProgramHome";
 import AdaptiveSessionComplete from "./adaptive/AdaptiveSessionComplete";
+import AdaptiveProgramComplete from "./adaptive/AdaptiveProgramComplete";
 import StudyALBook from "./adaptive/book/StudyALBook";
 import BookPreparation from "./adaptive/book/BookPreparation";
+import IntroSession from "./adaptive/IntroSession";
 import AdaptiveSessionV2 from "./adaptive/book/AdaptiveSessionV2";
 import AdaptiveSessionView from "./adaptive/AdaptiveSessionView";
 import StudyALAdaptiveSesh from "./adaptive/v2/StudyALAdaptiveSesh";
@@ -132,6 +134,7 @@ interface Props {
   masterySnapshot?: any;
   masteryState?: any;
   initialMode?: 'free' | 'adaptive';
+  userId?: string | null;
 }
 
 // ── Configuración del círculo (modo libre) ───────────────────────
@@ -175,6 +178,7 @@ export default function StudyALProcess({
   onOpenCheatCodes,
   onComingSoon,
   initialMode,
+  userId,
 }: Props) {
   const [ready, setReady] = useState(false);
   const [completed, setCompleted] = useState<Record<string, boolean>>({});
@@ -287,6 +291,15 @@ export default function StudyALProcess({
   const [lastApiPayload, setLastApiPayload] = useState<Record<string, any> | null>(null);
   const [learningMemory, setLearningMemory] = useState<LearningMemory | null>(null);
   const [userProfileData, setUserProfileData] = useState<UserProfile | null>(null);
+
+  // ── Inicializar userProfileData con userId real recibido por props ──
+  useEffect(() => {
+    if (!userId) return;
+    setUserProfileData(prev => {
+      if (prev?.userId === userId) return prev;
+      return { ...(prev || {}), userId, academicLevel: 'intermedio', studyContext: 'unknown', languagePreference: 'es' } as UserProfile;
+    });
+  }, [userId]);
   const [processStyle, setProcessStyle] = useState<ProcessStyle | null>(() => {
     // Intentar desde masteryState prop
     if ((masteryState as any)?.processStyle) return (masteryState as any).processStyle;
@@ -307,6 +320,9 @@ export default function StudyALProcess({
   const [showStyleSelector, setShowStyleSelector] = useState(false);
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
   const { saveAdaptiveState, loadAdaptiveState, forceSyncNow } = useSyncAdaptiveState();
+  const [showProgramComplete, setShowProgramComplete] = useState(false);
+  const [showIntroSession, setShowIntroSession] = useState(false);
+  const [introTopics, setIntroTopics] = useState<string[]>([]);
   const [adaptiveView, setAdaptiveView] = useState<AdaptiveView>(() => {
     // Si v3 tiene programa, iniciar directo en 'book' (evita pestañeo home → book)
     const v3Init = restoreFromMaterialSession()
@@ -371,6 +387,10 @@ export default function StudyALProcess({
   }, [adaptiveProgram, materiales, processStyle, materialBlueprint])
   const [sessionDomainBefore, setSessionDomainBefore] = useState(0);
   const [sessionDomainAfter, setSessionDomainAfter] = useState(0);
+  const [finalCoveragePercent, setFinalCoveragePercent] = useState(0);
+  const [finalStudiedMicros, setFinalStudiedMicros] = useState(0);
+  const [finalTotalMicros, setFinalTotalMicros] = useState(0);
+  const [finalWeakMicroNames, setFinalWeakMicroNames] = useState<string[]>([]);
   const [strategyChangeMessage, setStrategyChangeMessage] = useState<string | null>(null);
   const [localMasteryState, setLocalMasteryState] = useState<MaterialMastery | null>(masteryState || null);
   const [localMasterySnapshot, setLocalMasterySnapshot] = useState<any>(masterySnapshot || null);
@@ -642,9 +662,10 @@ export default function StudyALProcess({
     const baseMastery = (localMasteryState || masteryState) as MaterialMastery | null;
 
     console.log('🔵 [generate] INICIO | style:', style);
-    // FORZAR null para que el render muestre BookPreparation
+    // FORZAR null
     setAdaptiveProgram(null);
-    setIsBuildingBlueprint(true);
+    // Solo mostrar BookPreparation si IntroSession NO está activa
+    if (!showIntroSession) setIsBuildingBlueprint(true);
     setPendingSetup(null);
     console.log('🔵 [generate] States reseteados');
 
@@ -705,7 +726,19 @@ export default function StudyALProcess({
       })
       setIsBuildingBlueprint(false)
       setAdaptiveProgram(null)
-      alert('El contenido del material todavía no está listo. Espera un momento e inténtalo otra vez.')
+      // Distinguir entre PDF escaneado (ready pero vacío) y cargando todavía
+      if (contentStatus === 'ready') {
+        alert(
+          'No pudimos extraer el texto de este documento.\n\n' +
+          'Puede ser un PDF escaneado (compuesto por imágenes).\n\n' +
+          'Soluciones:\n' +
+          '• Sube una versión del PDF con texto seleccionable\n' +
+          '• Convierte el PDF con OCR antes de subirlo\n' +
+          '• Usa Google Docs para convertirlo: Archivo → Abrir con → Google Docs'
+        )
+      } else {
+        alert('El contenido del material todavía no está listo. Espera un momento e inténtalo otra vez.')
+      }
       return
     }
 
@@ -841,6 +874,12 @@ export default function StudyALProcess({
     domainGain: number;
     conceptsImproved: string[];
     stepResults: Array<{ stepId: string; score?: number; correct?: boolean }>;
+    materialCoveragePercent?: number;
+    masteryPercent?: number;
+    studiedMicros?: number;
+    totalMicros?: number;
+    weakMicroIds?: string[];
+    weakMicroNames?: string[];
   }) => {
     if (!adaptiveProgram) return;
 
@@ -1004,20 +1043,55 @@ export default function StudyALProcess({
 
     // Calcular nuevo dominio — garantizar que siempre sube o se mantiene
     const domainBeforeSession = sessionDomainBefore || currentDomain
-    const minNewDomain = Math.min(100, domainBeforeSession + Math.max(0, result.domainGain))
+
+    // ── FIX: Calcular dominio real para sesiones del tutor v3 ──
+    // Cuando stepResults está vacío (tutor v3), calcular desde el progreso
+    // real del programa: sesiones completadas * accuracy de esta sesión
+    // v3 se detecta por processMode adaptativo o stepResults vacío
+    // No depender de domainGain > 0 (puede ser 0 si el usuario cerró la sesión)
+    const isV3Session = processMode === 'adaptive' || result.stepResults.length === 0
+    const sessionsCompleted = adaptiveProgram.sessions.filter(
+      (s, i) => i < currentIdx || s.status === 'completed'
+    ).length + 1
+    const totalSessions = adaptiveProgram.sessions.length
+
+    // Accuracy real: cuántos micros del programa ya se completaron con evidencia
+    // domainGain viene como % de progreso de esta sesión (0-100)
+    // Si el estudiante hizo TODO bien: domainGain ~ 100
+    // Si hizo la mitad: domainGain ~ 50
+    // Mínimo 40 si completó al menos algo, para reflejar aprendizaje real
+    const sessionAccuracy = result.domainGain > 0
+      ? Math.max(40, result.domainGain)
+      : (result.conceptsImproved.length > 0 ? 60 : 30)
+
+    const v3Domain = isV3Session
+      ? Math.round((sessionsCompleted / totalSessions) * sessionAccuracy)
+      : domainBeforeSession + Math.max(0, result.domainGain)
+
+    const minNewDomain = Math.max(
+      domainBeforeSession,  // nunca bajar
+      Math.min(100, v3Domain)
+    )
     let newDomain = minNewDomain
-    if (updatedMastery) {
+
+    // Solo usar mastery engine viejo si NO es v3 (modo libre con stepResults)
+    if (updatedMastery && !isV3Session) {
       try {
         const nextSnapshot = calculateMasterySnapshot(updatedMastery)
-        // NUNCA puede bajar del dominio que tenía antes de esta sesión
         newDomain = Math.max(nextSnapshot.overallMastery, minNewDomain, domainBeforeSession)
         console.log('📈 [domain] antes:', domainBeforeSession, '| gain:', result.domainGain, '| snapshot:', nextSnapshot.overallMastery, '| final:', newDomain)
       } catch {
         newDomain = minNewDomain
       }
+    } else if (isV3Session) {
+      console.log('📈 [domain v3] sesión', currentIdx + 1, '/', totalSessions, '| accuracy:', sessionAccuracy, '| domain:', newDomain)
     }
 
     setSessionDomainAfter(newDomain);
+    setFinalCoveragePercent(result.materialCoveragePercent ?? 0);
+    setFinalStudiedMicros(result.studiedMicros ?? 0);
+    setFinalTotalMicros(result.totalMicros ?? 0);
+    setFinalWeakMicroNames(result.weakMicroNames ?? []);
 
     // Conceptos que mejoraron: topic blueprint > runner result > weak fallback
     const sessionTargetConcepts = liveSession?.targetConcepts ?? [];
@@ -1041,6 +1115,11 @@ export default function StudyALProcess({
           domainAfter: newDomain,
           conceptsImproved: realConceptsImproved,
           conceptsStillWeak: realConceptsStillWeak,
+          materialCoveragePercent: result.materialCoveragePercent ?? undefined,
+          studiedMicros: result.studiedMicros ?? undefined,
+          totalMicros: result.totalMicros ?? undefined,
+          weakMicroIds: result.weakMicroIds ?? undefined,
+          weakMicroNames: result.weakMicroNames ?? undefined,
           completedAt: Date.now(),
         };
       }
@@ -1052,10 +1131,65 @@ export default function StudyALProcess({
       sessions: updatedSessions,
     };
 
-    const updatedProgram = updateAdaptiveProgramAfterSession(
-      programWithResults,
-      updatedMastery || null,
-    );
+    const coverageComplete =
+      (result.materialCoveragePercent ?? 0) >= 100 &&
+      (
+        (result.totalMicros ?? 0) === 0 ||
+        (result.studiedMicros ?? 0) >= (result.totalMicros ?? 0)
+      );
+
+    const allSessionsDoneBeforeAdvance = programWithResults.sessions.every(
+      s => s.status === 'completed' || s.status === 'skipped'
+    )
+
+    let updatedProgram: AdaptiveProgram
+    if (allSessionsDoneBeforeAdvance && !coverageComplete) {
+      const repairMicroIds = (result.weakMicroIds && result.weakMicroIds.length > 0)
+        ? result.weakMicroIds
+        : (((liveSession as any)?.assignedMicroIds || []) as string[])
+
+      const repairMicroNames = (result.weakMicroNames && result.weakMicroNames.length > 0)
+        ? result.weakMicroNames
+        : ((liveSession?.targetConcepts || ['Microconceptos pendientes']) as string[])
+
+      const repairSession: any = {
+        id: `repair_${Date.now()}`,
+        sessionNumber: programWithResults.sessions.length + 1,
+        title: 'Sesión de cobertura pendiente',
+        objective: 'Completar los microconceptos pendientes del material',
+        estimatedMinutes: liveSession?.estimatedMinutes || 22,
+        status: 'available',
+        purpose: 'repair',
+        steps: [],
+        expectedDomainGain: 10,
+        topicId: `repair_${Date.now()}`,
+        topicTitle: 'Cobertura pendiente',
+        targetConcepts: repairMicroNames.slice(0, 6),
+        sourcePages: [],
+        evidenceGoal: 'Practicar y cerrar los microconceptos pendientes',
+        sessionFormat: 'repair_dialogue',
+        planRationale: `Sesión automática creada porque la cobertura real quedó en ${result.materialCoveragePercent ?? 0}%`,
+        assignedMicroIds: repairMicroIds,
+        requiredMicroIds: repairMicroIds,
+        retentionMicroIds: [],
+        coverageUnitIds: [],
+      }
+
+      updatedProgram = {
+        ...programWithResults,
+        sessions: [...programWithResults.sessions, repairSession],
+        currentSessionIndex: programWithResults.sessions.length,
+        updatedAt: Date.now(),
+        status: 'active',
+      }
+
+      console.log(`[coverage] Repair session creada: cobertura=${result.materialCoveragePercent ?? 0}% | pendientes=${repairMicroIds.length}`)
+    } else {
+      updatedProgram = updateAdaptiveProgramAfterSession(
+        programWithResults,
+        updatedMastery || null,
+      );
+    }
 
     // ── Actualizar LearningMemory automáticamente ───────────────
     if (liveSession) {
@@ -1130,9 +1264,16 @@ export default function StudyALProcess({
       s => s.status !== 'completed' && s.status !== 'skipped'
     ).length
 
-    if (allSessionsDone || (domainReachedTarget && remainingSessions === 0)) {
-      // Material dominado — ir a pantalla de dominio completo
-      setAdaptiveView('complete')
+    const hasPendingRepairSession = updatedProgram.sessions.some(
+      (s: any) => s.purpose === 'repair' && s.status !== 'completed' && s.status !== 'skipped'
+    )
+
+    if (allSessionsDone && !hasPendingRepairSession && (result.materialCoveragePercent ?? 0) >= 100) {
+      // Todas las sesiones completadas Y cobertura real cerrada — mostrar pantalla final
+      setShowProgramComplete(true)
+    } else if (hasPendingRepairSession) {
+      // Hay cobertura pendiente — volver al libro/programa, no cerrar
+      setAdaptiveView(processStyle === 'book' ? 'book' : 'home')
     } else if (domainReachedTarget && remainingSessions > 0) {
       // Llegó al target pero quedan sesiones — mostrar opción de continuar o terminar
       console.log(`✅ [dominio] Target ${targetScore} alcanzado con ${remainingSessions} sesiones restantes`)
@@ -1153,7 +1294,7 @@ export default function StudyALProcess({
   ]);
 
   const handleSessionCompleteClose = useCallback(() => {
-    setAdaptiveView(processStyle === 'book' ? 'book' : 'home');
+    if (!showProgramComplete) setAdaptiveView(processStyle === 'book' ? 'book' : 'home');
     // Limpiar el mensaje después de mostrarlo una vez
     setTimeout(() => setStrategyChangeMessage(null), 5000);
   }, []);
@@ -1310,6 +1451,30 @@ export default function StudyALProcess({
 
   if (processMode === 'adaptive') {
     console.log('🟡 [RENDER] adaptive | adaptiveProgram:', !!adaptiveProgram, '| showStyleSelector:', showStyleSelector, '| pendingSetup:', !!pendingSetup, '| isBuildingBlueprint:', isBuildingBlueprint, '| adaptiveView:', adaptiveView);
+
+    // ── Pantalla final del programa completo ────────────────
+    if (showProgramComplete && adaptiveProgram) {
+      return (
+        <AdaptiveProgramComplete
+          program={adaptiveProgram}
+          finalDomain={sessionDomainAfter || currentDomain}
+          targetScore={targetScore || 80}
+          materialCoveragePercent={finalCoveragePercent}
+          studiedMicros={finalStudiedMicros}
+          totalMicros={finalTotalMicros}
+          weakMicroNames={finalWeakMicroNames}
+          onClose={() => {
+            setShowProgramComplete(false)
+            onClose()
+          }}
+          onRepeat={() => {
+            setShowProgramComplete(false)
+            setAdaptiveProgram(null)
+            setAdaptiveView('home')
+          }}
+        />
+      )
+    }
     // Sin programa → mostrar setup O selector de estilo
     if (!adaptiveProgram) {
       // Si está mostrando el style selector después del setup
@@ -1339,7 +1504,7 @@ export default function StudyALProcess({
         const baseMastery = (localMasteryState || masteryState) as MaterialMastery | null;
         const materialId = materiales?.[0]?.materialId || materiales?.[0]?.id || baseMastery?.materialId || 'mat_default';
         const materialTitle = materiales?.[0]?.nombre || materiales?.[0]?.name || baseMastery?.materialName || 'Material';
-        const userId = (masteryContext as any)?.userProfile?.userId || 'user_default';
+        const userId = userProfileData?.userId || (masteryContext as any)?.userProfile?.userId || 'user_default';
 
         return (
           <AdaptiveV2Bootstrap
@@ -1415,6 +1580,26 @@ export default function StudyALProcess({
         );
       }
 
+      // IntroSession tiene prioridad sobre BookPreparation
+      if (showIntroSession) {
+        return (
+          <IntroSession
+            materialTitle={materiales?.[0]?.nombre || materiales?.[0]?.name || 'Material'}
+            materialText={materialContent || ''}
+            topicsFound={introTopics}
+            isReady={!!adaptiveProgram}
+            onReady={() => {
+              setShowIntroSession(false)
+              const _pm = materiales?.[0]
+              const _tid = temaId || (masteryContext as any)?.temaId || (masteryState as any)?.temaId
+              const _sk = _pm && _tid ? buildStableKey(_tid, _pm) : ''
+              if (_sk) patchMaterialSession(_sk, { hasSeenIntro: true })
+              setAdaptiveView('book')
+            }}
+          />
+        )
+      }
+
       if (isBuildingBlueprint || pendingSetup) {
         const stage: 'analyzing' | 'designing' | 'ready' =
           !materialBlueprint ? 'analyzing' :
@@ -1430,13 +1615,35 @@ export default function StudyALProcess({
       }
 
       // Default: mostrar setup con flujo adaptativo real
+      // Esperar a que el contenido del material esté listo antes de mostrar el setup
+      if (contentStatus === 'error') {
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,.92)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, fontFamily: 'Georgia, serif' }}>
+            <div style={{ fontSize: 44 }}>😓</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#f5ecd5' }}>No se pudo cargar el material</div>
+            <div style={{ fontSize: 13, color: 'rgba(245,236,213,.6)', maxWidth: 360, textAlign: 'center', lineHeight: 1.5 }}>Hubo un problema extrayendo el contenido. Intenta abrirlo de nuevo.</div>
+            <button onClick={onClose} style={{ marginTop: 8, padding: '12px 28px', borderRadius: 10, border: '1.5px solid #d6b26f', background: 'transparent', color: '#d6b26f', fontFamily: 'Georgia, serif', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>← Volver</button>
+          </div>
+        );
+      }
+
+      if (contentStatus === 'loading' || contentStatus === 'idle' || !materialContent || materialContent.trim().length < 100) {
+        return (
+          <BookPreparation
+            stage="analyzing"
+            topicsCount={undefined}
+            sessionsCount={undefined}
+          />
+        );
+      }
+
       return (
         <AdaptiveSetupWithFlow
           materialText={materialContent || ''}
           materialTitle={materiales?.[0]?.nombre || materiales?.[0]?.name || 'Material'}
           materialIds={(materiales || []).map((m: any) => m?.materialId || m?.id).filter(Boolean)}
+          userId={userId || undefined}
           onComplete={({ plan, analysis, intake, diagnosticResult }) => {
-            // Convertir el resultado del flujo nuevo al formato que usa generateProgramWithStyle
             const setup = {
               initialKnowledgeLevel: intake.selfReportedLevel as any,
               sessionLength: (intake.sessionDurationMinutes <= 12 ? 'short' : intake.sessionDurationMinutes >= 30 ? 'long' : 'medium') as any,
@@ -1447,7 +1654,15 @@ export default function StudyALProcess({
             }
             const style = processStyle || 'book'
             setProcessStyle(style)
-            // Llamar a generateProgramWithStyle con el análisis ya hecho
+            // Guardar topics y mostrar IntroSession solo la primera vez por material
+            const topics = (analysis?.totalCoverageUnits || []).map((u: any) => u.title).filter(Boolean)
+            setIntroTopics(topics)
+            const _primaryMat = materiales?.[0]
+            const _effectiveTemaId = temaId || (masteryContext as any)?.temaId || (masteryState as any)?.temaId
+            const _stableKey = _primaryMat && _effectiveTemaId ? buildStableKey(_effectiveTemaId, _primaryMat) : ''
+            const _matSes = _stableKey ? loadMaterialSession(_stableKey) : null
+            setShowIntroSession(!_matSes?.hasSeenIntro)
+            // Generar programa en background
             generateProgramWithStyle(setup, style, { analysis, diagnosticResult })
           }}
           onCancel={onClose}
@@ -1465,6 +1680,8 @@ export default function StudyALProcess({
       const SessionComponent = StudyALSessionV3;  // v3 con Knowledge Graph
 
       // Enriquecer masteryContext con datos que el componente de sesión necesita
+      // FIX: pasar materials y materialId real para que StudyALSessionV3 no use session.id
+      const primaryMaterialId = materiales?.[0]?.materialId || materiales?.[0]?.id || null
       const enrichedMasteryContext = {
         ...(masteryContext || {}),
         userProfile: userProfileData || (masteryContext as any)?.userProfile || null,
@@ -1474,6 +1691,10 @@ export default function StudyALProcess({
         sessionLength: adaptiveProgram?.setup?.sessionLength || 'medium',
         learningMemory: learningMemory || null,
         materialTitle: materiales?.[0]?.nombre || materiales?.[0]?.name || 'Material',
+        // FIX: materials para que StudyALSessionV3 resuelva el materialId correctamente
+        materials: materiales || [],
+        material: materiales?.[0] || null,
+        materialId: primaryMaterialId,
         // NUEVO — análisis completo del material para usar texto real en sesiones
         materialAnalysis: (adaptiveProgram as any)?.materialAnalysis ||
           (masteryContext as any)?.materialAnalysis || null,

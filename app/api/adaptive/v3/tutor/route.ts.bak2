@@ -22,7 +22,6 @@ import {
   saveMaterialMastery,
   extractMasteryFromSession,
   getMicrosNeedingRetention,
-  getCoverageReport as getGlobalCoverageReport,
 } from '../../../../../lib/adaptive/v3/storage/materialMasteryStorage'
 import {
   initSessionState,
@@ -108,48 +107,6 @@ export async function POST(request: NextRequest) {
     }
 
     let session = sessionId ? await loadSession(userId, materialId, sessionId) : null
-
-    // ── Si la sesión existe pero tiene más micros de los asignados, restringirla ──
-    // Esto corrige el caso donde la sesión fue creada con el grafo completo
-    // y luego se intenta usar con assignedMicroIds más restrictivos
-    if (session && Array.isArray(assignedMicroIds) && assignedMicroIds.length > 0) {
-      const validGraphIds = new Set(graph.microConcepts.map((m: any) => m.id))
-      const validAssigned = assignedMicroIds.filter((id: string) => validGraphIds.has(id))
-      if (validAssigned.length > 0) {
-        const assignedSet = new Set(validAssigned)
-        const sessionHasExtraIds =
-          session.queue.pendingMicroIds.some((id: string) => !assignedSet.has(id)) ||
-          (session.queue.activeMicroId && !assignedSet.has(session.queue.activeMicroId))
-
-        if (sessionHasExtraIds) {
-          // Filtrar la sesión existente para que solo tenga los micros asignados
-          const filteredPending = session.queue.pendingMicroIds.filter((id: string) => assignedSet.has(id))
-          const filteredPostponed = session.queue.postponedMicroIds.filter((id: string) => assignedSet.has(id))
-          const filteredCompleted = session.queue.completedMicroIds.filter((id: string) => assignedSet.has(id))
-          const filteredActive = session.queue.activeMicroId && assignedSet.has(session.queue.activeMicroId)
-            ? session.queue.activeMicroId
-            : null
-
-          // Solo restringir si quedan micros pendientes válidos
-          if (filteredPending.length > 0 || filteredCompleted.length > 0) {
-            session = {
-              ...session,
-              requiredMicroIds: validAssigned,
-              retentionMicroIds: (session as any).retentionMicroIds || [],
-              queue: {
-                ...session.queue,
-                pendingMicroIds: filteredPending,
-                postponedMicroIds: filteredPostponed,
-                completedMicroIds: filteredCompleted,
-                activeMicroId: filteredActive,
-                totalPlanned: filteredPending.length + filteredCompleted.length + filteredPostponed.length,
-              },
-            }
-            console.log(`[tutor v3] ✅ Sesión restringida a ${validAssigned.length} micros asignados (era ${graph.microConcepts.length} globales)`)
-          }
-        }
-      }
-    }
 
     if (!session) {
       const newSessionId = sessionId || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -254,8 +211,6 @@ export async function POST(request: NextRequest) {
         microIdsToTeach,
         priorMastery,  // ← inyectar mastery de sesiones anteriores
       })
-      ;(session as any).requiredMicroIds = microIdsToTeach || graph.microConcepts.map((m: any) => m.id)
-      ;(session as any).retentionMicroIds = []
       console.log(`[tutor v3] Nueva sesión: ${newSessionId} con ${(microIdsToTeach || graph.microConcepts.map(m => m.id)).length} micros`)
 
       // ── SPACED REPETITION: micros dominados en sesiones previas para repasar ──
@@ -786,31 +741,15 @@ Responde SOLO el nombre del formato. Una palabra.`,
     // ═══════════════════════════════════════════════════════════
     let bankedQuestion: BankedQuestion | null = null
     const usedQIds: string[] = (session as any).usedQuestionIds || []
-    const usedFactKeys: string[] = (session as any).usedFactKeys || []
 
     if (objectiveDecision.objective === 'verify_understanding' &&
         interactionFormat !== 'none' &&
         questionBank &&
         questionBank[currentMicro.id]) {
       const bank = questionBank[currentMicro.id] as QuestionBank
-
-      // Conectar el motor de evidencias al selector del banco:
-      // priorizar preguntas que cubran la evidencia faltante del micro
-      const currentEvidenceProfile = (currentMicroState as any).evidenceProfile || emptyEvidenceProfile(currentMicro.id)
-      const missingEvidenceList = getMissingEvidences(currentEvidenceProfile, currentMicro)
-      const preferredEvidenceType = missingEvidenceList.length > 0 ? missingEvidenceList[0] : undefined
-
-      bankedQuestion = pickNextQuestion(
-        bank,
-        usedQIds,
-        interactionFormat,
-        undefined,
-        usedFactKeys,
-        preferredEvidenceType,
-      )
-
+      bankedQuestion = pickNextQuestion(bank, usedQIds, interactionFormat)
       if (bankedQuestion) {
-        console.log(`[tutor v3] 📚 BANCO: usando pregunta ${bankedQuestion.id} (${bankedQuestion.format}, ${bankedQuestion.cognitiveAngle}) | evidencia faltante=${preferredEvidenceType || 'ninguna'}`)
+        console.log(`[tutor v3] 📚 BANCO: usando pregunta ${bankedQuestion.id} (${bankedQuestion.format}, ${bankedQuestion.cognitiveAngle})`)
       } else {
         console.log(`[tutor v3] Banco agotado para ${currentMicro.name} — usando LLM`)
       }
@@ -822,7 +761,6 @@ Responde SOLO el nombre del formato. Una palabra.`,
     if (bankedQuestion) {
       // Registrar pregunta como usada
       ;(session as any).usedQuestionIds = [...usedQIds, bankedQuestion.id]
-      ;(session as any).usedFactKeys = [...usedFactKeys, bankedQuestion.factKey].slice(-12)
 
       // Generar solo el tutorMessage de transición (breve, sin pregunta)
       const transitionMsg = await generateContent({
@@ -939,7 +877,7 @@ Responde SOLO el nombre del formato. Una palabra.`,
     await saveSession(session)
     // Actualizar mastery global con el progreso de esta sesión
     const updatedMaterialMastery = extractMasteryFromSession(
-      session, materialMastery, userId, materialId, graph
+      session, materialMastery, userId, materialId
     )
     await saveMaterialMastery(updatedMaterialMastery)
     console.log(`[tutor v3] Mastery global actualizado: ${Object.keys(updatedMaterialMastery.micros).length} micros`)
@@ -947,10 +885,23 @@ Responde SOLO el nombre del formato. Una palabra.`,
     // ── 11. Calcular coverage global + progreso ──────────────
     const progress = calculateSessionProgress(session)
 
-    // Coverage GLOBAL del material (acumulada entre sesiones)
-    // Fuente de verdad: updatedMaterialMastery, no session.microStates local
+    // Coverage global del material (para mostrar en UI)
     let coverageReport: any = null
-    coverageReport = getGlobalCoverageReport(updatedMaterialMastery)
+    if (questionBank) {
+      const coverages: Record<string, any> = {}
+      for (const m of graph.microConcepts) {
+        const st = session.microStates[m.id]
+        const bank = questionBank[m.id]
+        const requiredEvidences = bank?.requiredEvidences || 3
+        coverages[m.id] = computeMicroCoverage(m, {
+          taught: !!st?.evidence?.introduced,
+          correctAnswers: st?.evidence?.answeredCorrectly || 0,
+          totalAnswers: (st?.evidence?.answeredCorrectly || 0) + (st?.evidence?.answeredIncorrectly || 0),
+          requiredEvidences,
+        })
+      }
+      coverageReport = computeCoverageReport(graph, coverages)
+    }
 
     return NextResponse.json({
       success: true,
