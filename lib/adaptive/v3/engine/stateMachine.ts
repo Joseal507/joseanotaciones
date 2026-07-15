@@ -298,7 +298,8 @@ export function isReadyToAdvance(microState: MicroState): boolean {
   const { masteryLevel, evidence, totalInteractions } = microState
 
   // FUSIBLE: si superó el máximo de interacciones, avanzar siempre
-  // Evita bucles infinitos. El micro queda marcado como estudiado con mastery bajo.
+  // Evita bucles infinitos. El micro queda marcado como 'struggling' para revisión posterior.
+  // El sistema NO abandona el micro — lo añade a reinforcementMicroIds para sesión futura.
   if (totalInteractions >= MAX_INTERACTIONS_PER_MICRO) return true
 
   // Ya dominado
@@ -381,6 +382,25 @@ export function selectNextMicro(sessionState: SessionState, graph: KnowledgeGrap
   }
 
   return null
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MARCAR MICRO COMO ATASCADO — necesita refuerzo posterior
+// Se llama cuando el fusible dispara (MAX_INTERACTIONS alcanzado)
+// El micro avanza pero queda en reinforcementMicroIds para revisión
+// ═══════════════════════════════════════════════════════════════
+export function markMicroAsNeedsReinforcement(
+  sessionState: SessionState,
+  microId: string,
+): SessionState {
+  const reinforcement: string[] = (sessionState as any).reinforcementMicroIds || []
+  if (!reinforcement.includes(microId)) {
+    return {
+      ...sessionState,
+      reinforcementMicroIds: [...reinforcement, microId],
+    } as any
+  }
+  return sessionState
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -30,9 +30,11 @@ import {
   recordTurn,
   selectNextMicro,
   advanceMicro,
+  markMicroAsNeedsReinforcement,
   postponeMicro,
   shouldCloseSession,
   calculateSessionProgress,
+  MAX_INTERACTIONS_PER_MICRO,
 } from '../../../../../lib/adaptive/v3/engine/stateMachine'
 import { selectObjective, selectInteractionFormat } from '../../../../../lib/adaptive/v3/engine/objectiveSelector'
 import { selectFormat, formatToInstruction } from '../../../../../lib/adaptive/v3/engine/formatSelector'
@@ -420,10 +422,16 @@ export async function POST(request: NextRequest) {
     // SOLO avanzar si isReady es true (basado en evidencias reales).
     // NUNCA postponer automáticamente — un tutor sigue enseñando aunque el estudiante falle.
     if (session.queue.activeMicroId && session.queue.activeMicroId !== nextMicroId) {
-      const previousMicroState = session.microStates[session.queue.activeMicroId]
+      const previousMicroId = session.queue.activeMicroId
+      const previousMicroState = session.microStates[previousMicroId]
       if (previousMicroState?.isReady) {
-        session.queue = advanceMicro(session, session.queue.activeMicroId)
-        console.log(`[tutor v3] Micro completado: ${session.queue.activeMicroId}`)
+        // Si el micro avanzó por fusible (muchos intentos), marcarlo para refuerzo posterior
+        if (previousMicroState.totalInteractions >= MAX_INTERACTIONS_PER_MICRO) {
+          session = markMicroAsNeedsReinforcement(session, previousMicroId)
+          console.log(`[tutor v3] ⚠ Micro atascado → refuerzo posterior: ${previousMicroId}`)
+        }
+        session.queue = advanceMicro(session, previousMicroId)
+        console.log(`[tutor v3] Micro completado: ${previousMicroId}`)
       }
       // NOTA: eliminado el postpone automático por struggling.
       // El estudiante DEBE aprender el concepto antes de avanzar.
@@ -886,6 +894,8 @@ Responde SOLO el nombre del formato. Una palabra.`,
         isSpacedReview: !!(session as any).isSpacedReview,
         isInterleaving: !!(session as any).isInterleaving,
         isPreQuiz: !!(session as any).isPreQuiz,
+        alternativeStrategy: (objectiveDecision as any).alternativeStrategy || null,
+        failingEvidenceType: (objectiveDecision as any).failingEvidenceType || null,
       })
     }
 

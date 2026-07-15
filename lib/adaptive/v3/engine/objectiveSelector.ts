@@ -16,6 +16,7 @@ import type {
   TeachingObjective,
   SessionState,
 } from '../types'
+import type { EvidenceProfile, EvidenceType } from './evidenceEngine'
 
 export interface ObjectiveDecision {
   objective: TeachingObjective
@@ -25,6 +26,10 @@ export interface ObjectiveDecision {
   requiresContent: boolean
   suggestedContentType: 'explanation' | 'example' | 'question' | 'feedback' | 'summary'
   forcedFormat?: string | null
+  // Estrategia alternativa cuando el estudiante está atascado
+  alternativeStrategy?: 'analogy' | 'simplify' | 'step_by_step' | 'worked_example' | 'different_angle' | null
+  // Tipo de evidencia que está fallando repetidamente
+  failingEvidenceType?: EvidenceType | null
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -59,18 +64,43 @@ export function selectObjective(
   }
 
   // ═══════════════════════════════════════════════════════════
-  // 2. ¿ACABA DE FALLAR? → Ayudar (no repetir)
+  // 2. ¿ACABA DE FALLAR? → Estrategia alternativa según tipo de evidencia
   // ═══════════════════════════════════════════════════════════
   if (lastOutcome === 'incorrect') {
-    // Tras 3+ fallos consecutivos: cambiar completamente de estrategia
+    // Detectar qué tipo de evidencia está fallando repetidamente
+    const evidenceProfile = (microState as any).evidenceProfile as EvidenceProfile | undefined
+    const incorrectByType = evidenceProfile?.incorrectCountByType
+    const failingType: EvidenceType | null = incorrectByType
+      ? (Object.entries(incorrectByType)
+          .filter(([_, count]) => (count as number) >= 2)
+          .sort(([_a, a], [_b, b]) => (b as number) - (a as number))[0]?.[0] as EvidenceType || null)
+      : null
+
+    // Tras 3+ fallos consecutivos: cambiar completamente de estrategia según qué falla
     if (consecutiveFails >= 3) {
+      // Estrategia específica por tipo de evidencia que falla:
+      // recognized → analogía (el concepto no está siendo reconocido)
+      // recalled   → mnemotecnia o ejemplo muy concreto
+      // explained  → simplificar — pedir explicación más básica
+      // applied    → ejemplo resuelto paso a paso
+      // connected  → mostrar conexión explícita
+      const alternativeStrategy =
+        failingType === 'recognized' ? 'analogy' :
+        failingType === 'recalled' ? 'simplify' :
+        failingType === 'explained' ? 'different_angle' :
+        failingType === 'applied' ? 'worked_example' :
+        failingType === 'connected' ? 'step_by_step' :
+        'analogy'  // default
+
       return {
-        objective: 'illustrate_with_example',
-        reason: `${consecutiveFails} fallos consecutivos — cambiar estrategia con ejemplo concreto`,
+        objective: 'reconstruct_from_error',
+        reason: `${consecutiveFails} fallos consecutivos en '${failingType || 'concepto'}' — estrategia: ${alternativeStrategy}`,
         isFirstEncounter: false,
         requiresQuestion: false,
         requiresContent: true,
         suggestedContentType: 'example',
+        alternativeStrategy,
+        failingEvidenceType: failingType,
       }
     }
     // Tras 1-2 fallos: revelar respuesta y reexplicar inmediatamente

@@ -32,19 +32,26 @@ export interface Evidence {
   formatUsed: string          // qué formato de interacción lo generó
   outcome: 'correct' | 'partial' | 'incorrect'
   score: number               // 0-100
+  attemptNumber: number       // cuántas veces intentó antes de acertar (1=primer intento)
+  confidenceMultiplier: number // 1.0 primer intento, 0.7 segundo, 0.4 tercero+
 }
 
 export interface EvidenceProfile {
   microId: string
   evidences: Evidence[]
-  // Contadores por tipo
+  // Contadores por tipo (solo respuestas correctas/parciales)
   strongCount: Record<EvidenceType, number>
   mediumCount: Record<EvidenceType, number>
   weakCount: Record<EvidenceType, number>
+  // Patrones de error — cuántas veces falló por tipo de evidencia
+  incorrectCountByType: Record<EvidenceType, number>
+  // Intentos totales por tipo (para calcular tasa de error)
+  attemptsCountByType: Record<EvidenceType, number>
   // Meta
   totalEvidences: number
+  totalIncorrect: number       // total de respuestas incorrectas
   lastEvidenceAt: number | null
-  masteryScore: number         // 0-100, calculado
+  masteryScore: number         // 0-100, calculado con confianza
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -97,8 +104,8 @@ export function recordEvidence(
     outcome: 'correct' | 'partial' | 'incorrect'
     score: number
     turnNumber: number
-    isTransferContext?: boolean       // Si el caso es contexto nuevo
-    connectsToOtherMicro?: string     // Si conecta con otro micro
+    isTransferContext?: boolean
+    connectsToOtherMicro?: string
   },
 ): EvidenceProfile {
   const { formatUsed, outcome, score, turnNumber, isTransferContext, connectsToOtherMicro } = params
@@ -114,17 +121,44 @@ export function recordEvidence(
     evidenceTypes = [...evidenceTypes, 'connected']
   }
 
-  // Determinar fuerza de la evidencia
-  const strength = calculateStrength(outcome, score)
-
-  // Solo registrar evidencia si la respuesta fue correcta o parcial
-  // (los fallos NO generan evidencia positiva)
-  if (outcome === 'incorrect') {
-    return profile
+  // Trackear intentos totales y fallos POR TIPO DE EVIDENCIA
+  const updatedAttemptsCountByType = { ...(profile.attemptsCountByType || {}) } as Record<EvidenceType, number>
+  const updatedIncorrectCountByType = { ...(profile.incorrectCountByType || {}) } as Record<EvidenceType, number>
+  for (const type of evidenceTypes as EvidenceType[]) {
+    updatedAttemptsCountByType[type] = (updatedAttemptsCountByType[type] || 0) + 1
+    if (outcome === 'incorrect') {
+      updatedIncorrectCountByType[type] = (updatedIncorrectCountByType[type] || 0) + 1
+    }
   }
 
+  // Incorrectos no generan evidencia positiva — pero sí se registran en el perfil
+  if (outcome === 'incorrect') {
+    return {
+      ...profile,
+      attemptsCountByType: updatedAttemptsCountByType,
+      incorrectCountByType: updatedIncorrectCountByType,
+      totalIncorrect: (profile.totalIncorrect || 0) + 1,
+    }
+  }
+
+  // Calcular attemptNumber: cuántos intentos previos tuvo en este tipo de evidencia
+  const attemptNumber = (updatedAttemptsCountByType[evidenceTypes[0] as EvidenceType] || 1)
+
+  // Multiplicador de confianza: primer intento = 1.0, segundo = 0.7, tercero+ = 0.4
+  const confidenceMultiplier =
+    attemptNumber <= 1 ? 1.0 :
+    attemptNumber === 2 ? 0.7 : 0.4
+
+  // Determinar fuerza de la evidencia (ajustada por confianza)
+  const rawStrength = calculateStrength(outcome, score)
+  // Degradar fuerza si la confianza es baja (muchos intentos previos)
+  const strength: EvidenceStrength =
+    confidenceMultiplier >= 1.0 ? rawStrength :
+    confidenceMultiplier >= 0.7 ? (rawStrength === 'strong' ? 'medium' : rawStrength) :
+    (rawStrength === 'strong' ? 'weak' : rawStrength === 'medium' ? 'weak' : 'weak')
+
   // Crear una evidencia por cada tipo
-  const newEvidences: Evidence[] = evidenceTypes.map(type => ({
+  const newEvidences: Evidence[] = evidenceTypes.map((type: any) => ({
     type,
     strength,
     turnNumber,
@@ -132,11 +166,21 @@ export function recordEvidence(
     formatUsed,
     outcome,
     score,
+    attemptNumber,
+    confidenceMultiplier,
   }))
 
   const updatedEvidences = [...profile.evidences, ...newEvidences]
 
-  return rebuildProfile(profile.microId, updatedEvidences)
+  const rebuilt = rebuildProfile(profile.microId, updatedEvidences)
+
+  // Preservar los contadores de intentos y fallos
+  return {
+    ...rebuilt,
+    attemptsCountByType: updatedAttemptsCountByType,
+    incorrectCountByType: updatedIncorrectCountByType,
+    totalIncorrect: (profile.totalIncorrect || 0),
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -161,6 +205,8 @@ export function rebuildProfile(microId: string, evidences: Evidence[]): Evidence
   const strongCount = { ...emptyCount }
   const mediumCount = { ...emptyCount }
   const weakCount = { ...emptyCount }
+  const attemptsCountByType = { ...emptyCount }
+  const incorrectCountByType = { ...emptyCount }
 
   for (const ev of evidences) {
     if (ev.strength === 'strong') strongCount[ev.type]++
@@ -176,7 +222,10 @@ export function rebuildProfile(microId: string, evidences: Evidence[]): Evidence
     strongCount,
     mediumCount,
     weakCount,
+    attemptsCountByType,
+    incorrectCountByType,
     totalEvidences: evidences.length,
+    totalIncorrect: 0,  // se llena en recordEvidence
     lastEvidenceAt: evidences.length > 0 ? evidences[evidences.length - 1].timestamp : null,
     masteryScore,
   }
@@ -393,7 +442,10 @@ export function emptyEvidenceProfile(microId: string): EvidenceProfile {
     strongCount: { ...empty },
     mediumCount: { ...empty },
     weakCount: { ...empty },
+    attemptsCountByType: { ...empty },
+    incorrectCountByType: { ...empty },
     totalEvidences: 0,
+    totalIncorrect: 0,
     lastEvidenceAt: null,
     masteryScore: 0,
   }

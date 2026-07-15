@@ -47,6 +47,9 @@ export interface GenerationRequest {
   isSpacedReview?: boolean  // pregunta de repaso espaciado de sesión anterior
   isInterleaving?: boolean  // pregunta de micro ya completado (interleaving)
   isPreQuiz?: boolean       // momento de preguntar dudas antes de evaluar
+  // Estrategia alternativa cuando el estudiante está atascado
+  alternativeStrategy?: 'analogy' | 'simplify' | 'step_by_step' | 'worked_example' | 'different_angle' | null
+  failingEvidenceType?: string | null   // tipo de evidencia que falla repetidamente
 }
 
 export interface GeneratedContent {
@@ -177,6 +180,30 @@ function buildPromptForObjective(request: GenerationRequest): string {
 
 
   const carreraContext = studentProfile?.carrera ? `Estudiante de ${studentProfile.carrera}` : ''
+  // Nota de estrategia alternativa cuando el estudiante está atascado
+  const alternativeStrategyNote = request.alternativeStrategy
+    ? (() => {
+        const strategyInstructions: Record<string, string> = {
+          analogy: `⚠ ESTRATEGIA: ANALOGÍA OBLIGATORIA. El estudiante no está reconociendo el concepto.
+Usa una analogía con algo que ya conoce. Empieza con "Es como cuando..." o "Imagina que...".
+NO repitas la definición. Cambia completamente el ángulo.`,
+          simplify: `⚠ ESTRATEGIA: SIMPLIFICAR AL MÁXIMO. El estudiante no recuerda los datos precisos.
+Reduce el concepto a UNA sola frase corta. Crea una mnemotecnia o regla de memoria.
+Ejemplo: "Para recordar pH: menor número = más ácido"`,
+          step_by_step: `⚠ ESTRATEGIA: PASO A PASO EXPLÍCITO. El estudiante no logra conectar conceptos.
+Divide el concepto en pasos numerados. Muestra cómo A lleva a B lleva a C.
+Nunca saltes un paso.`,
+          worked_example: `⚠ ESTRATEGIA: EJEMPLO RESUELTO COMPLETO. El estudiante no puede aplicar el concepto.
+Muestra un ejemplo resuelto paso a paso desde el principio.
+Haz el trabajo tú primero, luego pide que replique.`,
+          different_angle: `⚠ ESTRATEGIA: ÁNGULO COMPLETAMENTE DIFERENTE. El estudiante no puede explicar el concepto.
+Explica desde el efecto, no desde la causa. O desde el error, no desde la definición.
+Empieza por lo que NO es, para delimitar lo que SÍ es.`,
+        }
+        return strategyInstructions[request.alternativeStrategy!] || ''
+      })()
+    : ''
+
   const energyNote = isSpacedReview
     ? '⚠ REPASO ESPACIADO: El estudiante ya aprendió este concepto en una sesión anterior. Ve DIRECTO a la pregunta sin re-explicar. El objetivo es verificar retención a largo plazo.'
     : isInterleaving
@@ -244,7 +271,7 @@ ${micro.commonErrors.length > 0 ? `Errores comunes:\n${micro.commonErrors.map(e 
   // Instrucciones específicas por objetivo
   const objectiveInstructions = getInstructionsForObjective(objective, interactionFormat, lastStudentResponse)
 
-  return `${carreraContext ? carreraContext + '\n' : ''}${energyNote ? energyNote + '\n' : ''}
+  return `${carreraContext ? carreraContext + '\n' : ''}${alternativeStrategyNote ? alternativeStrategyNote + '\n' : ''}${energyNote ? energyNote + '\n' : ''}
 ${microContext}
 
 ═══════════════════════════════════════════════════════════════
