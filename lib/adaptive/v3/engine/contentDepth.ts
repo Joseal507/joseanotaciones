@@ -110,18 +110,51 @@ function getImportanceModifier(importance: string): number {
 // FACTOR 4: Profundidad según objetivo pedagógico
 // ═══════════════════════════════════════════════════════════════
 function getObjectiveDepth(objective: TeachingObjective): number {
-  const map: Record<TeachingObjective, number> = {
-    introduce: 0,                    // Primera vez: no abrumar
-    explain_deeper: 2,               // Ya lo vio: profundizar
-    illustrate_with_example: 1,      // Ejemplo: mediano
-    verify_understanding: -2,        // Pregunta: casi sin texto
-    test_application: -1,            // Aplicación: setup breve
-    test_transfer: -1,               // Transfer: setup breve
-    consolidate: 0,                  // Cierre: normal
-    reveal_answer: 1,                // Correción: explicar bien
-    reconstruct_from_error: 2,       // Segundo fallo: profundidad
-    connect_to_previous: 1,          // Conexión: mediano
-    recall_check: -2,                // Recall: mínimo
+  const map: Partial<Record<TeachingObjective, number>> = {
+    introduce: 0,
+    activate_prior_knowledge: 0,
+    explain_deeper: 2,
+    explain_with_analogy: 1,
+    explain_with_counterexample: 1,
+    explain_with_contrast: 1,
+    explain_with_visualization: 1,
+    explain_with_story: 2,
+    explain_cause_effect: 2,
+    explain_effect_to_cause: 2,
+    explain_by_elimination: 1,
+    simplify_to_core: -1,
+    use_prior_knowledge: 0,
+    illustrate_with_example: 1,
+    illustrate_with_worked_example: 2,
+    illustrate_with_clinical_case: 2,
+    illustrate_with_everyday_case: 1,
+    illustrate_with_error_case: 1,
+    verify_understanding: -2,
+    verify_with_prediction: -1,
+    verify_with_socratic_question: 0,
+    verify_with_completion: -1,
+    verify_with_error_detection: 0,
+    verify_with_ranking: -1,
+    test_application: -1,
+    test_transfer: -1,
+    test_reverse: -1,
+    test_boundary: 0,
+    test_integration: 1,
+    connect_to_previous: 1,
+    build_mental_model: 2,
+    identify_pattern: 1,
+    generalize_rule: 1,
+    recall_check: -2,
+    teach_mnemonic: 0,
+    spaced_recall: -2,
+    reveal_answer: 1,
+    reconstruct_from_error: 2,
+    address_misconception: 2,
+    guided_reconstruction: 2,
+    split_into_submicros: 1,
+    consolidate: 0,
+    summarize_key_idea: -1,
+    inverse_teaching: 1,
   }
   return map[objective] ?? 0
 }

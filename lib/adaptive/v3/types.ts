@@ -233,17 +233,67 @@ export type MicroEventType =
 // ═══════════════════════════════════════════════════════════════
 
 export type TeachingObjective =
+  // ── Introducción ──────────────────────────────────────────────
   | 'introduce'                         // Presentar por primera vez
+  | 'activate_prior_knowledge'          // Activar conocimiento previo antes de introducir
+
+  // ── Explicación ───────────────────────────────────────────────
   | 'explain_deeper'                    // Profundizar explicación
-  | 'illustrate_with_example'           // Mostrar ejemplo
+  | 'explain_with_analogy'              // Usar analogía con algo familiar
+  | 'explain_with_counterexample'       // Mostrar qué NO es el concepto
+  | 'explain_with_contrast'             // Comparar con un concepto similar
+  | 'explain_with_visualization'        // Imagen mental, diagrama, ASCII
+  | 'explain_with_story'                // Historia o narrativa que contextualiza
+  | 'explain_cause_effect'              // Explicar desde la causa al efecto
+  | 'explain_effect_to_cause'           // Explicar desde el efecto a la causa (inversión)
+  | 'explain_by_elimination'            // Llegar al concepto eliminando opciones
+  | 'simplify_to_core'                  // Reducir al núcleo más simple posible
+  | 'use_prior_knowledge'               // Construir sobre lo que ya sabe el estudiante
+
+  // ── Ejemplos ──────────────────────────────────────────────────
+  | 'illustrate_with_example'           // Mostrar ejemplo concreto
+  | 'illustrate_with_worked_example'    // Ejemplo resuelto paso a paso completo
+  | 'illustrate_with_clinical_case'     // Caso clínico real
+  | 'illustrate_with_everyday_case'     // Caso cotidiano familiar
+  | 'illustrate_with_error_case'        // Mostrar un error común y por qué está mal
+
+  // ── Verificación ──────────────────────────────────────────────
   | 'verify_understanding'              // Preguntar si entendió
+  | 'verify_with_prediction'            // Pedir predicción antes de revelar
+  | 'verify_with_socratic_question'     // Pregunta socrática que guía al descubrimiento
+  | 'verify_with_completion'            // Completar una explicación incompleta
+  | 'verify_with_error_detection'       // Encontrar el error en una solución dada
+  | 'verify_with_ranking'               // Ordenar conceptos por importancia o magnitud
+
+  // ── Aplicación ────────────────────────────────────────────────
   | 'test_application'                  // Aplicar a un caso
   | 'test_transfer'                     // Aplicar en contexto nuevo
-  | 'consolidate'                       // Cierre del micro
-  | 'reveal_answer'                     // Después de fallo
-  | 'reconstruct_from_error'            // Reexplicar tras error
-  | 'connect_to_previous'               // Conectar con otros micros
+  | 'test_reverse'                      // Aplicar al revés (efecto → causa)
+  | 'test_boundary'                     // Caso límite o extremo del concepto
+  | 'test_integration'                  // Integrar múltiples conceptos en un caso
+
+  // ── Profundización ────────────────────────────────────────────
+  | 'connect_to_previous'               // Conectar con otros micros ya aprendidos
+  | 'build_mental_model'                // Construir modelo mental completo
+  | 'identify_pattern'                  // Identificar el patrón subyacente
+  | 'generalize_rule'                   // Extraer la regla general desde casos
+
+  // ── Memoria ───────────────────────────────────────────────────
   | 'recall_check'                      // Verificar retención
+  | 'teach_mnemonic'                    // Enseñar mnemotecnia o regla de memoria
+  | 'spaced_recall'                     // Repaso espaciado tras tiempo
+
+  // ── Reparación ────────────────────────────────────────────────
+  | 'reveal_answer'                     // Después de fallo: mostrar respuesta correcta
+  | 'reconstruct_from_error'            // Reexplicar tras error con ángulo diferente
+  | 'address_misconception'             // Confrontar y corregir creencia incorrecta directamente
+  | 'guided_reconstruction'             // Guiar al estudiante a descubrir su propio error
+  | 'split_into_submicros'              // Dividir el micro en partes más pequeñas
+
+  // ── Cierre ────────────────────────────────────────────────────
+  | 'consolidate'                       // Cierre del micro
+  | 'summarize_key_idea'               // Resumir la idea clave en una frase
+  | 'inverse_teaching'                  // El estudiante explica como si enseñara
 
 // ═══════════════════════════════════════════════════════════════
 // TEACHING QUEUE — Cola de micros a enseñar

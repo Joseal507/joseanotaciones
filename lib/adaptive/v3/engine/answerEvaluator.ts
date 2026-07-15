@@ -9,6 +9,27 @@
 import { alaiRequest, safeParseJson } from '../../../alai'
 import type { MicroConcept } from '../types'
 
+// ═══════════════════════════════════════════════════════════════
+// DIAGNÓSTICO DE ERROR — Por qué falló, no solo que falló
+// ═══════════════════════════════════════════════════════════════
+export type ErrorType =
+  | 'confused_similar_concept'    // confunde con un concepto parecido
+  | 'inverted_relationship'       // invirtió causa-efecto, mayor-menor, verdadero-falso
+  | 'incomplete_understanding'    // sabe algo pero le falta una parte clave
+  | 'random_guess'                // respuesta sin lógica (ej: índice inválido o sin relación)
+  | 'calculation_error'           // entendió pero erró el cálculo o la operación
+  | 'misread_question'            // respondió algo correcto pero a una pregunta diferente
+  | 'knowledge_gap'               // simplemente no lo sabe todavía
+  | 'misconception'               // creencia incorrecta persistente y específica
+
+export interface ErrorDiagnosis {
+  errorType: ErrorType
+  hypothesis: string              // hipótesis sobre por qué falló
+  distractorChosen?: string       // qué eligió exactamente
+  isLikelyMisconception: boolean  // si parece una creencia errónea persistente
+  suggestedIntervention: string   // qué estrategia usar ahora
+}
+
 export interface EvaluationResult {
   outcome: 'correct' | 'partial' | 'incorrect'
   score: number                       // 0-100
@@ -16,6 +37,8 @@ export interface EvaluationResult {
   whatWasMissing: string
   correctAnswer: string
   errorDetected?: string
+  // Diagnóstico pedagógico del error (solo cuando outcome !== 'correct')
+  errorDiagnosis?: ErrorDiagnosis
 }
 
 export interface EvaluationInput {
@@ -140,6 +163,64 @@ function evaluateMultipleChoice(interaction: any, answer: any): EvaluationResult
     if (explanation) whatWasMissing += ` ${explanation}`
   }
 
+  let errorDiagnosis: ErrorDiagnosis | undefined = undefined
+
+  if (!isCorrect) {
+    // Inferir tipo de error desde el distractor elegido vs la respuesta correcta
+    const chosenLower = (chosenText || '').toLowerCase()
+    const correctLower = correctDisplay.toLowerCase()
+
+    let errorType: ErrorType = 'knowledge_gap'
+    let hypothesis = `Eligió "${chosenText}" en vez de "${correctDisplay}".`
+    let suggestedIntervention = 'Revelar la respuesta correcta y reexplicar el concepto.'
+    let isLikelyMisconception = false
+
+    if (!chosenText || chosenText === 'undefined' || chosenText === String(answer)) {
+      // No eligió una opción real o eligió algo sin sentido
+      errorType = 'random_guess'
+      hypothesis = 'La respuesta no sigue ningún patrón lógico visible.'
+      suggestedIntervention = 'Introducir el concepto desde cero con una analogía.'
+    } else {
+      // Analizar relación semántica entre lo elegido y lo correcto
+      const chosenWords = new Set(chosenLower.split(/\s+/).filter((w: string) => w.length > 3))
+      const correctWords = new Set(correctLower.split(/\s+/).filter((w: string) => w.length > 3))
+      const overlap = [...chosenWords].filter((w: string) => correctWords.has(w)).length
+      const totalUnique = new Set([...chosenWords, ...correctWords]).size
+
+      if (overlap > 0 && totalUnique > 0 && overlap / totalUnique > 0.4) {
+        // Alta superposición de palabras → confusión entre conceptos similares
+        errorType = 'confused_similar_concept'
+        hypothesis = `Confunde "${chosenText}" con "${correctDisplay}". Son conceptos similares pero distintos.`
+        suggestedIntervention = 'Comparar explícitamente los dos conceptos usando una tabla o contraste directo.'
+        isLikelyMisconception = true
+      } else if (
+        (chosenLower.includes('no') && !correctLower.includes('no')) ||
+        (!chosenLower.includes('no') && correctLower.includes('no')) ||
+        (chosenLower.includes('mayor') && correctLower.includes('menor')) ||
+        (chosenLower.includes('menor') && correctLower.includes('mayor')) ||
+        (chosenLower.includes('aumenta') && correctLower.includes('disminuye')) ||
+        (chosenLower.includes('disminuye') && correctLower.includes('aumenta'))
+      ) {
+        errorType = 'inverted_relationship'
+        hypothesis = `Invirtió la relación: eligió "${chosenText}" pero la relación correcta es la opuesta.`
+        suggestedIntervention = 'Usar un ejemplo concreto que muestre la dirección correcta de la relación.'
+        isLikelyMisconception = true
+      } else {
+        errorType = 'knowledge_gap'
+        hypothesis = `No conoce o no recuerda "${correctDisplay}". Eligió "${chosenText}" sin relación clara.`
+        suggestedIntervention = 'Reexplicar el concepto con un ejemplo directo del material.'
+      }
+    }
+
+    errorDiagnosis = {
+      errorType,
+      hypothesis,
+      distractorChosen: chosenText,
+      isLikelyMisconception,
+      suggestedIntervention,
+    }
+  }
+
   return {
     outcome: isCorrect ? 'correct' : 'incorrect',
     score: isCorrect ? 100 : 0,
@@ -147,6 +228,7 @@ function evaluateMultipleChoice(interaction: any, answer: any): EvaluationResult
     whatWasMissing,
     correctAnswer: correctDisplay,
     errorDetected: !isCorrect ? data.explanation : undefined,
+    errorDiagnosis,
   }
 }
 
@@ -166,6 +248,14 @@ function evaluateTrueFalse(interaction: any, answer: any): EvaluationResult {
   const normalizedCorrect = normalize(data.correctAnswer)
   const isCorrect = normalizedAnswer === normalizedCorrect
 
+  const tfDiagnosis: ErrorDiagnosis | undefined = !isCorrect ? {
+    errorType: 'inverted_relationship',
+    hypothesis: `Marcó ${normalizedAnswer ? 'Verdadero' : 'Falso'} pero era ${normalizedCorrect ? 'Verdadero' : 'Falso'}. Posible inversión de la afirmación.`,
+    distractorChosen: normalizedAnswer ? 'Verdadero' : 'Falso',
+    isLikelyMisconception: true,
+    suggestedIntervention: 'Mostrar la afirmación correcta con una cita exacta del material.',
+  } : undefined
+
   return {
     outcome: isCorrect ? 'correct' : 'incorrect',
     score: isCorrect ? 100 : 0,
@@ -176,6 +266,7 @@ function evaluateTrueFalse(interaction: any, answer: any): EvaluationResult {
       ? ''
       : `La respuesta correcta era ${normalizedCorrect ? 'Verdadero' : 'Falso'}${data.explanation ? '. ' + data.explanation : ''}`,
     correctAnswer: normalizedCorrect ? 'Verdadero' : 'Falso',
+    errorDiagnosis: tfDiagnosis,
   }
 }
 
@@ -466,7 +557,13 @@ Devuelve SOLO JSON:
   "score": 0-100,
   "whatWasCorrect": "qué estuvo bien y por qué (1-2 oraciones)",
   "whatWasMissing": "qué faltó o qué estuvo mal y por qué (1-2 oraciones, vacío si perfecto)",
-  "correctAnswer": "respuesta correcta completa con explicación pedagógica usando el material (2-3 oraciones)"
+  "correctAnswer": "respuesta correcta completa con explicación pedagógica usando el material (2-3 oraciones)",
+  "errorDiagnosis": {
+    "errorType": "confused_similar_concept|inverted_relationship|incomplete_understanding|random_guess|calculation_error|misread_question|knowledge_gap|misconception",
+    "hypothesis": "hipótesis específica sobre por qué el estudiante dio esa respuesta incorrecta",
+    "isLikelyMisconception": true|false,
+    "suggestedIntervention": "qué estrategia usar con este estudiante ahora mismo"
+  }
 }`
 
   try {
@@ -486,12 +583,23 @@ Devuelve SOLO JSON:
     })
 
     const parsed = safeParseJson(result.text) || {}
+    const llmDiagnosis: ErrorDiagnosis | undefined =
+      parsed.errorDiagnosis && parsed.outcome !== 'correct'
+        ? {
+            errorType: parsed.errorDiagnosis.errorType || 'knowledge_gap',
+            hypothesis: parsed.errorDiagnosis.hypothesis || '',
+            isLikelyMisconception: !!parsed.errorDiagnosis.isLikelyMisconception,
+            suggestedIntervention: parsed.errorDiagnosis.suggestedIntervention || '',
+          }
+        : undefined
+
     return {
       outcome: parsed.outcome || 'partial',
       score: Math.min(100, Math.max(0, Number(parsed.score) || 60)),
       whatWasCorrect: parsed.whatWasCorrect || '',
       whatWasMissing: parsed.whatWasMissing || '',
       correctAnswer: parsed.correctAnswer || '',
+      errorDiagnosis: llmDiagnosis,
     }
   } catch {
     return {

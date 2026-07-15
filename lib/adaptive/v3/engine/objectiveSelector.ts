@@ -17,6 +17,7 @@ import type {
   SessionState,
 } from '../types'
 import type { EvidenceProfile, EvidenceType } from './evidenceEngine'
+import type { ErrorType } from './answerEvaluator'
 
 export interface ObjectiveDecision {
   objective: TeachingObjective
@@ -84,17 +85,49 @@ export function selectObjective(
       // explained  → simplificar — pedir explicación más básica
       // applied    → ejemplo resuelto paso a paso
       // connected  → mostrar conexión explícita
+      const lastTurn = sessionState.recentTurns[sessionState.recentTurns.length - 1]
+      const lastErrorType: ErrorType | null = (lastTurn?.content as any)?.errorDiagnosis?.errorType || null
+      const isLikelyMisconception = (lastTurn?.content as any)?.errorDiagnosis?.isLikelyMisconception || false
+
+      const errorToObjective: Partial<Record<ErrorType, TeachingObjective>> = {
+        confused_similar_concept: 'explain_with_contrast',
+        inverted_relationship: 'explain_effect_to_cause',
+        incomplete_understanding: 'simplify_to_core',
+        random_guess: 'explain_with_analogy',
+        calculation_error: 'illustrate_with_worked_example',
+        misread_question: 'verify_with_socratic_question',
+        knowledge_gap: 'explain_with_analogy',
+        misconception: 'address_misconception',
+      }
+
+      const evidenceToObjective: Partial<Record<EvidenceType, TeachingObjective>> = {
+        recognized: 'explain_with_analogy',
+        recalled: 'teach_mnemonic',
+        explained: 'guided_reconstruction',
+        applied: 'illustrate_with_worked_example',
+        connected: 'connect_to_previous',
+        transferred: 'test_boundary',
+      }
+
+      const chosenObjective: TeachingObjective =
+        (lastErrorType && errorToObjective[lastErrorType]) ||
+        (failingType && evidenceToObjective[failingType as EvidenceType]) ||
+        (isLikelyMisconception ? 'address_misconception' : 'reconstruct_from_error')
+
       const alternativeStrategy =
         failingType === 'recognized' ? 'analogy' :
         failingType === 'recalled' ? 'simplify' :
         failingType === 'explained' ? 'different_angle' :
         failingType === 'applied' ? 'worked_example' :
         failingType === 'connected' ? 'step_by_step' :
-        'analogy'  // default
+        lastErrorType === 'confused_similar_concept' ? 'different_angle' :
+        lastErrorType === 'inverted_relationship' ? 'different_angle' :
+        lastErrorType === 'misconception' ? 'different_angle' :
+        'analogy'
 
       return {
-        objective: 'reconstruct_from_error',
-        reason: `${consecutiveFails} fallos consecutivos en '${failingType || 'concepto'}' — estrategia: ${alternativeStrategy}`,
+        objective: chosenObjective,
+        reason: `${consecutiveFails} fallos en '${failingType || lastErrorType || 'concepto'}' → ${chosenObjective}`,
         isFirstEncounter: false,
         requiresQuestion: false,
         requiresContent: true,

@@ -88,7 +88,7 @@ const FORMATS_BY_COGNITIVE_TYPE: Record<string, InteractionFormat[]> = {
 // ═══════════════════════════════════════════════════════════════
 // FORMATOS ADECUADOS POR OBJETIVO
 // ═══════════════════════════════════════════════════════════════
-const FORMATS_BY_OBJECTIVE: Record<TeachingObjective, InteractionFormat[]> = {
+const FORMATS_BY_OBJECTIVE: Partial<Record<TeachingObjective, InteractionFormat[]>> = {
   introduce: ['none'],                                          // Solo enseñar
   explain_deeper: ['none'],                                     // Solo enseñar más
   illustrate_with_example: ['none'],                            // Solo mostrar ejemplo

@@ -374,7 +374,7 @@ function getInstructionsForObjective(
   format: string,
   lastResponse: any,
 ): string {
-  const instructions: Record<TeachingObjective, string> = {
+  const instructions: Partial<Record<TeachingObjective, string>> = {
     introduce: `Presenta este microconcepto por PRIMERA VEZ. 
 - Explica qué es de forma clara y directa
 - Máximo 3 bloques
@@ -434,7 +434,7 @@ ${lastResponse ? '- El estudiante respondió: ' + JSON.stringify(lastResponse) :
 - Pregunta breve para verificar retención`,
   }
 
-  return instructions[objective] || instructions.verify_understanding
+  return instructions[objective] || instructions.verify_understanding || 'Genera contenido pedagógico apropiado para este microconcepto.'
 }
 
 // ═══════════════════════════════════════════════════════════════
