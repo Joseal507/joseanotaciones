@@ -18,6 +18,7 @@ import type {
 } from '../types'
 import type { EvidenceProfile, EvidenceType } from './evidenceEngine'
 import type { ErrorType } from './answerEvaluator'
+import { selectBestStrategy } from './strategyRegistry'
 
 export interface ObjectiveDecision {
   objective: TeachingObjective
@@ -31,6 +32,10 @@ export interface ObjectiveDecision {
   alternativeStrategy?: 'analogy' | 'simplify' | 'step_by_step' | 'worked_example' | 'different_angle' | null
   // Tipo de evidencia que está fallando repetidamente
   failingEvidenceType?: EvidenceType | null
+  // ID de estrategia del registry seleccionada (si aplica)
+  strategyId?: string | null
+  // Plantilla de prompt de la estrategia seleccionada
+  strategyPromptTemplate?: string | null
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -125,6 +130,16 @@ export function selectObjective(
         lastErrorType === 'misconception' ? 'different_angle' :
         'analogy'
 
+      // Consultar el Strategy Registry para enriquecer la decisión
+      const registryStrategy = selectBestStrategy({
+        errorType: lastErrorType || undefined,
+        evidenceGap: failingType as EvidenceType || undefined,
+        cognitiveType: microConcept.cognitiveType,
+        masteryScore: (microState as any).evidenceProfile?.masteryScore || 0,
+        consecutiveFails,
+        preferFamily: 'repair',
+      })
+
       return {
         objective: chosenObjective,
         reason: `${consecutiveFails} fallos en '${failingType || lastErrorType || 'concepto'}' → ${chosenObjective}`,
@@ -134,6 +149,8 @@ export function selectObjective(
         suggestedContentType: 'example',
         alternativeStrategy,
         failingEvidenceType: failingType,
+        strategyId: registryStrategy?.id || null,
+        strategyPromptTemplate: registryStrategy?.promptTemplate || null,
       }
     }
     // Tras 1-2 fallos: revelar respuesta y reexplicar inmediatamente

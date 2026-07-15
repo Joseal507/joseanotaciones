@@ -59,6 +59,24 @@ import {
 } from '../../../../../lib/adaptive/v3/engine/coverageTracker'
 import type { BankedQuestion, QuestionBank } from '../../../../../lib/adaptive/v3/graph/questionBank'
 import { evaluateAnswer } from '../../../../../lib/adaptive/v3/engine/answerEvaluator'
+import {
+  generateHypothesis,
+  updateHypothesis,
+  getMostRelevantHypothesis,
+  designDiagnosticActivity,
+} from '../../../../../lib/adaptive/v3/engine/hypothesisEngine'
+import {
+  detectMisconceptionFromError,
+  observeMisconception,
+  createMisconception,
+  getActiveMisconceptions,
+} from '../../../../../lib/adaptive/v3/engine/misconceptionTracker'
+import {
+  createInitialMemoryState,
+  updateMemoryAfterReview,
+  outcomeToGrade,
+  getMicrosNeedingReview,
+} from '../../../../../lib/adaptive/v3/engine/memoryEngine'
 import type { MicroEventType, Turn } from '../../../../../lib/adaptive/v3/types'
 
 export const maxDuration = 90
@@ -298,6 +316,107 @@ export async function POST(request: NextRequest) {
 
         console.log(`[tutor v3] Evaluación: ${evaluation.outcome} (${evaluation.score}/100)`)
 
+        // ── HYPOTHESIS ENGINE: crear o actualizar hipótesis ──────────────
+        const existingHypotheses: any[] = [...(materialMastery?.hypotheses || [])]
+        const interactionId = `int_${Date.now()}`
+
+        if (evaluation.outcome === 'incorrect' && evaluation.errorDiagnosis) {
+          const diag = evaluation.errorDiagnosis
+          // Buscar hipótesis existente para este micro y tipo de error
+          const existing = existingHypotheses.find(h =>
+            h.targetMicroIds.includes(activeMicro.id) &&
+            h.originatingErrorType === diag.errorType &&
+            !['rejected', 'corrected'].includes(h.status)
+          )
+
+          if (existing) {
+            // Actualizar hipótesis existente — el error la refuerza
+            const idx = existingHypotheses.findIndex(h => h.id === existing.id)
+            existingHypotheses[idx] = updateHypothesis(existing, {
+              outcome: 'incorrect',
+              interactionId,
+              isIndependent: true,
+              score: evaluation.score,
+            })
+            console.log(`[tutor v3] 🧠 Hipótesis reforzada: "${existing.statement}" (conf=${existingHypotheses[idx].confidence})`)
+          } else {
+            // Generar nueva hipótesis
+            const newHyp = generateHypothesis({
+              microId: activeMicro.id,
+              errorType: diag.errorType,
+              hypothesis: diag.hypothesis,
+              isLikelyMisconception: diag.isLikelyMisconception,
+              interactionId,
+              targetEvidenceType: null,
+            })
+            existingHypotheses.push(newHyp)
+            console.log(`[tutor v3] 🧠 Nueva hipótesis: "${newHyp.statement}" (conf=${newHyp.confidence})`)
+          }
+        } else if (evaluation.outcome === 'correct' && evaluation.score >= 80) {
+          // Éxito independiente → refutar hipótesis activas para este micro
+          existingHypotheses.forEach((h, idx) => {
+            if (h.targetMicroIds.includes(activeMicro.id) && !['rejected', 'corrected'].includes(h.status)) {
+              existingHypotheses[idx] = updateHypothesis(h, {
+                outcome: 'correct',
+                interactionId,
+                isIndependent: true,
+                score: evaluation.score,
+              })
+            }
+          })
+        }
+
+        // Guardar hipótesis temporalmente — se persistirán al final con updatedMaterialMastery
+        ;(session as any).pendingHypotheses = existingHypotheses
+
+        // ── MISCONCEPTION TRACKER: detectar creencias incorrectas persistentes ──
+        if (evaluation.outcome === 'incorrect' && evaluation.errorDiagnosis?.isLikelyMisconception) {
+          const existingMisconceptions = [...(materialMastery?.misconceptions || [])]
+          const diag = evaluation.errorDiagnosis!
+          const detection = detectMisconceptionFromError({
+            microId: activeMicro.id,
+            distractorChosen: diag.distractorChosen || '',
+            correctAnswer: evaluation.correctAnswer,
+            hypothesis: diag.hypothesis,
+            isHighConfidence: true,
+            existingMisconceptions,
+          })
+
+          if (detection.existingMatch) {
+            const idx = existingMisconceptions.findIndex(m => m.id === detection.existingMatch!.id)
+            existingMisconceptions[idx] = observeMisconception(detection.existingMatch, true)
+            console.log(`[tutor v3] 🚨 Misconception reforzada: "${existingMisconceptions[idx].statement}" (obs=${existingMisconceptions[idx].observationCount})`)
+          } else if (detection.isNewMisconception) {
+            const newMisc = createMisconception({
+              statement: detection.suggestedStatement,
+              correctStatement: `La respuesta correcta es: ${evaluation.correctAnswer}`,
+              category: 'definition',
+              microId: activeMicro.id,
+              wasHighConfidence: true,
+            })
+            existingMisconceptions.push(newMisc)
+            console.log(`[tutor v3] 🚨 Nueva misconception detectada: "${newMisc.statement}"`)
+          }
+          ;(session as any).pendingMisconceptions = existingMisconceptions
+        }
+
+        // ── MEMORY ENGINE: actualizar estado de memoria del micro ────────
+        const memoryStates = materialMastery?.memoryStates || {}
+        const microMemory = memoryStates[activeMicro.id] || createInitialMemoryState(
+          activeMicro.id,
+          activeMicro.difficulty / 10  // difficulty 0-100 → 0-10
+        )
+
+        const evidenceProfile = (session.microStates[activeMicro.id] as any).evidenceProfile
+        const confidenceMultiplier = evidenceProfile?.evidences?.[evidenceProfile.evidences.length - 1]?.confidenceMultiplier || 1.0
+
+        const grade = outcomeToGrade(evaluation.outcome, evaluation.score, confidenceMultiplier)
+        const updatedMemory = updateMemoryAfterReview(microMemory, grade, 'independent')
+        const updatedMemoryStates = { ...memoryStates, [activeMicro.id]: updatedMemory }
+
+        ;(session as any).pendingMemoryStates = updatedMemoryStates
+        console.log(`[tutor v3] 🧠 Memoria actualizada: ${activeMicro.name} | estabilidad=${updatedMemory.stability}d | grade=${grade}`)
+
         // Registrar evento en el timeline del micro
         const activeState = session.microStates[activeMicro.id]
         const eventType: MicroEventType =
@@ -505,7 +624,25 @@ export async function POST(request: NextRequest) {
     // - Tipo cognitivo del micro
     // - Importancia del micro
     // No necesita que le digamos qué evidencias faltan
+    // Verificar si hay hipótesis activa para este micro — puede influir en el objetivo
+    const activeHypotheses: any[] = (session as any).pendingHypotheses || materialMastery?.hypotheses || []
+    const relevantHypothesis = getMostRelevantHypothesis(activeHypotheses, currentMicro.id)
+
     let objectiveDecision = selectObjective(currentMicroState, currentMicro, session, initialKnowledgeLevel, evalPreference)
+
+    // Si hay hipótesis confirmada → usar diseño diagnóstico en vez del objetivo normal
+    if (relevantHypothesis && relevantHypothesis.status === 'confirmed' && objectiveDecision.objective !== 'consolidate') {
+      const diagnosticActivity = designDiagnosticActivity(relevantHypothesis)
+      console.log(`[tutor v3] 🧠 Hipótesis confirmada: "${relevantHypothesis.statement}" → ${diagnosticActivity.targetObjective}`)
+      objectiveDecision = {
+        ...objectiveDecision,
+        objective: diagnosticActivity.targetObjective as any,
+        reason: diagnosticActivity.diagnosticReason,
+        forcedFormat: diagnosticActivity.forcedFormat,
+        requiresQuestion: !!diagnosticActivity.forcedFormat,
+        requiresContent: !diagnosticActivity.forcedFormat,
+      }
+    }
 
     // Pre-quiz eliminado — el AskWidget ya está visible durante enseñanza
     // El estudiante puede preguntar dudas en cualquier momento
@@ -951,6 +1088,10 @@ Responde SOLO el nombre del formato. Una palabra.`,
     const updatedMaterialMastery = extractMasteryFromSession(
       session, materialMastery, userId, materialId, graph
     )
+    // Persistir hipótesis y estados de memoria actualizados
+    updatedMaterialMastery.hypotheses = (session as any).pendingHypotheses || updatedMaterialMastery.hypotheses || []
+    updatedMaterialMastery.misconceptions = (session as any).pendingMisconceptions || updatedMaterialMastery.misconceptions || []
+    updatedMaterialMastery.memoryStates = (session as any).pendingMemoryStates || updatedMaterialMastery.memoryStates || {}
     await saveMaterialMastery(updatedMaterialMastery)
     console.log(`[tutor v3] Mastery global actualizado: ${Object.keys(updatedMaterialMastery.micros).length} micros`)
 
@@ -993,6 +1134,15 @@ Responde SOLO el nombre del formato. Una palabra.`,
       evaluation,
       sessionId: session.sessionId,
       shouldCloseSession: shouldCloseSession(session),
+      // Hipótesis activas del estudiante (para debug y UI)
+      activeHypotheses: ((session as any).pendingHypotheses || updatedMaterialMastery?.hypotheses || [])
+        .filter(h => !['rejected', 'corrected'].includes(h.status))
+        .map(h => ({ id: h.id, statement: h.statement, confidence: h.confidence, status: h.status })),
+      // Micros que necesitan repaso espaciado urgente
+      needingReview: getMicrosNeedingReview(
+        (session as any).pendingMemoryStates || updatedMaterialMastery?.memoryStates || {},
+        { urgencyThreshold: 0.7, maxCount: 3 }
+      ),
       summary: {
         totalCorrect: session.totalCorrect,
         totalIncorrect: session.totalIncorrect,

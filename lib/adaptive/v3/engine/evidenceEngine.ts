@@ -302,19 +302,29 @@ export function getMissingEvidences(profile: EvidenceProfile, micro: MicroConcep
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ¿ESTÁ DOMINADO EL MICRO?
+// ¿ESTÁ DOMINADO EL MICRO? — Usando contratos por tipo de conocimiento
 // ═══════════════════════════════════════════════════════════════
 export function isMicroMastered(profile: EvidenceProfile, micro: MicroConcept): boolean {
-  // No basta con score alto — deben cubrirse las evidencias requeridas
-  if (profile.masteryScore < 60) return false
-
-  const missing = getMissingEvidences(profile, micro)
-
-  // Un micro está dominado si:
-  // - masteryScore >= 60
-  // - No le faltan evidencias esenciales para su tipo cognitivo
-  const essentialMissing = missing.filter(e => e !== 'transferred' && e !== 'retained')
-  return essentialMissing.length === 0
+  // Usar contratos de dominio específicos por tipo cognitivo
+  try {
+    const { checkMasteryContract } = require('./masteryContracts')
+    const result = checkMasteryContract(
+      micro.cognitiveType,
+      {
+        strongCount: profile.strongCount,
+        mediumCount: profile.mediumCount,
+        masteryScore: profile.masteryScore,
+        totalEvidences: profile.totalEvidences,
+      }
+    )
+    return result.fulfilled
+  } catch {
+    // Fallback si no se puede cargar el módulo
+    if (profile.masteryScore < 60) return false
+    const missing = getMissingEvidences(profile, micro)
+    const essentialMissing = missing.filter(e => e !== 'transferred' && e !== 'retained')
+    return essentialMissing.length === 0
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════

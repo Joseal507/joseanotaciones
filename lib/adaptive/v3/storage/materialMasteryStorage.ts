@@ -11,6 +11,7 @@ import {
   GetObjectCommand,
 } from '@aws-sdk/client-s3'
 import { r2 } from '../../../materials/storage'
+import type { MemoryState } from '../engine/memoryEngine'
 
 const BUCKET = process.env.R2_BUCKET ?? 'studyal'
 
@@ -58,6 +59,12 @@ export interface MaterialMastery {
   allMicroIds: string[]
   // Coverage por páginas del PDF
   pagesCoverage: Record<number, CoveragePage>
+  // Hipótesis activas sobre el estado cognitivo del estudiante
+  hypotheses: import('../engine/hypothesisEngine').LearningHypothesis[]
+  // Misconceptions persistentes del estudiante
+  misconceptions: import('../engine/misconceptionTracker').Misconception[]
+  // Estado de memoria por micro (modelo FSRS simplificado)
+  memoryStates: Record<string, MemoryState>
   // Resumen de cobertura
   totalMicros: number
   masteredMicros: number
@@ -109,7 +116,20 @@ export async function saveMaterialMastery(mastery: MaterialMastery): Promise<voi
 export function getMicrosNeedingRetention(
   mastery: MaterialMastery,
   hoursThreshold: number = 24,
+  maxCount: number = 3,
 ): string[] {
+  // Si hay estados de memoria del Memory Engine, usarlos
+  if (mastery.memoryStates && Object.keys(mastery.memoryStates).length > 0) {
+    const { getMicrosNeedingReview } = require('../engine/memoryEngine')
+    const needingReview = getMicrosNeedingReview(mastery.memoryStates, {
+      urgencyThreshold: 0.9,
+      maxCount,
+      includeNotDue: false,
+    })
+    return needingReview.map((m: any) => m.microId)
+  }
+
+  // Fallback: sistema anterior basado en tiempo
   const now = Date.now()
   const thresholdMs = hoursThreshold * 60 * 60 * 1000
   return Object.values(mastery.micros)
@@ -119,7 +139,7 @@ export function getMicrosNeedingRetention(
     })
     .sort((a, b) => (a.lastUpdatedAt || 0) - (b.lastUpdatedAt || 0))
     .map(m => m.microId)
-    .slice(0, 3)
+    .slice(0, maxCount)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -323,6 +343,9 @@ export function extractMasteryFromSession(
     micros,
     allMicroIds,
     pagesCoverage,
+    hypotheses: existing?.hypotheses || [],
+    misconceptions: existing?.misconceptions || [],
+    memoryStates: existing?.memoryStates || {},
     totalMicros,
     masteredMicros,
     coveragePercent,
