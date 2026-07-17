@@ -39,6 +39,7 @@ export default function MathText({
                 __html: katex.renderToString(expr, {
                   throwOnError: false,
                   displayMode: true,
+                  output: 'html',
                 }),
               }}
             />
@@ -54,6 +55,7 @@ export default function MathText({
                 __html: katex.renderToString(expr, {
                   throwOnError: false,
                   displayMode: false,
+                  output: 'html',
                 }),
               }}
             />

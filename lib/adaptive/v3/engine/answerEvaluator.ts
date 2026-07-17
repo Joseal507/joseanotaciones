@@ -32,6 +32,7 @@ export interface ErrorDiagnosis {
 
 export interface EvaluationResult {
   outcome: 'correct' | 'partial' | 'incorrect'
+  semanticOutcome?: 'correct' | 'mostly_correct' | 'partial' | 'incorrect'
   score: number                       // 0-100
   whatWasCorrect: string
   whatWasMissing: string
@@ -57,7 +58,10 @@ export async function evaluateAnswer(input: EvaluationInput): Promise<Evaluation
   // Formatos con evaluación determinista (código puro)
   switch (type) {
     case 'multiple_choice':
+    case 'choose_best_procedure':
       return evaluateMultipleChoice(interaction, studentAnswer)
+    case 'multi_select':
+      return evaluateMultiSelect(interaction, studentAnswer)
     case 'true_false':
       return evaluateTrueFalse(interaction, studentAnswer)
     case 'fill_blank':
@@ -66,13 +70,18 @@ export async function evaluateAnswer(input: EvaluationInput): Promise<Evaluation
     case 'matching':
       return evaluateMatching(interaction, studentAnswer)
     case 'ordering':
+    case 'complete_procedure':
       return evaluateOrdering(interaction, studentAnswer)
     case 'classify_groups':
       return evaluateClassifyGroups(interaction, studentAnswer)
     case 'find_the_error':
       return evaluateFindTheError(interaction, studentAnswer)
     case 'complete_reaction_or_formula':
+    case 'formula_builder':
       return evaluateFillBlank(interaction, studentAnswer)
+    case 'numeric_short':
+    case 'calculator_check':
+      return evaluateNumericShort(interaction, studentAnswer)
 
     // Formatos con evaluación semántica (LLM)
     case 'open_response':
@@ -81,6 +90,9 @@ export async function evaluateAnswer(input: EvaluationInput): Promise<Evaluation
     case 'quick_check':
     case 'explain_why':
     case 'teach_back':
+    case 'prediction':
+    case 'compare_contrast':
+    case 'concept_map':
       return await evaluateWithLLM(input)
 
     default:
@@ -91,6 +103,21 @@ export async function evaluateAnswer(input: EvaluationInput): Promise<Evaluation
         whatWasMissing: '',
         correctAnswer: '',
       }
+  }
+}
+
+function evaluateMultiSelect(interaction: any, answer: any): EvaluationResult {
+  const expectedValues: string[] = (interaction.data?.correctIndices || interaction.data?.correctOptionIds || []).map(String)
+  const receivedValues: string[] = (Array.isArray(answer) ? answer : []).map(String)
+  const expected = new Set<string>(expectedValues)
+  const received = new Set<string>(receivedValues)
+  const isCorrect = expected.size > 0 && expected.size === received.size && [...expected].every(value => received.has(value))
+  return {
+    outcome: isCorrect ? 'correct' : 'incorrect',
+    score: isCorrect ? 100 : 0,
+    whatWasCorrect: isCorrect ? 'Seleccionaste exactamente todas las opciones correctas.' : '',
+    whatWasMissing: isCorrect ? '' : 'Revisa qué opciones están respaldadas por el material.',
+    correctAnswer: [...expected].join(', '),
   }
 }
 
@@ -326,9 +353,12 @@ function evaluateFillBlank(interaction: any, answer: any): EvaluationResult {
   const hasSymbols = (s: string) => /[+\-*/=\[\]()<>^%°±≤≥]/.test(s)
   const anyHasSymbols = correctAnswers.some((c: string) => hasSymbols(c)) || hasSymbols(studentAnswer)
 
+  const synonymGroups = [new Set(['rapido', 'veloz', 'agil']), new Set(['rapida', 'veloz', 'agil'])]
+  const areEquivalentWords = (a: string, b: string) => synonymGroups.some(group => group.has(a) && group.has(b))
   let isCorrect = correctAnswers.some((c: string) => {
     // Match exacto siempre válido
     if (c === studentAnswer) return true
+    if (areEquivalentWords(c, studentAnswer)) return true
     // Si hay símbolos técnicos, exigir match exacto (un +/- cambia el significado)
     if (anyHasSymbols) return false
     // Para respuestas cortas de texto plano, exigir exacto
@@ -553,7 +583,7 @@ REGLAS DE FEEDBACK PEDAGÓGICO:
 
 Devuelve SOLO JSON:
 {
-  "outcome": "correct|partial|incorrect",
+  "outcome": "correct|mostly_correct|partial|incorrect",
   "score": 0-100,
   "whatWasCorrect": "qué estuvo bien y por qué (1-2 oraciones)",
   "whatWasMissing": "qué faltó o qué estuvo mal y por qué (1-2 oraciones, vacío si perfecto)",
@@ -593,8 +623,11 @@ Devuelve SOLO JSON:
           }
         : undefined
 
+    const semanticOutcome = ['correct', 'mostly_correct', 'partial', 'incorrect'].includes(parsed.outcome)
+      ? parsed.outcome : 'partial'
     return {
-      outcome: parsed.outcome || 'partial',
+      outcome: semanticOutcome === 'mostly_correct' ? 'partial' : semanticOutcome,
+      semanticOutcome,
       score: Math.min(100, Math.max(0, Number(parsed.score) || 60)),
       whatWasCorrect: parsed.whatWasCorrect || '',
       whatWasMissing: parsed.whatWasMissing || '',
@@ -609,6 +642,38 @@ Devuelve SOLO JSON:
       whatWasMissing: '',
       correctAnswer: '',
     }
+  }
+}
+
+export function evaluateNumericShort(interaction: any, answer: any): EvaluationResult {
+  const data = interaction.data || {}
+  const parse = (value: unknown) => {
+    const match = String(value ?? '').trim().replace(',', '.').match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)\s*([^\d\s].*)?$/i)
+    return match ? { value: Number(match[1]), unit: String(match[2] || '').trim().toLowerCase() } : null
+  }
+  const expected = parse(data.correctAnswer)
+  const received = parse(answer)
+  const correctDisplay = String(data.correctAnswer ?? '')
+  if (!expected || !received || !Number.isFinite(expected.value) || !Number.isFinite(received.value)) {
+    return { outcome: 'incorrect', semanticOutcome: 'incorrect', score: 0, whatWasCorrect: '', whatWasMissing: 'Se esperaba un valor numérico.', correctAnswer: correctDisplay }
+  }
+  if (String(data.answerField || '').trim().toLowerCase() === 'n' && (!Number.isInteger(received.value) || received.value <= 0)) {
+    return { outcome: 'incorrect', semanticOutcome: 'incorrect', score: 0, whatWasCorrect: '', whatWasMissing: 'En el modelo de Bohr, n debe ser un entero positivo.', correctAnswer: correctDisplay }
+  }
+  const tolerance = Math.max(0, Number(data.tolerance ?? 1e-6))
+  const equivalentValue = Math.abs(received.value - expected.value) <= tolerance * Math.max(1, Math.abs(expected.value))
+  const compatibleUnit = !received.unit || !expected.unit || received.unit === expected.unit
+  if (!equivalentValue || !compatibleUnit) {
+    return { outcome: 'incorrect', semanticOutcome: 'incorrect', score: 0, whatWasCorrect: '', whatWasMissing: `El valor o la unidad no equivale a ${correctDisplay}.`, correctAnswer: correctDisplay }
+  }
+  const omittedUnit = !!expected.unit && !received.unit
+  return {
+    outcome: omittedUnit ? 'partial' : 'correct',
+    semanticOutcome: omittedUnit ? 'mostly_correct' : 'correct',
+    score: omittedUnit ? 85 : 100,
+    whatWasCorrect: `El valor ${received.value} es correcto.`,
+    whatWasMissing: omittedUnit ? `Faltó indicar la unidad ${expected.unit}.` : '',
+    correctAnswer: correctDisplay,
   }
 }
 

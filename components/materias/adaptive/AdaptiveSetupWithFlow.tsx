@@ -46,7 +46,11 @@ function setupToIntake(setup: AdaptiveProgramSetup, materialIds: string[], userI
     targetGrade: grade,
     materialIds,
     userId: userId || undefined,
-    evalPreference: (setup as any).evalPreference || 'mix_everything',
+    evalPreference: setup.evalPreference || 'mix_everything',
+    examDateTime: setup.examDateTime,
+    examFormat: setup.examFormat,
+    availability: setup.availability,
+    priorities: setup.priorities,
   }
 }
 

@@ -89,7 +89,7 @@ export default function AskWidget({
 
   if (!expanded) {
     return (
-      <div style={{
+      <div data-testid="adaptive-chat-launcher" style={{
         marginTop: 16, marginBottom: 8,
         padding: '10px 16px',
         background: 'rgba(214,178,111,.08)',
@@ -112,7 +112,7 @@ export default function AskWidget({
   }
 
   return (
-    <div style={{
+    <div data-testid="adaptive-chat" style={{
       marginTop: 16, marginBottom: 8,
       background: 'rgba(214,178,111,.06)',
       border: '1px solid rgba(214,178,111,.25)',
@@ -129,14 +129,14 @@ export default function AskWidget({
         <div style={{ fontSize: 13, fontWeight: 700, color: '#3a2e1f', fontFamily: 'Georgia, serif' }}>
           💬 Pregunta sobre {microName}
         </div>
-        <button onClick={() => setExpanded(false)} style={{
+        <button aria-label="Cerrar chat" onClick={() => setExpanded(false)} style={{
           background: 'transparent', border: 'none',
           fontSize: 18, cursor: 'pointer', color: '#5a4a2f', padding: 0,
         }}>×</button>
       </div>
 
       {/* Mensajes */}
-      <div ref={scrollRef} style={{
+      <div ref={scrollRef} data-testid="adaptive-chat-scroll" style={{
         maxHeight: 200, overflowY: 'auto', padding: '10px 14px',
         display: 'flex', flexDirection: 'column', gap: 8,
       }}>

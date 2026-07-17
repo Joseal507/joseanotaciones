@@ -1,0 +1,22 @@
+No declaro éxito: el cambio está aplicado, pero el sandbox impidió certificar Playwright porque deniega abrir localhost (`listen EPERM`).
+
+Resultado:
+
+- Causa confirmada: el navegador emite exactamente un POST multipart con boundary válido. El fixture es un PDF válido de 1,325,022 bytes. El fallo está en el parser asociado al `Request` envuelto por Next.
+- Ruta corregida: valida boundary, preserva los bytes, parsea mediante una API web estándar y devuelve `INVALID_MULTIPART_REQUEST` estructurado ante errores.
+- Regresión añadida: exige exactamente un POST, boundary válido y body multipart mayor que el archivo.
+- OpenRouter: no es alcanzable en este flujo; continúa `localOnly: true`.
+- TypeScript: PASS.
+- `git diff --check`: PASS.
+- Retries: 0.
+- Skipped/fixme/only: 0.
+- Sin commit ni deploy.
+
+No certificados por bloqueo ambiental:
+
+- CLUTCH 1 aislado.
+- Materiales reales, ejecución 1: servidor bloqueado antes de ejecutar tests.
+- Materiales reales, ejecución 2: servidor bloqueado antes de ejecutar tests.
+- Playwright original: servidor bloqueado antes de ejecutar tests.
+
+Actualicé [PHASE_4_REAL_MATERIALS_E2E_REPORT.md](/Users/joseal/studyal/PHASE_4_REAL_MATERIALS_E2E_REPORT.md), [route.ts](/Users/joseal/studyal/app/api/e2e-real-materials/extract/route.ts) e [ingestion.spec.ts](/Users/joseal/studyal/tests/e2e-real-materials/ingestion.spec.ts). No avancé al motor ni a recorridos pedagógicos.

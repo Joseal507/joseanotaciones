@@ -12,6 +12,11 @@ export interface ExtractionResult {
   chars: number;
   isImageBased: boolean;   // true si el contenido viene de visión
   hasText: boolean;        // true si hay texto real extraído
+  classification?: 'text_pdf' | 'scanned_pdf' | 'extraction_failure';
+}
+
+export interface ExtractionOptions {
+  localOnly?: boolean;
 }
 
 // ════════════════════════════════════════
@@ -87,7 +92,13 @@ export async function extractPptx(buffer: Buffer): Promise<ExtractionResult> {
 // PDF — cascada inteligente
 // Texto nativo → Mistral OCR → Gemini
 // ════════════════════════════════════════
-export async function extractPdf(buffer: Buffer): Promise<ExtractionResult> {
+export async function extractPdf(
+  buffer: Buffer,
+  options: ExtractionOptions = {},
+): Promise<ExtractionResult> {
+
+  let localText = '';
+  let localPages: number | undefined;
 
   // ── Estrategia 1: pdf-parse (texto nativo, gratis) ──
   try {
@@ -112,6 +123,8 @@ export async function extractPdf(buffer: Buffer): Promise<ExtractionResult> {
       text = data.text?.trim() ?? '';
     }
 
+    localText = text;
+    localPages = data.numpages;
     const isScanned = text.replace(/\[Pagina \d+\]/g, '').trim().length < 100;
 
     if (!isScanned) {
@@ -123,11 +136,24 @@ export async function extractPdf(buffer: Buffer): Promise<ExtractionResult> {
         chars: text.length,
         isImageBased: false,
         hasText: true,
+        classification: 'text_pdf',
       };
     }
     console.log('PDF parece escaneado, intentando OCR...');
   } catch (e: any) {
     console.warn('pdf-parse error:', e?.message);
+  }
+
+  if (options.localOnly) {
+    return {
+      text: localText,
+      pages: localPages,
+      method: localText.length > 0 ? 'pdf-parse-partial' : 'none',
+      chars: localText.length,
+      isImageBased: true,
+      hasText: localText.length > 0,
+      classification: localPages === undefined ? 'extraction_failure' : 'scanned_pdf',
+    };
   }
 
   // ── Estrategia 2: Gemini 2.5 Flash vía OpenRouter (PDFs escaneados) ──
@@ -197,6 +223,7 @@ export async function extractPdf(buffer: Buffer): Promise<ExtractionResult> {
     chars: 0,
     isImageBased: false,
     hasText: false,
+    classification: 'extraction_failure',
   };
 }
 
@@ -372,12 +399,13 @@ export async function extractText(
   kind: MaterialKind,
   mime: string,
   fileName = 'file',
+  options: ExtractionOptions = {},
 ): Promise<ExtractionResult> {
   switch (kind) {
     case 'txt':   return extractTxt(buffer);
     case 'docx':  return extractDocx(buffer);
     case 'pptx':  return extractPptx(buffer);
-    case 'pdf':   return extractPdf(buffer);
+    case 'pdf':   return extractPdf(buffer, options);
     case 'image': return extractImage(buffer, mime);
     case 'audio': return extractAudio(buffer, mime, fileName);
     default:
@@ -551,4 +579,3 @@ Empieza AHORA con [Pagina 1]:`;
   const text = data?.choices?.[0]?.message?.content ?? '';
   return String(text).trim();
 }
-

@@ -39,6 +39,8 @@ export interface MicroMasteryRecord {
   evidenceDimensions: EvidenceDimensions
   // Páginas del material donde aparece este micro
   sourcePages: number[]
+  // Snapshot del perfil de evidencia acumulado
+  evidenceProfileSnapshot?: import('../engine/evidenceEngine').EvidenceProfile
   // Cuántas veces se trabajó este micro (across all sessions)
   totalSessions: number
   lastUpdatedAt: number
@@ -260,6 +262,7 @@ export function extractMasteryFromSession(
           applied: false,
           isReady: false,
           evidenceDimensions: { recognized: 0, recalled: 0, explained: 0, applied: 0, connected: 0, transferred: 0 },
+          evidenceProfileSnapshot: undefined,
           sourcePages: micro.sourcePages || [],
           totalSessions: 0,
           lastUpdatedAt: 0,
@@ -322,6 +325,7 @@ export function extractMasteryFromSession(
       applied: microState.evidence?.applied || prev?.applied || false,
       isReady: microState.isReady || prev?.isReady || false,
       evidenceDimensions: newDims,
+      evidenceProfileSnapshot: evidenceProfile || prev?.evidenceProfileSnapshot,
       sourcePages,
       totalSessions: (prev?.totalSessions || 0) + 1,
       lastUpdatedAt: Date.now(),

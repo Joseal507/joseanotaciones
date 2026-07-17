@@ -12,6 +12,7 @@
 
 import type { EvidenceType } from './evidenceEngine'
 import type { CognitiveType } from '../types'
+import type { AssistanceLevel } from './confidenceTracker'
 
 // ═══════════════════════════════════════════════════════════════
 // TIPOS
@@ -34,7 +35,7 @@ export interface MasteryContract {
   requiresDelayedRecall: boolean       // necesita retención tras tiempo
   requiresTransfer: boolean            // necesita uso en contexto nuevo
   requiresIntegration: boolean         // necesita conectar con otros micros
-  maxAssistanceLevel: 'independent' | 'minimal_hint' | 'guided'  // nivel máximo de ayuda aceptable
+  maxAssistanceLevel: AssistanceLevel  // nivel máximo de ayuda aceptable
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -48,7 +49,7 @@ export const MASTERY_CONTRACTS: Record<CognitiveType, MasteryContract> = {
     label: 'Definición o hecho',
     requiredEvidence: [
       { type: 'recognized', minStrong: 1, minMedium: 1, description: 'Reconoce el concepto' },
-      { type: 'recalled', minStrong: 1, minMedium: 0, description: 'Recuerda sin opciones' },
+      { type: 'recalled', minStrong: 1, minMedium: 1, description: 'Recuerda sin opciones' },
     ],
     optionalEvidence: [
       { type: 'explained', minStrong: 0, minMedium: 1, description: 'Puede explicarlo' },
@@ -127,7 +128,7 @@ export const MASTERY_CONTRACTS: Record<CognitiveType, MasteryContract> = {
     knowledgeType: 'causal',
     label: 'Relación causa-efecto',
     requiredEvidence: [
-      { type: 'recognized', minStrong: 1, minMedium: 0, description: 'Identifica la relación' },
+      { type: 'recognized', minStrong: 1, minMedium: 1, description: 'Identifica la relación' },
       { type: 'explained', minStrong: 1, minMedium: 0, description: 'Explica la cadena causal' },
     ],
     optionalEvidence: [
@@ -240,9 +241,9 @@ export const MASTERY_CONTRACTS: Record<CognitiveType, MasteryContract> = {
     knowledgeType: 'applicative',
     label: 'Aplicación práctica',
     requiredEvidence: [
-      { type: 'recalled', minStrong: 1, minMedium: 0, description: 'Recuerda el método' },
-      { type: 'applied', minStrong: 2, minMedium: 0, description: 'Resuelve casos' },
-      { type: 'transferred', minStrong: 1, minMedium: 0, description: 'Resuelve caso nuevo' },
+      { type: 'recalled', minStrong: 1, minMedium: 1, description: 'Recuerda el método' },
+      { type: 'applied', minStrong: 1, minMedium: 1, description: 'Resuelve casos' },
+      { type: 'transferred', minStrong: 1, minMedium: 1, description: 'Resuelve caso nuevo' },
     ],
     optionalEvidence: [
       { type: 'explained', minStrong: 0, minMedium: 1, description: 'Justifica la solución' },
@@ -269,80 +270,124 @@ export function checkMasteryContract(
   },
   params?: {
     independentSuccesses?: number
+    independentSuccessesByType?: Partial<Record<EvidenceType, number>>
+    bestAssistanceByEvidenceType?: Partial<Record<EvidenceType, AssistanceLevel | null>>
     hasDelayedRecall?: boolean
     hasTransfer?: boolean
     hasIntegration?: boolean
-    maxAssistanceLevelUsed?: 'independent' | 'minimal_hint' | 'guided' | 'assisted' | 'revealed'
+    maxAssistanceLevelUsed?: AssistanceLevel
   },
 ): {
   fulfilled: boolean
+  provisionallyFulfilled: boolean
+  retainedFulfilled: boolean
   missingRequired: string[]
   missingOptional: string[]
   fulfillmentPercent: number
   blockingReason: string | null
 } {
   const contract = MASTERY_CONTRACTS[cognitiveType] || MASTERY_CONTRACTS.conceptual
+  const p = params || {}
 
   const missingRequired: string[] = []
   const missingOptional: string[] = []
-  let requiredMet = 0
-  let requiredTotal = contract.requiredEvidence.length
 
-  // Verificar evidencias requeridas
+  let passedChecks = 0
+  let totalChecks = 0
+
+  // ── 1. Evidencia requerida inmediata ───────────────────────
   for (const req of contract.requiredEvidence) {
+    totalChecks++
     const strong = evidenceProfile.strongCount[req.type] || 0
     const medium = evidenceProfile.mediumCount[req.type] || 0
-    if (strong >= req.minStrong || (req.minStrong === 0 && medium >= req.minMedium)) {
-      requiredMet++
-    } else {
-      missingRequired.push(req.description)
+    const met =
+      (req.minStrong > 0 && strong >= req.minStrong) ||
+      (req.minMedium > 0 && strong + medium >= req.minMedium)
+
+    if (met) passedChecks++
+    else missingRequired.push(req.description)
+  }
+
+  // ── 2. Independencia mínima real ───────────────────────────
+  totalChecks++
+  const independentSuccesses = p.independentSuccesses || 0
+  if (independentSuccesses >= contract.minimumIndependentSuccesses) {
+    passedChecks++
+  } else {
+    missingRequired.push(
+      `Necesita ${contract.minimumIndependentSuccesses} éxitos independientes (tiene ${independentSuccesses})`
+    )
+  }
+
+  // ── 3. Nivel máximo de ayuda aceptable POR TIPO REQUERIDO ───
+  totalChecks++
+  const assistanceLevels: AssistanceLevel[] = ['independent', 'minimal_hint', 'guided', 'assisted', 'revealed']
+  const maxAllowed = assistanceLevels.indexOf(contract.maxAssistanceLevel)
+
+  let assistanceCheckPassed = true
+  for (const req of contract.requiredEvidence) {
+    const bestLevel = p.bestAssistanceByEvidenceType?.[req.type]
+    if (!bestLevel) continue
+    const bestIdx = assistanceLevels.indexOf(bestLevel)
+    if (bestIdx > maxAllowed) {
+      assistanceCheckPassed = false
+      break
     }
   }
 
-  // Verificar opcionales
+  if (assistanceCheckPassed) {
+    passedChecks++
+  } else {
+    missingRequired.push(`Necesita demostrar dominio con menos ayuda (máx: ${contract.maxAssistanceLevel})`)
+  }
+
+  // ── 4. Transfer e integración — solo para RETAINED mastery, no provisional ──
+  // No bloquean el avance durante la sesión inicial.
+  // Sí bloquean retainedFulfilled al final del cálculo.
+
+  // ── 5. Evidencia opcional ──────────────────────────────────
   for (const opt of contract.optionalEvidence) {
     const strong = evidenceProfile.strongCount[opt.type] || 0
     const medium = evidenceProfile.mediumCount[opt.type] || 0
-    if (strong < opt.minStrong && medium < opt.minMedium) {
+    const met =
+      (opt.minStrong > 0 && strong >= opt.minStrong) ||
+      (opt.minMedium > 0 && strong + medium >= opt.minMedium)
+    if (!met) {
       missingOptional.push(opt.description)
     }
   }
 
-  // Score mínimo
+  // ── 6. Mastery score = señal diagnóstica, NO gate duro ─────
   if (evidenceProfile.masteryScore < contract.minimumMasteryScore) {
-    missingRequired.push(`Score ${evidenceProfile.masteryScore}% < ${contract.minimumMasteryScore}% requerido`)
+    missingOptional.push(`Score ${evidenceProfile.masteryScore}% < ${contract.minimumMasteryScore}% recomendado`)
   }
 
-  // Verificar extras del contrato
-  const p = params || {}
-  let blockingReason: string | null = null
+  // ── 7. Delayed recall = solo retained mastery, no provisional ──
+  const provisionallyFulfilled = missingRequired.length === 0
+  const retainedFulfilled =
+    provisionallyFulfilled &&
+    (!contract.requiresDelayedRecall || !!p.hasDelayedRecall) &&
+    (!contract.requiresTransfer || !!p.hasTransfer) &&
+    (!contract.requiresIntegration || !!p.hasIntegration)
 
-  if (contract.requiresDelayedRecall && !p.hasDelayedRecall) {
-    blockingReason = blockingReason || 'Falta verificar retención tras tiempo'
-  }
-  if (contract.requiresTransfer && !p.hasTransfer) {
-    blockingReason = blockingReason || 'Falta transferencia a contexto nuevo'
-  }
-  if (contract.requiresIntegration && !p.hasIntegration) {
-    blockingReason = blockingReason || 'Falta integración con otros conceptos'
-  }
-
-  // Nivel de asistencia
-  const assistanceLevels = ['independent', 'minimal_hint', 'guided', 'assisted', 'revealed']
-  const maxAllowed = assistanceLevels.indexOf(contract.maxAssistanceLevel)
-  const maxUsed = assistanceLevels.indexOf(p.maxAssistanceLevelUsed || 'independent')
-  if (maxUsed > maxAllowed) {
-    blockingReason = blockingReason || `Necesita demostrar dominio con menos ayuda (máx: ${contract.maxAssistanceLevel})`
+  let blockingReason: string | null = missingRequired[0] || null
+  if (!blockingReason && provisionallyFulfilled && !retainedFulfilled) {
+    if (contract.requiresDelayedRecall && !p.hasDelayedRecall) {
+      blockingReason = 'Falta verificar retención tras tiempo'
+    } else if (contract.requiresTransfer && !p.hasTransfer) {
+      blockingReason = 'Falta transferencia a contexto nuevo (retención pendiente)'
+    } else if (contract.requiresIntegration && !p.hasIntegration) {
+      blockingReason = 'Falta integración con otros conceptos (retención pendiente)'
+    }
   }
 
-  const totalChecks = requiredTotal + (contract.minimumMasteryScore > 0 ? 1 : 0)
-  const passed = requiredMet + (evidenceProfile.masteryScore >= contract.minimumMasteryScore ? 1 : 0)
-  const fulfillmentPercent = totalChecks > 0 ? Math.round((passed / totalChecks) * 100) : 0
-
-  const fulfilled = missingRequired.length === 0 && !blockingReason
+  const fulfillmentPercent =
+    totalChecks > 0 ? Math.round((passedChecks / totalChecks) * 100) : 0
 
   return {
-    fulfilled,
+    fulfilled: provisionallyFulfilled,
+    provisionallyFulfilled,
+    retainedFulfilled,
     missingRequired,
     missingOptional,
     fulfillmentPercent,

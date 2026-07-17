@@ -8,6 +8,15 @@ interface Props {
   topicsFound?: string[]
   isReady: boolean
   onReady: () => void
+  planSummary?: {
+    microCount: number
+    sessionCount: number
+    estimatedMinutes: number
+    examAt?: string
+    planType: 'rescate' | 'intensivo' | 'normal' | 'profundo'
+    feasibilityMessage?: string
+    rationale?: string
+  }
 }
 
 export default function IntroSession({
@@ -16,6 +25,7 @@ export default function IntroSession({
   topicsFound = [],
   isReady,
   onReady,
+  planSummary,
 }: Props) {
   const [step, setStep] = useState(0)
   const [statusText, setStatusText] = useState('Preparando...')
@@ -42,6 +52,7 @@ export default function IntroSession({
 
   const cleanTitle = materialTitle.replace(/\.pdf$/i, '').replace(/\.docx$/i, '').replace(/\.pptx?$/i, '')
   const wordCount = materialText.split(/\s+/).length
+  const urgency = planSummary?.examAt ? new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(planSummary.examAt)) : 'sin fecha límite'
 
   const steps = [
     // Paso 1: Bienvenida
@@ -50,16 +61,16 @@ export default function IntroSession({
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 28, padding: '20px 0' }}>
           <div style={{ fontSize: 64 }}>📖</div>
           <div style={{ fontSize: 28, fontWeight: 800, color: '#f5ecd5', lineHeight: 1.3, textAlign: 'center' }}>
-            {cleanTitle}
+            Tu plan {planSummary?.planType || 'personalizado'} para {planSummary?.planType === 'intensivo' ? 'mañana' : cleanTitle}
           </div>
           <div style={{ fontSize: 14, color: 'rgba(214,178,111,.6)', letterSpacing: 1 }}>
-            {wordCount} palabras
+            {planSummary ? `${planSummary.microCount} conceptos · ${planSummary.sessionCount} sesiones · ${Math.ceil(planSummary.estimatedMinutes / 60)} h estimadas` : `${wordCount} palabras`}
           </div>
           <div style={{
             fontSize: 16, color: 'rgba(245,236,213,.7)', lineHeight: 1.7,
             textAlign: 'center', maxWidth: 400,
           }}>
-            ALAI va a crear un programa de estudio personalizado para que domines este material completamente.
+            Material detectado: <strong data-testid="intro-material-title">{cleanTitle}</strong><br />Examen: {urgency}. {planSummary?.planType === 'intensivo' ? 'Puedes completar todas las sesiones hoy.' : 'El calendario recomienda un ritmo, pero nunca limita cuánto puedes avanzar.'}
           </div>
         </div>
       ),
@@ -69,14 +80,14 @@ export default function IntroSession({
       content: (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div style={{ fontSize: 20, fontWeight: 800, color: '#f5ecd5', textAlign: 'center' }}>
-            Así vas a estudiar
+            Por qué el plan está ordenado así
           </div>
           {[
-            { emoji: '📖', title: 'Te explico cada concepto', desc: 'Con ejemplos claros y directos de tu material.' },
-            { emoji: '❓', title: 'Te evalúo sin repetir', desc: 'Preguntas variadas basadas en tu material exacto.' },
-            { emoji: '💡', title: 'Si fallas, te corrijo', desc: 'Con la cita exacta de tu material para que entiendas.' },
-            { emoji: '🔄', title: 'Repaso entre sesiones', desc: 'Cada sesión nueva repasa lo que ya aprendiste.' },
-            { emoji: '📝', title: 'Examen final completo', desc: 'La última sesión cubre TODO sin explicaciones.' },
+            { emoji: '🌱', title: 'Fundamentos primero', desc: planSummary?.rationale || 'Empezamos por prerrequisitos y construimos hacia las ideas más exigentes.' },
+            { emoji: '🧠', title: 'Evidencia progresiva', desc: 'Reconocerás, distinguirás, recuperarás y aplicarás; un acierto obvio no equivale a dominio.' },
+            { emoji: '💡', title: 'Feedback antes de avanzar', desc: 'Cada respuesta se corrige y las dificultades cambian la siguiente estrategia.' },
+            { emoji: '⏱️', title: 'Tu tiempo es una preferencia', desc: 'Puedes adelantar sesiones y estudiar más de lo previsto sin bloqueos.' },
+            { emoji: '✅', title: 'Cierre contractual', desc: 'El programa termina únicamente cuando el motor confirma cobertura y dominio requeridos.' },
           ].map((item, i) => (
             <div key={i} style={{
               display: 'flex', gap: 16, alignItems: 'center',
@@ -109,7 +120,7 @@ export default function IntroSession({
 
           {topicsFound.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {topicsFound.slice(0, 8).map((topic, i) => (
+              {topicsFound.map((topic, i) => (
                 <div key={i} style={{
                   display: 'flex', alignItems: 'center', gap: 14,
                   padding: '14px 18px',
@@ -159,13 +170,14 @@ export default function IntroSession({
               ✅ Tu programa está listo
             </div>
           )}
+          {planSummary?.feasibilityMessage && <div data-testid="intro-feasibility" style={{ padding: '12px 16px', border: '1px solid rgba(214,178,111,.25)', borderRadius: 10, color: '#d6b26f' }}>{planSummary.feasibilityMessage}</div>}
         </div>
       ),
     },
   ]
 
   return (
-    <div style={{
+    <div data-testid="intro-session" style={{
       position: 'fixed', inset: 0, zIndex: 100,
       background: 'radial-gradient(ellipse at center, #1a1410 0%, #0a0806 100%)',
       display: 'flex', flexDirection: 'column',
@@ -216,6 +228,7 @@ export default function IntroSession({
             </button>
           )}
           <button
+            data-testid={step === steps.length - 1 ? 'intro-enter-program' : 'intro-next'}
             onClick={() => {
               if (step < steps.length - 1) setStep(s => s + 1)
               else if (isReady) onReady()

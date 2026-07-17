@@ -1,0 +1,27 @@
+La Fase 4 queda **incompleta**, sin fabricar resultados.
+
+Implementé:
+
+- Matriz Playwright separada con 10 pruebas de ingesta.
+- Upload multipart real y extracción local real.
+- Los nueve materiales obligatorios.
+- Prueba de contaminación Niels Bohr → Falcons.
+- Grafo determinista derivado del texto extraído, claramente identificado como arnés.
+- Script `npm run test:e2e:real-materials`.
+- Configuración y artefactos Playwright separados.
+- Reporte completo del estado actual: [PHASE_4_REAL_MATERIALS_E2E_REPORT.md](/Users/joseal/studyal/PHASE_4_REAL_MATERIALS_E2E_REPORT.md).
+
+Resultados relevantes:
+
+- TypeScript: PASS.
+- `git diff --check`: PASS.
+- Playwright descubre 10 pruebas nuevas.
+- 7 materiales: extracción local completa.
+- `TAREA QUIMICA CLUTCH.pdf`: extracción parcial, 270 caracteres.
+- `TAREA CLUTCH 2.pdf`: `extraction_failure`, 0 caracteres; requiere OCR reproducible.
+- Las 33 pruebas originales y la matriz nueva no pudieron ejecutarse: `listen EPERM` en localhost.
+- `npm test` tampoco pudo comenzar porque `tsx` recibió `listen EPERM` al crear su socket IPC.
+
+Los recorridos pedagógicos, perfiles, persistencia real, coverage/mastery y cierre canónico quedan pendientes; no se reportaron métricas inventadas.
+
+No hice commit ni deploy.

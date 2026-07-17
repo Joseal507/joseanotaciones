@@ -140,6 +140,8 @@ export interface AdaptiveSession {
   evidenceGoal?: string
   sessionFormat?: string  // discovery | practice_drill | deep_dive | rapid_review | exam_simulation | repair_dialogue | application | memorization         // qué debe demostrar el estudiante
   blueprintConfidence?: number  // 0-100 confianza del blueprint en este topic
+  evaluationPreference?: 'quick_test' | 'write_explain' | 'mix_everything'
+  examFormat?: import('./planner/types').ExamFormat
 
   // ── Planeación (Fase 2: por ALAI) ──
   plannedAt?: number               // timestamp cuando ALAI diseñó la sesión
@@ -159,6 +161,12 @@ export interface AdaptiveSession {
   conceptsImproved?: string[]
   conceptsStillWeak?: string[]
   completedAt?: number
+  plannedDate?: string
+  planStatus?: import('./planner/types').PlanSessionStatus
+  planReason?: string
+  repairOf?: string | null
+  reviewOf?: string[]
+  revisionVersion?: number
 }
 
 // ── Setup ───────────────────────────────────────────────────────
@@ -169,6 +177,10 @@ export interface AdaptiveProgramSetup {
   examDate: string | null
   dailyMinutes?: number
   evalPreference?: 'quick_test' | 'write_explain' | 'mix_everything'
+  examDateTime?: string
+  examFormat?: import('./planner/types').ExamFormat
+  availability?: import('./planner/types').Availability
+  priorities?: string[]
 }
 
 // ── Program ─────────────────────────────────────────────────────
@@ -181,6 +193,7 @@ export interface AdaptiveProgram {
   status: ProgramStatus
   sessions: AdaptiveSession[]
   currentSessionIndex: number
+  studyPlan?: import('./planner/types').StudyPlan
 
   // ── Material Blueprint embebido ──────────────────────────────
   // Si existe, el programa fue creado con análisis completo del material

@@ -338,7 +338,7 @@ Devuelve SOLO este JSON:
 
     console.log(`[create-plan] ${sessions.length} sesiones | ${finalCoveredCount}/${totalUnits} unidades (${coveragePct}%)`)
 
-    return NextResponse.json({ success: true, plan, coveragePercent: coveragePct })
+    return NextResponse.json({ success: true, plan, planSource: 'legacy_compatibility_only', coveragePercent: coveragePct })
 
   } catch (err: any) {
     console.error('[create-plan]', err.message)

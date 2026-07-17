@@ -585,6 +585,10 @@ export interface StudentIntake {
   materialIds: string[]
   userId?: string
   evalPreference?: 'quick_test' | 'write_explain' | 'mix_everything'
+  examDateTime?: string
+  examFormat?: import('./planner/types').ExamFormat
+  availability?: import('./planner/types').Availability
+  priorities?: string[]
 }
 
 // ═══════════════════════════════════════════════════════════════

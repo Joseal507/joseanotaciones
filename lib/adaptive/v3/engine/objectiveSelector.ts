@@ -17,8 +17,14 @@ import type {
   SessionState,
 } from '../types'
 import type { EvidenceProfile, EvidenceType } from './evidenceEngine'
+import { emptyEvidenceProfile, suggestNextObjectiveFromEvidence, isMicroMastered } from './evidenceEngine'
 import type { ErrorType } from './answerEvaluator'
 import { selectBestStrategy } from './strategyRegistry'
+import {
+  diagnosePedagogicalState,
+  detectKnowledgeIllusion,
+  type PedagogicalReason,
+} from './pedagogicalDecision'
 
 export interface ObjectiveDecision {
   objective: TeachingObjective
@@ -36,6 +42,15 @@ export interface ObjectiveDecision {
   strategyId?: string | null
   // Plantilla de prompt de la estrategia seleccionada
   strategyPromptTemplate?: string | null
+  // Razones estructuradas para tests y debugging
+  reasons?: PedagogicalReason[]
+  // Señal de ilusión de conocimiento detectada
+  hasKnowledgeIllusion?: boolean
+}
+
+export function repairStrategyForFailure(failureNumber: number): 'simplify' | 'different_angle' | 'worked_example' {
+  const strategies = ['simplify', 'different_angle', 'worked_example'] as const
+  return strategies[Math.max(0, failureNumber - 1) % strategies.length]
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -51,9 +66,74 @@ export function selectObjective(
   const { evidence, timeline, totalInteractions } = microState
 
   // Contexto reciente
-  const lastEvent = timeline[timeline.length - 1]
-  const lastOutcome = lastEvent?.metadata?.outcome
-  const consecutiveFails = countConsecutiveFromEnd(timeline, 'answered_incorrectly')
+  const lastResponseIndex = timeline.findLastIndex(event =>
+    event.eventType === 'answered_correctly' ||
+    event.eventType === 'answered_partially' ||
+    event.eventType === 'answered_incorrectly'
+  )
+  const lastResponseEvent = lastResponseIndex >= 0 ? timeline[lastResponseIndex] : undefined
+  const lastOutcome = lastResponseEvent?.metadata?.outcome
+  const interventionAfterLastResponse = lastResponseIndex >= 0 && timeline
+    .slice(lastResponseIndex + 1)
+    .some(event => event.eventType === 'explained_by_tutor' || event.eventType === 'example_shown')
+  const consecutiveFails = countConsecutiveResponseFailures(timeline)
+
+  // ─── DIAGNÓSTICO PEDAGÓGICO BASADO EN EVIDENCIA REAL ────────
+  const evidenceProfile = microState.evidenceProfile
+  const lastEvidence = evidenceProfile?.evidences?.[evidenceProfile.evidences.length - 1]
+  const lastAssistanceLevel = lastEvidence?.assistanceLevel || 'independent'
+  const lastSelfConfidence = lastEvidence?.selfReportedConfidence
+  const lastResponseTimeMs = lastEvidence?.responseTimeMs
+  const lastFormatUsed = lastEvidence?.formatUsed || 'multiple_choice'
+  const lastInteractionContext = lastEvidence?.interactionContext
+
+  // Contar cuántos revealed hubo en las últimas 3 evidencias
+  const recentRevealedCount = (evidenceProfile?.evidences || [])
+    .slice(-3)
+    .filter(e => e.assistanceLevel === 'revealed').length
+
+  const diagnosis = evidenceProfile ? diagnosePedagogicalState({
+    profile: evidenceProfile,
+    lastOutcome: lastOutcome as 'correct' | 'partial' | 'incorrect' | null,
+    lastAssistanceLevel,
+    selfReportedConfidence: lastSelfConfidence,
+    responseTimeMs: lastResponseTimeMs,
+    formatUsed: lastFormatUsed,
+    interactionContext: lastInteractionContext,
+    recentRevealedCount,
+  }) : null
+
+  const hasKnowledgeIllusion = diagnosis?.hasKnowledgeIllusion || false
+
+  // ─── 0b. Si el micro ya cumple mastery contractual real, consolidar ───
+  if (evidenceProfile && isMicroMastered(evidenceProfile, microConcept)) {
+    return {
+      objective: 'consolidate',
+      reason: 'El micro ya cumple el contrato de dominio provisional',
+      isFirstEncounter: false,
+      requiresQuestion: false,
+      requiresContent: true,
+      suggestedContentType: 'summary',
+      reasons: diagnosis?.reasons,
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // 0. ILUSIÓN DE CONOCIMIENTO — máxima prioridad pedagógica
+  //    Si detectamos error con alta confianza, intervenir primero.
+  // ═══════════════════════════════════════════════════════════
+  if (hasKnowledgeIllusion && evidence.introduced && lastOutcome === 'incorrect' && !interventionAfterLastResponse) {
+    return {
+      objective: 'address_misconception',
+      reason: 'Error con alta confianza autorreportada — ilusión de conocimiento detectada',
+      isFirstEncounter: false,
+      requiresQuestion: false,
+      requiresContent: true,
+      suggestedContentType: 'explanation',
+      hasKnowledgeIllusion: true,
+      reasons: diagnosis?.reasons || ['knowledge_illusion_detected', 'high_confidence_error'],
+    }
+  }
 
   // ═══════════════════════════════════════════════════════════
   // 1. ¿NUEVO? → Introducir
@@ -69,12 +149,29 @@ export function selectObjective(
     }
   }
 
+  const consecutiveTeachingTurns = countConsecutiveSessionTeachingTurns(sessionState)
+  if (consecutiveTeachingTurns >= 2) {
+    const nextFromEvidence = suggestNextObjectiveFromEvidence(
+      evidenceProfile || emptyEvidenceProfile(microConcept.id),
+      microConcept,
+    )
+    return {
+      objective: nextFromEvidence.objective as TeachingObjective,
+      reason: 'Máximo de dos enseñanzas consecutivas alcanzado — solicitar evidencia',
+      isFirstEncounter: false,
+      requiresQuestion: true,
+      requiresContent: false,
+      suggestedContentType: 'question',
+      forcedFormat: nextFromEvidence.forcedFormat || null,
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════
   // 2. ¿ACABA DE FALLAR? → Estrategia alternativa según tipo de evidencia
   // ═══════════════════════════════════════════════════════════
-  if (lastOutcome === 'incorrect') {
+  if (lastOutcome === 'incorrect' && !interventionAfterLastResponse) {
     // Detectar qué tipo de evidencia está fallando repetidamente
-    const evidenceProfile = (microState as any).evidenceProfile as EvidenceProfile | undefined
+    const evidenceProfile = microState.evidenceProfile
     const incorrectByType = evidenceProfile?.incorrectCountByType
     const failingType: EvidenceType | null = incorrectByType
       ? (Object.entries(incorrectByType)
@@ -119,7 +216,7 @@ export function selectObjective(
         (failingType && evidenceToObjective[failingType as EvidenceType]) ||
         (isLikelyMisconception ? 'address_misconception' : 'reconstruct_from_error')
 
-      const alternativeStrategy =
+      const evidenceStrategy =
         failingType === 'recognized' ? 'analogy' :
         failingType === 'recalled' ? 'simplify' :
         failingType === 'explained' ? 'different_angle' :
@@ -129,13 +226,16 @@ export function selectObjective(
         lastErrorType === 'inverted_relationship' ? 'different_angle' :
         lastErrorType === 'misconception' ? 'different_angle' :
         'analogy'
+      const alternativeStrategy = consecutiveFails >= 3
+        ? repairStrategyForFailure(consecutiveFails)
+        : evidenceStrategy
 
       // Consultar el Strategy Registry para enriquecer la decisión
       const registryStrategy = selectBestStrategy({
         errorType: lastErrorType || undefined,
         evidenceGap: failingType as EvidenceType || undefined,
         cognitiveType: microConcept.cognitiveType,
-        masteryScore: (microState as any).evidenceProfile?.masteryScore || 0,
+        masteryScore: microState.evidenceProfile?.masteryScore || 0,
         consecutiveFails,
         preferFamily: 'repair',
       })
@@ -153,7 +253,18 @@ export function selectObjective(
         strategyPromptTemplate: registryStrategy?.promptTemplate || null,
       }
     }
-    // Tras 1-2 fallos: revelar respuesta y reexplicar inmediatamente
+    if (consecutiveFails === 2) {
+      return {
+        objective: 'reconstruct_from_error',
+        reason: 'Segundo fallo — cambiar de ángulo antes de volver a evaluar',
+        isFirstEncounter: false,
+        requiresQuestion: false,
+        requiresContent: true,
+        suggestedContentType: 'example',
+        alternativeStrategy: repairStrategyForFailure(2),
+      }
+    }
+    // Primer fallo: revelar respuesta y reexplicar inmediatamente
     return {
       objective: 'reveal_answer',
       reason: 'Fallo reciente — mostrar la respuesta y reexplicar',
@@ -165,7 +276,7 @@ export function selectObjective(
   }
 
   // Parcial: bajar dificultad
-  if (lastOutcome === 'partial' && consecutiveFails === 0) {
+  if (lastOutcome === 'partial' && consecutiveFails === 0 && !interventionAfterLastResponse) {
     const recentPartials = timeline.slice(-3).filter(e => e.metadata?.outcome === 'partial').length
     if (recentPartials >= 2) {
       return {
@@ -191,54 +302,19 @@ export function selectObjective(
     e.eventType === 'answered_correctly' || e.eventType === 'answered_incorrectly' || e.eventType === 'answered_partially'
   ).length
 
-  // Ajustar patrón según nivel del estudiante:
-  //   'zero'   → enseña 3 turnos (introduce + explain_deeper + example) antes de evaluar
-  //   'some'   → enseña 2 turnos (introduce + example) antes de evaluar
-  //   'good'   → salta directo a evaluar tras introduce (nivel avanzado)
-  const isNovice = initialKnowledgeLevel === 'zero'
-  const isIntermediate = initialKnowledgeLevel === 'some'
-
-  // Después del primer contacto (introduce), profundizar SOLO si es novato
-  if (isNovice && evidence.introduced && teachingEvents === 1 && questionEvents === 0) {
-    return {
-      objective: 'explain_deeper',
-      reason: 'Estudiante nivel zero — profundizar antes de evaluar',
-      isFirstEncounter: false,
-      requiresQuestion: false,
-      requiresContent: true,
-      suggestedContentType: 'explanation',
-    }
-  }
-
-  // Tras profundizar, mostrar ejemplo concreto (novato: tras 2 teach, intermedio: tras 1)
-  const teachingBeforeExample = isNovice ? 2 : (isIntermediate ? 1 : 999)
-  if (evidence.introduced && teachingEvents === teachingBeforeExample && questionEvents === 0) {
+  // Una introducción breve debe ir seguida de evidencia. Profundizar o mostrar
+  // otro ejemplo se reserva para una respuesta parcial/incorrecta observada.
+  if (
+    (initialKnowledgeLevel === 'zero' || initialKnowledgeLevel === 'some') &&
+    evidence.introduced && teachingEvents === 1 && questionEvents === 0
+  ) {
     return {
       objective: 'illustrate_with_example',
-      reason: 'Consolidar con un ejemplo concreto antes de verificar',
+      reason: 'Un único ejemplo breve antes de solicitar evidencia',
       isFirstEncounter: false,
       requiresQuestion: false,
       requiresContent: true,
       suggestedContentType: 'example',
-    }
-  }
-
-  // Cada 3 preguntas de evaluación, insertar re-enseñanza (variar entre teach/verify)
-  // Solo si el estudiante ha estado acertando (no en fallos, ya hay reveal_answer arriba)
-  if (questionEvents >= 3 && questionEvents % 3 === 0 && lastOutcome === 'correct') {
-    const lastTeaching = timeline.slice().reverse().findIndex(e =>
-      e.eventType === 'explained_by_tutor' || e.eventType === 'example_shown'
-    )
-    // Si hace muchas preguntas sin re-enseñanza, insertar conexión conceptual
-    if (lastTeaching === -1 || lastTeaching >= 4) {
-      return {
-        objective: 'connect_to_previous',
-        reason: 'Después de varias respuestas correctas, conectar con contexto más amplio',
-        isFirstEncounter: false,
-        requiresQuestion: false,
-        requiresContent: true,
-        suggestedContentType: 'explanation',
-      }
     }
   }
 
@@ -289,17 +365,7 @@ export function selectObjective(
         forcedFormat: 'fill_blank',
       }
     }
-    // Con 3+ correctas Y recall demostrado → consolidar
-    if (evidence.answeredCorrectly >= 3 && hasRecallFormat) {
-      return {
-        objective: 'consolidate',
-        reason: `quick_test: ${evidence.answeredCorrectly} correctas con recall real — dominado`,
-        isFirstEncounter: false,
-        requiresQuestion: false,
-        requiresContent: true,
-        suggestedContentType: 'summary',
-      }
-    }
+    // El cierre se decide únicamente por isMicroMastered al inicio.
 
   } else if (evalPreference === 'write_explain') {
     // WRITE_EXPLAIN: necesita teach_back o open_response correcto
@@ -316,17 +382,7 @@ export function selectObjective(
         forcedFormat: 'teach_back',
       }
     }
-    // Con 1 MCQ base + 1 explain correcto → consolidar
-    if (evidence.answeredCorrectly >= 2 && hasExplainFormat) {
-      return {
-        objective: 'consolidate',
-        reason: `write_explain: explicó con sus palabras + verificación base — dominado`,
-        isFirstEncounter: false,
-        requiresQuestion: false,
-        requiresContent: true,
-        suggestedContentType: 'summary',
-      }
-    }
+    // El cierre se decide únicamente por isMicroMastered al inicio.
 
   } else {
     // MIX_EVERYTHING: 2 correctas variadas + 1 recall o explicación
@@ -349,17 +405,7 @@ export function selectObjective(
         forcedFormat: depthFormat,
       }
     }
-    // Con 3 correctas variadas → consolidar
-    if (evidence.answeredCorrectly >= 3 && (hasRecallFormat || distinctFormats >= 2)) {
-      return {
-        objective: 'consolidate',
-        reason: `mix_everything: ${evidence.answeredCorrectly} correctas con variedad — dominado`,
-        isFirstEncounter: false,
-        requiresQuestion: false,
-        requiresContent: true,
-        suggestedContentType: 'summary',
-      }
-    }
+    // El cierre se decide únicamente por isMicroMastered al inicio.
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -367,15 +413,37 @@ export function selectObjective(
   //    El LLM decide HOW (formato, pregunta, estrategia)
   //    El motor solo dice "verifica"
   // ═══════════════════════════════════════════════════════════
+  // ─── FALLBACK GUIADO POR EVIDENCIA REAL ─────────────────────
+  if (evidenceProfile) {
+    const nextFromEvidence = suggestNextObjectiveFromEvidence(evidenceProfile, microConcept)
+
+    if (nextFromEvidence.targetEvidence && nextFromEvidence.objective !== 'consolidate') {
+      const questionObjectives = new Set([
+        'verify_understanding',
+        'test_application',
+        'test_transfer',
+        'recall_check',
+      ])
+
+      return {
+        objective: nextFromEvidence.objective as TeachingObjective,
+        reason: nextFromEvidence.reason,
+        isFirstEncounter: false,
+        requiresQuestion: !!nextFromEvidence.forcedFormat || questionObjectives.has(nextFromEvidence.objective),
+        requiresContent: !nextFromEvidence.forcedFormat,
+        suggestedContentType: !!nextFromEvidence.forcedFormat ? 'question' : 'explanation',
+        forcedFormat: nextFromEvidence.forcedFormat || null,
+      }
+    }
+  }
+
   return {
     objective: 'verify_understanding',
     reason: 'Verificar comprensión — el LLM decide cómo',
     isFirstEncounter: false,
     requiresQuestion: true,
-    requiresContent: true,    // También puede incluir contenido antes de la pregunta
+    requiresContent: true,
     suggestedContentType: 'question',
-    // NO forzar formato — dejar que el Content Generator decida
-    // basándose en el tipo cognitivo, recursos, historial
     forcedFormat: null,
   }
 }
@@ -394,11 +462,24 @@ export function selectInteractionFormat(
 // ═══════════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════════
-function countConsecutiveFromEnd(events: any[], eventType: string): number {
+function countConsecutiveResponseFailures(events: MicroState['timeline']): number {
   let count = 0
   for (let i = events.length - 1; i >= 0; i--) {
-    if (events[i].eventType === eventType) count++
-    else break
+    const eventType = events[i].eventType
+    if (eventType === 'answered_incorrectly') {
+      count++
+      continue
+    }
+    if (eventType === 'answered_correctly' || eventType === 'answered_partially') break
+  }
+  return count
+}
+
+function countConsecutiveSessionTeachingTurns(sessionState: SessionState): number {
+  let count = 0
+  for (let index = sessionState.recentTurns.length - 1; index >= 0; index--) {
+    if (sessionState.recentTurns[index].content.type !== 'teaching') break
+    count++
   }
   return count
 }

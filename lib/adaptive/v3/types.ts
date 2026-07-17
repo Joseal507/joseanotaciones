@@ -186,6 +186,11 @@ export interface MicroState {
   // Errores
   errorsCommitted: string[]             // IDs de commonErrors detectados
   misunderstandings: string[]           // Malentendidos específicos
+  // Perfil de evidencias (gestionado por evidenceEngine, almacenado aquí)
+  evidenceProfile?: import('./engine/evidenceEngine').EvidenceProfile
+  // Nombre del micro (para persistencia en materialMastery)
+  microName?: string
+  sourcePages?: number[]
 }
 
 export type MasteryLevel =
@@ -355,6 +360,37 @@ export interface SessionState {
     pace: 'fast' | 'medium' | 'slow'
     confidence: 'high' | 'medium' | 'low'
   }
+
+  // ── Campos de sesión extendidos ────────────────────────────────
+  // Spaced repetition
+  spacedReviewMicros?: string[]
+  reviewedSoFar?: string[]
+  isSpacedReview?: boolean
+  spacedReviewMicroId?: string | null
+  // Interleaving
+  isInterleaving?: boolean
+  interleaveCount?: number
+  interleaveMicroId?: string | null
+  // Pre-quiz
+  isPreQuiz?: boolean
+  // Banco de preguntas
+  usedQuestionIds?: string[]
+  usedFactKeys?: string[]
+  // Motores cognitivos pendientes (se persisten al final del turno)
+  pendingHypotheses?: import('./engine/hypothesisEngine').LearningHypothesis[]
+  pendingMisconceptions?: import('./engine/misconceptionTracker').Misconception[]
+  pendingMemoryStates?: Record<string, import('./engine/memoryEngine').MemoryState>
+  // Refuerzo posterior
+  reinforcementMicroIds?: string[]
+}
+
+export interface TurnInteraction {
+  interactionType?: string
+  type?: string
+  id?: string | null
+  prompt?: string
+  data?: Record<string, unknown>
+  [key: string]: unknown
 }
 
 export interface Turn {
@@ -363,11 +399,17 @@ export interface Turn {
   microId: string
   objective: TeachingObjective
   content: {
-    type: 'teaching' | 'question' | 'feedback' | 'transition'
+    type: 'teaching' | 'question' | 'feedback' | 'transition' | 'summary'
     summary: string                     // Resumen de qué se mostró
+    interaction?: TurnInteraction | null
+    errorDiagnosis?: {
+      errorType?: string
+      isLikelyMisconception?: boolean
+      [key: string]: unknown
+    }
   }
   studentResponse?: {
-    answer: any
+    answer: unknown
     responseTimeMs: number
     outcome: 'correct' | 'partial' | 'incorrect' | null
   }

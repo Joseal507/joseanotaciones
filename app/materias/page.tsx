@@ -20,6 +20,7 @@ const ALAIStudyALRepasar = dynamicImport(() => import('../../components/materias
 const ALAIStudyALChat = dynamicImport(() => import('../../components/materias/ALAIStudyALChat'), { ssr: false });
 const ALAIStudyALExams = dynamicImport(() => import('../../components/materias/ALAIStudyALExams'), { ssr: false });
 const AnalisisTeorico = dynamicImport(() => import('../../components/materias/AnalisisTeorico'), { ssr: false });
+const AdaptiveProductRealFixture = dynamicImport(() => import('../../components/materias/AdaptiveProductRealFixture'), { ssr: false });
 const ModalMateria = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalMateria));
 const ModalTema = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalTema));
 const ModalApunte = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalApunte));
@@ -438,6 +439,10 @@ export default function MateriasPage() {
 
   useEffect(() => {
     const cargar = async () => {
+      if (new URLSearchParams(window.location.search).get('adaptive-product-real') === '1') {
+        setCargando(false);
+        return;
+      }
       setCargando(true);
       try {
         const materiasLocal = getMaterias();
@@ -856,6 +861,10 @@ const eliminarDocumento = async (id: string) => {
       return;
     }
   }, [cargando, vista, materiaActual, temaActual]);
+
+  if (searchParams?.get('adaptive-product-real') === '1') {
+    return <AdaptiveProductRealFixture />;
+  }
 
   if (cargando) {
     return (

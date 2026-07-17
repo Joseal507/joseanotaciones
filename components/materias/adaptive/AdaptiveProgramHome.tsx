@@ -116,6 +116,8 @@ export default function AdaptiveProgramHome({
   const examLabel = getExamDateLabel(program.setup.examDate)
   const domainGap = Math.max(0, target - currentDomain)
   const isProgramComplete = program.status === 'completed'
+  const studyPlan = program.studyPlan
+  const plannedNext = studyPlan?.sessions.find(session => ['available', 'planned', 'repair', 'review', 'final_exam'].includes(session.status))
 
   // ── Lenguaje visible — sin tecnicismos ──────────────────────
   const hasBlueprintContext = !!(program.materialBlueprint?.validationPassed)
@@ -556,7 +558,7 @@ export default function AdaptiveProgramHome({
 
         {/* Sesión actual */}
         {!isProgramComplete && current && (
-          <div style={{
+          <div data-testid="next-study-session" style={{
             background: 'var(--bg-card)',
             border: '2px solid var(--gold)',
             borderRadius: 16,
@@ -564,7 +566,7 @@ export default function AdaptiveProgramHome({
             marginBottom: 16,
           }}>
             <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--gold)', marginBottom: 8, letterSpacing: 0.5 }}>
-              SESIÓN DE HOY
+              TU PRÓXIMA SESIÓN
             </div>
             <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', marginBottom: 4 }}>
               {SESSION_PURPOSE_EMOJI[current.purpose]} {current.title}
@@ -575,10 +577,21 @@ export default function AdaptiveProgramHome({
               </div>
             )}
             <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>
-              {current.objective}
+              {plannedNext?.objective || current.objective}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 20 }}>
-              {current.steps.length} pasos
+            <div data-testid="next-session-duration" style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 8 }}>
+              ⏱ {plannedNext?.plannedDuration || current.estimatedMinutes} minutos estimados
+            </div>
+            <div data-testid="next-session-reason" style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.45 }}>
+              {plannedNext?.reason || current.planRationale || 'Esta sesión continúa tu secuencia de aprendizaje.'}
+            </div>
+            {studyPlan?.feasibility.level === 'insufficient_time' && (
+              <div data-testid="study-plan-risk" style={{ padding: 10, borderRadius: 8, background: 'rgba(249,115,22,.1)', color: '#f97316', fontSize: 12, marginBottom: 12 }}>
+                {studyPlan.feasibility.riskMessage}
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 20 }}>
+              Examen: {studyPlan ? new Date(studyPlan.examContext.examAt).toLocaleDateString() : examLabel}
             </div>
 
             <button
@@ -595,7 +608,7 @@ export default function AdaptiveProgramHome({
                 cursor: 'pointer',
               }}
             >
-              Continuar sesión →
+              Empezar sesión →
             </button>
           </div>
         )}

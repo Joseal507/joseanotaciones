@@ -10,6 +10,9 @@ import type {
 import { loadGraph, saveGraph } from '../../../../lib/adaptive/v3/storage/graphStorage'
 import { buildKnowledgeGraph } from '../../../../lib/adaptive/v3/graph/orchestrator'
 import { saveQuestionBank } from '../../../../lib/adaptive/v3/storage/questionBankStorage'
+import { buildInitialStudyPlan } from '../../../../lib/adaptive/planner/initialPlanner'
+import { plannerSetupFromLegacy } from '../../../../lib/adaptive/planner/setupAdapter'
+import { adaptStudyPlanToSessions } from '../../../../lib/adaptive/planner/adaptStudyPlanToSessions'
 
 export const maxDuration = 60
 
@@ -179,9 +182,11 @@ function buildSessionSteps(
 }
 
 export async function POST(request: NextRequest) {
+  const programStartedAt = Date.now()
   try {
     const body = await request.json()
     const {
+      userId: bodyUserId,       // userId canónico del request — fuente de verdad
       materialId,
       materialTitle = 'Material',
       materialContent,
@@ -440,18 +445,28 @@ Devuelve SOLO JSON:
 
     // ── Cargar o construir grafo v3 para asignar microIds deterministas a cada sesión ──
     let graphMicros: any[] = []
-    const effectiveUserId = userProfile?.userId || (mastery as any)?.userId || null
+    // El userId DEBE ser el del body (quien subió el material).
+    // NO usar userProfile.userId — puede ser de otro contexto.
+    // El grafo está en graphs/{userId}/{materialId}/ exactamente con ese userId.
+    const effectiveUserId = bodyUserId || userProfile?.userId || (mastery as any)?.userId || null
 
     if (!effectiveUserId) {
-      throw new Error('No se puede generar un programa seguro sin userId para construir/cargar el grafo')
+      throw new Error('userId requerido para cargar el grafo correcto')
     }
 
     if (!materialId) {
-      throw new Error('No se puede generar un programa seguro sin materialId')
+      throw new Error('materialId requerido para cargar el grafo correcto')
     }
 
+    // Validar identidad canónica: el grafo debe pertenecer a este materialId
+    // Si el grafo cargado tiene un materialId diferente, es contaminación
     try {
       let graph = await loadGraph(effectiveUserId, materialId)
+
+      if (graph && graph.materialId !== materialId) {
+        console.error(`[generate-program] MATERIAL_GRAPH_MISMATCH: grafo.materialId=${graph.materialId} !== requestedMaterialId=${materialId}`)
+        graph = null // forzar reconstrucción limpia
+      }
 
       // Si no existe grafo, construirlo on-the-fly ahora mismo
       if (!graph) {
@@ -518,6 +533,7 @@ Devuelve SOLO JSON:
           targetConcepts,
           sourcePages: [],
           evidenceGoal: `Demostrar comprensión de: ${targetConcepts.join(', ')}`,
+          evaluationPreference: setup?.evalPreference || 'mix_everything',
           sessionFormat: purpose === 'simulate' ? 'exam_simulation' :
             purpose === 'apply' ? 'application' :
             purpose === 'memorize' ? 'memorization' :
@@ -782,7 +798,41 @@ Devuelve SOLO JSON:
       targetScore,
       examDate: setup?.examDate || null,
       dailyMinutes: setup?.dailyMinutes || 45,
+      evalPreference: setup?.evalPreference || 'mix_everything',
+      examDateTime: setup?.examDateTime,
+      examFormat: setup?.examFormat || 'unknown',
+      availability: setup?.availability,
+      priorities: setup?.priorities || [],
     }
+
+    const canonicalStudyPlan = buildInitialStudyPlan({
+      materialId,
+      micros: graphMicros.map((micro: any) => ({
+        id: String(micro.id),
+        name: String(micro.name || micro.title || 'Fundamento del material'),
+        difficulty: Math.max(0, Math.min(1, Number(micro.difficulty ?? 0.5) > 1 ? Number(micro.difficulty) / 100 : Number(micro.difficulty ?? 0.5))),
+        importance: ['low', 'medium', 'high', 'critical'].includes(String(micro.importance)) ? micro.importance : 'medium',
+        cognitiveType: String(micro.cognitiveType || 'conceptual'),
+        prerequisiteIds: [...(micro.prerequisiteIds || micro.prerequisites || micro.dependencies || [])].map(String),
+      })),
+      setup: plannerSetupFromLegacy(setup || {}, new Date(now)),
+      now: new Date(now),
+    })
+
+    const graphById = new Map(graphMicros.map((micro: any) => [String(micro.id), micro]))
+    const scheduledSessions: AdaptiveSession[] = adaptStudyPlanToSessions(canonicalStudyPlan).map((session, index) => {
+      const planned = canonicalStudyPlan.sessions[index]
+      const purpose = session.purpose
+      const isRetention = planned.purpose === 'review' || planned.purpose === 'exam'
+      const targetConcepts = planned.assignedMicroIds.map(id => String(graphById.get(id)?.name || '')).filter(Boolean)
+      return {
+        ...session,
+        steps: buildSessionSteps(purpose, targetConcepts, sessionLength),
+        targetConcepts,
+        requiredMicroIds: isRetention ? [] : [...planned.assignedMicroIds],
+        retentionMicroIds: isRetention ? [...planned.assignedMicroIds] : [],
+      }
+    })
 
     const program: AdaptiveProgram = {
       id: `program_${materialId}_${now}`,
@@ -791,18 +841,19 @@ Devuelve SOLO JSON:
       materialIds: [materialId],
       setup: programSetup,
       status: 'active',
-      sessions,
+      sessions: scheduledSessions,
       currentSessionIndex: 0,
+      studyPlan: canonicalStudyPlan,
       materialBlueprint: blueprint,
       // NUEVO — guardar análisis completo para usar en sesiones
       materialAnalysis: analysis || null,
       // Metadata de cobertura 8/8 — calculada en la fase de asignación determinista
       ...(coverageAssignmentMeta ? { coverageAssignment: coverageAssignmentMeta } : {}),
       strategy: planData.strategy || {
-        why: `Plan de ${sessions.length} sesiones adaptado a tu nivel y tiempo disponible.`,
+        why: `Plan de ${scheduledSessions.length} sesiones adaptado a tu nivel y tiempo disponible.`,
         goals: ['Cubrir el 100% del material', `Alcanzar ${targetScore}% de dominio`],
-        projectedDomain: sessions.map((_, i) =>
-          Math.round(((i + 1) / sessions.length) * targetScore)
+        projectedDomain: scheduledSessions.map((_, i) =>
+          Math.round(((i + 1) / scheduledSessions.length) * targetScore)
         ),
         conflictDetected: false,
         conflictMessage: '',
@@ -827,6 +878,7 @@ Devuelve SOLO JSON:
       blueprint,
       coveragePercent: coveragePct,
       analysis: analysis || { totalCoverageUnits: coverageUnits, concepts, subjectArea },
+      timings: { programMs: Date.now() - programStartedAt, bankMs: 0 },
     })
   } catch (err: any) {
     console.error('[generate-program]', err.message)

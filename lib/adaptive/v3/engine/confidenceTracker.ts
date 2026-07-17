@@ -16,12 +16,15 @@
 // TIPOS
 // ═══════════════════════════════════════════════════════════════
 
-export type AssistanceLevel =
-  | 'independent'      // Sin ayuda
-  | 'minimal_hint'     // Una pista mínima
-  | 'guided'           // Guía paso a paso
-  | 'assisted'         // Ejemplo resuelto antes de intentar
-  | 'revealed'         // Le mostraron la respuesta y después repitió
+export const ASSISTANCE_LEVEL_ORDER = [
+  'independent',
+  'minimal_hint',
+  'guided',
+  'assisted',
+  'revealed',
+] as const
+
+export type AssistanceLevel = (typeof ASSISTANCE_LEVEL_ORDER)[number]
 
 export type CalibrationStatus =
   | 'calibrated'       // Confianza coincide con rendimiento

@@ -9,6 +9,27 @@
 // ═══════════════════════════════════════════════════════════════
 
 import type { MicroConcept, MicroState, MicroTimelineEvent } from '../types'
+import type { AssistanceLevel } from './confidenceTracker'
+import { assistanceLevelToWeight, analyzeResponseTime } from './confidenceTracker'
+import { getLegacyEvidenceWeight } from './pedagogicalDecision'
+import { getContractForType } from './masteryContracts'
+
+export const INTERACTION_CONTEXTS = [
+  'learning',
+  'immediate_practice',
+  'interleaving',
+  'delayed_retrieval',
+  'spaced_review',
+] as const
+
+export type InteractionContext = (typeof INTERACTION_CONTEXTS)[number]
+
+/**
+ * Intervalo mínimo para considerar delayed recall real.
+ * Reutiliza la misma política conservadora de 20 horas
+ * usada por el tutor para programar retention checks.
+ */
+export const DELAYED_RECALL_MIN_INTERVAL_MS = 20 * 60 * 60 * 1000
 
 // ═══════════════════════════════════════════════════════════════
 // TIPOS DE EVIDENCIA
@@ -34,6 +55,11 @@ export interface Evidence {
   score: number               // 0-100
   attemptNumber: number       // cuántas veces intentó antes de acertar (1=primer intento)
   confidenceMultiplier: number // 1.0 primer intento, 0.7 segundo, 0.4 tercero+
+  assistanceLevel?: AssistanceLevel
+  responseTimeMs?: number
+  selfReportedConfidence?: number
+  interactionContext?: InteractionContext
+  elapsedSinceLastExposureMs?: number
 }
 
 export interface EvidenceProfile {
@@ -43,15 +69,22 @@ export interface EvidenceProfile {
   strongCount: Record<EvidenceType, number>
   mediumCount: Record<EvidenceType, number>
   weakCount: Record<EvidenceType, number>
-  // Patrones de error — cuántas veces falló por tipo de evidencia
+  // Patrones de error
   incorrectCountByType: Record<EvidenceType, number>
-  // Intentos totales por tipo (para calcular tasa de error)
   attemptsCountByType: Record<EvidenceType, number>
+  // Métricas de calidad de ejecución (necesarias para Mastery Contracts)
+  independentSuccesses: number
+  independentSuccessesByType: Record<EvidenceType, number>
+  bestAssistanceByEvidenceType: Record<EvidenceType, AssistanceLevel | null>
+  maxAssistanceLevelUsed: AssistanceLevel
+  hasTransfer: boolean
+  hasIntegration: boolean
+  hasDelayedRecall: boolean
   // Meta
   totalEvidences: number
-  totalIncorrect: number       // total de respuestas incorrectas
+  totalIncorrect: number
   lastEvidenceAt: number | null
-  masteryScore: number         // 0-100, calculado con confianza
+  masteryScore: number
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -106,9 +139,28 @@ export function recordEvidence(
     turnNumber: number
     isTransferContext?: boolean
     connectsToOtherMicro?: string
+    assistanceLevel?: AssistanceLevel
+    responseTimeMs?: number
+    selfReportedConfidence?: number
+    interactionContext?: InteractionContext
+    elapsedSinceLastExposureMs?: number
+    activityAttemptNumber?: number
   },
 ): EvidenceProfile {
-  const { formatUsed, outcome, score, turnNumber, isTransferContext, connectsToOtherMicro } = params
+  const {
+    formatUsed,
+    outcome,
+    score,
+    turnNumber,
+    isTransferContext,
+    connectsToOtherMicro,
+    assistanceLevel = 'independent',
+    responseTimeMs,
+    selfReportedConfidence,
+    interactionContext,
+    elapsedSinceLastExposureMs,
+    activityAttemptNumber,
+  } = params
 
   // Determinar qué tipos de evidencia genera este formato
   let evidenceTypes = FORMAT_TO_EVIDENCE_TYPE[formatUsed] || ['recognized']
@@ -142,7 +194,9 @@ export function recordEvidence(
   }
 
   // Calcular attemptNumber: cuántos intentos previos tuvo en este tipo de evidencia
-  const attemptNumber = (updatedAttemptsCountByType[evidenceTypes[0] as EvidenceType] || 1)
+  const attemptNumber = typeof activityAttemptNumber === 'number' && activityAttemptNumber >= 1
+    ? Math.floor(activityAttemptNumber)
+    : (updatedAttemptsCountByType[evidenceTypes[0] as EvidenceType] || 1)
 
   // Multiplicador de confianza: primer intento = 1.0, segundo = 0.7, tercero+ = 0.4
   const confidenceMultiplier =
@@ -155,10 +209,12 @@ export function recordEvidence(
   const strength: EvidenceStrength =
     confidenceMultiplier >= 1.0 ? rawStrength :
     confidenceMultiplier >= 0.7 ? (rawStrength === 'strong' ? 'medium' : rawStrength) :
-    (rawStrength === 'strong' ? 'weak' : rawStrength === 'medium' ? 'weak' : 'weak')
+    // 3er intento o más: sigue penalizando, pero no destruye por completo una demostración fuerte.
+    // strong -> medium, medium -> weak, weak -> weak
+    (rawStrength === 'strong' ? 'medium' : rawStrength === 'medium' ? 'weak' : 'weak')
 
   // Crear una evidencia por cada tipo
-  const newEvidences: Evidence[] = evidenceTypes.map((type: any) => ({
+  const newEvidences: Evidence[] = evidenceTypes.map((type) => ({
     type,
     strength,
     turnNumber,
@@ -168,6 +224,11 @@ export function recordEvidence(
     score,
     attemptNumber,
     confidenceMultiplier,
+    assistanceLevel,
+    responseTimeMs,
+    selfReportedConfidence,
+    interactionContext,
+    elapsedSinceLastExposureMs,
   }))
 
   const updatedEvidences = [...profile.evidences, ...newEvidences]
@@ -193,6 +254,77 @@ function calculateStrength(outcome: string, score: number): EvidenceStrength {
   return 'weak'
 }
 
+const ASSISTANCE_LEVEL_ORDER: AssistanceLevel[] = [
+  'independent',
+  'minimal_hint',
+  'guided',
+  'assisted',
+  'revealed',
+]
+
+function createEmptyBestAssistanceByType(): Record<EvidenceType, AssistanceLevel | null> {
+  return {
+    recognized: null,
+    recalled: null,
+    explained: null,
+    applied: null,
+    connected: null,
+    transferred: null,
+    retained: null,
+  }
+}
+
+function createEmptyIndependentSuccessesByType(): Record<EvidenceType, number> {
+  return {
+    recognized: 0,
+    recalled: 0,
+    explained: 0,
+    applied: 0,
+    connected: 0,
+    transferred: 0,
+    retained: 0,
+  }
+}
+
+function getMaxAssistanceLevelUsed(evidences: Evidence[]): AssistanceLevel {
+  // Regla correcta:
+  // - para cada tipo de evidencia, mirar el MENOR nivel de ayuda con el que
+  //   se logró demostrar ese tipo con éxito;
+  // - luego tomar el MAYOR entre esos mínimos.
+  //
+  // Esto evita que un reveal antiguo contamine para siempre el contrato si luego
+  // el estudiante ya demostró el mismo tipo de evidencia de forma independiente.
+  const bestByType = new Map<EvidenceType, AssistanceLevel>()
+
+  for (const ev of evidences) {
+    if (ev.outcome === 'incorrect') continue
+    const currentLevel: AssistanceLevel = ev.assistanceLevel || 'independent'
+    const prev = bestByType.get(ev.type)
+
+    if (!prev) {
+      bestByType.set(ev.type, currentLevel)
+      continue
+    }
+
+    const prevIdx = ASSISTANCE_LEVEL_ORDER.indexOf(prev)
+    const currIdx = ASSISTANCE_LEVEL_ORDER.indexOf(currentLevel)
+
+    // conservar el MENOR nivel de ayuda observado para este tipo
+    if (currIdx < prevIdx) {
+      bestByType.set(ev.type, currentLevel)
+    }
+  }
+
+  let maxLevel: AssistanceLevel = 'independent'
+  for (const level of bestByType.values()) {
+    if (ASSISTANCE_LEVEL_ORDER.indexOf(level) > ASSISTANCE_LEVEL_ORDER.indexOf(maxLevel)) {
+      maxLevel = level
+    }
+  }
+
+  return maxLevel
+}
+
 // ═══════════════════════════════════════════════════════════════
 // RECONSTRUIR PERFIL A PARTIR DE EVIDENCIAS
 // ═══════════════════════════════════════════════════════════════
@@ -214,7 +346,42 @@ export function rebuildProfile(microId: string, evidences: Evidence[]): Evidence
     else weakCount[ev.type]++
   }
 
-  const masteryScore = calculateMasteryScore(strongCount, mediumCount, weakCount)
+  const masteryScore = calculateMasteryScore(evidences)
+
+  // Calcular métricas de calidad para el contrato
+  // Solo cuenta como independentSuccess si assistanceLevel es explícitamente 'independent'
+  // Evidencias legacy (sin assistanceLevel) NO cuentan como independientes.
+  const independentSuccessesByType = createEmptyIndependentSuccessesByType()
+  const bestAssistanceByEvidenceType = createEmptyBestAssistanceByType()
+
+  for (const ev of evidences) {
+    if (ev.outcome === 'incorrect') continue
+
+    if (ev.assistanceLevel === 'independent' && ev.outcome === 'correct') {
+      independentSuccessesByType[ev.type] = (independentSuccessesByType[ev.type] || 0) + 1
+    }
+
+    const currentLevel: AssistanceLevel = ev.assistanceLevel || 'independent'
+    const prev = bestAssistanceByEvidenceType[ev.type]
+
+    if (!prev) {
+      bestAssistanceByEvidenceType[ev.type] = currentLevel
+    } else {
+      const prevIdx = ASSISTANCE_LEVEL_ORDER.indexOf(prev)
+      const currIdx = ASSISTANCE_LEVEL_ORDER.indexOf(currentLevel)
+      if (currIdx < prevIdx) {
+        bestAssistanceByEvidenceType[ev.type] = currentLevel
+      }
+    }
+  }
+
+  const independentSuccesses = Object.values(independentSuccessesByType).reduce((a, b) => a + b, 0)
+
+  const maxAssistanceLevelUsed = getMaxAssistanceLevelUsed(evidences)
+
+  const hasTransfer = evidences.some(e => e.type === 'transferred' && e.outcome !== 'incorrect')
+  const hasIntegration = evidences.some(e => e.type === 'connected' && e.outcome !== 'incorrect')
+  const hasDelayedRecall = evidences.some(e => isDelayedRecallEvidence(e, evidences))
 
   return {
     microId,
@@ -225,7 +392,14 @@ export function rebuildProfile(microId: string, evidences: Evidence[]): Evidence
     attemptsCountByType,
     incorrectCountByType,
     totalEvidences: evidences.length,
-    totalIncorrect: 0,  // se llena en recordEvidence
+    totalIncorrect: 0,
+    independentSuccesses,
+    independentSuccessesByType,
+    bestAssistanceByEvidenceType,
+    maxAssistanceLevelUsed,
+    hasTransfer,
+    hasIntegration,
+    hasDelayedRecall,
     lastEvidenceAt: evidences.length > 0 ? evidences[evidences.length - 1].timestamp : null,
     masteryScore,
   }
@@ -234,25 +408,101 @@ export function rebuildProfile(microId: string, evidences: Evidence[]): Evidence
 // ═══════════════════════════════════════════════════════════════
 // CALCULAR MASTERY SCORE (0-100)
 // ═══════════════════════════════════════════════════════════════
-function calculateMasteryScore(
-  strong: Record<EvidenceType, number>,
-  medium: Record<EvidenceType, number>,
-  weak: Record<EvidenceType, number>,
-): number {
+function isDelayedRecallEvidence(evidence: Evidence, allEvidences: Evidence[]): boolean {
+  if (evidence.outcome !== 'correct') return false
+
+  // Interleaving NO implica delayed recall
+  if (evidence.interactionContext === 'interleaving') return false
+
+  // Solo contexts de revisión/recuperación pueden generar delayed recall
+  const isReviewContext =
+    evidence.interactionContext === 'spaced_review' ||
+    evidence.interactionContext === 'delayed_retrieval' ||
+    evidence.type === 'retained'
+
+  if (!isReviewContext) return false
+
+  // Debe haber separación temporal suficiente real
+  let elapsedMs = evidence.elapsedSinceLastExposureMs
+  if (typeof elapsedMs !== 'number') {
+    // Fallback legacy: calcular desde evidencia previa más antigua del mismo micro
+    const priorEvidences = allEvidences
+      .filter(e => e.timestamp < evidence.timestamp)
+      .sort((a, b) => a.timestamp - b.timestamp)
+    if (priorEvidences.length > 0) {
+      elapsedMs = evidence.timestamp - priorEvidences[0].timestamp
+    }
+  }
+
+  if (typeof elapsedMs !== 'number' || !isFinite(elapsedMs)) return false
+  if (elapsedMs < DELAYED_RECALL_MIN_INTERVAL_MS) return false
+
+  // Requiere asistencia independiente o como mucho pista mínima
+  if (evidence.assistanceLevel === 'revealed' || evidence.assistanceLevel === 'assisted' || evidence.assistanceLevel === 'guided') {
+    return false
+  }
+
+  return true
+}
+
+function calculateMasteryScore(evidences: Evidence[]): number {
+  if (!evidences.length) return 0
+
+  // Acumular score por tipo para aplicar el mismo cap por EvidenceType
+  const scoreByType: Record<EvidenceType, number> = {
+    recognized: 0, recalled: 0, explained: 0,
+    applied: 0, connected: 0, transferred: 0, retained: 0,
+  }
+
+  for (const evidence of evidences) {
+    if (evidence.outcome === 'incorrect') continue
+
+    const typeWeight = EVIDENCE_WEIGHT[evidence.type]
+    const strengthFactor =
+      evidence.strength === 'strong' ? 1.0 :
+      evidence.strength === 'medium' ? 0.6 : 0.3
+
+    // Peso de ayuda: moderna usa assistanceLevel explícito; legacy usa descuento conservador
+    const assistanceFactor =
+      evidence.assistanceLevel === undefined
+        ? getLegacyEvidenceWeight(evidence)
+        : assistanceLevelToWeight(evidence.assistanceLevel)
+
+    // Fluidez: respuestas extremadamente lentas o claramente guess pesan menos
+    let fluencyFactor = 1.0
+    if (typeof evidence.responseTimeMs === 'number' && isFinite(evidence.responseTimeMs)) {
+      const analysis = analyzeResponseTime(evidence.responseTimeMs, evidence.formatUsed)
+      if (analysis.isLikelyGuess) fluencyFactor *= 0.75
+      if (analysis.fluency === 'slow') fluencyFactor *= 0.9
+      if (analysis.fluency === 'struggling') fluencyFactor *= 0.8
+    }
+
+    // Bonus moderado por delayed recall real confirmado
+    const delayedRecallBonus = isDelayedRecallEvidence(evidence, evidences) ? 1.15 : 1.0
+
+    const contribution =
+      typeWeight *
+      strengthFactor *
+      assistanceFactor *
+      fluencyFactor *
+      delayedRecallBonus
+
+    scoreByType[evidence.type] += contribution
+  }
+
+  // Mantener el mismo cap pedagógico por tipo: máximo 2 evidencias fuertes por tipo
   let score = 0
   const evidenceTypes: EvidenceType[] = ['recognized', 'recalled', 'explained', 'applied', 'connected', 'transferred', 'retained']
-
   for (const type of evidenceTypes) {
     const weight = EVIDENCE_WEIGHT[type]
-    // Cada evidencia strong = 1.0, medium = 0.6, weak = 0.3
-    const typeScore = (strong[type] * 1.0 + medium[type] * 0.6 + weak[type] * 0.3) * weight
-    score += Math.min(typeScore, weight * 2)  // cap: max 2 evidencias fuertes por tipo
+    score += Math.min(scoreByType[type], weight * 2)
   }
 
   // Normalizar a 0-100
-  // Máximo teórico: sum de todos los pesos × 2 = (1+2+4+5+3+6+3) × 2 = 48
+  // Conservar 1 decimal para no colapsar diferencias reales de ayuda
+  // (ej: independent 2.1 > minimal_hint 1.7 > guided 1.0 > assisted 0.6 > revealed 0.0)
   const maxScore = 48
-  return Math.min(100, Math.round((score / maxScore) * 100))
+  return Math.min(100, Math.round((score / maxScore) * 1000) / 10)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -260,41 +510,36 @@ function calculateMasteryScore(
 // ═══════════════════════════════════════════════════════════════
 export function getMissingEvidences(profile: EvidenceProfile, micro: MicroConcept): EvidenceType[] {
   const missing: EvidenceType[] = []
+  const contract = getContractForType(micro.cognitiveType)
 
-  // Reconocimiento: al menos 1 fuerte
-  if (profile.strongCount.recognized === 0 && profile.mediumCount.recognized === 0) {
-    missing.push('recognized')
+  for (const requirement of contract.requiredEvidence) {
+    const strong = profile.strongCount[requirement.type] || 0
+    const medium = profile.mediumCount[requirement.type] || 0
+    const met =
+      (requirement.minStrong > 0 && strong >= requirement.minStrong) ||
+      (requirement.minMedium > 0 && strong + medium >= requirement.minMedium)
+    if (!met) missing.push(requirement.type)
   }
 
-  // Recall: para micros con datos precisos (fechas, nombres, fórmulas)
-  const needsRecall = ['definitional', 'memorization', 'mathematical', 'chronological'].includes(micro.cognitiveType)
-  if (needsRecall && profile.strongCount.recalled + profile.mediumCount.recalled === 0) {
-    missing.push('recalled')
-  }
-
-  // Explicación: para conceptos abstractos
-  const needsExplanation = ['conceptual', 'causal', 'analytical'].includes(micro.cognitiveType)
-  if (needsExplanation && profile.strongCount.explained + profile.mediumCount.explained === 0) {
-    missing.push('explained')
-  }
-
-  // Aplicación: para micros procedimentales, matemáticos o aplicativos
-  const needsApplication = ['procedural', 'mathematical', 'applicative', 'analytical'].includes(micro.cognitiveType)
-  if (needsApplication && profile.strongCount.applied + profile.mediumCount.applied === 0) {
-    missing.push('applied')
-  }
-
-  // Conexión: solo si el micro tiene relaciones con otros
-  if (micro.related && micro.related.length > 0) {
-    if (profile.strongCount.connected + profile.mediumCount.connected === 0) {
-      missing.push('connected')
+  const maxAllowedAssistance = ASSISTANCE_LEVEL_ORDER.indexOf(contract.maxAssistanceLevel)
+  for (const requirement of contract.requiredEvidence) {
+    const bestAssistance = profile.bestAssistanceByEvidenceType[requirement.type]
+    if (
+      bestAssistance &&
+      ASSISTANCE_LEVEL_ORDER.indexOf(bestAssistance) > maxAllowedAssistance &&
+      !missing.includes(requirement.type)
+    ) {
+      missing.push(requirement.type)
     }
   }
 
-  // Transferencia: solo si es importante (critical o high)
-  if (micro.importance === 'critical' || micro.importance === 'high') {
-    if (profile.strongCount.transferred === 0 && profile.mediumCount.transferred === 0) {
-      missing.push('transferred')
+  if (profile.independentSuccesses < contract.minimumIndependentSuccesses) {
+    const independenceTarget = [...contract.requiredEvidence]
+      .sort((left, right) =>
+        profile.independentSuccessesByType[left.type] - profile.independentSuccessesByType[right.type]
+      )[0]?.type
+    if (independenceTarget && !missing.includes(independenceTarget)) {
+      missing.push(independenceTarget)
     }
   }
 
@@ -305,7 +550,9 @@ export function getMissingEvidences(profile: EvidenceProfile, micro: MicroConcep
 // ¿ESTÁ DOMINADO EL MICRO? — Usando contratos por tipo de conocimiento
 // ═══════════════════════════════════════════════════════════════
 export function isMicroMastered(profile: EvidenceProfile, micro: MicroConcept): boolean {
-  // Usar contratos de dominio específicos por tipo cognitivo
+  // Dominio canónico = MasteryContract inmediato/provisional.
+  // La retención (delayed recall) sigue siendo señal separada y NO bloquea
+  // el dominio inicial del programa en esta fase.
   try {
     const { checkMasteryContract } = require('./masteryContracts')
     const result = checkMasteryContract(
@@ -315,11 +562,29 @@ export function isMicroMastered(profile: EvidenceProfile, micro: MicroConcept): 
         mediumCount: profile.mediumCount,
         masteryScore: profile.masteryScore,
         totalEvidences: profile.totalEvidences,
+      },
+      {
+        independentSuccesses: profile.independentSuccesses,
+        independentSuccessesByType: profile.independentSuccessesByType,
+        bestAssistanceByEvidenceType: profile.bestAssistanceByEvidenceType,
+        hasDelayedRecall: profile.hasDelayedRecall,
+        hasTransfer: profile.hasTransfer,
+        hasIntegration: profile.hasIntegration,
+        maxAssistanceLevelUsed: profile.maxAssistanceLevelUsed,
       }
     )
-    return result.fulfilled
+
+    if (result.fulfilled) return true
+
+    // Si la única razón restante es retención a largo plazo, considerar mastery provisional.
+    // Esto evita exigir delayed recall para terminar el programa inicial.
+    const onlyMissingRetention =
+      result.blockingReason === 'Falta verificar retención tras tiempo' &&
+      result.missingRequired.length === 0
+
+    return onlyMissingRetention
   } catch {
-    // Fallback si no se puede cargar el módulo
+    // Fallback conservador si no se puede cargar el módulo
     if (profile.masteryScore < 60) return false
     const missing = getMissingEvidences(profile, micro)
     const essentialMissing = missing.filter(e => e !== 'transferred' && e !== 'retained')
@@ -331,6 +596,17 @@ export function isMicroMastered(profile: EvidenceProfile, micro: MicroConcept): 
 // ¿ESTÁ SUFICIENTE PARA AVANZAR AL SIGUIENTE MICRO?
 // ═══════════════════════════════════════════════════════════════
 export function isReadyToAdvanceEvidence(profile: EvidenceProfile, micro: MicroConcept): boolean {
+  // ─── BLOQUEO: revealed sin éxito independiente posterior ───
+  // Si todos los éxitos fueron con ayuda máxima, no puede avanzar
+  // por métricas brutas — exige al menos 1 demostración independiente.
+  if (profile.independentSuccesses === 0 && profile.totalEvidences > 0) {
+    // Solo bloquear si el nivel máximo fue assisted o revealed
+    // minimal_hint puede avanzar con precaución en micros simples
+    const maxIdx = ASSISTANCE_LEVEL_ORDER.indexOf(profile.maxAssistanceLevelUsed)
+    const assistedIdx = ASSISTANCE_LEVEL_ORDER.indexOf('assisted')
+    if (maxIdx >= assistedIdx) return false
+  }
+
   // ─── UMBRALES ADAPTATIVOS SEGÚN DIFICULTAD DEL MICRO ───
   // Micros fáciles (0-30): 2 aciertos y 40% mastery bastan
   // Micros medios (30-60): 3 aciertos y 55% mastery
@@ -418,6 +694,7 @@ export function suggestNextObjectiveFromEvidence(
     connected: {
       objective: 'connect_to_previous',
       reason: 'Falta evidencia de conexión — relacionar con otros micros',
+      forcedFormat: 'matching',
     },
     transferred: {
       objective: 'test_transfer',
@@ -454,6 +731,13 @@ export function emptyEvidenceProfile(microId: string): EvidenceProfile {
     weakCount: { ...empty },
     attemptsCountByType: { ...empty },
     incorrectCountByType: { ...empty },
+    independentSuccesses: 0,
+    independentSuccessesByType: createEmptyIndependentSuccessesByType(),
+    bestAssistanceByEvidenceType: createEmptyBestAssistanceByType(),
+    maxAssistanceLevelUsed: 'independent',
+    hasTransfer: false,
+    hasIntegration: false,
+    hasDelayedRecall: false,
     totalEvidences: 0,
     totalIncorrect: 0,
     lastEvidenceAt: null,

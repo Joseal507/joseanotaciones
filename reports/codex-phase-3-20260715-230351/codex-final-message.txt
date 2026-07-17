@@ -1,0 +1,27 @@
+Fase 3 queda **incompleta por validaciones ambientales**, aunque los objetivos pedagógicos masivos sí se alcanzaron.
+
+Resultados de 1000 corridas:
+
+- Capable: 11.9 turnos/micro — PASS.
+- Recoverable repair success: 69% — PASS.
+- Cambio estratégico: 94% — PASS.
+- False mastery: 0.
+- Cobertura requerida en programas completos: 100%.
+- Invariantes, loops, divergencias de restore, fusibles prematuros y cierres inválidos: 0.
+- Máximo de enseñanza consecutiva: 2.
+- Suite general: PASS.
+- Bohr: 42/42 PASS.
+- Contratos nuevos: 11/11 PASS.
+- TypeScript: PASS.
+- `git diff --check`: PASS.
+
+Bloqueos pendientes:
+
+- Playwright no pudo abrir `127.0.0.1:3100` por `EPERM`; no puedo certificar post-cambio los 33/33.
+- Build falló al resolver Google Fonts por `ENOTFOUND`.
+- La muestra determinista pasa 22/22 escenarios, pero su pequeño segmento capable reporta 71% de cambio estratégico; la simulación representativa de 1000 corridas registra 89%.
+- `assistance_dependent` individual conserva repair success de 13%, aunque recoverable agregado cumple 69%.
+
+Reporte completo: [PHASE_3_PEDAGOGICAL_ENGINE_REPORT.md](/Users/joseal/studyal/PHASE_3_PEDAGOGICAL_ENGINE_REPORT.md)
+
+No hice commit ni deploy. No se debe avanzar a materiales reales o producción todavía.

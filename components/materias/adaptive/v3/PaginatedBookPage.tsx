@@ -15,6 +15,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import MatchingCanvas from '../book/MatchingCanvas'
 import MathText from '../../../MathText'
 import { autoMath } from '../../../../lib/adaptive/v3/ui/autoMath'
+import { buildProgressiveHelp, type HelpKind, type HelpUsage } from '../../../../lib/adaptive/v3/engine/helpContract'
 import 'katex/dist/katex.min.css'
 
 interface Props {
@@ -22,6 +23,10 @@ interface Props {
   onSubmitAnswer: (answer: any) => void
   onContinue: () => void
   disabled?: boolean
+  showContinue?: boolean
+  helpUsages?: HelpUsage[]
+  onHelpUsed?: (usage: HelpUsage) => void
+  activeMicroName?: string
   evaluation?: {
     outcome: 'correct' | 'partial' | 'incorrect'
     whatWasCorrect?: string
@@ -30,7 +35,7 @@ interface Props {
   } | null
 }
 
-export default function PaginatedBookPage({ page, onSubmitAnswer, onContinue, disabled, evaluation }: Props) {
+export default function PaginatedBookPage({ page, onSubmitAnswer, onContinue, disabled, evaluation, showContinue = true, helpUsages = [], onHelpUsed, activeMicroName }: Props) {
   const contentRef = useRef<HTMLDivElement>(null)
   const feedbackRef = useRef<HTMLDivElement>(null)
 
@@ -44,9 +49,10 @@ export default function PaginatedBookPage({ page, onSubmitAnswer, onContinue, di
   // Scroll automático al feedback cuando aparece
   useEffect(() => {
     if (evaluation && feedbackRef.current) {
-      setTimeout(() => {
+      const frame = requestAnimationFrame(() => {
         feedbackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }, 150)
+      })
+      return () => cancelAnimationFrame(frame)
     }
   }, [evaluation])
 
@@ -56,9 +62,15 @@ export default function PaginatedBookPage({ page, onSubmitAnswer, onContinue, di
   const keyIdea = page?.content?.keyIdea
 
   return (
-    <div style={containerStyle}>
+    <div
+      style={containerStyle}
+      data-testid="adaptive-page"
+      data-interaction-id={page?.interaction?.id || ''}
+      data-question-id={page?.interaction?.questionId || page?.interaction?.id || ''}
+      data-fact-key={page?.interaction?.factKey || page?.interaction?.data?.factKey || ''}
+    >
       {/* Área scrollable de contenido */}
-      <div ref={contentRef} style={scrollAreaStyle}>
+      <div ref={contentRef} style={scrollAreaStyle} data-testid="adaptive-page-scroll">
         {/* Mensaje del tutor */}
         {tutorMessage && (
           <div style={tutorStyle}>
@@ -81,22 +93,29 @@ export default function PaginatedBookPage({ page, onSubmitAnswer, onContinue, di
 
         {/* Interacción — se deshabilita cuando hay feedback */}
         {hasInteraction && (
-          <div style={{
+          <div data-testid="adaptive-interaction" data-interaction-type={page.interaction?.interactionType || page.interaction?.type} style={{
             ...interactionContainerStyle,
-            opacity: evaluation ? 0.5 : 1,
+            opacity: evaluation ? 0.78 : 1,
             pointerEvents: evaluation ? 'none' : 'auto',
           }}>
             <InteractionWidget
               interaction={page.interaction}
               onSubmit={onSubmitAnswer}
               disabled={disabled || !!evaluation}
+              helpUsages={helpUsages}
+              onHelpUsed={onHelpUsed}
+              helpContext={{
+                microName: activeMicroName,
+                materialReminder: blocks.map((block: any) => block?.text || block?.description || '').filter(Boolean).join(' ').slice(0, 420),
+                keyIdea,
+              }}
             />
           </div>
         )}
 
         {/* Feedback inline — aparece debajo de la interacción con scroll automático */}
         {evaluation && (
-          <div ref={feedbackRef} style={{
+          <div ref={feedbackRef} data-testid="adaptive-feedback" style={{
             marginTop: 20,
             padding: '18px 22px',
             background: evaluation.outcome === 'correct' ? 'rgba(90,138,58,.08)' :
@@ -111,8 +130,8 @@ export default function PaginatedBookPage({ page, onSubmitAnswer, onContinue, di
               color: evaluation.outcome === 'correct' ? '#3a5a1e' :
                 evaluation.outcome === 'partial' ? '#a8854a' : '#8b1a1a',
             }}>
-              {evaluation.outcome === 'correct' ? '✓ Correcto' :
-                evaluation.outcome === 'partial' ? '◐ Casi' : '✗ Incorrecto'}
+              {evaluation.outcome === 'correct' ? '✓ Lo entendiste' :
+                evaluation.outcome === 'partial' ? '◐ Vas por buen camino' : 'Todavía no; vamos a aclararlo'}
             </div>
             {evaluation.whatWasCorrect && evaluation.outcome === 'correct' && (
               <div style={{ fontSize: 15, color: '#2a1f14', lineHeight: 1.6, marginBottom: 12 }}>
@@ -132,12 +151,12 @@ export default function PaginatedBookPage({ page, onSubmitAnswer, onContinue, di
                 border: '1px solid rgba(42,31,20,.06)',
               }}>
                 <div style={{ fontSize: 12, fontWeight: 800, color: '#a8854a', marginBottom: 6, letterSpacing: 1 }}>
-                  RESPUESTA CORRECTA
+                  LA IDEA CORRECTA
                 </div>
-                {evaluation.correctAnswer}
+                <MathText text={autoMath(evaluation.correctAnswer)} fontSize={15} color="#2a1f14" />
               </div>
             )}
-            <button
+            {showContinue && <button data-testid="adaptive-continue"
               onClick={onContinue}
               style={{
                 width: '100%', padding: '14px',
@@ -148,8 +167,8 @@ export default function PaginatedBookPage({ page, onSubmitAnswer, onContinue, di
                 marginTop: 4,
               }}
             >
-              {evaluation.outcome === 'correct' ? 'Continuar →' : 'Entendido, seguimos →'}
-            </button>
+              {evaluation.outcome === 'correct' ? 'Probar el siguiente reto →' : 'Ya lo entiendo, probemos otra vez →'}
+            </button>}
           </div>
         )}
       </div>
@@ -157,7 +176,7 @@ export default function PaginatedBookPage({ page, onSubmitAnswer, onContinue, di
       {/* Botón sticky en la parte inferior — solo cuando no hay interacción ni feedback */}
       {!hasInteraction && !evaluation && (
         <div style={stickyFooterStyle}>
-          <button onClick={onContinue} disabled={disabled} style={btnContinueStyle}>
+          <button data-testid="adaptive-continue" onClick={onContinue} disabled={disabled} style={btnContinueStyle}>
             Entendido, continuar →
           </button>
         </div>
@@ -352,9 +371,10 @@ function ContentBlock({ block }: { block: any }) {
 // ═══════════════════════════════════════════════════════════════
 // INTERACTION WIDGET
 // ═══════════════════════════════════════════════════════════════
-function InteractionWidget({ interaction, onSubmit, disabled }: any) {
+function InteractionWidget({ interaction, onSubmit, disabled, helpUsages = [], onHelpUsed, helpContext }: any) {
   const [textAnswer, setTextAnswer] = useState('')
   const [selected, setSelected] = useState<number | null>(null)
+  const [multiSelected, setMultiSelected] = useState<number[]>([])
   const [matchAnswer, setMatchAnswer] = useState<Record<number, number>>({})
   const [orderAnswer, setOrderAnswer] = useState<number[]>([])
 
@@ -362,6 +382,7 @@ function InteractionWidget({ interaction, onSubmit, disabled }: any) {
   useEffect(() => {
     setTextAnswer('')
     setSelected(null)
+    setMultiSelected([])
     setMatchAnswer({})
     setOrderAnswer([])
   }, [interaction?.id])
@@ -369,19 +390,23 @@ function InteractionWidget({ interaction, onSubmit, disabled }: any) {
   const type = interaction?.interactionType || interaction?.type || 'open_response'
   const data = interaction?.data || {}
   const prompt = interaction?.prompt || ''
+  const eliminatedOptions = new Set<number>(helpUsages.map((usage: HelpUsage) => usage.eliminatedOptionIndex).filter((value: unknown): value is number => typeof value === 'number'))
+
+  const helpPanel = <ProgressiveHelpPanel interaction={interaction} usages={helpUsages} context={helpContext} onUse={onHelpUsed} disabled={disabled} />
 
   // ── MULTIPLE CHOICE ────────────────────────────────────────
   if (type === 'multiple_choice' && Array.isArray(data.options)) {
     return (
-      <div>
+      <div>{helpPanel}
         <div style={questionStyle}><MathText text={autoMath(prompt)} fontSize={18} weight={700} color="#2a1f14" /></div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {data.options.map((opt: string, i: number) => (
-            <button key={i} onClick={() => { setSelected(i); onSubmit(i) }} disabled={disabled}
+            <button key={i} onClick={() => { setSelected(i); onSubmit(i) }} disabled={disabled || eliminatedOptions.has(i)} aria-disabled={eliminatedOptions.has(i)}
               style={{
                 ...optionBtnStyle,
                 borderColor: selected === i ? '#2a1f14' : 'rgba(42,31,20,.15)',
-                background: selected === i ? 'rgba(42,31,20,.05)' : '#fff',
+                background: eliminatedOptions.has(i) ? 'rgba(42,31,20,.04)' : selected === i ? 'rgba(42,31,20,.05)' : '#fff',
+                textDecoration: eliminatedOptions.has(i) ? 'line-through' : 'none',
               }}>
               <span style={optionLetterStyle}>{String.fromCharCode(65 + i)}</span>
               <span style={{ fontSize: 16, color: '#2a1f14', flex: 1 }}><MathText text={autoMath(opt)} fontSize={16} color="#2a1f14" /></span>
@@ -392,10 +417,28 @@ function InteractionWidget({ interaction, onSubmit, disabled }: any) {
     )
   }
 
+  if (type === 'multi_select' && Array.isArray(data.options)) {
+    const toggle = (index: number) => setMultiSelected(current => current.includes(index) ? current.filter(value => value !== index) : [...current, index])
+    return (
+      <div>{helpPanel}
+        <div style={questionStyle}><MathText text={autoMath(prompt)} fontSize={18} weight={700} color="#2a1f14" /></div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {data.options.map((option: string, index: number) => (
+            <button key={index} onClick={() => toggle(index)} disabled={disabled} aria-pressed={multiSelected.includes(index)} style={{ ...optionBtnStyle, background: multiSelected.includes(index) ? 'rgba(42,31,20,.08)' : '#fff' }}>
+              <span style={optionLetterStyle}>{multiSelected.includes(index) ? '✓' : String.fromCharCode(65 + index)}</span>
+              <span style={{ fontSize: 16, color: '#2a1f14', flex: 1 }}>{option}</span>
+            </button>
+          ))}
+        </div>
+        <button onClick={() => onSubmit(multiSelected)} disabled={disabled || multiSelected.length === 0} style={{ ...btnSubmitStyle, marginTop: 16, opacity: multiSelected.length > 0 ? 1 : 0.4 }}>Confirmar selección →</button>
+      </div>
+    )
+  }
+
   // ── TRUE FALSE ─────────────────────────────────────────────
   if (type === 'true_false') {
     return (
-      <div>
+      <div>{helpPanel}
         <div style={questionStyle}><MathText text={autoMath(prompt)} fontSize={18} weight={700} color="#2a1f14" /></div>
         {data.statement && (
           <div style={{
@@ -424,7 +467,7 @@ function InteractionWidget({ interaction, onSubmit, disabled }: any) {
   // ── FILL BLANK ─────────────────────────────────────────────
   if (type === 'fill_blank' || type === 'fill_blank_bank') {
     return (
-      <div>
+      <div>{helpPanel}
         <div style={questionStyle}><MathText text={autoMath(prompt)} fontSize={18} weight={700} color="#2a1f14" /></div>
         {data.template && (
           <div style={{
@@ -435,21 +478,12 @@ function InteractionWidget({ interaction, onSubmit, disabled }: any) {
             <MathText text={autoMath(String(data.template))} fontSize={18} color="#2a1f14" textAlign="center" />
           </div>
         )}
-        {data.template && (
-          <div style={{
-            padding: '14px 18px', background: 'rgba(42,31,20,.04)',
-            borderRadius: 8, marginBottom: 14, fontSize: 17,
-            color: '#2a1f14', lineHeight: 1.7,
-          }}>
-            {data.template}
-          </div>
-        )}
         <input type="text" value={textAnswer} onChange={e => setTextAnswer(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && textAnswer.trim() && onSubmit(textAnswer.trim())}
           placeholder="Escribe tu respuesta..." disabled={disabled}
           style={inputStyle} autoFocus />
         {data.bank && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+          <div data-testid="adaptive-word-bank" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
             {data.bank.map((w: string, i: number) => (
               <button key={i} onClick={() => setTextAnswer(w)} disabled={disabled}
                 style={{
@@ -476,7 +510,7 @@ function InteractionWidget({ interaction, onSubmit, disabled }: any) {
   // ── MATCHING ───────────────────────────────────────────────
   if (type === 'matching' && Array.isArray(data.pairs)) {
     return (
-      <div>
+      <div>{helpPanel}
         <div style={questionStyle}><MathText text={autoMath(prompt)} fontSize={18} weight={700} color="#2a1f14" /></div>
         <MatchingCanvas pairs={data.pairs} value={matchAnswer} onChange={setMatchAnswer} themeColor="#d6b26f" />
         <button onClick={() => onSubmit(matchAnswer)}
@@ -502,7 +536,7 @@ function InteractionWidget({ interaction, onSubmit, disabled }: any) {
     }
 
     return (
-      <div>
+      <div>{helpPanel}
         <div style={questionStyle}><MathText text={autoMath(prompt)} fontSize={18} weight={700} color="#2a1f14" /></div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {currentOrder.map((idx: number, pos: number) => (
@@ -535,7 +569,7 @@ function InteractionWidget({ interaction, onSubmit, disabled }: any) {
   if (type === 'find_the_error' && Array.isArray(data.workedSolution || data.steps)) {
     const steps: string[] = data.workedSolution || data.steps || []
     return (
-      <div>
+      <div>{helpPanel}
         <div style={questionStyle}><MathText text={autoMath(prompt || 'Encuentra el paso incorrecto')} fontSize={18} weight={700} color="#2a1f14" /></div>
         <div style={{
           padding: '10px 14px', marginBottom: 14,
@@ -568,7 +602,7 @@ function InteractionWidget({ interaction, onSubmit, disabled }: any) {
   // Como fill_blank pero con más énfasis visual en la fórmula
   if (type === 'complete_reaction_or_formula') {
     return (
-      <div>
+      <div>{helpPanel}
         <div style={questionStyle}><MathText text={autoMath(prompt || 'Completa la reacción o fórmula')} fontSize={18} weight={700} color="#2a1f14" /></div>
         {(data.template || data.equation) && (
           <div style={{
@@ -613,7 +647,7 @@ function InteractionWidget({ interaction, onSubmit, disabled }: any) {
   // Problema + textarea para escribir la solución paso a paso
   if (type === 'step_by_step_solver') {
     return (
-      <div>
+      <div>{helpPanel}
         <div style={questionStyle}><MathText text={autoMath(prompt || 'Resuelve paso a paso')} fontSize={18} weight={700} color="#2a1f14" /></div>
         {data.problem && (
           <div style={{
@@ -647,7 +681,7 @@ Paso 3: ..."
 
   // ── OPEN RESPONSE / TEACH BACK / EXPLAIN WHY ──────────────
   return (
-    <div>
+    <div>{helpPanel}
       <div style={questionStyle}><MathText text={autoMath(prompt)} fontSize={18} weight={700} color="#2a1f14" /></div>
       <textarea value={textAnswer} onChange={e => setTextAnswer(e.target.value)}
         placeholder="Escribe tu respuesta..." disabled={disabled}
@@ -659,6 +693,30 @@ Paso 3: ..."
       </button>
     </div>
   )
+}
+
+function ProgressiveHelpPanel({ interaction, usages, context, onUse, disabled }: { interaction: any; usages: HelpUsage[]; context: any; onUse?: (usage: HelpUsage) => void; disabled?: boolean }) {
+  const [open, setOpen] = useState(false)
+  const type = interaction?.interactionType || interaction?.type || ''
+  const nextLevel = Math.min(4, usages.length + 1)
+  const choices: Array<{ kind: HelpKind; label: string; allowed?: boolean }> = [
+    { kind: 'hint', label: 'Dame una pista' },
+    { kind: 'simplify', label: 'Explícamelo más simple' },
+    { kind: 'similar_example', label: 'Muéstrame un ejemplo parecido' },
+    { kind: 'material_reminder', label: 'Recuérdame la parte del material' },
+    { kind: 'discard_option', label: 'Descarta una opción', allowed: ['multiple_choice', 'multi_select'].includes(type) },
+    { kind: 'break_into_steps', label: 'Divídelo en pasos', allowed: /numeric|step|ordering|procedure|formula/.test(type) },
+    { kind: 'dont_know_start', label: 'No sé cómo empezar' },
+  ]
+  const latest = usages[usages.length - 1]
+  return <div data-testid="adaptive-help" style={{ marginBottom: 16 }}>
+    <button type="button" data-testid="adaptive-help-button" aria-expanded={open} onClick={() => setOpen(value => !value)} disabled={disabled} style={{ padding: '9px 14px', borderRadius: 999, border: '1px solid rgba(168,133,74,.5)', background: '#fffaf0', color: '#5a4a2f', fontWeight: 700, cursor: 'pointer' }}>Necesito ayuda</button>
+    {open && !disabled && <div role="dialog" aria-label="Opciones de ayuda" style={{ marginTop: 10, padding: 12, borderRadius: 10, background: 'rgba(214,178,111,.12)', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      <div style={{ width: '100%', fontSize: 13, color: '#5a4a2f', lineHeight: 1.45 }}>Elige la ayuda que necesitas. La primera orientación no revela la respuesta.</div>
+      {choices.filter(choice => choice.allowed !== false).map(choice => <button key={choice.kind} type="button" onClick={() => { onUse?.(buildProgressiveHelp(interaction, context || {}, choice.kind, nextLevel)); setOpen(false) }} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(42,31,20,.15)', background: '#fff', color: '#3a2e1f', cursor: 'pointer' }}>{choice.label}</button>)}
+    </div>}
+    {latest && <div data-testid="adaptive-help-content" aria-live="polite" style={{ marginTop: 10, padding: '12px 14px', borderLeft: '3px solid #d6b26f', background: '#fffaf0', color: '#3a2e1f', lineHeight: 1.55 }}><strong>Pista {latest.level}:</strong> {latest.text}</div>}
+  </div>
 }
 
 // ═══════════════════════════════════════════════════════════════

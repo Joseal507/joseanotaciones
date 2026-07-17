@@ -9,7 +9,7 @@ interface Props {
   onCancel: () => void
 }
 
-type Step = 1 | 2 | 3 | 4 | 5
+type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
 
 const KNOWLEDGE_OPTIONS = [
   { key: 'zero' as const, title: 'Nunca lo he visto', desc: 'Es un tema completamente nuevo para mí.', emoji: '🌱' },
@@ -58,19 +58,27 @@ export default function AdaptiveProgramSetupComponent({ onComplete, onCancel }: 
   const [sessionLength, setSessionLength] = useState<SessionLength | null>(null)
   const [examDate, setExamDate] = useState<string | null>(null)
   const [targetScore, setTargetScore] = useState(80)
-  const dailyMinutes = 45
+  const [dailyMinutes, setDailyMinutes] = useState(45)
+  const [examDateTime, setExamDateTime] = useState('')
+  const [examFormat, setExamFormat] = useState<NonNullable<AdaptiveProgramSetup['examFormat']>>('unknown')
+  const [availableDays, setAvailableDays] = useState([0, 1, 2, 3, 4, 5, 6])
+  const [prioritiesText, setPrioritiesText] = useState('')
+  const exactExamIsFuture = !examDateTime || new Date(examDateTime).getTime() > Date.now()
 
   const [evalPreference, setEvalPreference] = useState<'quick_test' | 'write_explain' | 'mix_everything' | null>(null)
 
   const canContinue =
     (step === 1 && knowledgeLevel !== null) ||
     (step === 2 && sessionLength !== null) ||
-    (step === 3 && examDate !== null) ||
+    (step === 3 && examDate !== null && exactExamIsFuture) ||
     (step === 4) ||
-    (step === 5 && evalPreference !== null)
+    (step === 5 && evalPreference !== null) ||
+    (step === 6 && examFormat !== null) ||
+    (step === 7 && dailyMinutes > 0 && availableDays.length > 0) ||
+    step === 8
 
   const handleContinue = () => {
-    if (step < 5) {
+    if (step < 8) {
       setStep((prev) => (prev + 1) as Step)
       return
     }
@@ -82,7 +90,11 @@ export default function AdaptiveProgramSetupComponent({ onComplete, onCancel }: 
       examDate,
       dailyMinutes,
       evalPreference: evalPreference || 'mix_everything',
-    } as any)
+      examDateTime: examDateTime && exactExamIsFuture ? new Date(examDateTime).toISOString() : undefined,
+      examFormat,
+      availability: { dailyMinutes, availableDays },
+      priorities: prioritiesText.split(',').map(value => value.trim()).filter(Boolean),
+    })
   }
 
   const scoreLabel =
@@ -97,10 +109,10 @@ export default function AdaptiveProgramSetupComponent({ onComplete, onCancel }: 
         {/* Header */}
         <div style={{ marginBottom: 28 }}>
           <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-faint)', letterSpacing: 1, marginBottom: 8 }}>
-            PROGRAMA ADAPTATIVO · PASO {step} DE 5
+            PROGRAMA ADAPTATIVO · PASO {step} DE 8
           </div>
           <div style={styles.progressBar}>
-            <div style={{ ...styles.progressFill, width: `${(step / 5) * 100}%` }} />
+            <div style={{ ...styles.progressFill, width: `${(step / 8) * 100}%` }} />
           </div>
         </div>
 
@@ -196,6 +208,12 @@ export default function AdaptiveProgramSetupComponent({ onComplete, onCancel }: 
                 </button>
               ))}
             </div>
+            <label style={{ display: 'block', marginTop: 14, fontSize: 12, color: 'var(--text-muted)' }}>
+              Fecha y hora exactas (opcional)
+              <input data-testid="exam-date-time" aria-describedby="exam-timezone exam-date-error" type="datetime-local" value={examDateTime} onChange={event => setExamDateTime(event.target.value)} style={{ width: '100%', marginTop: 6, padding: 10, borderRadius: 8 }} />
+              <span id="exam-timezone" style={{ display: 'block', marginTop: 5, color: 'var(--text-faint)' }}>Hora local · {Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
+              {!exactExamIsFuture && <span id="exam-date-error" role="alert" style={{ display: 'block', marginTop: 5, color: '#ef4444' }}>La fecha y hora deben estar en el futuro.</span>}
+            </label>
           </div>
         )}
 
@@ -277,6 +295,39 @@ export default function AdaptiveProgramSetupComponent({ onComplete, onCancel }: 
           </div>
         )}
 
+        {step === 6 && (
+          <div>
+            <div style={styles.stepTitle}>¿Cómo será tu examen?</div>
+            <div style={styles.stepSub}>La simulación final y la evidencia se alinearán con este formato.</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 20 }}>
+              {([['multiple_choice','Selección múltiple'],['development','Desarrollo'],['mixed','Mixto'],['mathematical','Matemático / problemas'],['practical','Práctico'],['unknown','No lo sé']] as const).map(([key, label]) => (
+                <button key={key} data-testid={`exam-format-${key}`} onClick={() => setExamFormat(key)} style={{ ...styles.optionBtnSmall, borderColor: examFormat === key ? 'var(--gold)' : 'var(--border-color2)', background: 'transparent' }}>{label}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {step === 7 && (
+          <div>
+            <div style={styles.stepTitle}>¿Cuánto tiempo tienes?</div>
+            <div style={styles.stepSub}>Es una preferencia para organizar el plan. Puedes estudiar más, adelantar sesiones y continuar el mismo día.</div>
+            <label style={{ display: 'block', marginTop: 20, color: 'var(--text-muted)', fontSize: 12 }}>Minutos por día: {dailyMinutes}
+              <input data-testid="daily-minutes" type="range" min={10} max={180} step={5} value={dailyMinutes} onChange={event => setDailyMinutes(Number(event.target.value))} style={{ width: '100%', marginTop: 8 }} />
+            </label>
+            <div style={{ display: 'flex', gap: 5, marginTop: 16 }}>
+              {['D','L','M','X','J','V','S'].map((label, day) => <button key={label} aria-pressed={availableDays.includes(day)} onClick={() => setAvailableDays(current => current.includes(day) ? current.filter(value => value !== day) : [...current, day])} style={{ flex: 1, padding: 9, borderRadius: 8, border: `1px solid ${availableDays.includes(day) ? 'var(--gold)' : 'var(--border-color2)'}`, background: 'transparent', color: 'var(--text-primary)' }}>{label}</button>)}
+            </div>
+          </div>
+        )}
+
+        {step === 8 && (
+          <div>
+            <div style={styles.stepTitle}>¿Qué temas te preocupan?</div>
+            <div style={styles.stepSub}>Opcional. ALAI los prioriza sin eliminar el resto del material.</div>
+            <textarea data-testid="study-priorities" value={prioritiesText} onChange={event => setPrioritiesText(event.target.value)} placeholder="Ej.: estructura atómica, cálculos, errores comunes" style={{ width: '100%', minHeight: 110, marginTop: 20, padding: 12, borderRadius: 10 }} />
+          </div>
+        )}
+
         {/* Footer */}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 28, gap: 12 }}>
           <button
@@ -290,7 +341,7 @@ export default function AdaptiveProgramSetupComponent({ onComplete, onCancel }: 
             disabled={!canContinue}
             style={{ ...styles.btnPrimary, opacity: canContinue ? 1 : 0.4, cursor: canContinue ? 'pointer' : 'not-allowed' }}
           >
-            {step === 5 ? 'Generar programa →' : 'Siguiente →'}
+            {step === 8 ? 'Generar mi plan →' : 'Siguiente →'}
           </button>
         </div>
       </div>

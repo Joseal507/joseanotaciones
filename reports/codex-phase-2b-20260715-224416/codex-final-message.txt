@@ -1,0 +1,20 @@
+No puedo declarar 33/33: Playwright quedó bloqueado antes de ejecutar pruebas porque el sandbox deniega `listen 127.0.0.1:3100` con `EPERM`.
+
+Cambios aplicados:
+
+- Corregido el rechazo erróneo de `q2` por fingerprint repetido.
+- Conservados los contratos anti-repetición de questionId, factKey y final review.
+- Persistencia síncrona de la página siguiente antes de salir.
+- KaTeX ya no incluye `\frac` crudo en el DOM.
+- Actualizado [PHASE_2_E2E_FIXES_REPORT.md](/Users/joseal/studyal/PHASE_2_E2E_FIXES_REPORT.md).
+
+Validación:
+
+- `npx tsc --noEmit`: PASS
+- Verificación KaTeX: sin source crudo y una `.katex-display`
+- `npm run test:e2e`: BLOQUEADO antes del primer test por `listen EPERM`
+- `git diff --check`: PASS
+- Retries: 0
+- Sin commit ni deploy
+
+Nota: al intentar Playwright, su limpieza automática de `outputDir` eliminó los artefactos anteriores de `reports/playwright-artifacts`; habían sido inspeccionados antes de la ejecución. Se necesita ejecutar la matriz en un entorno que permita abrir localhost para confirmar los casos 09, 11, 23, 28 y el resultado exacto 33/33.

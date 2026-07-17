@@ -17,6 +17,7 @@ import type {
   Turn,
   TeachingQueue,
 } from '../types'
+import { isMicroMastered, emptyEvidenceProfile } from './evidenceEngine'
 
 // Fusible: ningún micro puede tener más de este número de interacciones
 // Si se supera, se marca como estudiado con mastery bajo y se avanza
@@ -50,7 +51,6 @@ export function initMicroState(microId: string): MicroState {
     misunderstandings: [],
   }
 }
-
 // ═══════════════════════════════════════════════════════════════
 // INICIALIZAR SESSION STATE COMPLETO
 // ═══════════════════════════════════════════════════════════════
@@ -79,10 +79,14 @@ export function initSessionState(params: {
       microStates[microId] = {
         ...base,
         masteryLevel: prior.masteryLevel || base.masteryLevel,
-        isReady: prior.isReady || false,
-        totalInteractions: prior.answeredCorrectly + prior.answeredIncorrectly,
+        // Readiness y fusible son locales a la sesión. La evidencia histórica
+        // persiste abajo, pero una repair necesita un presupuesto real para actuar.
+        isReady: false,
+        totalInteractions: 0,
+        evidenceProfile: prior.evidenceProfileSnapshot,
         // Guardar nombre real del micro para el mastery storage
-        ...(microConcept ? { microName: microConcept.name } as any : {}),
+        ...(microConcept ? { microName: microConcept.name } : {}),
+        sourcePages: microConcept?.sourcePages || [],
         evidence: {
           ...base.evidence,
           introduced: prior.introduced || false,
@@ -96,8 +100,8 @@ export function initSessionState(params: {
       const microConceptFresh = params.graph.microConcepts.find(m => m.id === microId)
       const freshState = initMicroState(microId)
       if (microConceptFresh) {
-        (freshState as any).microName = microConceptFresh.name
-        ;(freshState as any).sourcePages = microConceptFresh.sourcePages || []
+        freshState.microName = microConceptFresh.name
+        ;freshState.sourcePages = microConceptFresh.sourcePages || []
       }
       microStates[microId] = freshState
     }
@@ -393,12 +397,12 @@ export function markMicroAsNeedsReinforcement(
   sessionState: SessionState,
   microId: string,
 ): SessionState {
-  const reinforcement: string[] = (sessionState as any).reinforcementMicroIds || []
+  const reinforcement: string[] = sessionState.reinforcementMicroIds || []
   if (!reinforcement.includes(microId)) {
     return {
       ...sessionState,
       reinforcementMicroIds: [...reinforcement, microId],
-    } as any
+    }
   }
   return sessionState
 }
@@ -510,7 +514,7 @@ export function shouldCloseSession(sessionState: SessionState): boolean {
   // CIERRE REAL: todos los micros requeridos deben haber sido trabajados
   // (introducidos + practicados) y estar listos o haber alcanzado el fusible.
   const requiredMicroIds: string[] =
-    ((sessionState as any).requiredMicroIds as string[]) ||
+    sessionState.requiredMicroIds ??
     Array.from(new Set([
       ...sessionState.queue.pendingMicroIds,
       ...sessionState.queue.postponedMicroIds,
@@ -552,5 +556,165 @@ export function calculateSessionProgress(sessionState: SessionState): {
     completed,
     total,
     currentMicro: sessionState.queue.activeMicroId,
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EVALUACIÓN DE FINALIZACIÓN DEL PROGRAMA
+//
+// sessionComplete: la sesión puede cerrar (micros procesados)
+// programComplete: TODOS los micros DOMINADOS según evidencia real
+//
+// Son contratos INDEPENDIENTES. Una sesión completa con micros
+// struggling NO finaliza el programa.
+// ═══════════════════════════════════════════════════════════════
+
+export type SessionCloseReason =
+  | 'all_micros_processed'
+  | 'budget_exhausted'
+  | 'unresolved_micros_deferred'
+
+export type MicroResolutionStatus =
+  | 'mastered'
+  | 'unresolved_fused'      // salió por fusible sin dominio
+  | 'unresolved_struggling' // struggling persistente
+  | 'in_progress'           // aún en la sesión
+  | 'not_started'           // no se trabajó
+
+export interface SessionCompletionResult {
+  isSessionComplete: boolean
+  closeReason: SessionCloseReason | null
+  isProgramComplete: boolean
+  // Micros que salieron de la sesión sin dominio real
+  unresolvedMicroIds: string[]
+  // Razones por micro
+  microResolutions: Record<string, {
+    status: MicroResolutionStatus
+    reason: string
+  }>
+  // Métricas
+  masteredCount: number
+  totalRequired: number
+  masteryPercent: number
+  coveragePercent: number
+}
+
+export function evaluateSessionCompletion(
+  sessionState: SessionState,
+  graph?: { microConcepts: MicroConcept[] } | null,
+): SessionCompletionResult {
+  const requiredMicroIds: string[] =
+    sessionState.requiredMicroIds ??
+    Array.from(new Set([
+      ...sessionState.queue.pendingMicroIds,
+      ...sessionState.queue.postponedMicroIds,
+      ...sessionState.queue.completedMicroIds,
+      ...(sessionState.queue.activeMicroId ? [sessionState.queue.activeMicroId] : []),
+    ]))
+
+  const totalRequired = requiredMicroIds.length
+  const microResolutions: Record<string, { status: MicroResolutionStatus; reason: string }> = {}
+  const unresolvedMicroIds: string[] = []
+  let masteredCount = 0
+  let studiedCount = 0
+
+  for (const microId of requiredMicroIds) {
+    const st = sessionState.microStates[microId]
+
+    if (!st) {
+      microResolutions[microId] = { status: 'not_started', reason: 'micro not in session state' }
+      continue
+    }
+
+    const taught = !!(st.evidence?.introduced || st.evidence?.explainedByTutor)
+    const practiced = ((st.evidence?.answeredCorrectly || 0) + (st.evidence?.answeredIncorrectly || 0)) > 0
+    if (taught && practiced) studiedCount++
+
+    // ─── CRITERIO CANÓNICO DE DOMINIO ────────────────────────
+    // Usa isMicroMastered() que internamente invoca checkMasteryContract
+    // según el cognitiveType real del micro.
+    // El fusible (MAX_INTERACTIONS) NUNCA produce dominio.
+    const evidenceProfile = st.evidenceProfile || emptyEvidenceProfile(microId)
+    const fused = st.totalInteractions >= MAX_INTERACTIONS_PER_MICRO
+
+    // Obtener micro del grafo para cognitiveType real
+    // Si no tenemos el grafo, usar fallback conservador (definitional)
+    const microFromGraph = graph?.microConcepts?.find(m => m.id === microId)
+    const microForContract: MicroConcept = microFromGraph || {
+      id: microId,
+      cognitiveType: 'definitional', // fallback conservador
+      difficulty: 50,
+      importance: 'medium',
+      name: microId,
+      shortDescription: '',
+      fullDefinition: '',
+      sourceQuotes: [],
+      sourceChunkIds: [],
+      sourcePages: [],
+      examples: [],
+      formulas: [],
+      procedures: [],
+      commonErrors: [],
+      prerequisites: [],
+      enables: [],
+      related: [],
+      extractedAt: 0,
+      topicGroup: '',
+      estimatedMinutes: 10,
+    }
+
+    const isDominatedByEvidence = isMicroMastered(evidenceProfile, microForContract)
+
+    if (isDominatedByEvidence) {
+      masteredCount++
+      microResolutions[microId] = { status: 'mastered', reason: 'evidence-based mastery' }
+    } else if (fused && !isDominatedByEvidence) {
+      unresolvedMicroIds.push(microId)
+      microResolutions[microId] = {
+        status: st.masteryLevel === 'struggling' ? 'unresolved_struggling' : 'unresolved_fused',
+        reason: 'max_interactions_reached_without_mastery',
+      }
+    } else if (taught && practiced && !isDominatedByEvidence) {
+      unresolvedMicroIds.push(microId)
+      microResolutions[microId] = {
+        status: 'in_progress',
+        reason: st.isReady ? 'ready_but_not_mastered' : 'still_working',
+      }
+    } else {
+      microResolutions[microId] = { status: 'not_started', reason: 'not_yet_processed' }
+    }
+  }
+
+  // Session complete: misma lógica que shouldCloseSession
+  const isSessionComplete = shouldCloseSession(sessionState)
+
+  // Program complete: TODOS los required micros dominados por evidencia real
+  const isProgramComplete =
+    totalRequired > 0 &&
+    masteredCount === totalRequired &&
+    unresolvedMicroIds.length === 0
+
+  const closeReason: SessionCloseReason | null = isSessionComplete
+    ? (unresolvedMicroIds.length > 0 ? 'unresolved_micros_deferred' : 'all_micros_processed')
+    : null
+
+  const masteryPercent = totalRequired > 0
+    ? Math.round((masteredCount / totalRequired) * 100)
+    : 0
+
+  const coveragePercent = totalRequired > 0
+    ? Math.round((studiedCount / totalRequired) * 100)
+    : 0
+
+  return {
+    isSessionComplete,
+    closeReason,
+    isProgramComplete,
+    unresolvedMicroIds,
+    microResolutions,
+    masteredCount,
+    totalRequired,
+    masteryPercent,
+    coveragePercent,
   }
 }

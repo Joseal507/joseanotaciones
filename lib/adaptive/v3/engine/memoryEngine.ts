@@ -11,6 +11,8 @@
 // - nextReviewAt: cuándo debe reaparecer para spaced retrieval
 // ═══════════════════════════════════════════════════════════════
 
+import type { AssistanceLevel } from './confidenceTracker'
+
 // ═══════════════════════════════════════════════════════════════
 // TIPOS
 // ═══════════════════════════════════════════════════════════════
@@ -92,16 +94,17 @@ export function calculateRetrievability(state: MemoryState): number {
 export function updateMemoryAfterReview(
   state: MemoryState,
   grade: ReviewGrade,
-  assistanceLevel: 'independent' | 'hinted' | 'guided' | 'revealed' = 'independent',
+  assistanceLevel: AssistanceLevel = 'independent',
 ): MemoryState {
   const now = Date.now()
 
   // Ajustar grade según nivel de ayuda
   // Si necesitó ayuda, la calidad real es menor
   const effectiveGrade: ReviewGrade = Math.max(0, grade - (
-    assistanceLevel === 'hinted' ? 0 :
+    assistanceLevel === 'minimal_hint' ? 0 :
     assistanceLevel === 'guided' ? 1 :
-    assistanceLevel === 'revealed' ? 2 : 0
+    assistanceLevel === 'assisted' ? 2 :
+    assistanceLevel === 'revealed' ? 4 : 0
   )) as ReviewGrade
 
   const currentR = calculateRetrievability(state)

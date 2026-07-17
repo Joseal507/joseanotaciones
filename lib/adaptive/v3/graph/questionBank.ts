@@ -12,8 +12,14 @@
 
 import { alaiRequest, safeParseJson } from '../../../alai'
 import type { MicroConcept } from '../types'
+import { validateInteractionContract } from '../engine/interactionContract'
 
 const genId = (p: string) => `${p}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+const factKeyFor = (microId: string, sourceQuote: unknown, prompt: unknown) => {
+  const fact = String(sourceQuote || prompt || '').toLowerCase().normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 120)
+  return `${microId}:${fact}`
+}
 
 export interface BankedQuestion {
   id: string
@@ -247,7 +253,7 @@ Devuelve SOLO este JSON:
       format: q.format || format,
       cognitiveAngle: q.cognitiveAngle || 'recall',
       // factKey: combinación de microId + cognitiveAngle + índice para anti-repetición
-      factKey: `${micro.id}:${q.cognitiveAngle || 'recall'}:${idx}`,
+      factKey: factKeyFor(micro.id, q.sourceQuote, q.prompt),
       prompt: String(q.prompt || ''),
       data: q.data || {},
       sourceQuote: String(q.sourceQuote || ''),
@@ -281,7 +287,10 @@ Devuelve SOLO este JSON:
       if (q.format === 'matching') {
         if (!q.data?.pairs?.length || q.data.pairs.length < 2) return false
       }
-      return true
+      return validateInteractionContract({
+        id: q.id, questionId: q.id, factKey: q.factKey,
+        interactionType: q.format, prompt: q.prompt, data: q.data,
+      }, 'mix_everything').length === 0
     })
 
   } catch (err: any) {
@@ -409,7 +418,8 @@ export function pickNextQuestion(
   // Filtrar por factKey recientes para evitar repetir el mismo hecho con otro formato
   const recentKeys = new Set(recentFactKeys || [])
   const notRecentFact = available.filter(q => !recentKeys.has(q.factKey || ''))
-  const pool = notRecentFact.length > 0 ? notRecentFact : available
+  if (recentKeys.size > 0 && notRecentFact.length === 0) return null
+  const pool = notRecentFact
 
   // Mapear tipo de evidencia faltante → ángulo cognitivo preferido
   const evidenceToAngle: Record<string, string[]> = {

@@ -19,6 +19,7 @@ export interface OrchestrationOptions {
   materialText: string
   subjectHint?: string
   onProgress?: (stage: string, current: number, total: number) => void
+  generateQuestionBank?: boolean
 }
 
 export interface OrchestrationResult {
@@ -30,6 +31,7 @@ export interface OrchestrationResult {
     extractionMs: number
     assemblyMs: number
     resolutionMs: number
+    bankMs: number
     totalMs: number
     totalChunks: number
     totalMicrosExtracted: number
@@ -44,6 +46,10 @@ export interface OrchestrationResult {
   error?: string
 }
 
+export function shouldGenerateInitialQuestionBank(options: Pick<OrchestrationOptions, 'generateQuestionBank'> = {}): boolean {
+  return options.generateQuestionBank === true
+}
+
 // ═══════════════════════════════════════════════════════════════
 // FUNCIÓN PRINCIPAL
 // ═══════════════════════════════════════════════════════════════
@@ -53,6 +59,7 @@ export async function buildKnowledgeGraph(
   const startTotal = Date.now()
   const errors: string[] = []
   const { materialId, materialTitle, materialText, subjectHint, onProgress } = options
+  const generateQuestionBank = shouldGenerateInitialQuestionBank(options)
 
   console.log(`\n🕸️  [Graph Builder] Iniciando construcción de grafo`)
   console.log(`   Material: "${materialTitle}" (${materialText.length} chars)`)
@@ -173,9 +180,13 @@ export async function buildKnowledgeGraph(
 
   let questionBank: Record<string, QuestionBank> | undefined = undefined
   try {
+    if (!generateQuestionBank) {
+      console.log('✓ Question Bank: diferido; generación on-demand activada')
+    } else {
     questionBank = await buildQuestionBankForGraph(graph.microConcepts)
     const totalQ = Object.values(questionBank).reduce((s, b) => s + b.totalQuestions, 0)
     console.log(`✓ Question Bank: ${totalQ} preguntas para ${Object.keys(questionBank).length} micros`)
+    }
   } catch (err: any) {
     console.error('[Graph Builder] Question bank falló (no crítico):', err.message)
     errors.push('Question bank: ' + err.message)
@@ -193,6 +204,7 @@ export async function buildKnowledgeGraph(
       extractionMs,
       assemblyMs,
       resolutionMs,
+      bankMs,
       totalMs,
       totalChunks: chunkingResult.totalChunks,
       totalMicrosExtracted,
@@ -279,7 +291,7 @@ function calculateCriticalPath(micros: MicroConcept[], edges: any[]): string[] {
 function buildEmptyStats(errors: string[]) {
   return {
     chunkingMs: 0, extractionMs: 0, assemblyMs: 0, resolutionMs: 0, totalMs: 0,
-    totalChunks: 0, totalMicrosExtracted: 0, totalMicrosFinal: 0,
+    bankMs: 0, totalChunks: 0, totalMicrosExtracted: 0, totalMicrosFinal: 0,
     duplicatesRemoved: 0, totalDependencies: 0, hardDeps: 0, softDeps: 0,
     topicGroups: 0, errors,
   }

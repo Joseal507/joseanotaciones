@@ -88,12 +88,19 @@ import AdaptiveSessionV2 from "./adaptive/book/AdaptiveSessionV2";
 import AdaptiveSessionView from "./adaptive/AdaptiveSessionView";
 import StudyALAdaptiveSesh from "./adaptive/v2/StudyALAdaptiveSesh";
 import StudyALSessionV3 from "./adaptive/v3/StudyALSessionV3";
+import { reviseStudyPlan } from "../../lib/adaptive/planRevision/reviseStudyPlan";
+import { adaptStudyPlanToSessions } from "../../lib/adaptive/planner/adaptStudyPlanToSessions";
+import { calculateExamReadiness } from "../../lib/adaptive/readiness/calculateReadiness";
 import AdaptiveV2Bootstrap from "./adaptive/v2/AdaptiveV2Bootstrap";
 import { convertPlanToProgram } from "../../lib/adaptive/v2/adapters/planToProgram";
 import ProcessStyleSelector from "./adaptive/book/ProcessStyleSelector";
 import type { ProcessStyle } from "./adaptive/book/ProcessStyleSelector";
 import { useSyncAdaptiveState } from "../../hooks/useSyncAdaptiveState";
 import { upsertSession } from "../../lib/studySessions";
+import {
+  resolveCanonicalMaterialIdentity,
+  validateAdaptiveProgramIdentity,
+} from "../../lib/adaptive/materialIdentity";
 
 function getDocEmoji(tipo: string) {
   if (tipo === "pdf") return "📄";
@@ -106,6 +113,34 @@ function getDocEmoji(tipo: string) {
 
 function getMaterialId(m: any) {
   return String(m?.materialId || m?.id || m?.nombre || "").trim();
+}
+
+function synchronizeProgramWithCanonicalPlan(program: AdaptiveProgram): AdaptiveProgram {
+  if (!program.studyPlan || program.studyPlan.source !== 'canonical_study_plan_v1') return program
+  const sessions = adaptStudyPlanToSessions(program.studyPlan, program.sessions || [])
+  const currentSessionIndex = Math.max(0, sessions.findIndex(session => session.status === 'available' || session.status === 'in_progress'))
+  return { ...program, sessions, currentSessionIndex }
+}
+
+function hasPersistedPausedSession(program: AdaptiveProgram): boolean {
+  if (typeof window === 'undefined') return false
+  const ids = new Set(program.sessions.map(session => session.id))
+  try {
+    const marker = JSON.parse(localStorage.getItem('studyal_v3_paused_session') || '{}')
+    if (marker.paused === true) return true
+  } catch {}
+  const materialIds = program.materialIds.map(String)
+  for (let index = 0; index < localStorage.length; index++) {
+    const key = localStorage.key(index)
+    if (!key?.startsWith('studyal_v3_interaction_')) continue
+    try {
+      const snapshot = JSON.parse(localStorage.getItem(key) || '{}')
+      const snapshotSessionId = String(snapshot.sessionId || '')
+      const belongsToProgram = ids.has(snapshotSessionId) || (materialIds.some(id => key.includes(id)) && [...ids].some(id => key.endsWith(`_${id}`)))
+      if (snapshot.paused === true && belongsToProgram) return true
+    } catch {}
+  }
+  return false
 }
 
 const EXAM_DATE_LABELS: Record<string, string> = {
@@ -188,6 +223,7 @@ export default function StudyALProcess({
   // Ref para guardar el initialMode original — nunca debe ser pisado por re-renders
   const initialModeRef = useRef<'free' | 'adaptive' | undefined>(initialMode);
   const v3Restored = useRef(false);  // protege contra sobreescritura del restore viejo
+  const generationInFlightRef = useRef(false);  // previene doble generación de programa
   // Solo actualizar si viene un valor nuevo no-nulo
   if (initialMode && initialModeRef.current !== initialMode) {
     initialModeRef.current = initialMode;
@@ -242,6 +278,15 @@ export default function StudyALProcess({
       const unified = stableKey ? loadMaterialSession(stableKey) : null
       console.log('[v3] materialSession encontrada:', !!unified, unified ? { hasProgram: !!unified.adaptiveProgram, sessions: unified.adaptiveProgram?.sessions?.length } : null)
       if (unified?.adaptiveProgram) {
+        const { currentMaterialId } = resolveCanonicalMaterialIdentity([primaryMat], null)
+        const graphMicroIds = Array.isArray(unified.adaptiveProgram.graphMicroIds)
+          ? unified.adaptiveProgram.graphMicroIds
+          : []
+        if (!validateAdaptiveProgramIdentity(unified.adaptiveProgram, currentMaterialId, graphMicroIds)) {
+          patchMaterialSession(stableKey, { adaptiveProgram: undefined })
+          console.log('🚫 [v3] Programa persistido incompatible descartado:', stableKey)
+          return { program: null, style: unified.processStyle, blueprint: unified.materialBlueprint || null }
+        }
         console.log('✅ [v3] materialSession restaurada:', stableKey, '| sesiones:', unified.adaptiveProgram.sessions?.length)
         return { program: unified.adaptiveProgram, style: unified.processStyle, blueprint: unified.materialBlueprint || null }
       }
@@ -267,7 +312,12 @@ export default function StudyALProcess({
     }
 
     // Intentar desde masteryState prop
-    if ((masteryState as any)?.adaptiveProgram) return (masteryState as any).adaptiveProgram;
+    if (masteryState?.adaptiveProgram) {
+      const candidate = masteryState.adaptiveProgram
+      const { currentMaterialId } = resolveCanonicalMaterialIdentity(materiales || [], null)
+      const graphMicroIds = Array.isArray(candidate.graphMicroIds) ? candidate.graphMicroIds : []
+      if (validateAdaptiveProgramIdentity(candidate, currentMaterialId, graphMicroIds)) return synchronizeProgramWithCanonicalPlan(candidate)
+    }
     // Intentar desde localStorage
     if (typeof window !== 'undefined') {
       try {
@@ -276,7 +326,12 @@ export default function StudyALProcess({
         const raw = localStorage.getItem(key);
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (parsed?.adaptiveProgram) return parsed.adaptiveProgram;
+          if (parsed?.adaptiveProgram) {
+            const candidate = parsed.adaptiveProgram
+            const { currentMaterialId } = resolveCanonicalMaterialIdentity(materiales || [], null)
+            const graphMicroIds = Array.isArray(candidate.graphMicroIds) ? candidate.graphMicroIds : []
+            if (validateAdaptiveProgramIdentity(candidate, currentMaterialId, graphMicroIds)) return synchronizeProgramWithCanonicalPlan(candidate)
+          }
         }
       } catch {}
     }
@@ -326,9 +381,10 @@ export default function StudyALProcess({
   const [adaptiveView, setAdaptiveView] = useState<AdaptiveView>(() => {
     // Si v3 tiene programa, iniciar directo en 'book' (evita pestañeo home → book)
     const v3Init = restoreFromMaterialSession()
-    if (v3Init.program) {
+    const restoredProgram = v3Init.program || adaptiveProgram
+    if (restoredProgram) {
       v3Restored.current = true
-      return 'book'
+      return hasPersistedPausedSession(restoredProgram) ? 'running' : 'book'
     }
     return 'home'
   });
@@ -544,7 +600,11 @@ export default function StudyALProcess({
 
     const programMatchesMaterials = idsMatch || namesMatch
 
-    const programToRestore = programMatchesMaterials ? savedProgram : null
+    const { currentMaterialId } = resolveCanonicalMaterialIdentity(materiales || [], null)
+    const savedGraphMicroIds = Array.isArray(savedProgram?.graphMicroIds) ? savedProgram.graphMicroIds : []
+    const programToRestore = programMatchesMaterials && validateAdaptiveProgramIdentity(savedProgram, currentMaterialId, savedGraphMicroIds)
+      ? savedProgram
+      : null
 
     if (!programMatchesMaterials && savedProgram) {
       console.log('🚫 [Restore] adaptiveProgram descartado — materiales distintos:', {
@@ -558,7 +618,7 @@ export default function StudyALProcess({
     if (v3Restored.current) {
       console.log('🛡️ [Restore] v3 ya restauró — ignorando restore viejo')
     } else if (programToRestore) {
-      setAdaptiveProgram(programToRestore);
+      setAdaptiveProgram(synchronizeProgramWithCanonicalPlan(programToRestore));
     }
     // Restaurar processStyle si existe
     const savedStyle = (m as any).processStyle;
@@ -568,7 +628,7 @@ export default function StudyALProcess({
     }
     // Si es modo adaptive con libro y hay programa válido, abrir libro directo
     if (mode === 'adaptive' && (savedStyle === 'book' || processStyle === 'book') && programToRestore) {
-      setAdaptiveView('book');
+      setAdaptiveView(hasPersistedPausedSession(programToRestore) ? 'running' : 'book');
     }
 
     // Persistir usando initialModeRef — no causa loop
@@ -585,6 +645,10 @@ export default function StudyALProcess({
     setSetupOpen(false);
   }, [masteryState?.sessionKey, initialMode]);
 
+  useEffect(() => {
+    if (adaptiveProgram && hasPersistedPausedSession(adaptiveProgram)) setAdaptiveView('running')
+  }, [adaptiveProgram])
+
   // ── Persistencia local del mastery ───────────────────────────────
   const persistMasteryState = useCallback((nextMastery: MaterialMastery) => {
     saveMaterialMastery(nextMastery);
@@ -598,6 +662,7 @@ export default function StudyALProcess({
 
   // ── Guardar programa adaptativo ──────────────────────────────────
   const saveAdaptiveProgram = useCallback((program: AdaptiveProgram) => {
+    program = synchronizeProgramWithCanonicalPlan(program)
     setAdaptiveProgram(program);
 
     const baseMastery = (localMasteryState || masteryState) as MaterialMastery | null;
@@ -646,6 +711,13 @@ export default function StudyALProcess({
     style: ProcessStyle,
     preflightData?: { analysis?: any; diagnosticResult?: any },
   ) => {
+    // ── Guard: evitar doble generación concurrente ──────────────
+    if (generationInFlightRef.current) {
+      console.log('[generateProgram] Generación ya en vuelo — ignorando duplicado')
+      return
+    }
+    generationInFlightRef.current = true
+
     // ═══════════════════════════════════════════════════════════
     // INTERCEPTAR SI v2 ESTÁ ACTIVO
     // ═══════════════════════════════════════════════════════════
@@ -660,6 +732,10 @@ export default function StudyALProcess({
     }
 
     const baseMastery = (localMasteryState || masteryState) as MaterialMastery | null;
+    const { currentMaterialId: materialId, compatibleMastery } = resolveCanonicalMaterialIdentity(
+      materiales || [],
+      baseMastery,
+    )
 
     console.log('🔵 [generate] INICIO | style:', style);
     // FORZAR null
@@ -675,14 +751,16 @@ export default function StudyALProcess({
     const materialTitle =
       materiales?.[0]?.nombre ||
       materiales?.[0]?.name ||
-      baseMastery?.materialName ||
+      compatibleMastery?.materialName ||
       'Material';
 
-    const materialId =
-      baseMastery?.materialId ||
-      materiales?.[0]?.materialId ||
-      materiales?.[0]?.id ||
-      'mat_default';
+    if (!materialId) {
+      setIsBuildingBlueprint(false)
+      generationInFlightRef.current = false
+      setAdaptiveProgram(null)
+      alert('No se pudo identificar el material actual. Cierra y vuelve a abrirlo.')
+      return
+    }
 
     const loadedLearningMemory =
       loadLearningMemory(materialId) || createEmptyLearningMemory(materialId);
@@ -708,6 +786,7 @@ export default function StudyALProcess({
 
     if (contentStatus === 'error') {
       setIsBuildingBlueprint(false)
+      generationInFlightRef.current = false
       setAdaptiveProgram(null)
       alert('No se pudo cargar el contenido del material. Intenta abrirlo de nuevo.')
       return
@@ -745,6 +824,7 @@ export default function StudyALProcess({
     // FASE 1 + 2: Blueprint y programa vía API
     let program: AdaptiveProgram
     try {
+      const canonicalUserId = userProfileData?.userId || userId || null
       const genRes = await fetch('/api/adaptive/generate-program', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -752,10 +832,11 @@ export default function StudyALProcess({
           materialId,
           materialTitle,
           materialContent,
-          mastery: baseMastery || null,
+          mastery: compatibleMastery,
           setup,
           learningMemory: loadedLearningMemory || null,
           userProfile: userProfileData || null,
+          userId: canonicalUserId,
           // Datos del flujo adaptativo real (si ya se analizó el material)
           analysis: preflightData?.analysis || null,
           diagnosticResult: preflightData?.diagnosticResult || null,
@@ -769,7 +850,17 @@ export default function StudyALProcess({
       }
 
       blueprint = genData.blueprint || null
-      program = genData.program
+      const graphRes = canonicalUserId
+        ? await fetch(`/api/adaptive/v3/build-graph?userId=${encodeURIComponent(canonicalUserId)}&materialId=${encodeURIComponent(materialId)}`, { cache: 'no-store' })
+        : null
+      const graphData = graphRes?.ok ? await graphRes.json() : null
+      const graphMicroIds = Array.isArray(graphData?.graph?.microConcepts)
+        ? graphData.graph.microConcepts.map((micro: { id?: unknown }) => String(micro.id || '').trim()).filter(Boolean)
+        : []
+      program = { ...genData.program, materialId, graphMicroIds }
+      if (!validateAdaptiveProgramIdentity(program, materialId, graphMicroIds)) {
+        throw new Error('El programa generado no pertenece al grafo del material actual')
+      }
 
       if (blueprint) {
         setMaterialBlueprint(blueprint);
@@ -778,15 +869,16 @@ export default function StudyALProcess({
     } catch (err: any) {
       console.error('[StudyALProcess] generateAdaptiveProgram falló:', err?.message)
       setIsBuildingBlueprint(false)
+      generationInFlightRef.current = false
       setAdaptiveProgram(null)
       alert('ALAI está ocupado en este momento. Intenta generar tu programa de nuevo en unos segundos.')
       return
     }
 
     // FASE 3: Persistir
-    if (baseMastery?.sessionKey) {
+    if (compatibleMastery?.sessionKey) {
       const updated: MaterialMastery = {
-        ...baseMastery,
+        ...compatibleMastery,
         processMode: 'adaptive',
         targetScore: setup.targetScore,
         dailyMinutes: setup.dailyMinutes,
@@ -823,6 +915,7 @@ export default function StudyALProcess({
     console.log('🟢 [generate] FIN - activando libro con', program?.sessions?.length, 'sesiones');
     setAdaptiveProgram(program);
     setIsBuildingBlueprint(false);
+    generationInFlightRef.current = false
     setAdaptiveView(style === 'book' ? 'book' : 'home');
   }, [
     localMasteryState,
@@ -859,6 +952,47 @@ export default function StudyALProcess({
     setAdaptiveView('running');
   }, [currentDomain, materialContent, materialBlueprint, isBuildingBlueprint, adaptiveProgram]);
 
+  const plannerReadiness = useMemo(() => {
+    const plan = adaptiveProgram?.studyPlan
+    if (!plan) return null
+    const collect = (key: string) => adaptiveProgram.sessions.flatMap(session => {
+      const value = Reflect.get(session, key)
+      return Array.isArray(value) ? value.map(String) : []
+    })
+    return calculateExamReadiness({
+      requiredMicroIds: plan.requiredMicroIds,
+      studiedMicroIds: collect('studiedMicroIds'),
+      masteredMicroIds: collect('provisionallyMasteredMicroIds'),
+      transferReadyMicroIds: collect('transferReadyMicroIds'),
+      examFormat: plan.setup.examFormat,
+    })
+  }, [adaptiveProgram])
+
+  const applyRealPlanRevision = useCallback((input: { missedSessionIds?: string[]; newExamAt?: string }) => {
+    if (!adaptiveProgram?.studyPlan) return
+    const revised = reviseStudyPlan(adaptiveProgram.studyPlan, {
+      now: new Date(), masteredMicroIds: [], unresolvedMicroIds: [], actualMinutes: 0,
+      confidenceAverage: 50, assistanceRate: 0,
+      missedSessionIds: input.missedSessionIds || [], newExamAt: input.newExamAt,
+    })
+    const sessions = adaptStudyPlanToSessions(revised, adaptiveProgram.sessions)
+    const currentSessionIndex = Math.max(0, sessions.findIndex(session => session.status === 'available' || session.status === 'in_progress'))
+    setAdaptiveProgram({
+      ...adaptiveProgram,
+      setup: input.newExamAt ? { ...adaptiveProgram.setup, examDateTime: input.newExamAt } : adaptiveProgram.setup,
+      studyPlan: revised, sessions, currentSessionIndex, updatedAt: Date.now(),
+    })
+    setStrategyChangeMessage(revised.revisions.at(-1)?.explanation || null)
+  }, [adaptiveProgram])
+
+  const handleMissedSession = useCallback((sessionId: string) => {
+    applyRealPlanRevision({ missedSessionIds: [sessionId] })
+  }, [applyRealPlanRevision])
+
+  const handleExamDateChange = useCallback((newExamAt: string) => {
+    applyRealPlanRevision({ newExamAt })
+  }, [applyRealPlanRevision])
+
   // ── Debug: trackear payload de cada endpoint ─────────────────
   const trackApiCall = useCallback((endpoint: string, payload: Record<string, any>) => {
     if (process.env.NODE_ENV !== 'development') return
@@ -880,6 +1014,17 @@ export default function StudyALProcess({
     totalMicros?: number;
     weakMicroIds?: string[];
     weakMicroNames?: string[];
+    studiedMicroIds: string[];
+    provisionallyMasteredMicroIds: string[];
+    reinforcementMicroIds: string[];
+    // Fase 9 — resultado pedagógico real
+    isProgramComplete?: boolean;
+    unresolvedMicroIds?: string[];
+    sessionMasteryPercent?: number;
+    sessionCoveragePercent?: number;
+    closeReason?: string | null;
+    confidenceAverage?: number;
+    assistanceRate?: number;
   }) => {
     if (!adaptiveProgram) return;
 
@@ -1095,11 +1240,7 @@ export default function StudyALProcess({
 
     // Conceptos que mejoraron: topic blueprint > runner result > weak fallback
     const sessionTargetConcepts = liveSession?.targetConcepts ?? [];
-    const realConceptsImproved: string[] = result.conceptsImproved.length > 0
-      ? result.conceptsImproved
-      : sessionTargetConcepts.length > 0
-        ? sessionTargetConcepts.slice(0, 4)
-        : (masteryContext?.weakConcepts?.slice(0, 3) || [])
+    const realConceptsImproved: string[] = result.conceptsImproved
 
     // Conceptos todavía débiles
     const realConceptsStillWeak: string[] = (masteryContext?.criticalConcepts || [])
@@ -1120,33 +1261,81 @@ export default function StudyALProcess({
           totalMicros: result.totalMicros ?? undefined,
           weakMicroIds: result.weakMicroIds ?? undefined,
           weakMicroNames: result.weakMicroNames ?? undefined,
+          studiedMicroIds: result.studiedMicroIds,
+          provisionallyMasteredMicroIds: result.provisionallyMasteredMicroIds,
+          reinforcementMicroIds: result.reinforcementMicroIds,
           completedAt: Date.now(),
         };
       }
       return s;
     });
 
+    const plannedActive = adaptiveProgram.studyPlan?.sessions.find(session => session.status !== 'completed')
+    const revisedStudyPlan = adaptiveProgram.studyPlan ? reviseStudyPlan(adaptiveProgram.studyPlan, {
+      now: new Date(),
+      completedSessionId: plannedActive?.sessionId,
+      masteredMicroIds: result.isProgramComplete === true ? adaptiveProgram.studyPlan.requiredMicroIds : [],
+      unresolvedMicroIds: result.unresolvedMicroIds || [],
+      actualMinutes: sessionStartedAt ? Math.max(1, Math.round((Date.now() - sessionStartedAt) / 60_000)) : (liveSession?.estimatedMinutes || 0),
+      confidenceAverage: result.confidenceAverage ?? 50,
+      assistanceRate: result.assistanceRate ?? 0,
+      missedSessionIds: [],
+    }) : undefined
+
     const programWithResults: AdaptiveProgram = {
       ...adaptiveProgram,
-      sessions: updatedSessions,
+      sessions: revisedStudyPlan
+        ? adaptStudyPlanToSessions(revisedStudyPlan, updatedSessions)
+        : updatedSessions,
+      studyPlan: revisedStudyPlan,
     };
 
-    const coverageComplete =
-      (result.materialCoveragePercent ?? 0) >= 100 &&
-      (
-        (result.totalMicros ?? 0) === 0 ||
-        (result.studiedMicros ?? 0) >= (result.totalMicros ?? 0)
-      );
+    // Fase 9: isProgramComplete pedagógico es la única fuente canónica de finalización.
+    // Si no viene del route v3 (resultado legacy), NO asumir completo por cobertura.
+    // Cobertura 100% no equivale a dominio 100%.
+    // Regla conservadora: sin isProgramComplete explícito → programa incompleto.
+    const isProgramCompleteFromResult = result.isProgramComplete === true
+    const hasUnresolved = Array.isArray(result.unresolvedMicroIds) && result.unresolvedMicroIds.length > 0
+
+    // coverageComplete: solo true si el motor pedagógico lo confirmó explícitamente.
+    // Para resultados legacy sin isProgramComplete, el programa no puede declararse completo
+    // automáticamente — se generará repair si quedan sesiones pendientes.
+    const coverageComplete = isProgramCompleteFromResult;
 
     const allSessionsDoneBeforeAdvance = programWithResults.sessions.every(
       s => s.status === 'completed' || s.status === 'skipped'
     )
 
+    // Verificar si ya existe una repair session pendiente exactamente igual
+    const existingRepairIds = programWithResults.sessions
+      .filter((s: any) => s.purpose === 'repair' && s.status !== 'completed' && s.status !== 'skipped')
+      .flatMap((s: any) => s.assignedMicroIds || s.requiredMicroIds || [])
+    const existingRepairSet = new Set(existingRepairIds)
+
     let updatedProgram: AdaptiveProgram
     if (allSessionsDoneBeforeAdvance && !coverageComplete) {
-      const repairMicroIds = (result.weakMicroIds && result.weakMicroIds.length > 0)
-        ? result.weakMicroIds
+      // Prioridad de repair: unresolved (fusible sin dominio) + weak (dominio parcial)
+      // Los micros unresolved deben ser los primeros en la próxima sesión
+      const unresolvedIds = result.unresolvedMicroIds || []
+      const weakIds = result.weakMicroIds || []
+      // Combinar sin duplicados: unresolved primero, luego weak que no estén ya en unresolved
+      const combinedRepairIds = [
+        ...unresolvedIds,
+        ...weakIds.filter(id => !unresolvedIds.includes(id)),
+      ]
+      const repairMicroIds = combinedRepairIds.length > 0
+        ? combinedRepairIds
         : (((liveSession as any)?.assignedMicroIds || []) as string[])
+
+      // Deduplicar: solo crear repair si hay micros nuevos no cubiertos por repair existente
+      const newRepairIds = repairMicroIds.filter((id: string) => !existingRepairSet.has(id))
+      const alreadyHasRepair = programWithResults.sessions.some(
+        (s: any) => s.purpose === 'repair' && s.status !== 'completed' && s.status !== 'skipped'
+      )
+      if (alreadyHasRepair && newRepairIds.length === 0) {
+        console.log('[coverage] Repair session ya existe con los mismos micros — no crear duplicado')
+        updatedProgram = updateAdaptiveProgramAfterSession(programWithResults, updatedMastery || null)
+      } else {
 
       const repairMicroNames = (result.weakMicroNames && result.weakMicroNames.length > 0)
         ? result.weakMicroNames
@@ -1167,8 +1356,11 @@ export default function StudyALProcess({
         targetConcepts: repairMicroNames.slice(0, 6),
         sourcePages: [],
         evidenceGoal: 'Practicar y cerrar los microconceptos pendientes',
+        evaluationPreference: liveSession?.evaluationPreference || adaptiveProgram.setup?.evalPreference || 'mix_everything',
         sessionFormat: 'repair_dialogue',
-        planRationale: `Sesión automática creada porque la cobertura real quedó en ${result.materialCoveragePercent ?? 0}%`,
+        planRationale: result.unresolvedMicroIds && result.unresolvedMicroIds.length > 0
+          ? `Sesión de recuperación: ${result.unresolvedMicroIds.length} concepto(s) sin dominio real (${result.closeReason || 'unresolved'})`
+          : `Sesión automática creada porque la cobertura real quedó en ${result.materialCoveragePercent ?? 0}%`,
         assignedMicroIds: repairMicroIds,
         requiredMicroIds: repairMicroIds,
         retentionMicroIds: [],
@@ -1184,6 +1376,7 @@ export default function StudyALProcess({
       }
 
       console.log(`[coverage] Repair session creada: cobertura=${result.materialCoveragePercent ?? 0}% | pendientes=${repairMicroIds.length}`)
+      } // end else (nueva repair necesaria)
     } else {
       updatedProgram = updateAdaptiveProgramAfterSession(
         programWithResults,
@@ -1268,19 +1461,22 @@ export default function StudyALProcess({
       (s: any) => s.purpose === 'repair' && s.status !== 'completed' && s.status !== 'skipped'
     )
 
-    if (allSessionsDone && !hasPendingRepairSession && (result.materialCoveragePercent ?? 0) >= 100) {
-      // Todas las sesiones completadas Y cobertura real cerrada — mostrar pantalla final
+    // Condición canónica: solo el motor pedagógico puede cerrar el programa.
+    // La cobertura visual (materialCoveragePercent) no es suficiente sola.
+    // isProgramComplete debe venir explícitamente del motor v3.
+    if (allSessionsDone && !hasPendingRepairSession && isProgramCompleteFromResult) {
+      // Todas las sesiones completadas Y dominio real confirmado (o cobertura cerrada legacy)
       setShowProgramComplete(true)
     } else if (hasPendingRepairSession) {
       // Hay cobertura pendiente — volver al libro/programa, no cerrar
-      setAdaptiveView(processStyle === 'book' ? 'book' : 'home')
+      setAdaptiveView('book')
     } else if (domainReachedTarget && remainingSessions > 0) {
       // Llegó al target pero quedan sesiones — mostrar opción de continuar o terminar
       console.log(`✅ [dominio] Target ${targetScore} alcanzado con ${remainingSessions} sesiones restantes`)
-      setAdaptiveView(processStyle === 'book' ? 'book' : 'complete')
+      setAdaptiveView('book')
     } else {
       // Sigue aprendiendo — continuar flujo normal
-      setAdaptiveView(processStyle === 'book' ? 'book' : 'complete')
+      setAdaptiveView('book')
     }
   }, [
     adaptiveProgram,
@@ -1294,10 +1490,10 @@ export default function StudyALProcess({
   ]);
 
   const handleSessionCompleteClose = useCallback(() => {
-    if (!showProgramComplete) setAdaptiveView(processStyle === 'book' ? 'book' : 'home');
+    if (!showProgramComplete) setAdaptiveView('book');
     // Limpiar el mensaje después de mostrarlo una vez
     setTimeout(() => setStrategyChangeMessage(null), 5000);
-  }, []);
+  }, [showProgramComplete]);
 
   // ── Modo libre: herramientas ──────────────────────────────────────
   const markAndOpen = (id: string, action?: () => void) => {
@@ -1586,8 +1782,17 @@ export default function StudyALProcess({
           <IntroSession
             materialTitle={materiales?.[0]?.nombre || materiales?.[0]?.name || 'Material'}
             materialText={materialContent || ''}
-            topicsFound={introTopics}
+            topicsFound={adaptiveProgram?.sessions?.flatMap(session => session.targetConcepts || []).filter((topic, index, all) => topic && all.indexOf(topic) === index) || introTopics}
             isReady={!!adaptiveProgram}
+            planSummary={adaptiveProgram?.studyPlan ? {
+              microCount: adaptiveProgram.studyPlan.requiredMicroIds.length,
+              sessionCount: adaptiveProgram.studyPlan.sessions.length,
+              estimatedMinutes: adaptiveProgram.studyPlan.feasibility.estimatedMinutes,
+              examAt: adaptiveProgram.studyPlan.examContext.examAt,
+              planType: adaptiveProgram.studyPlan.examContext.daysRemaining <= 0 ? 'rescate' : adaptiveProgram.studyPlan.examContext.daysRemaining <= 1 ? 'intensivo' : adaptiveProgram.studyPlan.examContext.daysRemaining >= 21 ? 'profundo' : 'normal',
+              feasibilityMessage: adaptiveProgram.studyPlan.feasibility.riskMessage,
+              rationale: adaptiveProgram.studyPlan.sessions[0]?.reason,
+            } : undefined}
             onReady={() => {
               setShowIntroSession(false)
               const _pm = materiales?.[0]
@@ -1649,8 +1854,12 @@ export default function StudyALProcess({
               sessionLength: (intake.sessionDurationMinutes <= 12 ? 'short' : intake.sessionDurationMinutes >= 30 ? 'long' : 'medium') as any,
               targetScore: Number(intake.targetGrade) || 80,
               examDate: intake.examDate,
-              dailyMinutes: 45,
-              evalPreference: (intake as any).evalPreference || 'mix_everything',
+              examDateTime: intake.examDateTime,
+              examFormat: intake.examFormat,
+              availability: intake.availability,
+              priorities: intake.priorities,
+              dailyMinutes: intake.availability?.dailyMinutes || 45,
+              evalPreference: intake.evalPreference || 'mix_everything',
             }
             const style = processStyle || 'book'
             setProcessStyle(style)
@@ -1684,6 +1893,7 @@ export default function StudyALProcess({
       const primaryMaterialId = materiales?.[0]?.materialId || materiales?.[0]?.id || null
       const enrichedMasteryContext = {
         ...(masteryContext || {}),
+        userId: userId || (masteryContext as any)?.userId || null,
         userProfile: userProfileData || (masteryContext as any)?.userProfile || null,
         materialBlueprint: materialBlueprint || (masteryContext as any)?.materialBlueprint || null,
         adaptiveProgram: adaptiveProgram || null,
@@ -1773,6 +1983,10 @@ export default function StudyALProcess({
             }
             onStartSession={handleStartSession}
             onClose={onClose}
+            readiness={plannerReadiness || undefined}
+            onMissSession={handleMissedSession}
+            onChangeExamDate={handleExamDateChange}
+            planChangeMessage={strategyChangeMessage || undefined}
           />
           );
         })()}

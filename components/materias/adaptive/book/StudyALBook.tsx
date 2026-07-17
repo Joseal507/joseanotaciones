@@ -11,15 +11,22 @@ interface Props {
   onClose: () => void
   isReady?: boolean
   loadingMessage?: string
+  readiness?: { coveragePercent: number; masteryPercent: number; examReadinessPercent: number }
+  onMissSession?: (sessionId: string) => void
+  onChangeExamDate?: (examAt: string) => void
+  planChangeMessage?: string
 }
 
 type ViewState = 'closed' | 'opening' | 'opened' | 'closing'
 
-export default function StudyALBook({ program, materialTitle, onStartSession, onClose, isReady = true, loadingMessage }: Props) {
+export default function StudyALBook({ program, materialTitle, onStartSession, onClose, isReady = true, loadingMessage, readiness, onMissSession, onChangeExamDate, planChangeMessage }: Props) {
   const [viewState, setViewState] = useState<ViewState>('closed')
   const [currentSpread, setCurrentSpread] = useState(0)
   const [flipDirection, setFlipDirection] = useState<'next' | 'prev' | null>(null)
   const [flippingPage, setFlippingPage] = useState(false)
+  const [examAt, setExamAt] = useState(() => program.studyPlan?.examContext.examAt?.slice(0, 16) || '')
+  const [planOpen, setPlanOpen] = useState(false)
+  const [examError, setExamError] = useState('')
 
   const spreads: AdaptiveSession[][] = []
   for (let i = 0; i < program.sessions.length; i += 2) {
@@ -105,6 +112,31 @@ export default function StudyALBook({ program, materialTitle, onStartSession, on
       }}>
         ← Volver al tema
       </button>
+
+      {program.studyPlan && <aside data-testid="real-plan-controls" data-panel-open={planOpen} data-exam-format={program.studyPlan.setup.examFormat} data-plan-session-count={program.studyPlan.sessions.length} data-executable-session-count={program.sessions.length} data-required-ids={program.studyPlan.requiredMicroIds.join(',')} data-assigned-ids={program.sessions.flatMap(session => session.assignedMicroIds || []).join(',')} data-exam-at={program.studyPlan.examContext.examAt} style={{ position: 'absolute', top: 18, right: 24, zIndex: 210, padding: 10, borderRadius: 12, background: 'rgba(20,16,12,.92)', border: '1px solid rgba(214,178,111,.35)', color: '#f5ecd5', fontSize: 12 }}>
+        {readiness && <div data-testid="real-readiness" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+          <span>Cobertura {readiness.coveragePercent}%</span><span style={{ marginLeft: 12 }}>Dominio {readiness.masteryPercent}%</span><span style={{ marginLeft: 12 }}>Preparación {readiness.examReadinessPercent}%</span>
+        </div>}
+        <button data-testid="open-plan-drawer" aria-expanded={planOpen} onClick={() => setPlanOpen(true)} style={{ width: '100%' }}>Ver o ajustar plan</button>
+      </aside>}
+      {program.studyPlan && planOpen && <div role="dialog" aria-modal="true" aria-label="Ajustes del plan" data-testid="plan-drawer" style={{ position: 'fixed', inset: '0 0 0 auto', width: 'min(390px, 92vw)', zIndex: 400, padding: 24, background: '#17120e', color: '#f5ecd5', boxShadow: '-20px 0 60px rgba(0,0,0,.55)', overflowY: 'auto' }}>
+        <button autoFocus data-testid="close-plan-drawer" aria-label="Cerrar ajustes del plan" onClick={() => setPlanOpen(false)} style={{ float: 'right' }}>✕</button>
+        <h2 style={{ fontFamily: 'Georgia, serif' }}>Tu plan de estudio</h2>
+        <p>{program.studyPlan.feasibility.riskMessage}</p>
+        <div data-testid="plan-feasibility">Tiempo estimado: {program.studyPlan.feasibility.estimatedMinutes} min · Preferencia: {program.studyPlan.planningTime?.plannedMinutesPerDay || program.studyPlan.setup.availability.dailyMinutes} min/día</div>
+        <label style={{ display: 'block', marginTop: 20 }}>Fecha y hora del examen
+          <input data-testid="exam-date-input" aria-label="Fecha y hora del examen" type="datetime-local" value={examAt} onChange={event => { setExamAt(event.target.value); setExamError('') }} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+        </label>
+        <small>Hora local · {Intl.DateTimeFormat().resolvedOptions().timeZone}</small>
+        {examError && <p role="alert">{examError}</p>}
+        <button data-testid="save-exam-date" disabled={!examAt} onClick={() => { const date = new Date(examAt); if (date.getTime() <= Date.now()) { setExamError('La fecha debe estar en el futuro.'); return } onChangeExamDate?.(date.toISOString()) }}>Guardar fecha</button>
+        {program.sessions.find(session => session.status === 'available' || session.status === 'in_progress') && <div style={{ marginTop: 24 }}>
+          <p>Si cambió tu agenda, puedes reorganizar. Es opcional: también puedes continuar estudiando.</p>
+          <button data-testid="miss-current-session" onClick={() => onMissSession?.(program.sessions.find(session => session.status === 'available' || session.status === 'in_progress')!.id)}>Ofrecer reorganización</button>
+          <button data-testid="reschedule-current-session" onClick={() => onMissSession?.(program.sessions.find(session => session.status === 'available' || session.status === 'in_progress')!.id)} style={{ marginLeft: 8 }}>Reprogramar</button>
+        </div>}
+        {planChangeMessage && <p data-testid="plan-change-message" style={{ color: '#d6b26f' }}>{planChangeMessage}</p>}
+      </div>}
 
       {[...Array(8)].map((_, i) => (
         <div key={i} style={{

@@ -1,0 +1,21 @@
+La corrección de ingesta quedó implementada, pero no declaro éxito porque el sandbox impide iniciar los servidores Playwright.
+
+Cambios realizados:
+
+- Multipart reconstruido con el boundary real antes de `request.formData()`.
+- Assertions para nombre, MIME, tamaño, bytes y boundary.
+- Extracción E2E configurada como `localOnly`.
+- `TAREA CLUTCH 2.pdf` clasificado honestamente como `scanned_pdf`: 7 páginas y 60 caracteres nativos.
+- Sin fallback ni llamadas a OpenRouter en esta matriz.
+- Assertions de red contra OpenRouter.
+- Reporte Fase 4B actualizado en [PHASE_4_REAL_MATERIALS_E2E_REPORT.md](/Users/joseal/studyal/PHASE_4_REAL_MATERIALS_E2E_REPORT.md).
+
+Validación:
+
+- `npx tsc --noEmit`: PASS
+- `git diff --check`: PASS
+- Sin `skip`, `fixme`, `only` ni retries.
+- `npm run test:e2e:real-materials`: bloqueado antes de ejecutar tests por `listen EPERM 127.0.0.1:3101`.
+- `npm run test:e2e`: bloqueado antes de ejecutar tests por `listen EPERM 127.0.0.1:3100`.
+
+Por ello, todavía no están certificados aquí los resultados 10/10 y 33/33. No hubo commit, deploy ni cambios pedagógicos.

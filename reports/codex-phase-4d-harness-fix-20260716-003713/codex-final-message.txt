@@ -1,0 +1,34 @@
+Corregí el bug del arnés multipart de Fase 4C.
+
+Cambios:
+
+- Eliminada la dependencia de `Request.postDataBuffer()` y la assertion inválida `bodyBytes > fileSize`.
+- La ruta ahora valida server-side:
+  - bytes no vacíos;
+  - `buffer.length === file.size`;
+  - nombre, MIME y formato;
+  - firma `%PDF-` o `PK`;
+  - extracción local;
+  - `openRouterUsed: false`.
+- La UI expone metadata estable mediante testids.
+- Añadido readiness real tras hidratación antes de habilitar el input.
+- El test mantiene exactamente un POST, boundary multipart, identidad, tamaño completo, extracción y cero OpenRouter.
+- Actualizado [PHASE_4_REAL_MATERIALS_E2E_REPORT.md](/Users/joseal/studyal/PHASE_4_REAL_MATERIALS_E2E_REPORT.md).
+
+Validación conseguida:
+
+- TypeScript: PASS.
+- `git diff --check`: PASS.
+- 10 tests descubiertos; retries 0; sin `skip`, `fixme` ni `only`.
+- Verificación directa server-side: 9/9 archivos conservaron exactamente su tamaño.
+- CLUTCH 1: 1,325,022 bytes recibidos/leídos y 18,079 caracteres extraídos.
+- Proveedor local y cero OpenRouter en los nueve casos.
+- Sin commit ni deploy.
+
+No declaro éxito final: el sandbox bloqueó `listen` antes de ejecutar Chromium.
+
+- CLUTCH 1 ×3: bloqueado por `EPERM :3101`.
+- Suite real ×2: bloqueada por `EPERM :3101`.
+- E2E original: bloqueado por `EPERM :3100`.
+
+Por tanto, aún no se pueden certificar aquí los 10/10 dos veces ni los 33/33.

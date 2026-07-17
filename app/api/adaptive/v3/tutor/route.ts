@@ -34,6 +34,7 @@ import {
   postponeMicro,
   shouldCloseSession,
   calculateSessionProgress,
+  evaluateSessionCompletion,
   MAX_INTERACTIONS_PER_MICRO,
 } from '../../../../../lib/adaptive/v3/engine/stateMachine'
 import { selectObjective, selectInteractionFormat } from '../../../../../lib/adaptive/v3/engine/objectiveSelector'
@@ -78,6 +79,21 @@ import {
   getMicrosNeedingReview,
 } from '../../../../../lib/adaptive/v3/engine/memoryEngine'
 import type { MicroEventType, Turn } from '../../../../../lib/adaptive/v3/types'
+import { ASSISTANCE_LEVEL_ORDER } from '../../../../../lib/adaptive/v3/engine/confidenceTracker'
+import type { AssistanceLevel } from '../../../../../lib/adaptive/v3/engine/confidenceTracker'
+import {
+  detectKnowledgeIllusion,
+  resolveAssistanceLevel,
+} from '../../../../../lib/adaptive/v3/engine/pedagogicalDecision'
+import {
+  normalizeEvalPreference,
+  prepareInteractionForDelivery,
+  RAPID_FORMATS,
+  resolveMicroNames,
+} from '../../../../../lib/adaptive/v3/engine/interactionContract'
+import { buildDistinctRepairContent, isNearDuplicateContent } from '../../../../../lib/adaptive/v3/engine/contentDiversity'
+import { selectNextActivity } from '../../../../../lib/adaptive/activitySelection/selectNextActivity'
+import { hasRealPriorTeaching } from '../../../../../lib/adaptive/activitySelection/priorTeaching'
 
 export const maxDuration = 90
 
@@ -92,13 +108,55 @@ export async function POST(request: NextRequest) {
       studentProfile,
       studentAnswer,
       lastInteractionId,
-      evalPreference = 'mix_everything',
+      evalPreference: rawEvalPreference = 'mix_everything',
+      requestId,
       initialKnowledgeLevel = 'some',
       sessionTopicTitles = [],  // ← nuevo: títulos de topics de esta sesión
       sessionPurpose = 'understand',  // propósito pedagógico de la sesión
       sessionFormat = 'discovery',    // formato de la sesión
       assignedMicroIds = [],          // ← restricción determinista de micros por sesión
+      // ── Telemetría de interacción (Fase 3) ──────────────────
+      responseTimeMs: rawResponseTimeMs,
+      assistanceLevel: rawAssistanceLevel,
+      selfReportedConfidence: rawSelfReportedConfidence,
+      interactionContext: rawInteractionContext,
+      helpUsageKinds: rawHelpUsageKinds,
     } = body
+    const evalPreference = normalizeEvalPreference(rawEvalPreference)
+
+    // ── Validar y normalizar campos de telemetría ────────────────
+    // responseTimeMs: entero finito no negativo, máximo 10 minutos
+    const MAX_RESPONSE_TIME_MS = 10 * 60 * 1000 // 10 min
+    const responseTimeMs: number | undefined = (
+      typeof rawResponseTimeMs === 'number' &&
+      isFinite(rawResponseTimeMs) &&
+      rawResponseTimeMs >= 0
+    ) ? Math.min(Math.round(rawResponseTimeMs), MAX_RESPONSE_TIME_MS) : undefined
+
+    // assistanceLevel: solo valores canónicos
+    const assistanceLevel: AssistanceLevel = (
+      typeof rawAssistanceLevel === 'string' &&
+      (ASSISTANCE_LEVEL_ORDER as readonly string[]).includes(rawAssistanceLevel)
+    ) ? rawAssistanceLevel as AssistanceLevel : 'independent'
+
+    // selfReportedConfidence: 0-100 entero, opcional
+    const selfReportedConfidence: number | undefined = (
+      typeof rawSelfReportedConfidence === 'number' &&
+      isFinite(rawSelfReportedConfidence) &&
+      rawSelfReportedConfidence >= 0 &&
+      rawSelfReportedConfidence <= 100
+    ) ? Math.round(rawSelfReportedConfidence) : undefined
+
+    // interactionContext: string conocido o undefined
+    const VALID_INTERACTION_CONTEXTS = ['learning', 'immediate_practice', 'interleaving', 'delayed_retrieval', 'spaced_review'] as const
+    type InteractionContextType = typeof VALID_INTERACTION_CONTEXTS[number]
+    const interactionContext: InteractionContextType | undefined = (
+      typeof rawInteractionContext === 'string' &&
+      (VALID_INTERACTION_CONTEXTS as readonly string[]).includes(rawInteractionContext)
+    ) ? rawInteractionContext as InteractionContextType : undefined
+    const helpUsageKinds = Array.isArray(rawHelpUsageKinds)
+      ? rawHelpUsageKinds.filter((value: unknown): value is string => typeof value === 'string').slice(0, 8)
+      : []
 
     if (!userId || !materialId) {
       return NextResponse.json({ success: false, error: 'userId y materialId requeridos' }, { status: 400 })
@@ -155,7 +213,7 @@ export async function POST(request: NextRequest) {
             session = {
               ...session,
               requiredMicroIds: validAssigned,
-              retentionMicroIds: (session as any).retentionMicroIds || [],
+              retentionMicroIds: session.retentionMicroIds || [],
               queue: {
                 ...session.queue,
                 pendingMicroIds: filteredPending,
@@ -186,7 +244,15 @@ export async function POST(request: NextRequest) {
           microIdsToTeach = validAssigned
           console.log(`[tutor v3] ✅ Restricción determinista: ${validAssigned.length}/${graph.microConcepts.length} micros asignados`)
         } else {
-          console.log(`[tutor v3] ⚠ assignedMicroIds no matchearon el grafo — usando filtrado semántico`)
+          // Error explícito: los assignedMicroIds del programa no existen en este grafo.
+          // Esto es contaminación de estado — el programa fue generado con un grafo diferente.
+          // Rechazar en lugar de hacer filtrado semántico silencioso.
+          console.error(`[tutor v3] MATERIAL_GRAPH_MISMATCH: assignedMicroIds=[${assignedMicroIds.slice(0,3).join(',')}...] no existen en graph ${graph.materialId}`)
+          return NextResponse.json({
+            success: false,
+            error: 'MATERIAL_GRAPH_MISMATCH: El programa fue generado con un grafo diferente al material actual. Regenera el programa.',
+            code: 'MATERIAL_GRAPH_MISMATCH',
+          }, { status: 409 })
         }
       }
 
@@ -274,8 +340,8 @@ export async function POST(request: NextRequest) {
         microIdsToTeach,
         priorMastery,  // ← inyectar mastery de sesiones anteriores
       })
-      ;(session as any).requiredMicroIds = microIdsToTeach || graph.microConcepts.map((m: any) => m.id)
-      ;(session as any).retentionMicroIds = []
+      ;session.requiredMicroIds = microIdsToTeach || graph.microConcepts.map((m: any) => m.id)
+      ;session.retentionMicroIds = []
       console.log(`[tutor v3] Nueva sesión: ${newSessionId} con ${(microIdsToTeach || graph.microConcepts.map(m => m.id)).length} micros`)
 
       // ── SPACED REPETITION: micros dominados en sesiones previas para repasar ──
@@ -290,8 +356,8 @@ export async function POST(request: NextRequest) {
         : []
       const allReviewMicros = [...new Set([...retentionMicros, ...dominatedPriorMicros])].slice(0, 3)
       if (allReviewMicros.length > 0) {
-        ;(session as any).spacedReviewMicros = allReviewMicros
-        ;(session as any).reviewedSoFar = []
+        ;session.spacedReviewMicros = allReviewMicros
+        ;session.reviewedSoFar = []
         console.log(`[tutor v3] Review: ${allReviewMicros.length} micros (${retentionMicros.length} retention + ${dominatedPriorMicros.length} spaced)`)
       }
     }
@@ -303,7 +369,7 @@ export async function POST(request: NextRequest) {
       const lastTurn = session.recentTurns[session.recentTurns.length - 1]
 
       if (activeMicro && lastTurn) {
-        const lastInteraction = (lastTurn.content as any).interaction ||
+        const lastInteraction = lastTurn.content.interaction ||
                                 { interactionType: 'unknown', data: {} }
 
         // Buscar la interacción real (guardada en el turn anterior)
@@ -313,12 +379,41 @@ export async function POST(request: NextRequest) {
           studentAnswer,
           micro: activeMicro,
         })
+        const evaluatedQuestionId = String(lastInteraction.id || lastInteractionId || lastTurn.turnNumber)
+        evaluation = {
+          ...evaluation,
+          interactionId: evaluatedQuestionId,
+          questionId: evaluatedQuestionId,
+        }
 
         console.log(`[tutor v3] Evaluación: ${evaluation.outcome} (${evaluation.score}/100)`)
 
+        // ── Resolver precedencia de assistanceLevel para TODA la interacción ──
+        // Debe hacerse antes de hipótesis, misconceptions y evidencia
+        const recentTurnObjective = session.recentTurns[session.recentTurns.length - 2]?.objective
+        const routeInferredAssistance: AssistanceLevel =
+          recentTurnObjective === 'reveal_answer' ? 'revealed' :
+          recentTurnObjective === 'reconstruct_from_error' ? 'guided' :
+          recentTurnObjective === 'illustrate_with_worked_example' ? 'assisted' :
+          recentTurnObjective === 'simplify_to_core' ? 'minimal_hint' :
+          'independent'
+
+        // Precedencia: frontend (telemetría real) > route inferred > default independent
+        // NUNCA reducir el nivel del frontend con una inferencia menor
+        const currentActivityId =
+          ((lastTurn.content as Turn['content'] & { interaction?: { id?: string | null } }).interaction?.id) || null
+        const sameActivity = !!lastInteractionId && !!currentActivityId && lastInteractionId === currentActivityId
+
+        const resolvedAssistance: AssistanceLevel = resolveAssistanceLevel(
+          assistanceLevel !== 'independent' ? assistanceLevel : undefined,
+          routeInferredAssistance,
+          { sameActivity },
+        )
+
         // ── HYPOTHESIS ENGINE: crear o actualizar hipótesis ──────────────
         const existingHypotheses: any[] = [...(materialMastery?.hypotheses || [])]
-        const interactionId = `int_${Date.now()}`
+        // Usar ID único real para evitar colisiones
+        const interactionId = `int_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
 
         if (evaluation.outcome === 'incorrect' && evaluation.errorDiagnosis) {
           const diag = evaluation.errorDiagnosis
@@ -335,7 +430,7 @@ export async function POST(request: NextRequest) {
             existingHypotheses[idx] = updateHypothesis(existing, {
               outcome: 'incorrect',
               interactionId,
-              isIndependent: true,
+              isIndependent: resolvedAssistance === 'independent',
               score: evaluation.score,
             })
             console.log(`[tutor v3] 🧠 Hipótesis reforzada: "${existing.statement}" (conf=${existingHypotheses[idx].confidence})`)
@@ -359,7 +454,7 @@ export async function POST(request: NextRequest) {
               existingHypotheses[idx] = updateHypothesis(h, {
                 outcome: 'correct',
                 interactionId,
-                isIndependent: true,
+                isIndependent: resolvedAssistance === 'independent',
                 score: evaluation.score,
               })
             }
@@ -367,18 +462,27 @@ export async function POST(request: NextRequest) {
         }
 
         // Guardar hipótesis temporalmente — se persistirán al final con updatedMaterialMastery
-        ;(session as any).pendingHypotheses = existingHypotheses
+        ;session.pendingHypotheses = existingHypotheses
 
         // ── MISCONCEPTION TRACKER: detectar creencias incorrectas persistentes ──
         if (evaluation.outcome === 'incorrect' && evaluation.errorDiagnosis?.isLikelyMisconception) {
           const existingMisconceptions = [...(materialMastery?.misconceptions || [])]
           const diag = evaluation.errorDiagnosis!
+          // Usar selfReportedConfidence real del estudiante para detectar ilusión
+          // Solo es alta confianza si el estudiante lo reportó explícitamente (>= 70)
+          // No inferir desde el tipo de error — eso produce falsos positivos
+          const isHighConfidence = detectKnowledgeIllusion({
+            outcome: evaluation.outcome,
+            selfReportedConfidence,
+            assistanceLevel: resolvedAssistance,
+          })
+
           const detection = detectMisconceptionFromError({
             microId: activeMicro.id,
             distractorChosen: diag.distractorChosen || '',
             correctAnswer: evaluation.correctAnswer,
             hypothesis: diag.hypothesis,
-            isHighConfidence: true,
+            isHighConfidence,
             existingMisconceptions,
           })
 
@@ -397,7 +501,7 @@ export async function POST(request: NextRequest) {
             existingMisconceptions.push(newMisc)
             console.log(`[tutor v3] 🚨 Nueva misconception detectada: "${newMisc.statement}"`)
           }
-          ;(session as any).pendingMisconceptions = existingMisconceptions
+          ;session.pendingMisconceptions = existingMisconceptions
         }
 
         // ── MEMORY ENGINE: actualizar estado de memoria del micro ────────
@@ -407,14 +511,26 @@ export async function POST(request: NextRequest) {
           activeMicro.difficulty / 10  // difficulty 0-100 → 0-10
         )
 
-        const evidenceProfile = (session.microStates[activeMicro.id] as any).evidenceProfile
+        const evidenceProfile = session.microStates[activeMicro.id].evidenceProfile
         const confidenceMultiplier = evidenceProfile?.evidences?.[evidenceProfile.evidences.length - 1]?.confidenceMultiplier || 1.0
 
         const grade = outcomeToGrade(evaluation.outcome, evaluation.score, confidenceMultiplier)
-        const updatedMemory = updateMemoryAfterReview(microMemory, grade, 'independent')
+
+        // Intervalo real desde la última exposición/repaso conocido
+        const elapsedSinceLastExposureMs =
+          typeof microMemory.lastReviewAt === 'number'
+            ? Math.max(0, Date.now() - microMemory.lastReviewAt)
+            : undefined
+
+        // Inferir nivel real de ayuda desde el contexto de la sesión
+        // Si en este turno el tutor mostró la respuesta → revealed
+        // Si hubo reexplicación → guided
+        // Si acaba de ver un ejemplo resuelto → assisted
+        // Si no hay nada especial → independent
+        const updatedMemory = updateMemoryAfterReview(microMemory, grade, resolvedAssistance)
         const updatedMemoryStates = { ...memoryStates, [activeMicro.id]: updatedMemory }
 
-        ;(session as any).pendingMemoryStates = updatedMemoryStates
+        ;session.pendingMemoryStates = updatedMemoryStates
         console.log(`[tutor v3] 🧠 Memoria actualizada: ${activeMicro.name} | estabilidad=${updatedMemory.stability}d | grade=${grade}`)
 
         // Registrar evento en el timeline del micro
@@ -437,13 +553,13 @@ export async function POST(request: NextRequest) {
         // ─── REGISTRAR EVIDENCIA MULTIDIMENSIONAL ───
         // Recuperar el perfil de evidencias (guardado en microStates)
         const activeStateAfter = session.microStates[activeMicro.id]
-        const currentProfile: EvidenceProfile = (activeStateAfter as any).evidenceProfile ||
+        const currentProfile: EvidenceProfile = activeStateAfter.evidenceProfile ||
           emptyEvidenceProfile(activeMicro.id)
 
         // El formato usado está en el último turn
         const prevTurnForFormat = session.recentTurns[session.recentTurns.length - 1]
-        const formatUsed = (prevTurnForFormat?.content as any)?.interaction?.interactionType ||
-                          (prevTurnForFormat?.content as any)?.interaction?.type ||
+        const formatUsed = prevTurnForFormat?.content?.interaction?.interactionType ||
+                          prevTurnForFormat?.content?.interaction?.type ||
                           'multiple_choice'
 
         const updatedProfile = recordEvidence(currentProfile, {
@@ -451,12 +567,24 @@ export async function POST(request: NextRequest) {
           outcome: evaluation.outcome,
           score: evaluation.score,
           turnNumber: session.currentTurn,
+          assistanceLevel: resolvedAssistance,
+          responseTimeMs,
+          selfReportedConfidence,
+          interactionContext: interactionContext || (
+            session.isSpacedReview ? 'spaced_review' :
+            session.isInterleaving ? 'interleaving' :
+            session.currentTurn <= 3 ? 'learning' : 'immediate_practice'
+          ),
+          elapsedSinceLastExposureMs,
+          activityAttemptNumber: 1,
         })
 
-        ;(session.microStates[activeMicro.id] as any).evidenceProfile = updatedProfile
+        ;session.microStates[activeMicro.id].evidenceProfile = updatedProfile
 
-        // Actualizar isReady basado en evidencias
-        session.microStates[activeMicro.id].isReady = isReadyToAdvanceEvidence(updatedProfile, activeMicro)
+        // Actualizar isReady: heurística de avance O mastery contractual real
+        session.microStates[activeMicro.id].isReady =
+          isReadyToAdvanceEvidence(updatedProfile, activeMicro) ||
+          isMicroMastered(updatedProfile, activeMicro)
 
         console.log(`[tutor v3] Evidencia registrada: ${formatUsed} → outcome=${evaluation.outcome}, score=${evaluation.score}`)
         console.log(`[tutor v3] Perfil de "${activeMicro.name}": mastery=${updatedProfile.masteryScore}%, evidencias=${updatedProfile.totalEvidences}`)
@@ -465,8 +593,8 @@ export async function POST(request: NextRequest) {
 
     // ── 4. Seleccionar siguiente micro (código puro) ────────────
     // Spaced repetition: repasar micros dominados de sesiones previas al inicio
-    const spacedReviewMicros: string[] = (session as any).spacedReviewMicros || []
-    const reviewedSoFar: string[] = (session as any).reviewedSoFar || []
+    const spacedReviewMicros: string[] = session.spacedReviewMicros || []
+    const reviewedSoFar: string[] = session.reviewedSoFar || []
     const pendingReview = spacedReviewMicros.filter((id: string) => !reviewedSoFar.includes(id))
     const isEarlyInSession = session.currentTurn <= 4
 
@@ -474,20 +602,20 @@ export async function POST(request: NextRequest) {
       const reviewMicroId = pendingReview[0]
       const reviewMicro = graph.microConcepts.find(m => m.id === reviewMicroId)
       if (reviewMicro) {
-        ;(session as any).reviewedSoFar = [...reviewedSoFar, reviewMicroId]
-        ;(session as any).isSpacedReview = true
-        ;(session as any).spacedReviewMicroId = reviewMicroId
+        ;session.reviewedSoFar = [...reviewedSoFar, reviewMicroId]
+        ;session.isSpacedReview = true
+        ;session.spacedReviewMicroId = reviewMicroId
         console.log(`[tutor v3] Spaced review: repasando ${reviewMicro.name}`)
       }
     } else {
-      ;(session as any).isSpacedReview = false
+      ;session.isSpacedReview = false
 
       // ── INTERLEAVING: mezclar preguntas de micros ya completados ──
       // Cada 4 preguntas correctas del micro actual, insertar 1 pregunta
       // de un micro ya completado en esta sesión (interleaving científico)
       const completedInSession = session.queue.completedMicroIds
       const currentMicroCorrects = session.microStates[session.queue.activeMicroId || '']?.evidence?.answeredCorrectly || 0
-      const interleaveCount = (session as any).interleaveCount || 0
+      const interleaveCount = session.interleaveCount || 0
       const shouldInterleave = completedInSession.length > 0 &&
         currentMicroCorrects > 0 &&
         currentMicroCorrects % 4 === 0 &&
@@ -499,13 +627,13 @@ export async function POST(request: NextRequest) {
         const interleaveMicroId = completedInSession[interleaveIdx]
         const interleaveMicro = graph.microConcepts.find(m => m.id === interleaveMicroId)
         if (interleaveMicro) {
-          ;(session as any).interleaveCount = interleaveCount + 1
-          ;(session as any).isInterleaving = true
-          ;(session as any).interleaveMicroId = interleaveMicroId
+          ;session.interleaveCount = interleaveCount + 1
+          ;session.isInterleaving = true
+          ;session.interleaveMicroId = interleaveMicroId
           console.log(`[tutor v3] Interleaving: pregunta de ${interleaveMicro.name} para reforzar retención`)
         }
       } else {
-        ;(session as any).isInterleaving = false
+        ;session.isInterleaving = false
       }
     }
 
@@ -514,9 +642,19 @@ export async function POST(request: NextRequest) {
     if (!nextMicroId) {
       // No hay más micros — cerrar sesión
       await saveSession(session)
+      const resultSets = buildSessionResultSets(session, graph)
+      const completion = evaluateSessionCompletion(session, graph)
       return NextResponse.json({
         success: true,
+        requestId,
+        sessionPersisted: true,
+        evaluation,
         shouldCloseSession: true,
+        isProgramComplete: completion.isProgramComplete,
+        unresolvedMicroIds: completion.unresolvedMicroIds,
+        sessionMasteryPercent: completion.masteryPercent,
+        sessionCoveragePercent: completion.coveragePercent,
+        closeReason: completion.closeReason,
         page: {
           type: 'session_close',
           title: 'Sesión completada',
@@ -533,7 +671,9 @@ export async function POST(request: NextRequest) {
           totalIncorrect: session.totalIncorrect,
           microsCompleted: session.queue.completedMicroIds.length,
           microsTotal: session.queue.totalPlanned,
+          ...resultSets,
         },
+        coverageReport: resultSets,
       })
     }
 
@@ -562,7 +702,7 @@ export async function POST(request: NextRequest) {
     let currentMicroState = session.microStates[nextMicroId]
 
     // ── 6. Seleccionar objetivo (el Objective Selector v2 maneja todo) ───
-    const currentProfile: EvidenceProfile = (currentMicroState as any).evidenceProfile ||
+    const currentProfile: EvidenceProfile = (currentMicroState.evidenceProfile as EvidenceProfile) ||
       emptyEvidenceProfile(currentMicro.id)
 
     // Detectar si es sesión de examen/simulación
@@ -625,7 +765,7 @@ export async function POST(request: NextRequest) {
     // - Importancia del micro
     // No necesita que le digamos qué evidencias faltan
     // Verificar si hay hipótesis activa para este micro — puede influir en el objetivo
-    const activeHypotheses: any[] = (session as any).pendingHypotheses || materialMastery?.hypotheses || []
+    const activeHypotheses = session.pendingHypotheses || materialMastery?.hypotheses || []
     const relevantHypothesis = getMostRelevantHypothesis(activeHypotheses, currentMicro.id)
 
     let objectiveDecision = selectObjective(currentMicroState, currentMicro, session, initialKnowledgeLevel, evalPreference)
@@ -646,7 +786,7 @@ export async function POST(request: NextRequest) {
 
     // Pre-quiz eliminado — el AskWidget ya está visible durante enseñanza
     // El estudiante puede preguntar dudas en cualquier momento
-    ;(session as any).isPreQuiz = false
+    ;session.isPreQuiz = false
 
     // ── OVERRIDE para sesiones de examen ──────────────────────────
     // En exam_simulation: saltar toda la enseñanza, ir directo a verificar
@@ -655,7 +795,7 @@ export async function POST(request: NextRequest) {
       const lastOutcomeForExam = session.recentTurns
         .filter(t => t.microId === currentMicro.id)
         .slice(-1)[0]
-      const lastOutcomeVal = (lastOutcomeForExam?.content as any)?.interaction ? 'pending' : null
+      const lastOutcomeVal = lastOutcomeForExam?.content?.interaction ? 'pending' : null
 
       // En modo examen: NUNCA introducir, SIEMPRE verificar o dar feedback mínimo
       if (objectiveDecision.objective === 'introduce' ||
@@ -685,9 +825,19 @@ export async function POST(request: NextRequest) {
       if (!nextNextMicroId) {
         // No hay más micros, cerrar sesión
         await saveSession(session)
+        const resultSets = buildSessionResultSets(session, graph)
+        const completion = evaluateSessionCompletion(session, graph)
         return NextResponse.json({
           success: true,
+          requestId,
+          sessionPersisted: true,
+          evaluation,
           shouldCloseSession: true,
+          isProgramComplete: completion.isProgramComplete,
+          unresolvedMicroIds: completion.unresolvedMicroIds,
+          sessionMasteryPercent: completion.masteryPercent,
+          sessionCoveragePercent: completion.coveragePercent,
+          closeReason: completion.closeReason,
           page: {
             type: 'session_close',
             title: '¡Sesión completada!',
@@ -705,7 +855,9 @@ export async function POST(request: NextRequest) {
             totalIncorrect: session.totalIncorrect,
             microsCompleted: session.queue.completedMicroIds.length,
             microsTotal: session.queue.totalPlanned,
+            ...resultSets,
           },
+          coverageReport: resultSets,
         })
       }
 
@@ -719,6 +871,8 @@ export async function POST(request: NextRequest) {
     // Seleccionar formato de interacción
     let interactionFormat: string = 'none'
     let formatReason = 'Sin interacción'
+    const currentEvidenceProfile = currentMicroState.evidenceProfile || emptyEvidenceProfile(currentMicro.id)
+    const missingEvidenceList = getMissingEvidences(currentEvidenceProfile, currentMicro)
 
     if (!objectiveDecision.requiresQuestion && !objectiveDecision.requiresContent) {
       interactionFormat = 'none'
@@ -732,12 +886,14 @@ export async function POST(request: NextRequest) {
       // Paso 1: La AI analiza lo que se enseñó y sugiere el formato
       // Paso 2: El código fuerza ese formato en la generación
       const recentFormats = session.recentTurns.slice(-3)
-        .map(t => (t.content as any)?.interaction?.interactionType)
+        .map(t => t.content?.interaction?.interactionType)
         .filter(Boolean)
       const lastFormat = recentFormats[recentFormats.length - 1] || ''
 
       // Determinar formatos disponibles según preferencia Y tipo cognitivo del micro
-      const quickFormats = 'multiple_choice, true_false, fill_blank, fill_blank_bank, matching, ordering'
+      const quickFormats = Array.from(RAPID_FORMATS)
+        .filter(format => ['multiple_choice', 'true_false', 'fill_blank_bank', 'matching', 'ordering'].includes(format))
+        .join(', ')
       const writeFormats = 'open_response, teach_back, explain_why'
 
       // Formatos avanzados sensibles al tipo cognitivo del micro
@@ -873,6 +1029,28 @@ Responde SOLO el nombre del formato. Una palabra.`,
         interactionFormat = pickBestFormatForType(currentMicro, validFormats, lastFormat, evalPreference)
         formatReason = `Error AI, fallback por tipo ${currentMicro.cognitiveType}: ${interactionFormat}`
       }
+
+      const activityDecision = selectNextActivity({
+        assessmentMode: evalPreference,
+        examFormat: body.examFormat || 'unknown',
+        objective: objectiveDecision.objective,
+        cognitiveType: currentMicro.cognitiveType,
+        missingEvidence: missingEvidenceList,
+        recentFormats,
+        recentTemplates: session.recentTurns.map(turn => String(Reflect.get(turn.content, 'template') || '')).filter(Boolean),
+        recentPrompts: session.recentTurns.map(turn => String(turn.content?.interaction?.prompt || '')).filter(Boolean),
+        recentFactKeys: session.usedFactKeys || [],
+        priorTeaching: hasRealPriorTeaching(session.recentTurns, currentMicro.id),
+        lastOutcome: evaluation?.outcome || 'pending',
+        confidence: selfReportedConfidence == null ? 'unknown' : selfReportedConfidence >= 70 ? 'high' : 'low',
+        assistanceLevel,
+        examProximityDays: Number(body.examProximityDays ?? 14),
+        timeBudgetMinutes: Math.max(1, targetMinutes - session.currentTurn),
+      })
+      if (availableFormats.split(', ').includes(activityDecision.format)) {
+        interactionFormat = activityDecision.format
+        formatReason = `Selector canónico: ${activityDecision.reasonCodes.join(', ')}; template=${activityDecision.template}`
+      }
     } else {
       interactionFormat = 'none'
       formatReason = 'Solo contenido sin pregunta'
@@ -885,12 +1063,15 @@ Responde SOLO el nombre del formato. Una palabra.`,
     // ── 7. Generar contenido (LLM solo aquí) ────────────────────
     // Extraer preguntas y contenido EXACTO previo para que el LLM no repita
     const avoidRepeating: string[] = []
+    if (helpUsageKinds.length > 0) {
+      avoidRepeating.push(`AYUDA YA UTILIZADA: ${helpUsageKinds.join(', ')}. La siguiente actividad debe exigir una demostración independiente y cambiar la evidencia.`)
+    }
     const recentMicroTurns = session.recentTurns.filter(t => t.microId === currentMicro.id)
     
     // Trackear formatos ya usados
     // Usar TODOS los turns del micro, no solo los últimos 5
     for (const turn of recentMicroTurns) {
-      const turnInteraction = (turn.content as any)?.interaction
+      const turnInteraction = turn.content?.interaction
       if (turnInteraction?.interactionType) {
         avoidRepeating.push('FORMATO: ' + turnInteraction.interactionType)
       }
@@ -903,13 +1084,13 @@ Responde SOLO el nombre del formato. Una palabra.`,
         avoidRepeating.push(turn.content.summary)
       }
       // Agregar pregunta exacta si la hubo
-      const turnInteraction = (turn.content as any)?.interaction
+      const turnInteraction = turn.content?.interaction
       if (turnInteraction?.prompt) {
         avoidRepeating.push(`PREGUNTA YA HECHA: "${turnInteraction.prompt}"`)
       }
       // Agregar opciones si fue MCQ
       if (turnInteraction?.data?.options) {
-        avoidRepeating.push(`OPCIONES YA USADAS: ${turnInteraction.data.options.join(', ')}`)
+        avoidRepeating.push(`OPCIONES YA USADAS: ${(turnInteraction.data?.options as string[] | undefined)?.join(', ') ?? ''}`)
       }
     }
 
@@ -930,8 +1111,8 @@ Responde SOLO el nombre del formato. Una palabra.`,
     // Solo si el objetivo es verify_understanding y hay banco disponible
     // ═══════════════════════════════════════════════════════════
     let bankedQuestion: BankedQuestion | null = null
-    const usedQIds: string[] = (session as any).usedQuestionIds || []
-    const usedFactKeys: string[] = (session as any).usedFactKeys || []
+    const usedQIds: string[] = session.usedQuestionIds || []
+    const usedFactKeys: string[] = session.usedFactKeys || []
 
     if (objectiveDecision.objective === 'verify_understanding' &&
         interactionFormat !== 'none' &&
@@ -941,8 +1122,6 @@ Responde SOLO el nombre del formato. Una palabra.`,
 
       // Conectar el motor de evidencias al selector del banco:
       // priorizar preguntas que cubran la evidencia faltante del micro
-      const currentEvidenceProfile = (currentMicroState as any).evidenceProfile || emptyEvidenceProfile(currentMicro.id)
-      const missingEvidenceList = getMissingEvidences(currentEvidenceProfile, currentMicro)
       const preferredEvidenceType = missingEvidenceList.length > 0 ? missingEvidenceList[0] : undefined
 
       bankedQuestion = pickNextQuestion(
@@ -964,10 +1143,11 @@ Responde SOLO el nombre del formato. Una palabra.`,
     // Si tenemos pregunta del banco, la usamos directamente sin LLM
     // Solo pedimos al LLM el tutorMessage de transición (contexto pedagógico)
     let generated: any
+    let llmGenerationRequest: Parameters<typeof generateContent>[0] | null = null
     if (bankedQuestion) {
       // Registrar pregunta como usada
-      ;(session as any).usedQuestionIds = [...usedQIds, bankedQuestion.id]
-      ;(session as any).usedFactKeys = [...usedFactKeys, bankedQuestion.factKey].slice(-12)
+      ;session.usedQuestionIds = [...usedQIds, bankedQuestion.id]
+      ;session.usedFactKeys = [...usedFactKeys, bankedQuestion.factKey].slice(-12)
 
       // Generar solo el tutorMessage de transición (breve, sin pregunta)
       const transitionMsg = await generateContent({
@@ -987,8 +1167,8 @@ Responde SOLO el nombre del formato. Una palabra.`,
         isMicroChange,
         isSessionClosing,
         isExamSession,
-        isSpacedReview: !!(session as any).isSpacedReview,
-        isInterleaving: !!(session as any).isInterleaving,
+        isSpacedReview: !!session.isSpacedReview,
+        isInterleaving: !!session.isInterleaving,
         isPreQuiz: false,
       })
 
@@ -999,6 +1179,8 @@ Responde SOLO el nombre del formato. Una palabra.`,
         keyIdea: undefined,
         interaction: {
           id: bankedQuestion.id,
+          questionId: bankedQuestion.id,
+          factKey: bankedQuestion.factKey,
           interactionType: bankedQuestion.format,
           prompt: bankedQuestion.prompt,
           data: bankedQuestion.data,
@@ -1011,7 +1193,7 @@ Responde SOLO el nombre del formato. Una palabra.`,
       }
     } else {
       // Fallback: generar con LLM (comportamiento original)
-      generated = await generateContent({
+      llmGenerationRequest = {
         micro: currentMicro,
         microState: currentMicroState,
         objective: objectiveDecision.objective,
@@ -1028,12 +1210,71 @@ Responde SOLO el nombre del formato. Una palabra.`,
         isMicroChange,
         isSessionClosing,
         isExamSession,
-        isSpacedReview: !!(session as any).isSpacedReview,
-        isInterleaving: !!(session as any).isInterleaving,
-        isPreQuiz: !!(session as any).isPreQuiz,
-        alternativeStrategy: (objectiveDecision as any).alternativeStrategy || null,
-        failingEvidenceType: (objectiveDecision as any).failingEvidenceType || null,
-      })
+        isSpacedReview: !!session.isSpacedReview,
+        isInterleaving: !!session.isInterleaving,
+        isPreQuiz: !!session.isPreQuiz,
+        alternativeStrategy: objectiveDecision.alternativeStrategy || null,
+        failingEvidenceType: objectiveDecision.failingEvidenceType || null,
+      }
+      generated = await generateContent(llmGenerationRequest)
+    }
+
+    if (!generated.interaction) {
+      const previousTeaching = recentMicroTurns
+        .filter(turn => turn.content.type === 'teaching')
+        .map(turn => turn.content.summary)
+      const candidateTeaching = [generated.tutorMessage, ...(generated.blocks || []).map((block: unknown) => JSON.stringify(block))].join(' ')
+      if (previousTeaching.length > 0 && isNearDuplicateContent(candidateTeaching, previousTeaching)) {
+        const distinct = buildDistinctRepairContent(currentMicro, objectiveDecision.objective, previousTeaching.length)
+        generated = { ...generated, tutorMessage: distinct.tutorMessage, blocks: distinct.blocks }
+        console.warn('[tutor v3] REPAIR_CONTENT_REPLACED', {
+          code: 'NEAR_DUPLICATE_TEACHING', microId: currentMicro.id,
+          objective: objectiveDecision.objective, strategy: distinct.strategy,
+        })
+      }
+    }
+
+    if (generated.interaction) {
+      const visibleContext = [generated.tutorMessage, ...(generated.blocks || []).map((block: any) => block?.text || block?.description || block?.example || '')].join(' ')
+      const repairContext = {
+        microId: currentMicro.id,
+        microName: currentMicro.name,
+        objective: objectiveDecision.objective,
+        evidenceType: objectiveDecision.failingEvidenceType || undefined,
+        sourceText: currentMicro.sourceQuotes[0] || currentMicro.fullDefinition,
+        usedQuestionIds: session.usedQuestionIds || [],
+        usedFactKeys: session.usedFactKeys || [],
+      }
+      let prepared = prepareInteractionForDelivery(generated.interaction, evalPreference, repairContext, visibleContext)
+      let recoveryCode = prepared.status === 'repaired' ? 'INTERACTION_REPAIRED' : prepared.status === 'safe_fallback' ? 'INTERACTION_SAFE_FALLBACK' : null
+      if (prepared.status === 'safe_fallback' && llmGenerationRequest) {
+        console.warn('[tutor v3] INVALID_GENERATED_INTERACTION', { reasonCodes: prepared.reasonCodes, microId: currentMicro.id, objective: objectiveDecision.objective })
+        const regenerated = await generateContent({
+          ...llmGenerationRequest,
+          avoidRepeating: [...avoidRepeating, `INVALID_GENERATED_INTERACTION: ${prepared.reasonCodes.join(', ')}`],
+        })
+        if (regenerated.interaction) {
+          const regeneratedContext = [regenerated.tutorMessage, ...(regenerated.blocks || []).map((block: any) => block?.text || block?.description || block?.example || '')].join(' ')
+          const regeneratedPrepared = prepareInteractionForDelivery(regenerated.interaction, evalPreference, repairContext, regeneratedContext)
+          if (regeneratedPrepared.status !== 'safe_fallback') {
+            generated = regenerated
+            prepared = regeneratedPrepared
+            recoveryCode = 'INTERACTION_REGENERATED'
+          }
+        }
+      }
+      generated.interaction = prepared.interaction
+      interactionFormat = prepared.interaction.interactionType || interactionFormat
+      if (recoveryCode) {
+        console.warn('[tutor v3] INTERACTION_DELIVERY_RECOVERY', {
+          code: recoveryCode,
+          reasonCodes: prepared.reasonCodes,
+          microId: currentMicro.id,
+          objective: objectiveDecision.objective,
+          requestedFormat: interactionFormat,
+          deliveredFormat: prepared.interaction.interactionType,
+        })
+      }
     }
 
     // ── 8. Registrar el evento de introducción/enseñanza ────────
@@ -1089,9 +1330,9 @@ Responde SOLO el nombre del formato. Una palabra.`,
       session, materialMastery, userId, materialId, graph
     )
     // Persistir hipótesis y estados de memoria actualizados
-    updatedMaterialMastery.hypotheses = (session as any).pendingHypotheses || updatedMaterialMastery.hypotheses || []
-    updatedMaterialMastery.misconceptions = (session as any).pendingMisconceptions || updatedMaterialMastery.misconceptions || []
-    updatedMaterialMastery.memoryStates = (session as any).pendingMemoryStates || updatedMaterialMastery.memoryStates || {}
+    updatedMaterialMastery.hypotheses = session.pendingHypotheses || updatedMaterialMastery.hypotheses || []
+    updatedMaterialMastery.misconceptions = session.pendingMisconceptions || updatedMaterialMastery.misconceptions || []
+    updatedMaterialMastery.memoryStates = session.pendingMemoryStates || updatedMaterialMastery.memoryStates || {}
     await saveMaterialMastery(updatedMaterialMastery)
     console.log(`[tutor v3] Mastery global actualizado: ${Object.keys(updatedMaterialMastery.micros).length} micros`)
 
@@ -1101,10 +1342,15 @@ Responde SOLO el nombre del formato. Una palabra.`,
     // Coverage GLOBAL del material (acumulada entre sesiones)
     // Fuente de verdad: updatedMaterialMastery, no session.microStates local
     let coverageReport: any = null
-    coverageReport = getGlobalCoverageReport(updatedMaterialMastery)
+    coverageReport = {
+      ...getGlobalCoverageReport(updatedMaterialMastery),
+      ...buildSessionResultSets(session, graph),
+    }
 
     return NextResponse.json({
       success: true,
+      requestId,
+      sessionPersisted: true,
       page: {
         type: objectiveDecision.suggestedContentType,
         title: generated.title,
@@ -1126,21 +1372,32 @@ Responde SOLO el nombre del formato. Una palabra.`,
         microsCompleted: progress.completed,
         microsTotal: progress.total,
         // ─── Perfil de evidencias del micro actual ───
-        evidenceProfile: (session.microStates[nextMicroId] as any).evidenceProfile || null,
-        missingEvidences: (session.microStates[nextMicroId] as any).evidenceProfile
-          ? getMissingEvidences((session.microStates[nextMicroId] as any).evidenceProfile, currentMicro)
+        evidenceProfile: session.microStates[nextMicroId].evidenceProfile || null,
+        missingEvidences: session.microStates[nextMicroId].evidenceProfile
+          ? getMissingEvidences(session.microStates[nextMicroId].evidenceProfile!, currentMicro)
           : [],
       },
       evaluation,
       sessionId: session.sessionId,
       shouldCloseSession: shouldCloseSession(session),
+      // Evaluación separada: sesión vs programa
+      ...((() => {
+        const completion = evaluateSessionCompletion(session, graph)
+        return {
+          isProgramComplete: completion.isProgramComplete,
+          unresolvedMicroIds: completion.unresolvedMicroIds,
+          sessionMasteryPercent: completion.masteryPercent,
+          sessionCoveragePercent: completion.coveragePercent,
+          closeReason: completion.closeReason,
+        }
+      })()),
       // Hipótesis activas del estudiante (para debug y UI)
-      activeHypotheses: ((session as any).pendingHypotheses || updatedMaterialMastery?.hypotheses || [])
+      activeHypotheses: (session.pendingHypotheses || updatedMaterialMastery?.hypotheses || [])
         .filter(h => !['rejected', 'corrected'].includes(h.status))
         .map(h => ({ id: h.id, statement: h.statement, confidence: h.confidence, status: h.status })),
       // Micros que necesitan repaso espaciado urgente
       needingReview: getMicrosNeedingReview(
-        (session as any).pendingMemoryStates || updatedMaterialMastery?.memoryStates || {},
+        session.pendingMemoryStates || updatedMaterialMastery?.memoryStates || {},
         { urgencyThreshold: 0.7, maxCount: 3 }
       ),
       summary: {
@@ -1148,6 +1405,7 @@ Responde SOLO el nombre del formato. Una palabra.`,
         totalIncorrect: session.totalIncorrect,
         microsCompleted: session.queue.completedMicroIds.length,
         microsTotal: session.queue.totalPlanned,
+        ...buildSessionResultSets(session, graph),
       },
       coverageReport,  // ← reporte de cobertura global del material
     })
@@ -1155,6 +1413,31 @@ Responde SOLO el nombre del formato. Una palabra.`,
   } catch (err: any) {
     console.error('[tutor v3]', err.message, err.stack)
     return NextResponse.json({ success: false, error: err.message }, { status: 500 })
+  }
+}
+
+export function buildSessionResultSets(session: import('../../../../../lib/adaptive/v3/types').SessionState, graph: import('../../../../../lib/adaptive/v3/types').KnowledgeGraph) {
+  const requiredIds = session.requiredMicroIds || Object.keys(session.microStates)
+  const studiedMicroIds = requiredIds.filter(id => {
+    const state = session.microStates[id]
+    return !!state && (state.timeline.length > 0 || state.totalInteractions > 0)
+  })
+  const provisionallyMasteredMicroIds = studiedMicroIds.filter(id => {
+    const state = session.microStates[id]
+    const micro = graph.microConcepts.find(item => item.id === id)
+    return !!state?.evidenceProfile && !!micro && isMicroMastered(state.evidenceProfile, micro)
+  })
+  const explicitReinforcement = new Set(session.reinforcementMicroIds || [])
+  const reinforcementMicroIds = studiedMicroIds.filter(id =>
+    explicitReinforcement.has(id) || !provisionallyMasteredMicroIds.includes(id)
+  )
+  return {
+    studiedMicroIds,
+    provisionallyMasteredMicroIds,
+    reinforcementMicroIds,
+    studiedMicroNames: resolveMicroNames(studiedMicroIds, graph.microConcepts),
+    provisionallyMasteredMicroNames: resolveMicroNames(provisionallyMasteredMicroIds, graph.microConcepts),
+    reinforcementMicroNames: resolveMicroNames(reinforcementMicroIds, graph.microConcepts),
   }
 }
 

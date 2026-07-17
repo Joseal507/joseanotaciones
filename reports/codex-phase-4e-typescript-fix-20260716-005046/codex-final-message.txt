@@ -1,0 +1,18 @@
+Corregí exclusivamente el error TypeScript con un subconjunto real:
+
+- Tipo final: `Record<Extract<MaterialKind, 'pdf' | 'docx'>, string>`.
+- PDF y DOCX conservan su funcionamiento.
+- Otros formatos reciben error estructurado HTTP 415.
+- No se añadió soporte ficticio ni casts.
+- Reporte Fase 4E actualizado.
+- TypeScript: PASS.
+- `git diff --check`: PASS.
+- Cero `skip`, `fixme`, `only`; retries en 0.
+- Sin commit, deploy ni cambios al motor.
+
+No declaro éxito total porque las revalidaciones Playwright fueron bloqueadas antes de ejecutar casos:
+
+- Materiales reales: `listen EPERM 127.0.0.1:3101`.
+- Playwright original: `listen EPERM 127.0.0.1:3100`.
+
+Los resultados previamente confirmados de 10/10 y 33/33 permanecen documentados, pero esta ejecución no pudo recertificarlos.

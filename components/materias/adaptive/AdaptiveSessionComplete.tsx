@@ -219,7 +219,7 @@ export default function AdaptiveSessionComplete({
             cursor: 'pointer',
           }}
         >
-          {nextSession ? 'Ver mi programa →' : 'Ver mi progreso →'}
+          Volver al libro →
         </button>
       </div>
     </div>
