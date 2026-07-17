@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 export type Enfoque = 'teorico' | 'matematico' | 'mixto';
-export type ProcessMode = 'free' | 'adaptive';
+export type ProcessMode = 'free';
 
 export interface StudySession {
   id: string;
@@ -21,7 +21,7 @@ export interface StudySession {
   currentPhase?: string;
 
   // ── Estado completo del modo adaptativo (para reanudar) ──
-  adaptiveProgram?: any;           // AdaptiveProgram completo
+
   processStyle?: string;           // 'book' | 'sessions' | etc
   targetScore?: number;
   examDate?: string;
@@ -83,7 +83,7 @@ export function getSessionsByTema(temaId: string): StudySession[] {
 }
 
 // ── Buscar sesión exacta: tema + enfoque + materiales + modo ───
-// AHORA el modo es parte de la clave — free y adaptive son sesiones distintas
+// El modo libre forma parte de la identidad de la sesión
 export function findSession(
   temaId: string,
   enfoque: Enfoque,
@@ -135,14 +135,14 @@ export function upsertSession(params: {
   notes?: any[];
   materialText?: string;
   currentPhase?: string;
-  adaptiveProgram?: any;
-  processStyle?: string;
+
   targetScore?: number;
   examDate?: string;
   examDateCustom?: string;
   materialBlueprint?: any;
   masterySnapshot?: any;
-}): StudySession {
+
+  processStyle?: any;}): StudySession {
   const all = loadAll();
   const cleanMaterialIds = [
     ...new Set(
@@ -170,7 +170,7 @@ export function upsertSession(params: {
       notes: params.notes ?? existing.notes,
       materialText: params.materialText ?? existing.materialText,
       currentPhase: params.currentPhase ?? existing.currentPhase,
-      adaptiveProgram: params.adaptiveProgram ?? existing.adaptiveProgram,
+
       processStyle: params.processStyle ?? existing.processStyle,
       targetScore: params.targetScore ?? existing.targetScore,
       examDate: params.examDate ?? existing.examDate,
@@ -199,7 +199,7 @@ export function upsertSession(params: {
     notes: params.notes,
     materialText: params.materialText,
     currentPhase: params.currentPhase,
-    adaptiveProgram: params.adaptiveProgram,
+
     processStyle: params.processStyle,
     targetScore: params.targetScore,
     examDate: params.examDate,

@@ -1,4 +1,3 @@
-import type { AdaptiveProgram } from './adaptive/program';
 // Blueprint eliminado — funciones stub para no romper masteryEngine
 const calculateTopicMastery = (..._args: any[]): any[] => []
 const buildConceptScoreMap = (..._args: any[]): Record<string, number> => ({})
@@ -114,8 +113,7 @@ export interface MaterialMastery {
   targetScore: number;
   dailyMinutes: number | null;
   studyMode: StudyMode;
-  processMode?: 'guided' | 'free' | 'adaptive';
-  adaptiveProgram?: AdaptiveProgram | null;
+  processMode?: 'free';
 
   // ── Material Blueprint ───────────────────────────────────────
   // Análisis completo del material — base del modo adaptativo
@@ -407,8 +405,8 @@ export function loadMaterialMastery(sessionKey: string): MaterialMastery | null 
     if (!parsed.processMode) {
       parsed.processMode = 'free';
     }
-    if (parsed.adaptiveProgram === undefined) {
-      parsed.adaptiveProgram = null;
+    if (parsed.legacyProgram === undefined) {
+      parsed.legacyProgram = null;
     }
 
     parsed.toolsCompleted = {
@@ -489,7 +487,7 @@ export function createEmptyMastery(params: {
     dailyMinutes: null,
     studyMode: 'balanced',
     processMode: 'free',
-    adaptiveProgram: null,
+
     toolsCompleted: {
       repasar: false, analisis: false, studymap: false, truquitos: false,
       flashcards: false, quiz: false, examen: false, alai: false,

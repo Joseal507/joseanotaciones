@@ -14,20 +14,8 @@
     "full-session": "node --import tsx scripts/full-session.ts",
     "simulate-mastery": "node --import tsx scripts/simulate-mastery.ts",
     "simulate-batch": "node --import tsx scripts/simulate-batch.ts",
-    "simulate:v3:smoke": "node --import tsx scripts/simulation/adaptive-v3/runSmoke.ts",
-    "simulate:v3:deterministic": "node --import tsx scripts/simulation/adaptive-v3/runDeterministic.ts",
-    "simulate:v3:mass": "node --import tsx scripts/simulation/adaptive-v3/runMassSimulation.ts",
-    "simulate:v3:replay": "node --import tsx scripts/simulation/adaptive-v3/runReplay.ts",
-    "simulate:adaptive-planner": "node --import tsx scripts/simulation/adaptive-planner/runPlannerSimulation.ts",
-    "test": "node --import tsx scripts/tests/adaptive-v3-product-flow.ts && node --import tsx scripts/tests/adaptive-v3-interaction-flow.ts && node --import tsx scripts/tests/adaptive-v3-bohr-product-contracts.ts && node --import tsx scripts/tests/adaptive-planner-contracts.ts && node --import tsx scripts/tests/adaptive-product-integration-contracts.ts && node --import tsx scripts/tests/simulation-strategy-metrics.ts && node --import tsx scripts/tests/phase2-evidence.ts && node --import tsx scripts/tests/phase3-telemetry.ts && node --import tsx scripts/tests/phase4-assistance-context.ts && node --import tsx scripts/tests/phase5-pedagogical-decisions.ts && node --import tsx scripts/tests/phase6-consistency.ts && node --import tsx scripts/tests/phase7-e2e.ts && node --import tsx scripts/tests/phase8-program-completion.ts && node --import tsx scripts/tests/phase9-canonical-mastery.ts && node --import tsx scripts/tests/phase10-pedagogical-contracts.ts && node --import tsx scripts/tests/adaptive-learning-experience-contracts.ts",
-    "test:adaptive-v3-bohr": "node --import tsx scripts/tests/adaptive-v3-bohr-regression.ts",
     "test:e2e": "playwright test",
-    "test:e2e:real-materials": "playwright test --config=playwright.real-materials.config.ts",
-    "test:e2e:real-sessions": "playwright test --config=playwright.real-sessions.config.ts",
-    "test:e2e:adaptive-planner": "playwright test --config=playwright.adaptive-planner.config.ts",
-    "test:e2e:adaptive-product-real": "playwright test --config=playwright.adaptive-product-real.config.ts",
-    "test:e2e:adaptive-manual-journey": "playwright test --config=playwright.adaptive-product-real.config.ts tests/e2e-adaptive-product-real/manual-journey.spec.ts",
-    "test:e2e:adaptive-learning-experience": "playwright test tests/e2e/adaptive-learning-experience.spec.ts"
+    "test:e2e:real-materials": "playwright test --config=playwright.real-materials.config.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1033.0",

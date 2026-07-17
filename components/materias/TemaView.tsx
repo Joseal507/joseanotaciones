@@ -7,7 +7,6 @@ import MasteryCoach from "./MasteryCoach";
 import ALAIStudyALCheatCodes from "./ALAIStudyALCheatCodes";
 import ALAIStudyMap from "./ALAIStudyMap";
 import SeleccionPaginas, { type SeleccionResult } from "./SeleccionPaginas";
-import ModeSelector from "./adaptive/ModeSelector";
 import ModalConvertirPDF from "./ModalConvertirPDF";
 import StudyLoader from "../StudyLoader";
 import {
@@ -1129,7 +1128,7 @@ export default function TemaView({
     // Ya no necesitamos buscar en el mastery localStorage porque
     // studySessions.ts v2 siempre guarda processMode correctamente.
     // Fallback al mastery localStorage solo si la sesión es muy vieja (migración).
-    let lastMode: 'free' | 'adaptive' = lastSession.processMode || lastSession.studyMode || 'free';
+    let lastMode: 'free' | 'adaptive' = 'free';
 
     // Fallback de migración: sesiones viejas sin processMode
     if (lastMode === 'free') {
@@ -1148,8 +1147,8 @@ export default function TemaView({
 
     console.log("⚡ [returnToEnfoque] Sesión:", lastSession.id, "| processMode guardado:", lastSession.processMode, "| modo final:", lastMode);
 
-    setStudyMode(lastMode);
-    setResumeProcessMode(lastMode);
+    setStudyMode('free');
+    setResumeProcessMode('free');
 
     // Abrir el StudyAL Process directamente, sin pasar por el enfoque
     setOpenTeorico(true);
@@ -2057,19 +2056,7 @@ export default function TemaView({
         userId={userId || undefined}
         masteryState={reconstructedMasteryState}
         masterySnapshot={masterySnapshot}
-        initialMode={(() => {
-          // 1. El usuario eligió modo explícito
-          if (studyMode) return studyMode;
-          // 2. Modo de reanudación ya resuelto
-          if (resumeProcessMode) return resumeProcessMode;
-          // 3. Si hay resumeSessionId, intentar leer el modo real de esa sesión
-          if (resumeSessionId) {
-            const resumed = activeSessions.find((s) => s.id === resumeSessionId);
-            const resumedMode = (resumed as any)?.processMode || resumed?.studyMode;
-            if (resumedMode === 'adaptive' || resumedMode === 'free') return resumedMode;
-          }
-          return 'free';
-        })()}
+
         temaId={tema?.id}
         enfoque={enfoqueElegido || 'teorico'}
         onOpenStudyMap={() => {
@@ -3111,12 +3098,8 @@ export default function TemaView({
           const unifiedSession: MaterialSessionState | null = stableKey ? loadMaterialSession(stableKey) : null
           const hasUnifiedAdaptive = !!(unifiedSession?.adaptiveProgram)
 
-          // Sesiones viejas: solo para fallback de datos (no para decidir isResumeMode)
-          const adaptiveWithProgram = sortedMatchingSessions.find(
-            (s) => ((s.processMode === 'adaptive' || s.studyMode === 'adaptive') && !!(s as any).adaptiveProgram)
-          ) || null;
-
-          const matchingSession = adaptiveWithProgram || sortedMatchingSessions[0] || null;
+          // Sesiones existentes: usar la más reciente
+          const matchingSession = sortedMatchingSessions[0] || null;
 
           // isResumeMode: SOLO TRUE si hay materialSession v3 con programa guardado
           // Y el título del material guardado coincide con el seleccionado actualmente
@@ -4516,69 +4499,6 @@ export default function TemaView({
       )}
 
 
-            {showModeSelector && (
-        <ModeSelector
-          materialesCount={selectedIds.length}
-          onSelectMode={(mode) => {
-            setStudyMode(mode);
-            chosenModeRef.current = mode; // Guardar en ref — nunca se pisa
-            setShowModeSelector(false);
-
-            // ── GUARDAR SESIÓN ACTIVA con el modo elegido ──────
-            try {
-              const matIds = selectedDocs
-                .map((d: any) => d?.materialId || d?.id)
-                .filter(Boolean) as string[];
-
-              if (tema?.id && matIds.length > 0) {
-                const pagesByMat: Record<string, number[]> = {};
-                if (Array.isArray(seleccionResult)) {
-                  seleccionResult.forEach((n: any) => {
-                    if (n?.materialId && Array.isArray(n.pages)) {
-                      pagesByMat[n.materialId] = n.pages;
-                    }
-                  });
-                }
-                const sess = upsertSession({
-                  temaId: tema.id,
-                  enfoque: (enfoqueElegido || "teorico") as any,
-                  studyMode: mode,
-                  processMode: mode,
-                  materialIds: matIds,
-                  selectedPages: Object.keys(pagesByMat).length ? pagesByMat : undefined,
-                });
-                setResumeSessionId(sess.id);
-                refreshSessions();
-                console.log("💾 Sesión creada con processMode:", mode, "id:", sess.id);
-              }
-            } catch (e) {
-              console.warn("Error guardando sesión al elegir modo:", e);
-            }
-
-            // Solo saltar selección si el seleccionResult corresponde a los materiales actuales
-            const currentMatIds = selectedDocs.map((d: any) => String(d?.materialId || d?.id || '')).filter(Boolean).sort().join('|');
-            const seleccionMatIds = Array.isArray(seleccionResult)
-              ? [...new Set(seleccionResult.map((s: any) => String(s?.materialId || '')).filter(Boolean))].sort().join('|')
-              : '';
-            const seleccionMatchesCurrent = seleccionMatIds && seleccionMatIds === currentMatIds;
-
-
-            if (seleccionMatchesCurrent && chosenModeRef.current !== 'adaptive') {
-              // seleccionResult válido y no es nueva sesión adaptive — saltar selección
-              setOpenTeorico(true);
-            } else {
-              // Siempre pedir páginas en adaptive o si no hay selección válida
-              setShowSeleccion(true);
-            }
-          }}
-          onCancel={() => {
-            setShowModeSelector(false);
-            setEnfoqueElegido(null);
-            // NO borrar studyMode al cancelar — puede tener valor previo válido
-          }}
-        />
-      )}
-
       {showSeleccion && (
         <SeleccionPaginas
           materiales={selectedDocs}
@@ -4636,20 +4556,12 @@ export default function TemaView({
 
               if (tema?.id && matIds.length > 0) {
                 // Determinar modo real: studyMode > sesión existente adaptive > 'free'
-                const _seleccionMode: 'free' | 'adaptive' = (() => {
-                  // chosenModeRef es la fuente de verdad — el usuario lo eligió explícitamente
-                  if (chosenModeRef.current) return chosenModeRef.current;
-                  if (studyMode) return studyMode;
-                  if (resumeProcessMode) return resumeProcessMode;
-                  const existing = activeSessions.find(s => matIds.every((id: string) => s.materialIds.includes(id)));
-                  if (existing) return (existing.processMode || existing.studyMode || 'free') as 'free' | 'adaptive';
-                  return 'free';
-                })();
+                const _seleccionMode: 'free' = 'free';
                 const sess = upsertSession({
                   temaId: tema.id,
                   enfoque: enfoqueElegido as any,
-                  processMode: _seleccionMode,
-                  studyMode: _seleccionMode,
+                  processMode: 'free',
+                  studyMode: 'free',
                   materialIds: matIds,
                   selectedPages: Object.keys(pagesByMat).length
                     ? pagesByMat
