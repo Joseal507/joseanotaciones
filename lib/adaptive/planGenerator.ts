@@ -485,9 +485,10 @@ function generateObjective(
     const firstDependsOnSecond = dominant.dependsOnTopicIds.includes(secondary.topicId || '');
 
     if (secondDependsOnFirst || firstDependsOnSecond) {
-      const base = secondDependsOnFirst ? dominant : secondary;
-      const dependent = secondDependsOnFirst ? secondary : dominant;
-      return `Comprender ${base.topicLabel} como base para entender ${dependent.topicLabel}`;
+      // El que es prerequisito va primero, el que depende va segundo
+      const prereq = firstDependsOnSecond ? secondary : dominant;
+      const dependent = firstDependsOnSecond ? dominant : secondary;
+      return `Comprender ${prereq.topicLabel} como base para entender ${dependent.topicLabel}`;
     }
 
     const objectivePhrasesByBloom: Record<string, string> = {
@@ -611,7 +612,10 @@ function buildIntroSession(
   setup: AdaptiveSetup,
   units: CognitiveUnit[],
 ): PlanSession {
-  const topics = blueprint.topics || [];
+  // Normalizar topics en buildIntroSession también
+  const topics: BlueprintTopic[] = blueprint.topics?.length
+    ? blueprint.topics
+    : [];
   const blocks = blueprint.blocks || [];
 
   // Palabras clave importantes (importance >= 70)
@@ -640,7 +644,9 @@ function buildIntroSession(
   ].filter(Boolean);
 
   const exitCriteria = [
-    `Nombrar los ${Math.min(topics.length, 5)} temas principales`,
+    topics.length > 0
+      ? `Nombrar los ${Math.min(topics.length, 5)} temas principales`
+      : 'Identificar la estructura general del material',
     'Reconocer el vocabulario clave del material',
     'Identificar qué temas serán más desafiantes',
     setup.mainConcern && setup.mainConcern !== '(omitido)'
@@ -928,7 +934,11 @@ export function generateStudyPlan(
   materialTitle: string,
 ): StudyPlan {
   const blueprint = normalizeBlueprint(rawBlueprint);
-  const topics = blueprint.topics || [];
+  // Normalizar topics — puede venir como topics o topicsIndex según la fuente
+  const topics: BlueprintTopic[] = (
+    blueprint.topics?.length ? blueprint.topics :
+    (rawBlueprint?.topicsIndex || rawBlueprint?.topics || [])
+  );
   const blocks = blueprint.blocks || [];
 
   // PASO 1: Cognitive units
