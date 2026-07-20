@@ -882,6 +882,7 @@ function buildFinalSession(
 // ─── PASO 13: Construir dependency map ────────────────────────
 
 function buildDependencyMap(
+  topics: BlueprintTopic[],
   units: CognitiveUnit[],
 ) {
   return topics.map(topic => {
@@ -897,6 +898,7 @@ function buildDependencyMap(
 // ─── PASO 14: Construir objetivos del programa ────────────────
 
 function buildProgramObjectives(
+  topics: BlueprintTopic[],
   setup: AdaptiveSetup,
 ): string[] {
   const verbMap: Record<string, string> = {
