@@ -7,8 +7,10 @@ import {
   findSession,
   type AdaptiveSetup,
 } from "../../lib/studySessions";
-import { generateStudyPlan } from "../../lib/adaptive/planGenerator";
-import type { StudyPlan } from "../../lib/adaptive/types";
+import { generateStudyPlan, type LegacyStudyPlan } from "../../lib/adaptive/planGenerator";
+import { buildLearningJourney } from "../../lib/adaptive/journeyBuilder";
+import { roleBadge } from "../../lib/adaptive/narrativeFormatter";
+import type { LearningJourney } from "../../lib/adaptive/journeyBuilder";
 
 const HAND = "'Caveat', cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -162,8 +164,16 @@ export default function StudyALAdaptive({
   const [blueprint, setBlueprint] = useState<any>(null);
   const [blueprintLoading, setBlueprintLoading] = useState(false);
   const [blueprintError, setBlueprintError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"perfil" | "setup" | "blueprint" | "plan">("perfil");
-  const [studyPlan, setStudyPlan] = useState<StudyPlan | null>(null);
+  const [activeTab, setActiveTab] = useState<"plan">("plan");
+  const [studyPlan, setStudyPlan] = useState<LegacyStudyPlan | null>(null);
+  const [journey, setJourney] = useState<LearningJourney | null>(null);
+  const [blueprintQuality, setBlueprintQuality] = useState<any>(null);
+  const setupReady = Boolean(setup?.completedAt);
+  const blueprintReady = Boolean(blueprint && ((blueprint.blocks?.length || blueprint.globalOrderedAnalysis?.length || 0) > 0));
+  const journeyReady = Boolean(journey && journey.chapters && journey.chapters.length > 0);
+  const blueprintDegraded = blueprintQuality?.status === "degraded";
+  const canShowPlan = journeyReady;
+  const showIncompleteMessage = !journeyReady && !blueprintDegraded && (blueprintLoading || !setupReady || !blueprintReady);
 
   const materialIds = useMemo(
     () => materiales.map((m: any) => getMaterialId(m)).filter(Boolean).slice(0, 5),
@@ -432,12 +442,7 @@ export default function StudyALAdaptive({
   // DONE — RESUMEN COMPLETO
   // ═══════════════════════════════════════
   if (done) {
-    const tabs = [
-      { id: "perfil", label: "Yo soy este", emoji: "👤" },
-      { id: "setup", label: "Mi setup", emoji: "⚙️" },
-      { id: "blueprint", label: "Análisis del material", emoji: "🗺️" },
-      { id: "plan", label: "Mi plan", emoji: "📋" },
-    ] as const;
+
 
     return (
       <div style={{
@@ -468,130 +473,326 @@ export default function StudyALAdaptive({
           }}>← volver al mapa</button>
         </div>
 
-        {/* Tabs */}
-        <div style={{
-          display: "flex", gap: 0, borderBottom: "1.5px solid var(--border-color)",
-          flexShrink: 0,
-          background: "color-mix(in srgb, var(--bg-card) 80%, transparent)",
-        }}>
-          {tabs.map((tab) => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              style={{
-                padding: "12px 22px",
-                background: activeTab === tab.id ? "rgba(56,189,248,.15)" : "transparent",
-                border: "none",
-                borderBottom: activeTab === tab.id ? "2px solid #38bdf8" : "2px solid transparent",
-                color: activeTab === tab.id ? "#38bdf8" : "var(--text-muted)",
-                fontFamily: BODY, fontSize: 14, fontWeight: 800,
-                cursor: "pointer", transition: "all .2s",
-                display: "flex", alignItems: "center", gap: 6,
-              }}>
-              <span>{tab.emoji}</span>
-              {tab.label}
-            </button>
-          ))}
-        </div>
+
 
         {/* Content */}
         <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
 
-          {/* TAB: PERFIL */}
-          {activeTab === "perfil" && (
-            <div style={{ maxWidth: 700, margin: "0 auto", display: "grid", gap: 16 }}>
-              <div style={{
-                background: "var(--bg-card)", border: "1.5px solid var(--border-color)",
-                borderRadius: 20, padding: 24,
-              }}>
-                <div style={{ fontFamily: HAND, fontSize: 28, color: "#38bdf8", marginBottom: 16 }}>
-                  yo soy este
+          {/* TAB: PLAN */}
+          {activeTab === "plan" && (
+            <div style={{ maxWidth: 680, margin: "0 auto" }}>
+              {showIncompleteMessage && (
+                <div style={{ textAlign: "center", padding: 60 }}>
+                  {blueprintLoading ? (
+                    <>
+                      <div style={{ fontSize: 48, marginBottom: 16 }}>✨</div>
+                      <div style={{ fontFamily: HAND, fontSize: 28, color: "#38bdf8", marginBottom: 8 }}>
+                        Generando tu plan adaptativo...
+                      </div>
+                      <div style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6 }}>
+                        ALAI está analizando el material y construyendo<br/>
+                        un recorrido diseñado específicamente para ti.
+                      </div>
+                      <div style={{
+                        marginTop: 20,
+                        display: "inline-flex", alignItems: "center", gap: 8,
+                        padding: "8px 20px",
+                        border: "1.5px solid #38bdf8",
+                        borderRadius: 999,
+                        color: "#38bdf8", fontSize: 14,
+                      }}>
+                        <div style={{
+                          width: 12, height: 12,
+                          border: "2px solid #38bdf8",
+                          borderTopColor: "transparent",
+                          borderRadius: "50%",
+                          animation: "spin 0.8s linear infinite",
+                        }} />
+                        Analizando...
+                      </div>
+                      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
+                      <div style={{ fontFamily: HAND, fontSize: 24, color: "var(--text-muted)" }}>
+                        Completa el setup para ver tu plan
+                      </div>
+                    </>
+                  )}
                 </div>
-                {profileLoading ? (
-                  <div style={{ color: "var(--text-muted)" }}>Cargando perfil...</div>
-                ) : (
-                  <div style={{ display: "grid", gap: 12 }}>
-                    <div style={{ fontSize: 28, fontFamily: HAND, fontWeight: 900, color: "#fff" }}>
-                      {userSummary.nombre}
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {[
-                        { label: "👤 " + userSummary.tipo, show: !!userSummary.tipo },
-                        { label: "🎂 " + userSummary.edad + " años", show: !!userSummary.edad },
-                        { label: "⚧ " + (generoLabels[userSummary.genero || ""] || userSummary.genero), show: !!userSummary.genero },
-                        { label: "🏫 " + userSummary.lugar, show: !!userSummary.lugar },
-                        { label: "📚 " + userSummary.carrera, show: !!userSummary.carrera },
-                        { label: "🎯 " + (objetivoLabels[userSummary.objetivo || ""] || userSummary.objetivo), show: !!userSummary.objetivo },
-                      ].filter(x => x.show).map((x, i) => (
-                        <div key={i} style={{
-                          background: "var(--bg-secondary)",
-                          border: "1px solid var(--border-color)",
-                          borderRadius: 999, padding: "6px 14px",
-                          fontSize: 14, fontWeight: 700,
-                        }}>{x.label}</div>
+              )}
+
+              {blueprintDegraded && (
+                <div style={{
+                  background: "rgba(251,191,36,.10)",
+                  border: "1.5px solid rgba(251,191,36,.45)",
+                  borderRadius: 18,
+                  padding: 18,
+                  marginBottom: 22,
+                }}>
+                  <div style={{ fontFamily: HAND, fontSize: 22, color: "#fbbf24", marginBottom: 8 }}>
+                    ⚠️ análisis degradado
+                  </div>
+                  <div style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6 }}>
+                    El material fue analizado, pero la estructura pedagógica no quedó lo suficientemente confiable como para construir un recorrido completo.
+                  </div>
+                  {(blueprintQuality?.reasons?.length ?? 0) > 0 && (
+                    <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+                      {(blueprintQuality?.reasons ?? []).map((r: string, i: number) => (
+                        <div key={i} style={{ fontSize: 13, color: "#fbbf24", display: "flex", gap: 8 }}>
+                          <span>•</span>
+                          <span>{r}</span>
+                        </div>
                       ))}
                     </div>
+                  )}
+                </div>
+              )}
+
+              {canShowPlan && journey && (
+                <div style={{ display: "grid", gap: 0 }}>
+
+                  {/* ── Header del programa ── */}
+                  <div style={{
+                    background: "var(--bg-card)",
+                    border: "1.5px solid var(--border-color)",
+                    borderRadius: 20, padding: 24, marginBottom: 24,
+                  }}>
+                    <div style={{ fontFamily: HAND, fontSize: 14, color: "#38bdf8", marginBottom: 4 }}>
+                      📖 tu viaje de aprendizaje
+                    </div>
+                    <div style={{ fontFamily: HAND, fontSize: 30, fontWeight: 900, color: "#fff", marginBottom: 10 }}>
+                      {journey?.programGoal ?? ""}
+                    </div>
+                    <div style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6, marginBottom: 14 }}>
+                      {journey?.programNarrative ?? ""}
+                    </div>
+
+                    {(journey?.planBadges?.length ?? 0) > 0 && (
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                        {(journey?.planBadges ?? []).map((badge: string, i: number) => (
+                          <span key={i} style={{
+                            fontSize: 12,
+                            padding: "4px 10px",
+                            background: "rgba(56,189,248,.10)",
+                            color: "#38bdf8",
+                            borderRadius: 999,
+                            fontWeight: 700,
+                            border: "1px solid rgba(56,189,248,.25)"
+                          }}>
+                            {badge}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 13, padding: "4px 12px", background: "rgba(56,189,248,.12)", color: "#38bdf8", borderRadius: 999, fontWeight: 700 }}>
+                        {journey?.totalChapters ?? 0} sesiones
+                      </span>
+                      <span style={{ fontSize: 13, padding: "4px 12px", background: "rgba(74,222,128,.12)", color: "#4ade80", borderRadius: 999, fontWeight: 700 }}>
+                        {blueprintDegraded ? "cobertura en revisión" : "100% incluido"}
+                      </span>
+                      {(journey?.arcs?.length ?? 0) > 0 && (
+                        <span style={{ fontSize: 13, padding: "4px 12px", background: "rgba(167,139,250,.12)", color: "#a78bfa", borderRadius: 999, fontWeight: 700 }}>
+                          {journey.arcs.length} arcos pedagógicos
+                        </span>
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
 
-              <div style={{
-                background: "var(--bg-card)", border: "1.5px solid var(--border-color)",
-                borderRadius: 20, padding: 24,
-              }}>
-                <div style={{ fontFamily: HAND, fontSize: 24, color: "#38bdf8", marginBottom: 12 }}>
-                  material seleccionado
-                </div>
-                <div style={{ display: "grid", gap: 8 }}>
-                  {materialNames.map((name, i) => (
-                    <div key={i} style={{
-                      display: "flex", alignItems: "center", gap: 10,
-                      padding: "10px 14px",
-                      background: "var(--bg-secondary)", borderRadius: 12,
-                      fontSize: 14, fontWeight: 700,
-                    }}>
-                      <span>📄</span> {name}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
+                  {/* ── Mapa visual — el viaje ── */}
+                  <div style={{ position: "relative" }}>
+                    {(journey?.chapters ?? []).map((chapter, idx) => {
+                      const isFirst = idx === 0;
+                      const isLast = idx === journey.chapters.length - 1;
+                      const isAvailable = chapter.status === "available";
+                      const isDone = chapter.status === "done";
+                      const isLocked = chapter.status === "locked";
 
-          {/* TAB: SETUP */}
-          {activeTab === "setup" && (
-            <div style={{ maxWidth: 700, margin: "0 auto" }}>
-              <div style={{
-                background: "var(--bg-card)", border: "1.5px solid var(--border-color)",
-                borderRadius: 20, padding: 24,
-              }}>
-                <div style={{ fontFamily: HAND, fontSize: 28, color: "#38bdf8", marginBottom: 16 }}>
-                  así quise hacer mi setup para este material
-                </div>
-                <div style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                  gap: 12,
-                }}>
-                  {[
-                    ["Conocimiento inicial", knowledgeLabels[setup.knowledgeLevel] || setup.knowledgeLevel],
-                    ["Examen", examDateLabel],
-                    ["Nota buscada", setup.targetScore + "%"],
-                    ["Qué me preocupa", setup.mainConcern === "(omitido)" ? "No especificado" : (setup.mainConcern || "No definido")],
-                    ["Cómo evalúa mi profe", examStyleLabels.join(", ") || "No definido"],
-                    ["Cómo quiero ser evaluado", evalLabels[setup.evalPreference] || setup.evalPreference],
-                    ["Cómo quiero ver el plan", planViewLabels[setup.planView] || setup.planView],
-                  ].map(([label, value], i) => (
-                    <div key={i} style={{ background: "var(--bg-secondary)", borderRadius: 14, padding: 16 }}>
-                      <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 4 }}>{label}</div>
-                      <div style={{ fontWeight: 900, fontSize: 15 }}>{value}</div>
+                      const chapterColor =
+                        chapter.type === "intro"  ? "#38bdf8" :
+                        chapter.type === "final_review"  ? "#4ade80" :
+                        chapter.arcRole === "foundation"   ? "#38bdf8" :
+                        chapter.arcRole === "problem"      ? "#fbbf24" :
+                        chapter.arcRole === "mechanism"     ? "#4ade80" :
+                        chapter.arcRole === "application"     ? "#a78bfa" :
+                        chapter.arcRole === "context"  ? "#fb923c" :
+                        chapter.arcRole === "integration"  ? "#f472b6" :
+                        "#a78bfa";
+
+                      const chapterEmoji =
+                        chapter.type === "intro"  ? "📖" :
+                        chapter.type === "final_review"  ? "🏁" :
+                        chapter.arcRole === "foundation"  ? "🗺️" :
+                        chapter.arcRole === "problem"     ? "❓" :
+                        chapter.arcRole === "mechanism"    ? "💡" :
+                        chapter.arcRole === "application"    ? "🔬" :
+                        chapter.arcRole === "context" ? "🌊" :
+                        chapter.arcRole === "integration" ? "🏆" :
+                        "📘";
+
+                      return (
+                        <div key={chapter.chapterNumber}
+                          style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
+
+                          {/* Línea + nodo */}
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 48, flexShrink: 0 }}>
+                            <div style={{
+                              width: 40, height: 40, borderRadius: "50%",
+                              background: isDone ? "#4ade80" : isAvailable ? chapterColor : "var(--bg-secondary)",
+                              border: `2px solid ${isDone ? "#4ade80" : isAvailable ? chapterColor : "var(--border-color)"}`,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 18, flexShrink: 0,
+                              boxShadow: isAvailable ? `0 0 16px ${chapterColor}44` : "none",
+                              transition: "all .2s", zIndex: 1,
+                            }}>
+                              {isDone ? "✓" : isLocked ? "🔒" : chapterEmoji}
+                            </div>
+                            {!isLast && (
+                              <div style={{
+                                width: 2, flex: 1, minHeight: 24,
+                                background: isDone
+                                  ? "#4ade80"
+                                  : `linear-gradient(to bottom, ${chapterColor}80, var(--border-color))`,
+                              }} />
+                            )}
+                          </div>
+
+                          {/* Tarjeta */}
+                          <div style={{
+                            flex: 1, marginLeft: 12,
+                            marginBottom: isLast ? 0 : 12,
+                            background: isAvailable
+                              ? `linear-gradient(135deg, ${chapterColor}10, var(--bg-card))`
+                              : "var(--bg-card)",
+                            border: `1.5px solid ${isAvailable ? chapterColor + "60" : "var(--border-color)"}`,
+                            borderRadius: 16,
+                            padding: "18px 20px",
+                            opacity: isLocked ? 0.65 : 1,
+                            transition: "all .2s",
+                          }}>
+                            {/* Arc label + número */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                              <span style={{
+                                fontSize: 11, padding: "2px 8px",
+                                background: `${chapterColor}18`, color: chapterColor,
+                                borderRadius: 999, fontWeight: 700,
+                              }}>
+                                {chapter.type === "intro"
+                                ? "Fundamentos"
+                                : roleBadge(chapter.arcRole)}
+                              </span>
+                              <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                                Sesión {chapter.chapterNumber}
+                              </span>
+                            </div>
+
+                            {/* Título narrativo */}
+                            <div style={{
+                              fontFamily: HAND, fontSize: 22, fontWeight: 900,
+                              color: isLocked ? "var(--text-muted)" : "#fff",
+                              lineHeight: 1.2, marginBottom: 8,
+                            }}>
+                              {chapter.title}
+                            </div>
+
+                            {/* Hook — solo en available o intro */}
+                            {(!isLocked || chapter.type === "intro") && (
+                              <div style={{
+                                fontSize: 14, color: "var(--text-muted)",
+                                lineHeight: 1.6, marginBottom: 10,
+                              }}>
+                                {chapter.hook}
+                              </div>
+                            )}
+
+                            {/* Objetivo */}
+                            {!isLocked && (
+                              <div style={{
+                                fontSize: 14, color: "var(--text-primary)",
+                                lineHeight: 1.5, marginBottom: 10,
+                                fontWeight: 600,
+                              }}>
+                                {chapter.objective}
+                              </div>
+                            )}
+
+                            {/* Por qué existe */}
+                            {!isLocked && chapter.type === "learning" && (
+                              <div style={{
+                                fontSize: 12, color: "var(--text-faint)",
+                                marginBottom: 10,
+                                display: "flex", alignItems: "flex-start", gap: 6,
+                              }}>
+                                <span style={{ flexShrink: 0 }}>→</span>
+                                <span>{chapter.why}</span>
+                              </div>
+                            )}
+
+                            {/* Exit criteria — solo sesión activo/disponible, no intro */}
+                            {isAvailable && chapter.type !== "intro" && chapter.exitCriteria.length > 0 && (
+                              <div style={{
+                                marginTop: 10, paddingTop: 10,
+                                borderTop: "1px solid var(--border-color)",
+                              }}>
+                                <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 6, fontWeight: 700 }}>
+                                  AL TERMINAR ESTA SESIÓN PODRÁS:
+                                </div>
+                                <div style={{ display: "grid", gap: 4 }}>
+                                  {chapter.exitCriteria.map((c, ci) => (
+                                    <div key={ci} style={{
+                                      fontSize: 12, color: "var(--text-muted)",
+                                      display: "flex", gap: 6, alignItems: "flex-start",
+                                    }}>
+                                      <span style={{ color: chapterColor, flexShrink: 0 }}>✓</span>
+                                      {c}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Unlock message */}
+                            {!isLocked && chapter.type !== "final_review" && chapter.unlockMessage && (
+                              <div style={{
+                                marginTop: 10, fontSize: 12,
+                                color: chapterColor, fontWeight: 600,
+                                display: "flex", alignItems: "flex-start", gap: 6,
+                              }}>
+                                <span>🔓</span>
+                                <span>{chapter.unlockMessage}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Footer */}
+                  <div style={{
+                    marginTop: 24, padding: "16px 20px",
+                    background: "var(--bg-secondary)",
+                    borderRadius: 14, border: "1px solid var(--border-color)",
+                  }}>
+                    <div style={{ fontSize: 12, color: "var(--text-faint)", display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>🤖</span>
+                      <span>
+                        Este es tu <strong style={{ color: "var(--text-muted)" }}>plan actual</strong>.
+                        ALAI puede reorganizarlo conforme obtiene evidencia real de tu aprendizaje.
+                        La cobertura siempre será del 100%.
+                      </span>
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
           {/* TAB: BLUEPRINT */}
-          {activeTab === "blueprint" && (
+          {false && (
             <div style={{ maxWidth: 900, margin: "0 auto" }}>
               {blueprintLoading && (
                 <div style={{ textAlign: "center", padding: 60 }}>
@@ -928,7 +1129,7 @@ export default function StudyALAdaptive({
                     marginBottom: 24,
                   }}>
                     <div style={{ fontFamily: HAND, fontSize: 14, color: "#38bdf8", marginBottom: 4 }}>
-                      🎯 programa de aprendizaje
+                      📖 tu viaje de aprendizaje
                     </div>
                     <div style={{ fontFamily: HAND, fontSize: 32, fontWeight: 900, color: "#fff", marginBottom: 12 }}>
                       {studyPlan.programGoal}
@@ -938,15 +1139,12 @@ export default function StudyALAdaptive({
                         {studyPlan.totalSessions} sesiones
                       </span>
                       <span style={{ fontSize: 13, padding: "4px 12px", background: "rgba(74,222,128,.12)", color: "#4ade80", borderRadius: 999, fontWeight: 700 }}>
-                        100% cobertura
-                      </span>
-                      <span style={{ fontSize: 13, padding: "4px 12px", background: "rgba(167,139,250,.12)", color: "#a78bfa", borderRadius: 999, fontWeight: 700 }}>
-                        {studyPlan.totalCognitiveUnits} bloques de conocimiento
+                        {blueprintDegraded ? "cobertura en revisión" : "100% incluido"}
                       </span>
                     </div>
-                    {studyPlan.programObjectives.length > 0 && (
+                    {canShowPlan && (journey?.programObjectives?.length ?? 0) > 0 && (
                       <div style={{ display: "grid", gap: 6 }}>
-                        {studyPlan.programObjectives.map((obj, i) => (
+                        {(journey?.programObjectives ?? []).map((obj, i) => (
                           <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 14, color: "var(--text-muted)" }}>
                             <span style={{ color: "#38bdf8", flexShrink: 0 }}>✦</span>
                             {obj}
@@ -966,17 +1164,17 @@ export default function StudyALAdaptive({
                       const isLocked = session.status === "locked";
 
                       const typeConfig = {
-                        intro:         { emoji: "📖", color: "#38bdf8",  label: "Inicio" },
-                        deep:          { emoji: "📘", color: "#a78bfa",  label: "Estudio" },
-                        integration:   { emoji: "🔗", color: "#fbbf24",  label: "Integración" },
-                        final_review:  { emoji: "🏁", color: "#4ade80",  label: "Final" },
+                        intro:         { emoji: "📖", color: "#38bdf8",  label: "Sesión" },
+                        deep:          { emoji: "📘", color: "#a78bfa",  label: "Sesión" },
+                        integration:   { emoji: "🔗", color: "#fbbf24",  label: "Sesión" },
+                        final_review:  { emoji: "🏁", color: "#4ade80",  label: "Sesión final" },
                       };
                       const cfg = typeConfig[session.type] || typeConfig.deep;
 
                       const loadConfig = {
-                        light:  { label: "carga ligera",  color: "#4ade80" },
-                        medium: { label: "carga media",   color: "#fbbf24" },
-                        heavy:  { label: "carga intensa", color: "#ef4444" },
+                        light:  { label: "fundamentos",    color: "#4ade80" },
+                        medium: { label: "construcción",   color: "#fbbf24" },
+                        heavy:  { label: "profundización", color: "#a78bfa" },
                       };
                       const loadCfg = loadConfig[session.cognitiveLoad] || loadConfig.medium;
 
@@ -1096,7 +1294,7 @@ export default function StudyALAdaptive({
                             {isAvailable && session.exitCriteria.length > 0 && (
                               <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border-color)" }}>
                                 <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 6, fontWeight: 700 }}>
-                                  DOMINARÁS ESTA SESIÓN CUANDO PUEDAS:
+                                  AL TERMINAR ESTA SESIÓN PODRÁS:
                                 </div>
                                 <div style={{ display: "grid", gap: 4 }}>
                                   {session.exitCriteria.map((c, ci) => (
@@ -1109,18 +1307,18 @@ export default function StudyALAdaptive({
                               </div>
                             )}
 
-                            {/* Stat bar inferior */}
-                            <div style={{ display: "flex", gap: 12, marginTop: 10, fontSize: 11, color: "var(--text-faint)" }}>
-                              {session.conceptCount > 0 && (
-                                <span>💡 {session.conceptCount} conceptos</span>
-                              )}
-                              {session.highImportanceCount > 0 && (
-                                <span style={{ color: "#ef4444" }}>★ {session.highImportanceCount} clave</span>
-                              )}
-                              {session.difficultyBreakdown.advanced > 0 && (
-                                <span style={{ color: "#a78bfa" }}>⚡ {session.difficultyBreakdown.advanced} avanzados</span>
-                              )}
-                            </div>
+                            {/* Qué desbloquea */}
+                            {!isLocked && session.unlocks.length > 0 && (
+                              <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-faint)", display: "flex", alignItems: "center", gap: 6 }}>
+                                <span>🔓</span>
+                                <span>
+                                  Desbloquea: {(() => {
+                                    const nextSess = studyPlan.sessions.find(s => s.sessionNumber === session.unlocks[0]);
+                                    return nextSess?.title || 'siguiente sesión';
+                                  })()}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
@@ -1317,7 +1515,7 @@ export default function StudyALAdaptive({
           {step === 6 && (
             <div style={{ display: "grid", gap: 12 }}>
               {[
-                ["book", "📘", "Como un libro", "Avanzas capítulo por capítulo, lineal y ordenado."],
+                ["book", "📘", "Como un libro", "Avanzas sesión por sesión, lineal y ordenado."],
                 ["levels", "🪜", "Como niveles", "Subes de nivel al dominar cada bloque."],
                 ["missions", "🗺️", "Como misiones", "Completas misiones y desbloqueas nuevas."],
               ].map(([id, emoji, label, desc]) => (

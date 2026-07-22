@@ -21,6 +21,20 @@ export async function GET(req: NextRequest) {
 
     const json = await res.json();
 
+    if (json.profile) {
+      const pr = json.profile;
+      console.log('\n══════════════════════════════════════════════');
+      console.log('👤 PERFIL DEL USUARIO CARGADO');
+      console.log('══════════════════════════════════════════════');
+      console.log('  Nombre:', pr.nombre || '—');
+      console.log('  Tipo:', pr.tipo_estudiante || pr.tipo_usuario || '—');
+      console.log('  Universidad:', pr.universidad || pr.escuela || '—');
+      console.log('  Carrera:', pr.carrera || '—');
+      console.log('  Objetivo:', pr.objetivo || '—');
+      console.log('  Edad:', pr.edad || '—');
+      console.log('══════════════════════════════════════════════\n');
+    }
+
     return NextResponse.json({
       success: true,
       data: json.profile || null,
@@ -67,6 +81,32 @@ export async function POST(req: NextRequest) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
     });
+
+    // Sincronizar campos públicos al perfil-publico (leaderboard)
+    // Solo campos que deben ser públicos — NUNCA edad, permiso_menor, referral_source
+    try {
+      if (API) {
+        const publicPayload: Record<string, any> = {
+          user_id: payload.user_id,
+          email: payload.email,
+          nombre: payload.nombre,
+          avatar_url: payload.avatar_url,
+        };
+        if (payload.tipo_estudiante !== undefined) publicPayload.tipo_estudiante = payload.tipo_estudiante;
+        if (payload.universidad !== undefined) publicPayload.universidad = payload.universidad;
+        if (payload.escuela !== undefined) publicPayload.escuela = payload.escuela;
+        if (payload.carrera !== undefined) publicPayload.carrera = payload.carrera;
+        if (payload.descripcion !== undefined) publicPayload.descripcion = payload.descripcion;
+        if (payload.genero !== undefined) publicPayload.genero = payload.genero;
+        if (body.visible_leaderboard !== undefined) publicPayload.visible_leaderboard = body.visible_leaderboard;
+
+        await fetch(`${API}/leaderboard/upsert`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(publicPayload),
+        });
+      }
+    } catch {}
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

@@ -86,6 +86,26 @@ export async function POST(req: NextRequest) {
 
     const json = await res.json();
 
+    // ── Debug: contexto del setup (terminal del servidor) ──
+    if (body.processMode === 'adaptive' || body.studyMode === 'adaptive') {
+      console.log('\n══════════════════════════════════════════════');
+      console.log('📝 SESIÓN ADAPTATIVA GUARDADA');
+      console.log('══════════════════════════════════════════════');
+      console.log('  Usuario:', userId);
+      console.log('  Material:', body.materialNames?.[0] || body.materialIds?.[0] || '—');
+      console.log('  Modo:', body.processMode);
+      if (body.adaptiveSetup) {
+        const s = body.adaptiveSetup;
+        console.log('  Setup:');
+        console.log('    Nivel previo:', s.knowledgeLevel || '—');
+        console.log('    Examen:', s.examDateType || '—', s.examDateCustom || '');
+        console.log('    Nota objetivo:', (s.targetScore || '—') + '%');
+        console.log('    Estilo profesor:', (s.professorExamStyle || []).join(', ') || '—');
+        console.log('    Preferencia eval:', s.evalPreference || '—');
+      }
+      console.log('══════════════════════════════════════════════\n');
+    }
+
     return NextResponse.json({
       success: true,
       session: json.session || body,
