@@ -331,6 +331,8 @@ export default {
           ["exam_date_custom", "TEXT"],
           ["material_blueprint", "TEXT"],
           ["mastery_snapshot", "TEXT"],
+          ["adaptive_setup", "TEXT"],
+          ["setup_hash", "TEXT"],
         ]
         for (const [col, def] of newCols) {
           try {
@@ -344,10 +346,10 @@ export default {
             material_ids, selected_pages,
             flashcards, notes, material_text, current_phase,
             adaptive_program, process_style, target_score, exam_date, exam_date_custom,
-            material_blueprint, mastery_snapshot,
+            material_blueprint, mastery_snapshot, adaptive_setup, setup_hash,
             created_at, last_opened_at, updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
           ON CONFLICT(id) DO UPDATE SET
             tema_id = excluded.tema_id,
             enfoque = excluded.enfoque,
@@ -366,6 +368,8 @@ export default {
             exam_date_custom = COALESCE(excluded.exam_date_custom, study_sessions.exam_date_custom),
             material_blueprint = COALESCE(excluded.material_blueprint, study_sessions.material_blueprint),
             mastery_snapshot = COALESCE(excluded.mastery_snapshot, study_sessions.mastery_snapshot),
+            adaptive_setup = COALESCE(excluded.adaptive_setup, study_sessions.adaptive_setup),
+            setup_hash = COALESCE(excluded.setup_hash, study_sessions.setup_hash),
             last_opened_at = excluded.last_opened_at,
             updated_at = datetime('now')
         `).bind(
@@ -388,6 +392,8 @@ export default {
           body.exam_date_custom || null,
           body.material_blueprint ? JSON.stringify(body.material_blueprint) : null,
           body.mastery_snapshot ? JSON.stringify(body.mastery_snapshot) : null,
+          body.adaptive_setup ? JSON.stringify(body.adaptive_setup) : null,
+          body.setup_hash || null,
           createdAt,
           now
         ).run()

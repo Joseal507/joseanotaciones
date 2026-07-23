@@ -1,72 +1,65 @@
 // ═══════════════════════════════════════════════════════════════
-// StudyAL — Sistema de sesiones persistentes v2
-// Una sesión por (temaId + enfoque + materialIds + processMode)
-// Fuente local inmediata + sync con D1 por usuario vía NextAuth
+// StudyAL — Sistema de sesiones v4
+// Una sesión = temaId + materialIds (1-5) + processMode
+// Persiste en localStorage + sync servidor
 // ═══════════════════════════════════════════════════════════════
 
+export type ProcessMode = 'free' | 'adaptive' | 'manual';
 export type Enfoque = 'teorico' | 'matematico' | 'mixto';
-export type ProcessMode = 'free';
+
+export interface AdaptiveSetup {
+  knowledgeLevel: 'never_seen' | 'know_little' | 'want_review' | 'already_know';
+  examDateType: 'today' | 'tomorrow' | 'this_week' | 'custom' | 'just_studying';
+  examDateCustom?: string | null;
+  targetScore: number;
+  mainConcern: string;  // texto libre del usuario
+  professorExamStyle: string[];
+  evalPreference: 'quick_test' | 'write_explain' | 'mixed' | 'read_only';
+  planView: 'book' | 'levels' | 'missions';
+  completedAt: number;
+}
 
 export interface StudySession {
   id: string;
   temaId: string;
   enfoque: Enfoque;
-  processMode: ProcessMode;        // CAMPO OBLIGATORIO — nunca opcional
-  studyMode: ProcessMode;          // alias de processMode para compatibilidad
+  processMode: ProcessMode;
+  studyMode: ProcessMode; // alias compat
   materialIds: string[];
-  selectedPages?: Record<string, number[]>;
+  materialNames: string[];
+  selectedPages: Record<string, number[]>;
   flashcards?: any[];
-  notes?: any[];
-  materialText?: string;
-  currentPhase?: string;
-
-  // ── Estado completo del modo adaptativo (para reanudar) ──
-
-  processStyle?: string;           // 'book' | 'sessions' | etc
-  targetScore?: number;
-  examDate?: string;
-  examDateCustom?: string;
-  materialBlueprint?: any;
-  // Mastery snapshot opcional (para no perder progreso)
-  masterySnapshot?: any;
-
+  adaptiveSetup?: AdaptiveSetup;
+  setupHash?: string; // identidad única del setup — evita contaminación entre pruebas
   createdAt: number;
   lastOpenedAt: number;
 }
 
-const BASE_KEY = 'study_sessions_v2';
+const STORAGE_KEY = 'studyal_sessions_v4';
 
-function getStorageKey(): string {
-  return BASE_KEY;
+// ───────────────────────────────────────────────────────────────
+// helpers
+// ───────────────────────────────────────────────────────────────
+// Hash estable del setup para identificar unívocamente cada configuración
+// Dos setups con distintos valores producen hashes distintos
+export function hashSetup(setup: AdaptiveSetup): string {
+  const key = [
+    setup.knowledgeLevel || '',
+    setup.examDateType || '',
+    setup.examDateCustom || '',
+    String(setup.targetScore || 0),
+    (setup.professorExamStyle || []).slice().sort().join(','),
+    setup.evalPreference || '',
+    setup.planView || '',
+  ].join('|');
+  // Hash simple y estable (djb2)
+  let h = 5381;
+  for (let i = 0; i < key.length; i++) {
+    h = ((h << 5) + h) ^ key.charCodeAt(i);
+  }
+  return (h >>> 0).toString(16);
 }
 
-function loadAll(): Record<string, StudySession> {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = localStorage.getItem(getStorageKey());
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    // Migrar sesiones viejas que no tienen processMode
-    const migrated: Record<string, StudySession> = {};
-    for (const [k, v] of Object.entries(parsed)) {
-      const s = v as any;
-      const mode: ProcessMode = s.processMode || s.studyMode || 'free';
-      migrated[k] = {
-        ...s,
-        processMode: mode,
-        studyMode: mode,
-      };
-    }
-    return migrated;
-  } catch { return {}; }
-}
-
-function saveAll(sessions: Record<string, StudySession>) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(getStorageKey(), JSON.stringify(sessions));
-  } catch {}
-}
 
 function normalizeIds(ids: string[]): string {
   return [...new Set((ids || []).map(id => String(id || '').trim()).filter(Boolean))]
@@ -74,7 +67,52 @@ function normalizeIds(ids: string[]): string {
     .join(',');
 }
 
-// ── Obtener todas las sesiones de un tema ──────────────────────
+function normalizeSession(raw: any): StudySession {
+  const mode = (raw?.processMode || raw?.studyMode || 'free') as ProcessMode;
+  return {
+    id: String(raw?.id || ''),
+    temaId: String(raw?.temaId || ''),
+    enfoque: (raw?.enfoque || 'teorico') as Enfoque,
+    processMode: mode,
+    studyMode: mode,
+    materialIds: Array.isArray(raw?.materialIds) ? raw.materialIds.map((x: any) => String(x || '').trim()).filter(Boolean) : [],
+    materialNames: Array.isArray(raw?.materialNames) ? raw.materialNames.map((x: any) => String(x || '').trim()).filter(Boolean) : [],
+    selectedPages: raw?.selectedPages && typeof raw.selectedPages === 'object' ? raw.selectedPages : {},
+    flashcards: Array.isArray(raw?.flashcards) ? raw.flashcards : undefined,
+    adaptiveSetup: raw?.adaptiveSetup || undefined,
+    setupHash: raw?.setupHash || undefined,
+    createdAt: Number(raw?.createdAt || Date.now()),
+    lastOpenedAt: Number(raw?.lastOpenedAt || Date.now()),
+  };
+}
+
+function loadAll(): Record<string, StudySession> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    const normalized: Record<string, StudySession> = {};
+    for (const [key, value] of Object.entries(parsed || {})) {
+      const sess = normalizeSession(value);
+      if (sess.id) normalized[key] = sess;
+    }
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+function saveAll(sessions: Record<string, StudySession>) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+  } catch {}
+}
+
+// ───────────────────────────────────────────────────────────────
+// reads
+// ───────────────────────────────────────────────────────────────
 export function getSessionsByTema(temaId: string): StudySession[] {
   const all = loadAll();
   return Object.values(all)
@@ -82,245 +120,212 @@ export function getSessionsByTema(temaId: string): StudySession[] {
     .sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
 }
 
-// ── Buscar sesión exacta: tema + enfoque + materiales + modo ───
-// El modo libre forma parte de la identidad de la sesión
+export function getSessionById(sessionId: string): StudySession | null {
+  const all = loadAll();
+  return all[sessionId] || null;
+}
+
 export function findSession(
   temaId: string,
-  enfoque: Enfoque,
   materialIds: string[],
   processMode?: ProcessMode,
+  setupHash?: string,
 ): StudySession | null {
   const sessions = getSessionsByTema(temaId);
-  const sortedIds = normalizeIds(materialIds);
+  const matKey = normalizeIds(materialIds);
 
-  // Si se especifica el modo, buscar exacto
-  if (processMode) {
-    const exact = sessions.find(s =>
-      s.enfoque === enfoque &&
-      s.processMode === processMode &&
-      normalizeIds(s.materialIds) === sortedIds
-    );
-    if (exact) return exact;
-  }
+  const matches = sessions.filter(s => {
+    const sameMaterials = normalizeIds(s.materialIds) === matKey;
+    const sameMode = processMode ? s.processMode === processMode : true;
+    // Si se pasa setupHash, filtrar estrictamente por él
+    // Esto evita que un setup diferente contamine otro
+    const sameSetup = setupHash ? s.setupHash === setupHash : true;
+    return sameMaterials && sameMode && sameSetup;
+  });
 
-  // Sin modo especificado: devolver la más reciente de cualquier modo
-  return sessions.find(s =>
-    s.enfoque === enfoque &&
-    normalizeIds(s.materialIds) === sortedIds
-  ) || null;
+  return matches[0] || null;
 }
 
-// ── Sincronizar sesión al servidor (fire & forget) ─────────────
-async function syncSessionToServer(session: StudySession) {
-  if (typeof window === 'undefined') return;
-  try {
-    await fetch('/api/study-sessions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(session),
-    });
-  } catch {}
+export function getMaterialSessions(temaId: string, materialId: string): StudySession[] {
+  const target = String(materialId || '').trim();
+  return getSessionsByTema(temaId).filter(s =>
+    s.materialIds.some(id => String(id || '').trim() === target),
+  );
 }
 
-// ── Crear o actualizar sesión ──────────────────────────────────
-// processMode es OBLIGATORIO — si no se pasa explícitamente, es un bug
+// ───────────────────────────────────────────────────────────────
+// writes
+// ───────────────────────────────────────────────────────────────
 export function upsertSession(params: {
   temaId: string;
   enfoque: Enfoque;
-  processMode: ProcessMode;        // requerido
-  studyMode?: ProcessMode;         // alias — se sincroniza con processMode
+  processMode: ProcessMode;
   materialIds: string[];
+  materialNames?: string[];
   selectedPages?: Record<string, number[]>;
   flashcards?: any[];
-  notes?: any[];
-  materialText?: string;
-  currentPhase?: string;
+  adaptiveSetup?: AdaptiveSetup;
+  setupHash?: string;
 
-  targetScore?: number;
-  examDate?: string;
-  examDateCustom?: string;
+  // aliases viejos / compat
+  studyMode?: any;
+  currentPhase?: any;
+  notes?: any;
+  materialText?: any;
+  targetScore?: any;
+  examDate?: any;
+  examDateCustom?: any;
   materialBlueprint?: any;
   masterySnapshot?: any;
-
-  processStyle?: any;}): StudySession {
+  processStyle?: any;
+}): StudySession {
   const all = loadAll();
-  const cleanMaterialIds = [
-    ...new Set(
-      (params.materialIds || [])
-        .map(id => String(id || '').trim())
-        .filter(Boolean)
-    )
-  ];
-
-  // El modo siempre viene del parámetro — studyMode es alias de processMode
-  const mode: ProcessMode = params.processMode;
-
-  // Buscar sesión existente con MISMO modo
-  const existing = findSession(params.temaId, params.enfoque, cleanMaterialIds, mode);
-
   const now = Date.now();
+
+  const matIds = [...new Set(
+    (params.materialIds || [])
+      .map(id => String(id || '').trim())
+      .filter(Boolean),
+  )].slice(0, 5);
+
+  const mode = (params.processMode || 'free') as ProcessMode;
+  const existing = findSession(params.temaId, matIds, mode);
 
   if (existing) {
     const updated: StudySession = {
       ...existing,
+      enfoque: params.enfoque ?? existing.enfoque,
       processMode: mode,
       studyMode: mode,
+      materialNames: params.materialNames ?? existing.materialNames,
       selectedPages: params.selectedPages ?? existing.selectedPages,
       flashcards: params.flashcards ?? existing.flashcards,
-      notes: params.notes ?? existing.notes,
-      materialText: params.materialText ?? existing.materialText,
-      currentPhase: params.currentPhase ?? existing.currentPhase,
-
-      processStyle: params.processStyle ?? existing.processStyle,
-      targetScore: params.targetScore ?? existing.targetScore,
-      examDate: params.examDate ?? existing.examDate,
-      examDateCustom: params.examDateCustom ?? existing.examDateCustom,
-      materialBlueprint: params.materialBlueprint ?? existing.materialBlueprint,
-      masterySnapshot: params.masterySnapshot ?? existing.masterySnapshot,
+      adaptiveSetup: params.adaptiveSetup ?? existing.adaptiveSetup,
+      setupHash: params.setupHash ?? existing.setupHash,
       lastOpenedAt: now,
     };
     all[existing.id] = updated;
     saveAll(all);
-    syncSessionToServer(updated);
+    syncToServer(updated);
     return updated;
   }
 
-  // Nueva sesión
   const id = 'sess_' + now.toString(36) + Math.random().toString(36).slice(2, 8);
-  const newSession: StudySession = {
+  const session: StudySession = {
     id,
     temaId: params.temaId,
     enfoque: params.enfoque,
     processMode: mode,
     studyMode: mode,
-    materialIds: cleanMaterialIds,
-    selectedPages: params.selectedPages,
+    materialIds: matIds,
+    materialNames: params.materialNames ?? [],
+    selectedPages: params.selectedPages ?? {},
     flashcards: params.flashcards,
-    notes: params.notes,
-    materialText: params.materialText,
-    currentPhase: params.currentPhase,
-
-    processStyle: params.processStyle,
-    targetScore: params.targetScore,
-    examDate: params.examDate,
-    examDateCustom: params.examDateCustom,
-    materialBlueprint: params.materialBlueprint,
-    masterySnapshot: params.masterySnapshot,
+    adaptiveSetup: params.adaptiveSetup,
+    setupHash: params.setupHash,
     createdAt: now,
     lastOpenedAt: now,
   };
-  all[id] = newSession;
+
+  all[id] = session;
   saveAll(all);
-  syncSessionToServer(newSession);
-  return newSession;
+  syncToServer(session);
+  return session;
 }
 
-// ── Eliminar sesión ────────────────────────────────────────────
-export function deleteSession(sessionId: string) {
+export function updateSessionPages(
+  sessionId: string,
+  selectedPages: Record<string, number[]>,
+): void {
+  const all = loadAll();
+  if (!all[sessionId]) return;
+
+  all[sessionId] = {
+    ...all[sessionId],
+    selectedPages,
+    lastOpenedAt: Date.now(),
+  };
+
+  saveAll(all);
+  syncToServer(all[sessionId]);
+}
+
+export function deleteSession(sessionId: string): void {
   const all = loadAll();
   delete all[sessionId];
   saveAll(all);
 }
 
-// ── Sesiones activas de un material ───────────────────────────
-export function getMaterialSessions(temaId: string, materialId: string): StudySession[] {
-  const target = String(materialId || '').trim();
-  return getSessionsByTema(temaId).filter(s =>
-    s.materialIds.some(id => String(id || '').trim() === target)
-  );
-}
-
-// ── Limpiar sesiones huérfanas ─────────────────────────────────
-export function cleanupSessions(temaId: string, existingMaterialIds: string[]) {
-  if (!existingMaterialIds || existingMaterialIds.length === 0) return;
+export function cleanupSessions(temaId: string, existingMaterialIds: string[]): void {
   const all = loadAll();
-  const validSet = new Set(existingMaterialIds.filter(Boolean));
+  const validSet = new Set((existingMaterialIds || []).filter(Boolean));
   if (validSet.size === 0) return;
 
-  let removed = 0;
-  Object.values(all).forEach(s => {
-    if (s.temaId !== temaId) return;
-    const validMats = s.materialIds.filter(id => validSet.has(id));
+  let changed = false;
+
+  for (const [id, s] of Object.entries(all)) {
+    if (s.temaId !== temaId) continue;
+
+    const validMats = s.materialIds.filter(mid => validSet.has(mid));
     if (validMats.length === 0) {
-      delete all[s.id];
-      removed++;
+      delete all[id];
+      changed = true;
     } else if (validMats.length !== s.materialIds.length) {
-      all[s.id] = { ...s, materialIds: validMats };
+      all[id] = {
+        ...s,
+        materialIds: validMats,
+      };
+      changed = true;
     }
-  });
-  if (removed > 0) {
-    saveAll(all);
-    console.log('🧹 Sesiones huérfanas limpiadas:', removed);
   }
+
+  if (changed) saveAll(all);
 }
 
-// ── Migración de keys viejos ───────────────────────────────────
-if (typeof window !== 'undefined') {
-  try {
-    const oldKeys = ['flashka_study_sessions_v1', 'study_sessions_v1_nextauth', 'study_sessions_v1'];
-    for (const oldKey of oldKeys) {
-      const oldData = localStorage.getItem(oldKey);
-      if (oldData) {
-        const newKey = getStorageKey();
-        const existing = localStorage.getItem(newKey);
-        if (!existing) {
-          // Migrar y normalizar processMode
-          try {
-            const parsed = JSON.parse(oldData);
-            const migrated: Record<string, any> = {};
-            for (const [k, v] of Object.entries(parsed)) {
-              const s = v as any;
-              const mode = s.processMode || s.studyMode || 'free';
-              migrated[k] = { ...s, processMode: mode, studyMode: mode };
-            }
-            localStorage.setItem(newKey, JSON.stringify(migrated));
-          } catch {
-            localStorage.setItem(newKey, oldData);
-          }
-        }
-        localStorage.removeItem(oldKey);
-      }
-    }
-  } catch {}
+// ───────────────────────────────────────────────────────────────
+// sync
+// ───────────────────────────────────────────────────────────────
+function syncToServer(session: StudySession): void {
+  if (typeof window === 'undefined') return;
+  // Enviar setupHash y adaptiveSetup al servidor para persistencia robusta
+  fetch('/api/study-sessions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...session,
+      setupHash: session.setupHash,
+      adaptiveSetup: session.adaptiveSetup,
+    }),
+  }).catch(() => {});
 }
 
-// ── Sync desde servidor ────────────────────────────────────────
 export async function syncSessionsFromServer(temaId?: string): Promise<StudySession[]> {
   if (typeof window === 'undefined') return [];
 
   try {
-    const res = await fetch(
-      `/api/study-sessions${temaId ? `?temaId=${encodeURIComponent(temaId)}` : ''}`,
-      { cache: 'no-store' }
-    );
+    const url = `/api/study-sessions${temaId ? `?temaId=${encodeURIComponent(temaId)}` : ''}`;
+    const res = await fetch(url, { cache: 'no-store' });
     const json = await res.json();
 
     if (!res.ok || !json?.success || !Array.isArray(json.sessions)) {
-      return temaId
-        ? getSessionsByTema(temaId)
-        : Object.values(loadAll()).sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
+      return temaId ? getSessionsByTema(temaId) : Object.values(loadAll());
     }
 
     const all = loadAll();
-    for (const sess of json.sessions as StudySession[]) {
+
+    for (const rawSess of json.sessions as any[]) {
+      const sess = normalizeSession(rawSess);
       if (!sess?.id) continue;
-      // Normalizar modo al venir del servidor
-      const mode: ProcessMode = sess.processMode || sess.studyMode || 'free';
-      const normalized: StudySession = { ...sess, processMode: mode, studyMode: mode };
+
       const local = all[sess.id];
       if (!local || Number(sess.lastOpenedAt || 0) >= Number(local.lastOpenedAt || 0)) {
-        all[sess.id] = normalized;
+        all[sess.id] = sess;
       }
     }
 
     saveAll(all);
-
-    return temaId
-      ? getSessionsByTema(temaId)
-      : Object.values(loadAll()).sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
+    return temaId ? getSessionsByTema(temaId) : Object.values(loadAll());
   } catch {
-    return temaId
-      ? getSessionsByTema(temaId)
-      : Object.values(loadAll()).sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
+    return temaId ? getSessionsByTema(temaId) : Object.values(loadAll());
   }
 }

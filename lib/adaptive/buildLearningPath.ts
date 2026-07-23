@@ -47,59 +47,64 @@ function toCanonicalBlueprint(raw: any): CanonicalBlueprint {
   };
 }
 
+// ── Clasificador universal de rol pedagógico ─────────────────────────
+// Funciona para cualquier material: física, química, historia, derecho,
+// matemáticas, idiomas, medicina, ingeniería, etc.
+//
+// Principio: el rol pedagógico de un bloque viene de
+// 1. bloomLevel — qué habilidad cognitiva requiere
+// 2. kind — qué tipo de conocimiento es
+// 3. dependsOn — si depende de otros, va después de ellos
+//
+// NO asumimos ninguna estructura narrativa del material.
+// La estructura emerge del grafo de dependencias.
+
 function classifyBlockRole(block: CanonicalBlock): LearningRole {
-  const label = norm(block.label);
-  const summary = norm(block.summary);
-  const topic = norm(block.topicLabel);
-  const kind = norm(block.kind);
-  const text = `${label} ${summary} ${topic}`;
+  const bloom = (block.bloomLevel || 'understand').toLowerCase();
+  const kind  = (block.kind || 'concept').toLowerCase();
+  const hasDeps = (block.dependsOn || []).length > 0;
+  const importance = block.importance ?? 50;
 
-  // ── PRIORIDAD 1: señales muy fuertes por kind / label ─────────────
-  if (
-    kind === 'formula' ||
-    kind === 'example' ||
-    /equation|ecuacion|formula|spectrum|espectro|transition|transicion|hydrogen|hidrogeno/.test(text)
-  ) return 'application';
-
-  // ── PRIORIDAD 2: topic del blueprint ───────────────────────────────
-  if (/vida|biography|early life|formacion|formación|educacion|educación/.test(topic)) return 'foundation';
-  if (/problema|problem|rutherford/.test(topic)) return 'problem';
-  if (/modelo atomico|atomic model|bohr.*model/.test(topic)) return 'mechanism';
-  if (/mecanica cuantica|quantum mechanic|interpretacion|interpretation|copenhague|copenhagen/.test(topic)) return 'integration';
-  if (/liderazgo|legado|legacy|etica|ethics/.test(topic)) return 'context';
-  if (/contexto|context|general/.test(topic)) return 'foundation';
-
-  // ── PRIORIDAD 3: señales del contenido ─────────────────────────────
-  if (/legacy|legado|technology|tecnolog|leadership|liderazgo|wwii|world war|nobel|institute|collaboration|debate|ethic|history|historia/.test(text)) {
-    return 'context';
-  }
-
-  if (/quantum mechanics|mecanica cuantica|copenhagen|interpretation|philosophical|reality|realidad|knowledge|conocimiento/.test(text)) {
+  // ── REGLA 1: bloom más alto → roles más avanzados ──────────────────
+  // create/evaluate → integration (síntesis, juicio crítico)
+  if (bloom === 'create' || bloom === 'evaluate') {
     return 'integration';
   }
 
-  if (/problem|problema|limitations?|limitaciones?|rutherford|insufficient|insuficiente|mystery|misterio/.test(text)) {
-    return 'problem';
+  // analyze → integration si tiene dependencias, application si no
+  if (bloom === 'analyze') {
+    return hasDeps ? 'integration' : 'application';
   }
 
-  if (/model|modelo|orbit|orbita|energy levels|niveles de energia|atomic structure|estructura atomica/.test(text)) {
-    return 'mechanism';
-  }
+  // ── REGLA 2: kind específico ────────────────────────────────────────
+  // formula + example → siempre application (procedimental)
+  if (kind === 'formula') return 'application';
+  if (kind === 'example') return 'application';
 
-  if (/biography|biografia|born|nacio|education|educacion|who was|quien era/.test(text)) {
-    return 'foundation';
-  }
+  // entity + fact sin dependencias → foundation (contexto básico)
+  if ((kind === 'entity' || kind === 'fact') && !hasDeps) return 'foundation';
 
-  // facts de guerra/nobel → context
-  if (kind === 'fact') {
-    if (/wwii|world war|nobel|prize|escape|collaboration/.test(text)) return 'context';
-    return 'application';
-  }
+  // note → foundation siempre (notas y aclaraciones)
+  if (kind === 'note') return 'foundation';
 
-  if (kind === 'entity' || kind === 'note') return 'foundation';
-  if (kind === 'concept') return 'mechanism';
+  // ── REGLA 3: bloom + dependencias ──────────────────────────────────
+  // apply → application
+  if (bloom === 'apply') return 'application';
 
-  return 'foundation';
+  // understand con dependencias → mechanism (construye sobre algo)
+  if (bloom === 'understand' && hasDeps) return 'mechanism';
+
+  // understand sin dependencias → foundation (conceptos base)
+  if (bloom === 'understand' && !hasDeps) return 'foundation';
+
+  // remember → foundation siempre
+  if (bloom === 'remember') return 'foundation';
+
+  // ── REGLA 4: importancia alta sin clasificar → mechanism ───────────
+  if (importance >= 80 && hasDeps) return 'mechanism';
+
+  // ── FALLBACK ────────────────────────────────────────────────────────
+  return hasDeps ? 'mechanism' : 'foundation';
 }
 
 function buildUnitTitle(role: LearningRole, blocks: CanonicalBlock[]): string {
@@ -143,21 +148,17 @@ function shouldStartNewUnit(
 ): boolean {
   if (currentBlocks.length === 0) return false;
 
-  // cambio de rol pedagógico = nueva unidad
-  if (currentRole !== nextRole) return true;
-
   const prev = currentBlocks[currentBlocks.length - 1];
-  const prevTopic = prev.topicId || prev.topicLabel;
-  const nextTopic = nextBlock.topicId || nextBlock.topicLabel;
+  const sameRole = currentRole === nextRole;
+  const sameTopic = (prev.topicId || prev.topicLabel) === (nextBlock.topicId || nextBlock.topicLabel);
 
-  // foundation/context/integration/application pueden agrupar varios blocks
-  if (currentRole === 'foundation') return false;
-  if (currentRole === 'context') return false;
-  if (currentRole === 'integration') return false;
-  if (currentRole === 'application') return false;
+  // Si es el mismo topic, siempre agrupar (incluso si cambia el rol)
+  // Un topic es una unidad indivisible del material
+  if (sameTopic) return false;
 
-  // problem/mechanism sí se parten si cambia el topic
-  return prevTopic !== nextTopic;
+  // Si cambia el topic: siempre empezar nueva unidad
+  // El rol de la nueva unidad se determina por el primer bloque
+  return true;
 }
 
 function buildRawUnits(blueprint: CanonicalBlueprint): LearningPathUnit[] {
@@ -170,6 +171,17 @@ function buildRawUnits(blueprint: CanonicalBlueprint): LearningPathUnit[] {
 
   function flush() {
     if (!currentBlocks.length || !currentRole) return;
+    // Recalcular el rol dominante de esta unidad
+    // El rol viene del bloque con mayor importance * bloom_weight
+    const bloomWeight: Record<string, number> = {
+      create: 6, evaluate: 5, analyze: 4, apply: 3, understand: 2, remember: 1,
+    };
+    const dominantBlock = currentBlocks.reduce((best, b) => {
+      const scoreA = (best.importance || 50) * (bloomWeight[(best.bloomLevel || 'understand').toLowerCase()] || 2);
+      const scoreB = (b.importance || 50) * (bloomWeight[(b.bloomLevel || 'understand').toLowerCase()] || 2);
+      return scoreB > scoreA ? b : best;
+    }, currentBlocks[0]);
+    currentRole = classifyBlockRole(dominantBlock);
 
     const topicIds = unique(currentBlocks.map(b => b.topicId).filter(Boolean) as string[]);
     const topicLabels = unique(currentBlocks.map(b => b.topicLabel).filter(Boolean));
@@ -335,7 +347,7 @@ function buildCandidateEdges(
   return normalized;
 }
 
-function topologicalSortUnits(
+export function topologicalSortUnits(
   units: LearningPathUnit[],
   edges: LearningPathEdge[],
 ): string[] {
@@ -354,23 +366,17 @@ function topologicalSortUnits(
     inDegree.set(edge.toUnitId, (inDegree.get(edge.toUnitId) || 0) + 1);
   }
 
+  // SOLO ordenar por orderHint (posición en el material)
+  // NUNCA reordenar por ROLE_ORDER — eso viola el orden del documento
   const queue = units
     .filter(u => (inDegree.get(u.id) || 0) === 0)
-    .sort((a, b) => {
-      const r = ROLE_ORDER[a.role] - ROLE_ORDER[b.role];
-      if (r !== 0) return r;
-      return a.orderHint - b.orderHint;
-    });
+    .sort((a, b) => a.orderHint - b.orderHint);
 
   const ordered: string[] = [];
 
   while (queue.length > 0) {
-    queue.sort((a, b) => {
-      const r = ROLE_ORDER[a.role] - ROLE_ORDER[b.role];
-      if (r !== 0) return r;
-      return a.orderHint - b.orderHint;
-    });
-
+    // Siempre tomar el de menor orderHint (respeta el documento)
+    queue.sort((a, b) => a.orderHint - b.orderHint);
     const current = queue.shift()!;
     ordered.push(current.id);
 
@@ -384,10 +390,13 @@ function topologicalSortUnits(
     }
   }
 
-  // Si hay residuos por ciclos raros, agregar en orden estable
-  for (const u of units) {
-    if (!ordered.includes(u.id)) ordered.push(u.id);
-  }
+  // Residuos por ciclos — ordenar por orderHint también
+  const sortedSet = new Set(ordered);
+  const residuals = units
+    .filter(u => !sortedSet.has(u.id))
+    .sort((a, b) => a.orderHint - b.orderHint);
+
+  for (const u of residuals) ordered.push(u.id);
 
   return ordered;
 }

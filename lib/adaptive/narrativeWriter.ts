@@ -27,6 +27,12 @@ function addArticle(s: string): string {
   // ya tiene artículo
   if (/^(el |la |los |las |un |una |del |de la |de los )/.test(lower)) return s;
 
+  // TÍTULOS COMPUESTOS: si tiene "y" o empieza con mayúscula y tiene 3+ palabras
+  // es probablemente un nombre propio o título — no agregar artículo
+  const words = s.trim().split(' ');
+  if (words.length >= 3 && /^[A-ZÁÉÍÓÚ]/.test(words[0])) return s;
+  if (lower.includes(' y ') && words.length >= 3) return s;
+
   // masculinos comunes
   if (
     /^(modelo|sistema|problema|proceso|principio|método|concepto|ciclo|período|elemento|factor|fenómeno|mecanismo|impacto|análisis|papel|rol|trabajo|legado|recorrido|contexto|uso|efecto|tipo|nivel|campo)/.test(lower)
@@ -43,8 +49,10 @@ function addArticle(s: string): string {
     return `las ${s}`;
   }
 
-  // fallback: artículo "el" para sustantivos no identificados
-  return `el ${s}`;
+  // Para títulos de una sola palabra que no matchean, mejor sin artículo
+  if (words.length === 1) return s;
+
+  return s;
 }
 
 // Corregir "de el" → "del", "de la" ya está bien
@@ -94,33 +102,37 @@ function narrativeIntro(
 ): string {
   const t = topicDisplay;
 
+  // Frases de apertura diseñadas para funcionar con cualquier tipo de material
+  // t = clean(topicLabel) — definido al inicio de writeNarrative
   const intros: Partial<Record<LearningRole, string>> = {
-    foundation:
-      `Antes de entrar al tema central, explorarás el contexto de ${t} `
-      + `para que cada idea nueva encaje desde el principio.`,
+    foundation: t
+      ? `Antes de avanzar, explorarás ${t} para que cada idea que viene tenga una base sólida.`
+      : `Antes de avanzar, explorarás el contexto y los conceptos necesarios para entender lo que sigue.`,
 
-    problem:
-      `Descubrirás qué pregunta seguía sin respuesta antes de ${t} `
-      + `y entenderás por qué esa limitación hizo necesaria una nueva explicación.`,
+    problem: t
+      ? `Descubrirás cuál es el problema o la pregunta central de ${t} y por qué fue necesario resolverlo.`
+      : `Descubrirás el problema o la pregunta central que hace necesario avanzar hacia una solución.`,
 
     mechanism:
       bloom === 'apply' || bloom === 'analyze'
-        ? `Analizarás cómo funciona ${t} `
-          + `y aplicarás esa idea a situaciones concretas del material.`
-        : `Explorarás ${t} desde adentro `
-          + `y verás por qué esa explicación da sentido al resto del recorrido.`,
+        ? (t
+            ? `Comprenderás cómo funciona ${t} y lo aplicarás a situaciones concretas del material.`
+            : `Comprenderás la explicación central y aprenderás a aplicarla en contextos concretos.`)
+        : (t
+            ? `Explorarás cómo funciona ${t} y por qué esa explicación da sentido al resto del recorrido.`
+            : `Explorarás la explicación central y verás por qué da sentido a lo que sigue.`),
 
-    application:
-      `Verás cómo las ideas anteriores se prueban frente a la evidencia real `
-      + `y resolverás los casos más importantes del material.`,
+    application: t
+      ? `Aplicarás lo aprendido sobre ${t} a la evidencia y los casos más importantes del material.`
+      : `Aplicarás la explicación principal a la evidencia y los casos concretos del material.`,
 
-    integration:
-      `Conectarás las ideas que fuiste construyendo hasta aquí `
-      + `y entenderás cómo juntas cambiaron la manera de pensar sobre el tema.`,
+    integration: t
+      ? `Conectarás las ideas anteriores para entender cómo se relacionan con ${t} y qué revelan juntas.`
+      : `Conectarás las ideas que fuiste construyendo y verás cómo se integran en una comprensión más completa.`,
 
-    context:
-      `Evaluarás el alcance de todo lo aprendido: `
-      + `cómo transformó el campo, quién lo impulsó y qué dejó para el futuro.`,
+    context: t
+      ? `Evaluarás el alcance de ${t}: cómo influyó en el campo, qué dejó como legado y por qué sigue siendo relevante.`
+      : `Evaluarás el impacto, el legado y la relevancia de todo lo aprendido más allá del contenido central.`,
   };
 
   return intros[role] || `En esta sesión avanzarás en ${t}.`;

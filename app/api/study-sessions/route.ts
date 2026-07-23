@@ -79,6 +79,8 @@ export async function POST(req: NextRequest) {
         exam_date_custom: body.examDateCustom || null,
         material_blueprint: body.materialBlueprint || null,
         mastery_snapshot: body.masterySnapshot || null,
+        adaptive_setup: body.adaptiveSetup || null,
+        setup_hash: body.setupHash || null,
         created_at: body.createdAt || Date.now(),
         last_opened_at: body.lastOpenedAt || Date.now(),
       }),
