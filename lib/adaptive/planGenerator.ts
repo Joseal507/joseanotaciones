@@ -49,13 +49,13 @@ export interface LegacyStudyPlan {
   cognitiveUnits: any[];
 }
 
-export function generateStudyPlan(
+export async function generateStudyPlan(
   rawBlueprint: any,
   setup: AdaptiveSetup,
   _userProfile: any,
   materialTitle: string,
-): LegacyStudyPlan {
-  const journey = buildLearningJourney(rawBlueprint, setup, materialTitle);
+): Promise<LegacyStudyPlan> {
+  const journey = await buildLearningJourney(rawBlueprint, setup, materialTitle);
 
   const sessions: LegacyPlanSession[] = journey.chapters.map(ch => ({
     sessionNumber: ch.chapterNumber,

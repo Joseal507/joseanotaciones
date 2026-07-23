@@ -1,5 +1,6 @@
 import type { AdaptiveSetup } from '../studySessions';
 import { buildLearningPath } from './buildLearningPath';
+import { writeSessionCopyWithAI, generateFallbackCopy, type SessionCopyInput } from './sessionCopyWriter';
 import { buildLearningArcs } from './buildLearningArcs';
 import { buildChaptersFromArcs } from './buildChaptersFromArcs';
 import { personalizeJourney } from './personalizeJourney';
@@ -176,11 +177,11 @@ function buildFinalChapter(
   };
 }
 
-export function buildLearningJourney(
+export async function buildLearningJourney(
   rawBlueprint: any,
   setup: AdaptiveSetup,
   materialTitle: string,
-): LearningJourney {
+): Promise<LearningJourney> {
   const clean = cleanTitle(materialTitle);
 
   const path = buildLearningPath(rawBlueprint);
@@ -215,5 +216,48 @@ export function buildLearningJourney(
     blueprintVersion: rawBlueprint?.version || 1,
   };
 
-  return personalizeJourney(baseJourney, setup);
+  // IA escribe títulos e introducciones específicos del material
+  // Incluir TODAS las sesiones para que la IA pueda nombrarlas
+  // incluyendo intro y final (que también necesitan nombres específicos del material)
+  const learningChs = chapters.filter(ch => ch.type !== 'intro'); // la intro ya tiene nombre fijo
+
+  if (learningChs.length > 0) {
+    const copyInputs: SessionCopyInput[] = learningChs.map((ch, idx) => ({
+      sessionNumber: ch.chapterNumber,
+      role: String(ch.arcRole || 'mechanism'),
+      topicLabel: ch.title,
+      concepts: (ch.concepts || []).slice(0, 5),
+      previousSessionTopic: idx > 0 ? learningChs[idx - 1].title : undefined,
+      nextSessionTopic: idx < learningChs.length - 1 ? learningChs[idx + 1].title : undefined,
+      blockCount: (ch.blockIds || []).length,
+    }));
+
+    try {
+      const aiCopies = await writeSessionCopyWithAI(copyInputs, clean, setup);
+      for (let i = 0; i < learningChs.length; i++) {
+        const ch = learningChs[i];
+        const copy = aiCopies[i];
+        if (!copy) continue;
+        const idx = chapters.findIndex(c => c.chapterNumber === ch.chapterNumber);
+        if (idx !== -1) {
+          chapters[idx] = {
+            ...chapters[idx],
+            title: copy.title || ch.title,
+            hook: copy.intro || ch.hook,
+            objective: copy.intro || ch.objective,
+          };
+        }
+      }
+      console.log(`[SessionCopyWriter] ${aiCopies.length} títulos escritos con IA`);
+    } catch (err: any) {
+      console.error('[SessionCopyWriter] Fallback:', err?.message);
+    }
+  }
+
+  const finalJourney: LearningJourney = {
+    ...baseJourney,
+    chapters,
+  };
+
+  return personalizeJourney(finalJourney, setup);
 }
