@@ -115,11 +115,15 @@ export async function writeSessionCopyWithAI(
   sessions: SessionCopyInput[],
   materialTitle: string,
   setup: AdaptiveSetup,
+  baseUrl?: string,
 ): Promise<SessionCopy[]> {
   if (sessions.length === 0) return [];
 
   try {
-    const res = await fetch('/api/adaptive/session-copy', {
+    const sessionCopyUrl = baseUrl
+      ? `${baseUrl}/api/adaptive/session-copy`
+      : '/api/adaptive/session-copy';
+    const res = await fetch(sessionCopyUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sessions, materialTitle, setup }),

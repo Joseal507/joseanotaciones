@@ -36,6 +36,10 @@ function intersects(a: number[] = [], b: number[] = []) {
   return a.some(x => sb.has(x));
 }
 
+// Si un topic tiene demasiados bloques, se divide en subunidades
+// para que ninguna sesión quede sobrecargada
+const MAX_BLOCKS_PER_UNIT = 8;
+
 function toCanonicalBlueprint(raw: any): CanonicalBlueprint {
   const blocks = raw?.blocks?.length
     ? raw.blocks
@@ -198,12 +202,10 @@ function buildRawUnits(blueprint: CanonicalBlueprint): LearningPathUnit[] {
   const sortedBlocks = [...blueprint.blocks].sort((a, b) => a.globalOrder - b.globalOrder);
   const units: LearningPathUnit[] = [];
 
-
-  // REGLA: 1 topicId = 1 unidad. Siempre.
-  // Nunca partir un topic en múltiples unidades.
-  // El rol de la unidad = rol del bloque más importante (mayor importance × bloomWeight)
+  // REGLA: 1 topicId = 1 unit, salvo que tenga demasiados bloques
+  // En ese caso, se divide en subunidades para evitar sesiones sobrecargadas
   const byTopic = new Map<string, CanonicalBlock[]>();
-  const topicOrder: string[] = []; // preservar el orden del primer bloque
+  const topicOrder: string[] = [];
 
   for (const block of sortedBlocks) {
     const key = block.topicId || block.topicLabel || '__notopic__';
@@ -222,53 +224,84 @@ function buildRawUnits(blueprint: CanonicalBlueprint): LearningPathUnit[] {
     const topicBlocks = byTopic.get(topicKey) || [];
     if (!topicBlocks.length) continue;
 
-    // Rol dominante = bloque con mayor importance × bloomWeight
-    const dominantBlock = topicBlocks.reduce((best, b) => {
-      const scoreA = (best.importance || 50) * (bloomWeight[(best.bloomLevel || 'understand').toLowerCase()] || 2);
-      const scoreB = (b.importance || 50) * (bloomWeight[(b.bloomLevel || 'understand').toLowerCase()] || 2);
-      return scoreB > scoreA ? b : best;
-    }, topicBlocks[0]);
+    // Dividir topics grandes en chunks de MAX_BLOCKS_PER_UNIT
+    const chunks: CanonicalBlock[][] = [];
+    if (topicBlocks.length <= MAX_BLOCKS_PER_UNIT) {
+      chunks.push(topicBlocks);
+    } else {
+      // Dividir por la mitad si es mayor que el máximo
+      // Intentar dividir en puntos de baja importancia para no cortar conceptos clave
+      const mid = Math.ceil(topicBlocks.length / Math.ceil(topicBlocks.length / MAX_BLOCKS_PER_UNIT));
+      for (let i = 0; i < topicBlocks.length; i += mid) {
+        chunks.push(topicBlocks.slice(i, i + mid));
+      }
+    }
 
-    const role = classifyBlockRole(dominantBlock);
+    chunks.forEach((chunk, chunkIdx) => {
+      // Rol dominante = bloque con mayor importance × bloomWeight
+      const dominantBlock = chunk.reduce((best, b) => {
+        const scoreA = (best.importance || 50) * (bloomWeight[(best.bloomLevel || 'understand').toLowerCase()] || 2);
+        const scoreB = (b.importance || 50) * (bloomWeight[(b.bloomLevel || 'understand').toLowerCase()] || 2);
+        return scoreB > scoreA ? b : best;
+      }, chunk[0]);
 
-    const topicIds = [...new Set(topicBlocks.map(b => b.topicId).filter(Boolean) as string[])];
-    const topicLabels = [...new Set(topicBlocks.map(b => b.topicLabel).filter(Boolean))];
-    const blockIds = topicBlocks.map(b => b.id);
-    const pages = [...new Set(topicBlocks.flatMap(b => b.pages || []))].sort((a, b) => a - b);
-    const concepts = topicBlocks
-      .filter(b => ['concept', 'definition', 'formula', 'entity'].includes((b.kind || '').toLowerCase()))
-      .map(b => b.label)
-      .filter(Boolean);
+      const role = classifyBlockRole(dominantBlock);
 
-    const cogLoad = topicBlocks.length
-      + topicBlocks.filter(b => (b.difficulty || '') === 'advanced').length * 2
-      + topicBlocks.filter(b => (b.kind || '') === 'formula').length * 1.5
-      + topicBlocks.filter(b => (b.importance || 0) >= 80).length * 0.5;
+      const topicIds = [...new Set(chunk.map(b => b.topicId).filter(Boolean) as string[])];
+      const topicLabels = [...new Set(chunk.map(b => b.topicLabel).filter(Boolean))];
+      const blockIds = chunk.map(b => b.id);
+      const pages = [...new Set(chunk.flatMap(b => b.pages || []))].sort((a, b) => a - b);
+      const concepts = chunk
+        .filter(b => ['concept', 'definition', 'formula', 'entity'].includes((b.kind || '').toLowerCase()))
+        .map(b => b.label)
+        .filter(Boolean);
 
-    const highImportanceCount = topicBlocks.filter(b => (b.importance || 0) >= 70).length;
+      const cogLoad = chunk.length
+        + chunk.filter(b => (b.difficulty || '') === 'advanced').length * 2
+        + chunk.filter(b => (b.kind || '') === 'formula').length * 1.5
+        + chunk.filter(b => (b.importance || 0) >= 80).length * 0.5;
 
-    units.push({
-      id: `unit_${units.length}`,
-      topicId: topicIds[0] || null,
-      topicLabel: topicLabels[0] || topicKey,
-      blockIds,
-      pages,
-      concepts,
-      globalOrderStart: topicBlocks[0].globalOrder,
-      orderHint: topicBlocks[0].globalOrder,
-      cognitiveLoad: cogLoad,
-      difficultyBreakdown: {
-        basic: topicBlocks.filter(b => b.difficulty === 'basic').length,
-        intermediate: topicBlocks.filter(b => b.difficulty === 'intermediate').length,
-        advanced: topicBlocks.filter(b => b.difficulty === 'advanced').length,
-      },
-      highImportanceCount,
-      formulaCount: topicBlocks.filter(b => (b.kind || '') === 'formula').length,
-      bloomLevels: [...new Set(topicBlocks.map(b => b.bloomLevel as any).filter(Boolean))],
-      dependsOnTopicIds: [],
-      role,
-      topicLabels,
-    } as any);
+      const highImportanceCount = chunk.filter(b => (b.importance || 0) >= 70).length;
+
+      // Si es un chunk de división, añadir índice al topicLabel
+      // Usar el primer concepto/entidad del chunk si el topicLabel es genérico
+      const GENERIC_LABEL = /^(contexto|context|general|introduccion|overview|misc|parte\s+\d+)/i;
+      const baseLabel = topicLabels[0] || topicKey;
+      const firstConcept = chunk.find(b =>
+        ['concept', 'entity', 'definition'].includes((b.kind || '').toLowerCase())
+      )?.label || '';
+
+      const effectiveLabel = GENERIC_LABEL.test(baseLabel) && firstConcept
+        ? firstConcept
+        : baseLabel;
+
+      const unitLabel = chunks.length > 1
+        ? `${effectiveLabel} (parte ${chunkIdx + 1})`
+        : effectiveLabel;
+
+      units.push({
+        id: `unit_${units.length}`,
+        topicId: topicIds[0] || null,
+        topicLabel: unitLabel,
+        blockIds,
+        pages,
+        concepts,
+        globalOrderStart: chunk[0].globalOrder,
+        orderHint: chunk[0].globalOrder,
+        cognitiveLoad: cogLoad,
+        difficultyBreakdown: {
+          basic: chunk.filter(b => b.difficulty === 'basic').length,
+          intermediate: chunk.filter(b => b.difficulty === 'intermediate').length,
+          advanced: chunk.filter(b => b.difficulty === 'advanced').length,
+        },
+        highImportanceCount,
+        formulaCount: chunk.filter(b => (b.kind || '') === 'formula').length,
+        bloomLevels: [...new Set(chunk.map(b => b.bloomLevel as any).filter(Boolean))],
+        dependsOnTopicIds: [],
+        role,
+        topicLabels: [unitLabel],
+      } as any);
+    });
   }
 
   return units;

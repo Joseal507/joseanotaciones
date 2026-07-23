@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 
 // Caché simple para deduplicar llamadas dobles (StrictMode en development)
 const recentCache = new Map<string, { result: any; timestamp: number }>();
-const CACHE_TTL = 8000; // 8 segundos
+const CACHE_TTL = 30000; // 30 segundos
 
 function hashPayload(sessions: any[], materialTitle: string, setup: any): string {
   const key = `${materialTitle}|${setup.examDateType}|${setup.knowledgeLevel}|${sessions.length}`;

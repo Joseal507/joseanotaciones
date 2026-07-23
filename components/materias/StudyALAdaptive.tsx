@@ -383,11 +383,24 @@ export default function StudyALAdaptive({
     // async IIFE para poder usar await dentro de useEffect
     (async () => {
     try {
-      const j = await buildLearningJourney(
-        blueprint,
-        setup,
-        materialNames[0] || "Material",
-      );
+      // Llamar al servidor para generar el journey
+      // Esto evita el double-call de StrictMode y mantiene las keys seguras
+      const res = await fetch('/api/adaptive/generate-plan', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          blueprint,
+          setup,
+          materialTitle: materialNames[0] || "Material",
+        }),
+      });
+
+      const data = await res.json();
+      if (!data.success || !data.journey) {
+        throw new Error(data.error || 'No se pudo generar el plan');
+      }
+
+      const j = data.journey;
       setJourney(j);
       setJourneyError(null);
     } catch (err: any) {

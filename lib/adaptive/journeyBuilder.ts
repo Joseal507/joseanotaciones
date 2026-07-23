@@ -181,6 +181,7 @@ export async function buildLearningJourney(
   rawBlueprint: any,
   setup: AdaptiveSetup,
   materialTitle: string,
+  baseUrl?: string,
 ): Promise<LearningJourney> {
   const clean = cleanTitle(materialTitle);
 
@@ -235,7 +236,7 @@ export async function buildLearningJourney(
     }));
 
     try {
-      const aiCopies = await writeSessionCopyWithAI(copyInputs, clean, setup);
+      const aiCopies = await writeSessionCopyWithAI(copyInputs, clean, setup, baseUrl);
       for (let i = 0; i < learningChs.length; i++) {
         const ch = learningChs[i];
         const copy = aiCopies[i];
