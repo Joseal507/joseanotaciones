@@ -13,6 +13,7 @@ export interface BlueprintQualityMetrics {
   relationCount: number;
   highImportanceBlocks: number;
   textContainsFormulaLike: boolean;
+  fallbackBlocks: number;
 }
 
 export interface BlueprintQualityResult {
@@ -193,6 +194,8 @@ export function evaluateBlueprintQuality(blueprint: any): BlueprintQualityResult
     looksFormula(`${b?.label || ''} ${b?.summary || ''}`)
   );
 
+  const fallbackBlocks = blocks.filter((b: any) => b?._fallback === true).length;
+
   const metrics: BlueprintQualityMetrics = {
     totalBlocks,
     concepts: conceptBlocks.length,
@@ -206,6 +209,7 @@ export function evaluateBlueprintQuality(blueprint: any): BlueprintQualityResult
     relationCount,
     highImportanceBlocks: blocks.filter(b => (b.importance ?? 0) >= 80).length,
     textContainsFormulaLike,
+    fallbackBlocks,
   };
 
   const reasons: string[] = [];
@@ -222,12 +226,16 @@ export function evaluateBlueprintQuality(blueprint: any): BlueprintQualityResult
     reasons.push('Se detectó patrón de fórmula en el texto pero no hay bloques fórmula');
   }
 
-  if (metrics.entities < 2 && metrics.totalBlocks >= 15) {
-    reasons.push('Muy pocas entidades detectadas para el tamaño del material');
-  }
+  // Las entidades (personas, lugares) solo son relevantes en materiales históricos/narrativos
+  // Para materiales científicos/matemáticos, 0 entidades es completamente normal
+  // No marcar como degraded por falta de entidades
 
   if (metrics.relationCount < 3 && metrics.totalBlocks >= 15) {
     reasons.push('Muy pocas relaciones/dependencias para el tamaño del material');
+  }
+
+  if (metrics.fallbackBlocks > 0) {
+    reasons.push(`Hay ${metrics.fallbackBlocks} bloques recuperados por fallback`);
   }
 
   const status: BlueprintQualityStatus = reasons.length > 0 ? 'degraded' : 'complete';

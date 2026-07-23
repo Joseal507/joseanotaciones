@@ -181,6 +181,7 @@ export default function StudyALAdaptive({
   const journeyReady = Boolean(journey && journey.chapters && journey.chapters.length > 0);
 
   const prerequisitesReady = setupReady && blueprintReady && !blueprintDegraded;
+  // Si degraded, mostrar error claro en vez del plan
   const canShowPlan = journeyReady;
   const showGeneratingPlan = prerequisitesReady && !journeyReady && !journeyError;
   const showIncompleteMessage = !blueprintLoading && !prerequisitesReady && !journeyError;
@@ -392,10 +393,20 @@ export default function StudyALAdaptive({
           blueprint,
           setup,
           materialTitle: materialNames[0] || "Material",
+          quality: blueprintQuality,  // pasar quality para que el servidor pueda bloquear
         }),
       });
 
       const data = await res.json();
+
+      // Si el blueprint está degradado, el servidor devuelve 422
+      if (res.status === 422 && data.degraded) {
+        setJourney(null);
+        setBlueprintQuality(data.quality || blueprintQuality);
+        setJourneyError('El análisis del material quedó incompleto. Intenta regenerar el análisis.');
+        return;
+      }
+
       if (!data.success || !data.journey) {
         throw new Error(data.error || 'No se pudo generar el plan');
       }
@@ -770,18 +781,9 @@ export default function StudyALAdaptive({
                             opacity: isLocked ? 0.65 : 1,
                             transition: "all .2s",
                           }}>
-                            {/* Arc label + número */}
+                            {/* Solo número de sesión */}
                             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                              <span style={{
-                                fontSize: 11, padding: "2px 8px",
-                                background: `${chapterColor}18`, color: chapterColor,
-                                borderRadius: 999, fontWeight: 700,
-                              }}>
-                                {chapter.type === "intro"
-                                ? "Fundamentos"
-                                : roleBadge(chapter.arcRole)}
-                              </span>
-                              <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                              <span style={{ fontSize: 12, color: "var(--text-faint)", fontWeight: 700 }}>
                                 Sesión {chapter.chapterNumber}
                               </span>
                             </div>

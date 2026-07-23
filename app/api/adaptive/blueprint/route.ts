@@ -60,7 +60,12 @@ function segmentTextByCode(
   const PAGE_MARKER_SPLIT = /(?=\[(?:Pagina|Página|Page|pág|pg|p)\.?\s*\d+\])/gi;
   const PAGE_MARKER_CLEAN = /\[(?:Pagina|Página|Page|pág|pg|p)\.?\s*\d+\]/gi;
 
-  const normalizedText = String(text || '')
+  const rawText = String(text || '');
+  if (rawText.startsWith('%PDF') || rawText.includes('obj\n<<')) {
+    console.error('❌ ERROR: Se recibió binario de PDF en lugar de texto extraído');
+    return []; 
+  }
+  const normalizedText = rawText
     .replace(/\f/g, '\n')
     .replace(/\r/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -213,7 +218,7 @@ function segmentTextByCode(
 // ─── Paso 2: agrupar segmentos en chunks para IA ─────────────
 function groupSegmentsIntoChunks(
   segments: RawSegment[],
-  maxCharsPerChunk = 6000,
+  maxCharsPerChunk = 7000, // igual que flashcards: más contexto por pasada
 ): RawSegment[][] {
   const chunks: RawSegment[][] = [];
   let current: RawSegment[] = [];
@@ -240,13 +245,10 @@ async function enrichChunkWithAI(
   totalChunks: number,
   materialName: string,
 ): Promise<any[]> {
+  const toNumberedText = (segs: RawSegment[]) =>
+    segs.map((s, i) => `[${i}] (p.${s.pageHint}) ${s.text}`).join('\n\n');
 
-  // Preparar el texto para IA con índices para que pueda referenciar
-  const numberedText = segments
-    .map((s, i) => `[${i}] (p.${s.pageHint}) ${s.text}`)
-    .join('\n\n');
-
-  const prompt = `You are a pedagogical knowledge modeler for an adaptive study system.
+  const toPrompt = (numberedText: string) => `You are a pedagogical knowledge modeler for an adaptive study system.
 
 I will give you ${segments.length} numbered text segments from "${materialName}".
 Your job: classify and enrich each segment as a knowledge block.
@@ -262,28 +264,19 @@ CLASSIFICATION RULES:
 - common_mistake: a frequent student misconception
 - note: supporting context, restatements, or redundant content
 
-CLASSIFICATION GUIDE:
-- "Niels Bohr" alone → entity
-- "Bohr proposed quantized orbits to solve atomic stability" → concept
-- "En = -13.6 eV/n²" → formula
-- "Bohr received the Nobel Prize in 1922" → fact
-- Biographical details (born, studied, escaped) → entity or fact, NOT concept
-
-ANTI-REDUNDANCY RULES — CRITICAL:
+ANTI-REDUNDANCY RULES:
 - Each label must be UNIQUE. Never repeat a label.
 - If two segments say similar things, merge into ONE block.
-- Do NOT create "Bohr's Impact" + "Impact of Bohr's Work" + "Bohr's Contributions" — same idea, ONE label.
 - If a segment restates a previous one → classify as "note", importance 30-45.
-- Maximum 1 block per core idea: atomic model, energy levels, hydrogen spectrum, Copenhagen interpretation, legacy, biography.
+- Maximum 1 block per core idea in this chunk.
 
-IMPORTANCE SCALE — USE THE FULL RANGE, NO INFLATION:
-- 90-100: Most testable concept in document (max 2-3 blocks total)
-- 75-89: Important, likely on exam (4-6 blocks)
-- 55-74: Useful context, might appear on exam (4-6 blocks)
-- 30-54: Background, unlikely on exam
-- 0-29: Redundant or decorative
-- RULE: No two blocks can have the exact same importance score.
-- RULE: Do NOT assign 90+ to more than 3 blocks per chunk.
+IMPORTANCE SCALE:
+- 90-100: most testable concept in document
+- 75-89: important, likely on exam
+- 55-74: useful context
+- 30-54: background
+- 0-29: redundant or decorative
+- No two blocks can have the exact same importance score.
 
 DIFFICULTY:
 - basic: facts, names, dates, simple definitions
@@ -297,31 +290,30 @@ ${numberedText}
 KNOWLEDGE GRAPH RULES:
 - relations: list of directional edges from this block to others
 - relation types:
-  * "requires": student must know X before understanding this
-  * "explains": this block explains or proves X
-  * "causes": this leads to X as a consequence
-  * "contrasts": this is different from X in an important way
-  * "extends": this builds on top of X
-  * "example_of": this is a concrete case of X
-- Only add relations that are EXPLICIT in the text. Do not invent.
-- A block can have 0-3 relations maximum.
-- misconceptions: common student errors about THIS specific block (max 2)
+  * "requires"
+  * "explains"
+  * "causes"
+  * "contrasts"
+  * "extends"
+  * "example_of"
+- Only add relations that are EXPLICIT in the text.
+- misconceptions: max 2 per block
 
-Return ONLY valid JSON — no markdown, no explanation:
+Return ONLY valid JSON:
 {
   "blocks": [
     {
       "segmentIndex": 0,
       "kind": "concept",
-      "label": "Unique label max 10 words, never repeated across blocks",
-      "summary": "2-3 sentences: what it teaches, why it matters, what it proves",
+      "label": "Unique label max 10 words",
+      "summary": "2-3 sentences",
       "topicLabel": "parent topic from actual text, max 6 words",
       "dependsOn": ["prerequisite concept label"],
       "relatedTo": ["related concept label"],
       "relations": [
         { "type": "requires | explains | causes | contrasts | extends | example_of", "target": "label of target block" }
       ],
-      "misconceptions": ["common student mistake about this specific block"],
+      "misconceptions": ["common student mistake"],
       "importance": 80,
       "difficulty": "intermediate",
       "examTypes": ["mcq", "open_ended"],
@@ -331,6 +323,43 @@ Return ONLY valid JSON — no markdown, no explanation:
     }
   ]
 }`;
+
+  const mapParsedBlocks = (parsedBlocks: any[], segs: RawSegment[]) => {
+    return parsedBlocks.map((b: any) => {
+      const segIdx = typeof b.segmentIndex === 'number' ? b.segmentIndex : 0;
+      const seg = segs[segIdx] || segs[0];
+
+      return {
+        kind: b.kind || 'note',
+        label: String(b.label || '').trim(),
+        summary: String(b.summary || '').trim(),
+        materialId: seg.materialId,
+        materialName: seg.materialName,
+        pages: [seg.pageHint],
+        pageHint: seg.pageHint,
+        globalOrder: seg.order,
+        topicLabel: String(b.topicLabel || b.label || '').trim(),
+        dependsOn: Array.isArray(b.dependsOn) ? b.dependsOn : [],
+        relatedTo: Array.isArray(b.relatedTo) ? b.relatedTo : [],
+        relations: Array.isArray(b.relations)
+          ? b.relations.filter((r: any) => r && typeof r.type === 'string' && typeof r.target === 'string')
+          : [],
+        misconceptions: Array.isArray(b.misconceptions)
+          ? b.misconceptions.filter((m: any) => typeof m === 'string')
+          : [],
+        importance: typeof b.importance === 'number' ? Math.max(0, Math.min(100, b.importance)) : 50,
+        difficulty: ['basic', 'intermediate', 'advanced'].includes(b.difficulty) ? b.difficulty : 'basic',
+        examTypes: Array.isArray(b.examTypes) ? b.examTypes : [],
+        bloomLevel: typeof b.bloomLevel === 'string' ? b.bloomLevel : 'understand',
+        examProbability: typeof b.examProbability === 'number' ? Math.max(0, Math.min(100, b.examProbability)) : 50,
+        estimatedMinutes: typeof b.estimatedMinutes === 'number' ? b.estimatedMinutes : 2,
+        _fallback: false,
+      };
+    });
+  };
+
+  const numberedText = toNumberedText(segments);
+  const prompt = toPrompt(numberedText);
 
   try {
     const parsed = await alaiJson({
@@ -348,57 +377,70 @@ Return ONLY valid JSON — no markdown, no explanation:
     const hasExamProb = parsed.blocks.some((b: any) => typeof b.examProbability === 'number');
     console.log(`AI response debug: blocks=${parsed.blocks.length} relations=${hasRelations} misconceptions=${hasMisc} bloom=${hasBloom} examProbability=${hasExamProb}`);
 
-    // Combinar resultado de IA con datos de código (páginas, orden, materialId)
-    return parsed.blocks.map((b: any) => {
-      const segIdx = typeof b.segmentIndex === 'number' ? b.segmentIndex : 0;
-      const seg = segments[segIdx] || segments[0];
-
-      return {
-        kind: b.kind || 'note',
-        label: String(b.label || '').trim(),
-        summary: String(b.summary || '').trim(),
-        materialId: seg.materialId,
-        materialName: seg.materialName,
-        pages: [seg.pageHint],
-        pageHint: seg.pageHint,
-        globalOrder: seg.order,
-        topicLabel: String(b.topicLabel || b.label || '').trim(),
-        dependsOn: Array.isArray(b.dependsOn) ? b.dependsOn : [],
-        relatedTo: Array.isArray(b.relatedTo) ? b.relatedTo : [],
-        relations: Array.isArray(b.relations) ? b.relations.filter((r: any) =>
-          r && typeof r.type === 'string' && typeof r.target === 'string'
-        ) : [],
-        misconceptions: Array.isArray(b.misconceptions) ? b.misconceptions.filter((m: any) => typeof m === 'string') : [],
-        importance: typeof b.importance === 'number' ? Math.max(0, Math.min(100, b.importance)) : 50,
-        difficulty: ['basic', 'intermediate', 'advanced'].includes(b.difficulty) ? b.difficulty : 'basic',
-        examTypes: Array.isArray(b.examTypes) ? b.examTypes : [],
-        bloomLevel: typeof b.bloomLevel === 'string' ? b.bloomLevel : 'understand',
-        examProbability: typeof b.examProbability === 'number' ? Math.max(0, Math.min(100, b.examProbability)) : 50,
-        estimatedMinutes: typeof b.estimatedMinutes === 'number' ? b.estimatedMinutes : 2,
-      };
-    });
+    return mapParsedBlocks(parsed.blocks, segments);
   } catch (e: any) {
     console.error(`Chunk ${chunkIndex + 1} AI error:`, e?.message);
+    console.log(`Chunk ${chunkIndex + 1}: reintentando secuencialmente (${segments.length} segmentos)...`);
 
-    // Fallback: código solo sin IA
-    return segments.map(seg => ({
-      kind: 'note' as const,
-      label: seg.text.slice(0, 60) + (seg.text.length > 60 ? '...' : ''),
-      summary: seg.text.slice(0, 200),
+    const allRetried: any[] = [];
+
+    const retrySizes = segments.length > 8
+      ? [Math.ceil(segments.length / 2), 1]
+      : [1];
+
+    for (const size of retrySizes) {
+      for (let startSeg = 0; startSeg < segments.length; startSeg += size) {
+        const part = segments.slice(startSeg, startSeg + size);
+        const partText = toNumberedText(part);
+
+        try {
+          const retried = await alaiJson({
+            messages: [{ role: 'user', content: toPrompt(partText) }],
+            temperature: 0,
+            maxTokens: Math.min(2200, 500 + part.length * 350),
+            json: true,
+          });
+
+          if (retried?.blocks?.length) {
+            allRetried.push(...mapParsedBlocks(retried.blocks, part));
+          }
+        } catch (retryErr: any) {
+          console.warn(`Chunk ${chunkIndex + 1} subparte ${startSeg}-${startSeg + size} falló: ${retryErr?.message}`);
+        }
+      }
+
+      if (allRetried.length > 0) {
+        console.log(`Chunk ${chunkIndex + 1}: retry exitoso con ${allRetried.length} bloques`);
+        return allRetried;
+      }
+    }
+
+    console.warn(`Chunk ${chunkIndex + 1}: usando fallback mínimo para ${segments.length} segmentos`);
+    return segments.slice(0, Math.min(segments.length, 3)).map((seg, i) => ({
+      kind: 'concept' as const,
+      label: `Bloque recuperado ${chunkIndex + 1}.${i + 1}`,
+      summary: `Contenido recuperado de la página ${seg.pageHint}.`,
       materialId: seg.materialId,
       materialName: seg.materialName,
       pages: [seg.pageHint],
       pageHint: seg.pageHint,
       globalOrder: seg.order,
-      topicLabel: 'General',
+      topicLabel: `Sección ${chunkIndex + 1}`,
       dependsOn: [],
       relatedTo: [],
-      importance: 50,
-      difficulty: 'basic' as const,
+      relations: [],
+      misconceptions: [],
+      importance: 40,
+      difficulty: 'basic',
       examTypes: [],
+      bloomLevel: 'understand',
+      examProbability: 30,
+      estimatedMinutes: 2,
+      _fallback: true,
     }));
   }
 }
+
 
 // ─── Paso 4: deduplicar conceptos por código ─────────────────
 function deduplicateConcepts(blocks: any[]): {
@@ -891,12 +933,14 @@ export async function POST(req: NextRequest) {
     console.log(`Blueprint | ${allSegments.length} segments | ${validMaterials.length} materials`);
 
     // ── Paso 2: agrupar en chunks ────────────────────────────
-    const chunks = groupSegmentsIntoChunks(allSegments, 5000);
+    const chunks = groupSegmentsIntoChunks(allSegments, 7000);
     console.log(`${chunks.length} chunks para IA`);
 
     // ── Paso 3: enriquecer con IA (paralelo de 2) ────────────
     const allRawBlocks: any[] = [];
-    const PARALLEL = 2;
+    // Para materiales con 3+ chunks, procesar de 2 en 2
+    // Para materiales grandes (5+ chunks), procesar de 1 en 1
+    const PARALLEL = chunks.length >= 5 ? 1 : 2;
 
     for (let i = 0; i < chunks.length; i += PARALLEL) {
       const batch = chunks.slice(i, i + PARALLEL);
