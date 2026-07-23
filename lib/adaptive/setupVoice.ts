@@ -38,15 +38,11 @@ export function buildSetupVoice(setup: AdaptiveSetup): SetupVoice {
   if (setup.evalPreference === 'quick_test') badges.push('Evaluaciones rápidas');
   else if (setup.evalPreference === 'write_explain') badges.push('Explicaciones escritas');
   else if (setup.evalPreference === 'mixed') badges.push('Evaluación mixta');
-  else if (setup.evalPreference === 'read_only') badges.push('Solo lectura');
 
   // estilo del profesor
   const styles = shortProfessorStyle(setup.professorExamStyle || []);
-  // Solo mostrar badge del profesor si hay estilos reales (no no_idea)
-  const realStyles = styles.filter(s => s !== 'no_idea');
-  if (realStyles.length > 0) {
-    const styleNames = shortProfessorStyle(realStyles);
-    badges.push(`Profesor: ${styleNames.slice(0, 2).join(' · ')}`);
+  if (styles.length > 0) {
+    badges.push(`Profesor: ${styles.slice(0, 2).join(' · ')}`);
   }
 
   const startPrefix =
@@ -63,20 +59,15 @@ export function buildSetupVoice(setup: AdaptiveSetup): SetupVoice {
       ? 'este recorrido será más compacto de lo habitual.'
       : 'este recorrido podrá avanzar con un ritmo más gradual.';
 
-  const realStylesForNote = styles.filter(s => s !== 'no_idea');
   const evaluationNote =
-    setup.evalPreference === 'read_only'
-      ? 'Este recorrido prioriza la comprensión y la lectura guiada, sin presión de evaluación activa durante el estudio.'
-      : realStylesForNote.length > 0
-        ? `La validación final se parecerá al estilo de evaluación de tu profesor: ${shortProfessorStyle(realStylesForNote).join(', ')}.`
-        : '';
+    styles.length > 0
+      ? `La validación final se parecerá al estilo de evaluación de tu profesor: ${styles.join(', ')}.`
+      : 'La validación final se ajustará al tipo de comprensión que necesitas demostrar.';
 
   const masteryNote =
-    setup.evalPreference === 'read_only'
-      ? 'La prioridad será recorrer el contenido con claridad y coherencia, manteniendo la cobertura completa del material.'
-      : (setup.targetScore || 0) >= 95
-        ? 'La exigencia del recorrido apunta a dominio completo de las ideas centrales.'
-        : 'El recorrido prioriza comprensión sólida y progresiva de las ideas principales.';
+    (setup.targetScore || 0) >= 95
+      ? 'La exigencia del recorrido apunta a dominio completo de las ideas centrales.'
+      : 'El recorrido prioriza comprensión sólida y progresiva de las ideas principales.';
 
   return {
     badges,

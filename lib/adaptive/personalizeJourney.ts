@@ -83,27 +83,20 @@ function personalizeFinalChapter(ch: StudyChapter, setup: AdaptiveSetup): StudyC
 
   const hasExamSoon = setup.examDateType === 'today' || setup.examDateType === 'tomorrow';
   const highScore = (setup.targetScore || 0) >= 90;
-  const readOnly = setup.evalPreference === 'read_only';
 
   let objective = 'Integrar todo lo aprendido para resolver preguntas con el nivel de exigencia esperado en tu evaluación.';
   if (highScore) {
     objective = 'Demostrar que puedes reconocer, relacionar y aplicar con seguridad las ideas esenciales del tema en un contexto similar al de un examen.';
-  }
-  if (readOnly) {
-    objective = 'Cerrar el recorrido integrando las ideas esenciales del material en una comprensión completa y coherente.';
   }
 
   let why = 'Todo lo que estudiaste te trajo hasta aquí. Es el momento de demostrar que el recorrido valió la pena.';
   if (hasExamSoon) {
     why = 'Con el examen cerca, esta sesión replica las condiciones reales para que llegues con confianza.';
   }
-  if (readOnly) {
-    why = 'Esta sesión funciona como un cierre del recorrido: te ayuda a reunir las ideas principales y ver el material como un todo.';
-  }
 
   let unlockMessage = 'Habrás completado el 100% del recorrido de aprendizaje.';
 
-  if (styles.length > 0 && !readOnly) {
+  if (styles.length > 0) {
     why = `${why} La validación está orientada al estilo de tu profesor: ${styles.slice(0, 2).join(' y ')}.`;
   }
 
@@ -117,9 +110,7 @@ function personalizeFinalChapter(ch: StudyChapter, setup: AdaptiveSetup): StudyC
     objective,
     why,
     unlockMessage,
-    exitCriteria: readOnly
-      ? ['Integrar las ideas principales del material', 'Reconocer cómo se conectan los temas estudiados']
-      : uniq([...(ch.exitCriteria || []), ...extraCriteria]).slice(0, 4),
+    exitCriteria: uniq([...(ch.exitCriteria || []), ...extraCriteria]).slice(0, 4),
   };
 }
 

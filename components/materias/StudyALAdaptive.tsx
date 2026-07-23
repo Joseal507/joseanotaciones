@@ -249,18 +249,10 @@ export default function StudyALAdaptive({
       setDone(true);
       if ((sess as any).blueprint) {
         setBlueprint((sess as any).blueprint);
-        // Regenerar plan desde blueprint + setup guardados
-        try {
-          const bp = (sess as any).blueprint;
-          const savedPlan = generateStudyPlan(
-            bp,
-            sess.adaptiveSetup!,
-            null,
-            (sess as any).materialNames?.[0] || "Material",
-          );
-          setStudyPlan(savedPlan);
-        } catch (e) {
-        }
+        // El plan legacy ya no se reconstruye aquí.
+        // El journey real se reconstruye de forma reactiva cuando
+        // setup + blueprint están listos.
+        setStudyPlan(null);
       }
     }
   }, [sessionId, temaId, materialIds]);
@@ -325,7 +317,7 @@ export default function StudyALAdaptive({
 
       // Generar plan de aprendizaje
       try {
-        const plan = generateStudyPlan(
+        const plan = await generateStudyPlan(
           json.blueprint,
           setup,
           profile,
@@ -368,15 +360,16 @@ export default function StudyALAdaptive({
   }, [materialNames]);
 
   useEffect(() => {
-    // Si no hay todo lo necesario, limpiar estado coherentemente
     if (!setupReady || !blueprintReady || blueprintDegraded) {
       setJourney(null);
       setJourneyError(null);
       return;
     }
 
+    // async IIFE para poder usar await dentro de useEffect
+    (async () => {
     try {
-      const j = buildLearningJourney(
+      const j = await buildLearningJourney(
         blueprint,
         setup,
         materialNames[0] || "Material",
@@ -388,6 +381,7 @@ export default function StudyALAdaptive({
       setJourney(null);
       setJourneyError(err?.message || "No se pudo construir el plan adaptativo");
     }
+    })(); // fin async IIFE
   }, [
     setupReady,
     blueprintReady,

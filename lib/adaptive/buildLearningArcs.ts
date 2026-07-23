@@ -4,23 +4,21 @@ import { writeShortObjective } from './narrativeWriter';
 import type { LearningArc } from './learningArcTypes';
 
 function roleTitle(role: LearningRole): string {
-  // Fallback genérico — se usa solo cuando no hay topic label disponible
-  if (role === 'foundation')   return 'Fundamentos';
-  if (role === 'problem')      return 'El problema';
-  if (role === 'mechanism')    return 'Conceptos clave';
-  if (role === 'application')  return 'Aplicación y práctica';
-  if (role === 'integration')  return 'Síntesis e integración';
-  return 'Contexto y legado';
+  if (role === 'foundation') return 'Construyendo las bases';
+  if (role === 'problem') return 'Comprendiendo el problema';
+  if (role === 'mechanism') return 'Entendiendo la explicación central';
+  if (role === 'application') return 'Viendo cómo funciona';
+  if (role === 'integration') return 'Conectando las ideas';
+  return 'Impacto y contexto';
 }
 
 function rolePurpose(role: LearningRole): string {
-  // Propósitos genéricos válidos para cualquier disciplina
-  if (role === 'foundation')  return 'Construir el contexto y los conceptos necesarios para entender lo que viene.';
-  if (role === 'problem')     return 'Identificar y comprender el problema, la pregunta o la limitación central del tema.';
-  if (role === 'mechanism')   return 'Comprender la explicación, el modelo, el proceso o la idea central del material.';
-  if (role === 'application') return 'Ver cómo la explicación principal se aplica a casos, ejemplos o evidencia concreta.';
-  if (role === 'integration') return 'Conectar las ideas principales para construir una comprensión más completa del tema.';
-  return 'Evaluar el impacto, las consecuencias y la relevancia de lo aprendido.';
+  if (role === 'foundation') return 'Construir el contexto necesario para entender lo que viene.';
+  if (role === 'problem') return 'Comprender la pregunta o limitación que hace necesario lo siguiente.';
+  if (role === 'mechanism') return 'Entender la idea, modelo o explicación central del material.';
+  if (role === 'application') return 'Ver cómo esa explicación funciona frente a la evidencia o los casos concretos.';
+  if (role === 'integration') return 'Relacionar las ideas principales y ampliar la comprensión del tema.';
+  return 'Evaluar el impacto, el contexto y las consecuencias de lo aprendido.';
 }
 
 function unique<T>(arr: T[]): T[] {

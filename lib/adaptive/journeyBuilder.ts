@@ -184,6 +184,7 @@ export function buildLearningJourney(
   const clean = cleanTitle(materialTitle);
 
   const path = buildLearningPath(rawBlueprint);
+
   const arcs = buildLearningArcs(path);
   const learningChapters = buildChaptersFromArcs(path, arcs, setup);
 

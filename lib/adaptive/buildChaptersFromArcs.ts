@@ -24,19 +24,6 @@ function maxChapterLoad(setup: AdaptiveSetup): number {
   }
 }
 
-// Presupuesto máximo de sesiones de aprendizaje (sin intro ni final)
-// Para evitar explosión combinatoria con materiales pequeños
-function maxLearningSessions(setup: AdaptiveSetup): number {
-  switch (setup.examDateType) {
-    case 'today':        return 4;
-    case 'tomorrow':     return 5;
-    case 'this_week':    return 7;
-    case 'custom':       return 8;
-    case 'just_studying': return 8;
-    default:             return 8;
-  }
-}
-
 function canCompressToday(setup: AdaptiveSetup) {
   return setup.examDateType === 'today' || setup.examDateType === 'tomorrow';
 }
@@ -47,16 +34,6 @@ function areCompatibleArcs(a: LearningArc, b: LearningArc): boolean {
   if (a.role === 'mechanism' && b.role === 'application') return true;
   if (a.role === 'integration' && b.role === 'context') return true;
   return false;
-}
-
-function fallbackDistinctTitle(role: string, previousTitle: string): string {
-  if (role === 'application') return previousTitle === 'Aplicación y evidencia' ? 'La evidencia principal' : 'Aplicación y evidencia';
-  if (role === 'mechanism') return previousTitle === 'Explicación central' ? 'La solución principal' : 'Explicación central';
-  if (role === 'problem') return previousTitle === 'El problema central' ? 'La pregunta principal' : 'El problema central';
-  if (role === 'integration') return previousTitle === 'Conectando las ideas' ? 'Integración del tema' : 'Conectando las ideas';
-  if (role === 'context') return previousTitle === 'Impacto y legado' ? 'Consecuencias y legado' : 'Impacto y legado';
-  if (role === 'foundation') return previousTitle === 'Construyendo las bases' ? 'Contexto inicial' : 'Construyendo las bases';
-  return 'Siguiente etapa';
 }
 
 function chapterTitleFromArcs(arcs: LearningArc[]): string {
@@ -154,10 +131,7 @@ function makeLearningChapter(
 
   const totalLoad = units.reduce((s, u) => s + u.cognitiveLoad, 0);
 
-  // arcRole: usar el arco con mayor carga total (el dominante del capítulo)
-  // esto garantiza que la etiqueta sea consistente
-  const dominantArc = arcs.reduce((a, b) => a.totalLoad >= b.totalLoad ? a : b);
-  const arcRole = dominantArc.role;
+  const arcRole = arcs[0].role;
   const arcLabel =
     arcs.length === 1
       ? arcs[0].title
@@ -207,23 +181,17 @@ export function buildChaptersFromArcs(
   const compact = canCompressToday(setup);
   const loadCap = maxChapterLoad(setup);
 
-  const budget = maxLearningSessions(setup);
   let i = 0;
-
   while (i < arcs.length) {
     const current = arcs[i];
     const next = arcs[i + 1] || null;
-    const remainingArcs = arcs.length - i;
-    const remainingBudget = budget - chapters.length;
-
-    // Si nos quedan más arcos que presupuesto, forzar fusión
-    const mustMerge = remainingArcs > remainingBudget && next !== null;
 
     let grouped = [current];
 
     if (
+      compact &&
       next &&
-      (mustMerge || (compact && areCompatibleArcs(current, next))) &&
+      areCompatibleArcs(current, next) &&
       (current.totalLoad + next.totalLoad) <= loadCap
     ) {
       grouped = [current, next];
@@ -238,34 +206,22 @@ export function buildChaptersFromArcs(
     );
   }
 
-  // corregir duplicados consecutivos visibles sin romper el plan
+  // validar duplicados consecutivos visibles
   for (let j = 1; j < chapters.length; j++) {
     const prev = chapters[j - 1];
     const curr = chapters[j];
-
     if (prev.title === curr.title) {
-      chapters[j] = {
-        ...curr,
-        title: fallbackDistinctTitle(curr.arcRole, prev.title),
-      };
+      throw new Error(`Capítulos consecutivos con mismo título: ${prev.title}`);
     }
-
     if (prev.objective === curr.objective) {
-      chapters[j] = {
-        ...chapters[j],
-        objective: `${curr.objective} En esta sesión avanzarás a una nueva etapa del recorrido.`,
-      };
+      throw new Error(`Capítulos consecutivos con mismo objetivo: ${prev.objective}`);
     }
   }
 
   // no visible "Contexto general"
-  for (let j = 0; j < chapters.length; j++) {
-    const ch = chapters[j];
+  for (const ch of chapters) {
     if (String(ch.title || '').trim().toLowerCase() === 'contexto general') {
-      chapters[j] = {
-        ...ch,
-        title: ch.arcRole === 'foundation' ? 'Construyendo las bases' : 'Impacto y contexto',
-      };
+      throw new Error('No puede haber un capítulo visible llamado "Contexto general"');
     }
   }
 

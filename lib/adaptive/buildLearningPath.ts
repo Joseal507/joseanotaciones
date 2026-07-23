@@ -37,74 +37,103 @@ function intersects(a: number[] = [], b: number[] = []) {
 }
 
 function toCanonicalBlueprint(raw: any): CanonicalBlueprint {
+  const blocks = raw?.blocks?.length
+    ? raw.blocks
+    : (raw?.globalOrderedAnalysis || []);
+
+  // Ordenar bloques por globalOrder para garantizar consistencia
+  const sortedBlocks = [...blocks].sort((a: any, b: any) =>
+    (a.globalOrder ?? 0) - (b.globalOrder ?? 0)
+  );
+
+  // Derivar topics desde los bloques si no vienen explícitos
+  // manteniendo el orden de primera aparición en el material
+  let topics = raw?.topics?.length
+    ? raw.topics
+    : (raw?.topicsIndex || []);
+
+  if (!topics.length && sortedBlocks.length) {
+    // Inferir topics desde los bloques, en orden del material
+    const seen = new Map<string, any>();
+    for (const b of sortedBlocks) {
+      const key = b.topicId || b.topicLabel;
+      if (key && !seen.has(key)) {
+        seen.set(key, {
+          id: b.topicId || key,
+          title: b.topicLabel || key,
+          pages: b.pages || [],
+          order: b.globalOrder,
+        });
+      }
+    }
+    topics = [...seen.values()];
+  }
+
   return {
     version: raw?.version || 1,
     createdAt: raw?.createdAt || Date.now(),
-    topics: raw?.topics?.length ? raw.topics : (raw?.topicsIndex || []),
-    blocks: raw?.blocks?.length ? raw.blocks : (raw?.globalOrderedAnalysis || []),
-    concepts: raw?.concepts?.length ? raw.concepts : (raw?.uniqueConceptsIndex || []),
+    topics,
+    blocks: sortedBlocks,
+    concepts: raw?.concepts?.length
+      ? raw.concepts
+      : (raw?.uniqueConceptsIndex || []),
     materials: raw?.materials || [],
   };
 }
 
-// ── Clasificador universal de rol pedagógico ─────────────────────────
-// Funciona para cualquier material: física, química, historia, derecho,
-// matemáticas, idiomas, medicina, ingeniería, etc.
-//
-// Principio: el rol pedagógico de un bloque viene de
-// 1. bloomLevel — qué habilidad cognitiva requiere
-// 2. kind — qué tipo de conocimiento es
-// 3. dependsOn — si depende de otros, va después de ellos
-//
-// NO asumimos ninguna estructura narrativa del material.
-// La estructura emerge del grafo de dependencias.
-
 function classifyBlockRole(block: CanonicalBlock): LearningRole {
-  const bloom = (block.bloomLevel || 'understand').toLowerCase();
-  const kind  = (block.kind || 'concept').toLowerCase();
-  const hasDeps = (block.dependsOn || []).length > 0;
-  const importance = block.importance ?? 50;
+  const label = norm(block.label);
+  const summary = norm(block.summary);
+  const topic = norm(block.topicLabel);
+  const kind = norm(block.kind);
+  const text = `${label} ${summary} ${topic}`;
 
-  // ── REGLA 1: bloom más alto → roles más avanzados ──────────────────
-  // create/evaluate → integration (síntesis, juicio crítico)
-  if (bloom === 'create' || bloom === 'evaluate') {
+  // ── PRIORIDAD 1: señales muy fuertes por kind / label ─────────────
+  if (
+    kind === 'formula' ||
+    kind === 'example' ||
+    /equation|ecuacion|formula|spectrum|espectro|transition|transicion|hydrogen|hidrogeno/.test(text)
+  ) return 'application';
+
+  // ── PRIORIDAD 2: topic del blueprint ───────────────────────────────
+  if (/vida|biography|early life|formacion|formación|educacion|educación/.test(topic)) return 'foundation';
+  if (/problema|problem|rutherford/.test(topic)) return 'problem';
+  if (/modelo atomico|atomic model|bohr.*model/.test(topic)) return 'mechanism';
+  if (/mecanica cuantica|quantum mechanic|interpretacion|interpretation|copenhague|copenhagen/.test(topic)) return 'integration';
+  if (/liderazgo|legado|legacy|etica|ethics/.test(topic)) return 'context';
+  if (/contexto|context|general/.test(topic)) return 'foundation';
+
+  // ── PRIORIDAD 3: señales del contenido ─────────────────────────────
+  if (/legacy|legado|technology|tecnolog|leadership|liderazgo|wwii|world war|nobel|institute|collaboration|debate|ethic|history|historia/.test(text)) {
+    return 'context';
+  }
+
+  if (/quantum mechanics|mecanica cuantica|copenhagen|interpretation|philosophical|reality|realidad|knowledge|conocimiento/.test(text)) {
     return 'integration';
   }
 
-  // analyze → integration si tiene dependencias, application si no
-  if (bloom === 'analyze') {
-    return hasDeps ? 'integration' : 'application';
+  if (/problem|problema|limitations?|limitaciones?|rutherford|insufficient|insuficiente|mystery|misterio/.test(text)) {
+    return 'problem';
   }
 
-  // ── REGLA 2: kind específico ────────────────────────────────────────
-  // formula + example → siempre application (procedimental)
-  if (kind === 'formula') return 'application';
-  if (kind === 'example') return 'application';
+  if (/model|modelo|orbit|orbita|energy levels|niveles de energia|atomic structure|estructura atomica/.test(text)) {
+    return 'mechanism';
+  }
 
-  // entity + fact sin dependencias → foundation (contexto básico)
-  if ((kind === 'entity' || kind === 'fact') && !hasDeps) return 'foundation';
+  if (/biography|biografia|born|nacio|education|educacion|who was|quien era/.test(text)) {
+    return 'foundation';
+  }
 
-  // note → foundation siempre (notas y aclaraciones)
-  if (kind === 'note') return 'foundation';
+  // facts de guerra/nobel → context
+  if (kind === 'fact') {
+    if (/wwii|world war|nobel|prize|escape|collaboration/.test(text)) return 'context';
+    return 'application';
+  }
 
-  // ── REGLA 3: bloom + dependencias ──────────────────────────────────
-  // apply → application
-  if (bloom === 'apply') return 'application';
+  if (kind === 'entity' || kind === 'note') return 'foundation';
+  if (kind === 'concept') return 'mechanism';
 
-  // understand con dependencias → mechanism (construye sobre algo)
-  if (bloom === 'understand' && hasDeps) return 'mechanism';
-
-  // understand sin dependencias → foundation (conceptos base)
-  if (bloom === 'understand' && !hasDeps) return 'foundation';
-
-  // remember → foundation siempre
-  if (bloom === 'remember') return 'foundation';
-
-  // ── REGLA 4: importancia alta sin clasificar → mechanism ───────────
-  if (importance >= 80 && hasDeps) return 'mechanism';
-
-  // ── FALLBACK ────────────────────────────────────────────────────────
-  return hasDeps ? 'mechanism' : 'foundation';
+  return 'foundation';
 }
 
 function buildUnitTitle(role: LearningRole, blocks: CanonicalBlock[]): string {
@@ -148,107 +177,100 @@ function shouldStartNewUnit(
 ): boolean {
   if (currentBlocks.length === 0) return false;
 
+  // cambio de rol pedagógico = nueva unidad
+  if (currentRole !== nextRole) return true;
+
   const prev = currentBlocks[currentBlocks.length - 1];
-  const sameRole = currentRole === nextRole;
-  const sameTopic = (prev.topicId || prev.topicLabel) === (nextBlock.topicId || nextBlock.topicLabel);
+  const prevTopic = prev.topicId || prev.topicLabel;
+  const nextTopic = nextBlock.topicId || nextBlock.topicLabel;
 
-  // Si es el mismo topic, siempre agrupar (incluso si cambia el rol)
-  // Un topic es una unidad indivisible del material
-  if (sameTopic) return false;
+  // foundation/context/integration/application pueden agrupar varios blocks
+  if (currentRole === 'foundation') return false;
+  if (currentRole === 'context') return false;
+  if (currentRole === 'integration') return false;
+  if (currentRole === 'application') return false;
 
-  // Si cambia el topic: siempre empezar nueva unidad
-  // El rol de la nueva unidad se determina por el primer bloque
-  return true;
+  // problem/mechanism sí se parten si cambia el topic
+  return prevTopic !== nextTopic;
 }
 
 function buildRawUnits(blueprint: CanonicalBlueprint): LearningPathUnit[] {
   const sortedBlocks = [...blueprint.blocks].sort((a, b) => a.globalOrder - b.globalOrder);
   const units: LearningPathUnit[] = [];
 
-  let currentBlocks: CanonicalBlock[] = [];
-  let currentRole: LearningRole | null = null;
-  let unitCounter = 0;
 
-  function flush() {
-    if (!currentBlocks.length || !currentRole) return;
-    // Recalcular el rol dominante de esta unidad
-    // El rol viene del bloque con mayor importance * bloom_weight
-    const bloomWeight: Record<string, number> = {
-      create: 6, evaluate: 5, analyze: 4, apply: 3, understand: 2, remember: 1,
-    };
-    const dominantBlock = currentBlocks.reduce((best, b) => {
+  // REGLA: 1 topicId = 1 unidad. Siempre.
+  // Nunca partir un topic en múltiples unidades.
+  // El rol de la unidad = rol del bloque más importante (mayor importance × bloomWeight)
+  const byTopic = new Map<string, CanonicalBlock[]>();
+  const topicOrder: string[] = []; // preservar el orden del primer bloque
+
+  for (const block of sortedBlocks) {
+    const key = block.topicId || block.topicLabel || '__notopic__';
+    if (!byTopic.has(key)) {
+      byTopic.set(key, []);
+      topicOrder.push(key);
+    }
+    byTopic.get(key)!.push(block);
+  }
+
+  const bloomWeight: Record<string, number> = {
+    create: 6, evaluate: 5, analyze: 4, apply: 3, understand: 2, remember: 1,
+  };
+
+  for (const topicKey of topicOrder) {
+    const topicBlocks = byTopic.get(topicKey) || [];
+    if (!topicBlocks.length) continue;
+
+    // Rol dominante = bloque con mayor importance × bloomWeight
+    const dominantBlock = topicBlocks.reduce((best, b) => {
       const scoreA = (best.importance || 50) * (bloomWeight[(best.bloomLevel || 'understand').toLowerCase()] || 2);
       const scoreB = (b.importance || 50) * (bloomWeight[(b.bloomLevel || 'understand').toLowerCase()] || 2);
       return scoreB > scoreA ? b : best;
-    }, currentBlocks[0]);
-    currentRole = classifyBlockRole(dominantBlock);
+    }, topicBlocks[0]);
 
-    const topicIds = unique(currentBlocks.map(b => b.topicId).filter(Boolean) as string[]);
-    const topicLabels = unique(currentBlocks.map(b => b.topicLabel).filter(Boolean));
-    const blockIds = currentBlocks.map(b => b.id);
-    const pages = unique(currentBlocks.flatMap(b => b.pages || [])).sort((a, b) => a - b);
-    const concepts = currentBlocks
-      .filter(b => ['concept', 'definition', 'formula', 'entity'].includes(String(b.kind || '').toLowerCase()))
-      .map(b => b.label);
+    const role = classifyBlockRole(dominantBlock);
 
-    const importance =
-      currentBlocks.reduce((sum, b) => sum + (b.importance || 50), 0) / currentBlocks.length;
+    const topicIds = [...new Set(topicBlocks.map(b => b.topicId).filter(Boolean) as string[])];
+    const topicLabels = [...new Set(topicBlocks.map(b => b.topicLabel).filter(Boolean))];
+    const blockIds = topicBlocks.map(b => b.id);
+    const pages = [...new Set(topicBlocks.flatMap(b => b.pages || []))].sort((a, b) => a - b);
+    const concepts = topicBlocks
+      .filter(b => ['concept', 'definition', 'formula', 'entity'].includes((b.kind || '').toLowerCase()))
+      .map(b => b.label)
+      .filter(Boolean);
 
-    const difficulty =
-      currentBlocks.reduce((sum, b) => {
-        if (b.difficulty === 'advanced') return sum + 3;
-        if (b.difficulty === 'intermediate') return sum + 2;
-        return sum + 1;
-      }, 0) / currentBlocks.length;
+    const cogLoad = topicBlocks.length
+      + topicBlocks.filter(b => (b.difficulty || '') === 'advanced').length * 2
+      + topicBlocks.filter(b => (b.kind || '') === 'formula').length * 1.5
+      + topicBlocks.filter(b => (b.importance || 0) >= 80).length * 0.5;
 
-    const cognitiveLoad =
-      currentBlocks.length
-      + currentBlocks.filter(b => b.difficulty === 'advanced').length * 2
-      + currentBlocks.filter(b => b.kind === 'formula').length * 1.5
-      + currentBlocks.filter(b => b.importance >= 80).length * 0.75;
+    const highImportanceCount = topicBlocks.filter(b => (b.importance || 0) >= 70).length;
 
     units.push({
-      id: `unit_${unitCounter++}`,
-      title: buildUnitTitle(currentRole, currentBlocks),
-      purpose: buildUnitPurpose(currentRole, currentBlocks),
-      topicIds,
-      conceptIds: [],
+      id: `unit_${units.length}`,
+      topicId: topicIds[0] || null,
+      topicLabel: topicLabels[0] || topicKey,
       blockIds,
-      prerequisiteUnitIds: [],
-      unlocksUnitIds: [],
-      orderHint: currentBlocks[0].globalOrder,
-      dependencyDepth: 0,
-      cognitiveLoad,
-      importance,
-      difficulty,
-      role: currentRole,
-      topicLabels,
-      concepts,
       pages,
-    });
-
-    currentBlocks = [];
-    currentRole = null;
+      concepts,
+      globalOrderStart: topicBlocks[0].globalOrder,
+      orderHint: topicBlocks[0].globalOrder,
+      cognitiveLoad: cogLoad,
+      difficultyBreakdown: {
+        basic: topicBlocks.filter(b => b.difficulty === 'basic').length,
+        intermediate: topicBlocks.filter(b => b.difficulty === 'intermediate').length,
+        advanced: topicBlocks.filter(b => b.difficulty === 'advanced').length,
+      },
+      highImportanceCount,
+      formulaCount: topicBlocks.filter(b => (b.kind || '') === 'formula').length,
+      bloomLevels: [...new Set(topicBlocks.map(b => b.bloomLevel as any).filter(Boolean))],
+      dependsOnTopicIds: [],
+      role,
+      topicLabels,
+    } as any);
   }
 
-  for (const block of sortedBlocks) {
-    const nextRole = classifyBlockRole(block);
-    if (currentBlocks.length === 0) {
-      currentBlocks.push(block);
-      currentRole = nextRole;
-      continue;
-    }
-
-    if (shouldStartNewUnit(currentBlocks, block, currentRole!, nextRole)) {
-      flush();
-      currentBlocks.push(block);
-      currentRole = nextRole;
-    } else {
-      currentBlocks.push(block);
-    }
-  }
-
-  flush();
   return units;
 }
 
@@ -362,21 +384,22 @@ export function topologicalSortUnits(
 
   for (const edge of edges) {
     if (!adj.has(edge.fromUnitId) || !inDegree.has(edge.toUnitId)) continue;
+    // Evitar self-edges
+    if (edge.fromUnitId === edge.toUnitId) continue;
     adj.get(edge.fromUnitId)!.push(edge.toUnitId);
     inDegree.set(edge.toUnitId, (inDegree.get(edge.toUnitId) || 0) + 1);
   }
 
-  // SOLO ordenar por orderHint (posición en el material)
-  // NUNCA reordenar por ROLE_ORDER — eso viola el orden del documento
+  // Ordenar SOLO por globalOrderStart (posición en el documento)
+  // NUNCA por ROLE_ORDER — eso viola el orden del material
   const queue = units
     .filter(u => (inDegree.get(u.id) || 0) === 0)
-    .sort((a, b) => a.orderHint - b.orderHint);
+    .sort((a, b) => ((a as any).globalOrderStart ?? (a as any).orderHint ?? 0) - ((b as any).globalOrderStart ?? (b as any).orderHint ?? 0));
 
   const ordered: string[] = [];
 
   while (queue.length > 0) {
-    // Siempre tomar el de menor orderHint (respeta el documento)
-    queue.sort((a, b) => a.orderHint - b.orderHint);
+    queue.sort((a, b) => ((a as any).globalOrderStart ?? (a as any).orderHint ?? 0) - ((b as any).globalOrderStart ?? (b as any).orderHint ?? 0));
     const current = queue.shift()!;
     ordered.push(current.id);
 
@@ -390,12 +413,11 @@ export function topologicalSortUnits(
     }
   }
 
-  // Residuos por ciclos — ordenar por orderHint también
+  // Residuos por ciclos — ordenar por globalOrderStart
   const sortedSet = new Set(ordered);
   const residuals = units
     .filter(u => !sortedSet.has(u.id))
-    .sort((a, b) => a.orderHint - b.orderHint);
-
+    .sort((a, b) => ((a as any).globalOrderStart ?? (a as any).orderHint ?? 0) - ((b as any).globalOrderStart ?? (b as any).orderHint ?? 0));
   for (const u of residuals) ordered.push(u.id);
 
   return ordered;
@@ -425,7 +447,7 @@ function assignOwnership(
     let ownerId = blockLabelToUnit.get(norm(concept.name));
 
     if (!ownerId) {
-      const byPages = orderedUnits.find(u => intersects(u.pages, concept.pages || []));
+      const byPages = orderedUnits.find(u => intersects(u.pages || [], concept.pages || []));
       if (byPages) ownerId = byPages.id;
     }
 
@@ -436,8 +458,11 @@ function assignOwnership(
     if (ownerId) {
       conceptOwnerUnit[concept.id] = ownerId;
       const unit = unitMap.get(ownerId);
-      if (unit && !unit.conceptIds.includes(concept.id)) {
-        unit.conceptIds.push(concept.id);
+      if (unit) {
+        if (!Array.isArray((unit as any).conceptIds)) (unit as any).conceptIds = [];
+        if (!(unit as any).conceptIds.includes(concept.id)) {
+          (unit as any).conceptIds.push(concept.id);
+        }
       }
     }
   }
