@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   getSessionById,
   upsertSession,
@@ -170,6 +170,7 @@ export default function StudyALAdaptive({
   const [activeTab, setActiveTab] = useState<"plan">("plan");
   const [studyPlan, setStudyPlan] = useState<LegacyStudyPlan | null>(null);
   const [journey, setJourney] = useState<LearningJourney | null>(null);
+  const lastJourneyKeyRef = useRef<string | null>(null);
   const [journeyError, setJourneyError] = useState<string | null>(null);
   const [blueprintQuality, setBlueprintQuality] = useState<any>(null);
   const setupReady = Boolean(setup?.completedAt);
@@ -366,6 +367,19 @@ export default function StudyALAdaptive({
       return;
     }
 
+    const journeyKey = JSON.stringify({
+      material: materialNames[0] || "Material",
+      setupHash: currentSetupHash || '',
+      topicCount: (blueprint?.topics?.length || blueprint?.topicsIndex?.length || 0),
+      blockCount: (blueprint?.blocks?.length || blueprint?.globalOrderedAnalysis?.length || 0),
+    });
+
+    // Evitar doble ejecución (StrictMode / rerenders)
+    if (lastJourneyKeyRef.current === journeyKey) {
+      return;
+    }
+    lastJourneyKeyRef.current = journeyKey;
+
     // async IIFE para poder usar await dentro de useEffect
     (async () => {
     try {
@@ -378,6 +392,7 @@ export default function StudyALAdaptive({
       setJourneyError(null);
     } catch (err: any) {
       console.error("[StudyALAdaptive] Error construyendo journey reactivo:", err?.message || err);
+      lastJourneyKeyRef.current = null;
       setJourney(null);
       setJourneyError(err?.message || "No se pudo construir el plan adaptativo");
     }

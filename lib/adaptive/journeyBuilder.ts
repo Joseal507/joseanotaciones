@@ -217,9 +217,11 @@ export async function buildLearningJourney(
   };
 
   // IA escribe títulos e introducciones específicos del material
-  // Incluir TODAS las sesiones para que la IA pueda nombrarlas
-  // incluyendo intro y final (que también necesitan nombres específicos del material)
-  const learningChs = chapters.filter(ch => ch.type !== 'intro'); // la intro ya tiene nombre fijo
+  // La IA solo renombra sesiones reales de aprendizaje.
+  // Intro y final_review están protegidas.
+  const learningChs = chapters.filter(
+    ch => ch.type !== 'intro' && ch.type !== 'final_review'
+  ); // la intro ya tiene nombre fijo
 
   if (learningChs.length > 0) {
     const copyInputs: SessionCopyInput[] = learningChs.map((ch, idx) => ({

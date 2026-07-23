@@ -21,6 +21,62 @@ export interface SessionCopy {
   intro: string;
 }
 
+function norm(s: string): string {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-z0-9áéíóúüñ\s]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenize(s: string): string[] {
+  return norm(s).split(' ').filter(Boolean);
+}
+
+function titleLooksGrounded(title: string, input: SessionCopyInput): boolean {
+  const titleTokens = new Set(tokenize(title));
+  const sourceText = [
+    input.topicLabel || '',
+    ...(input.concepts || []),
+    input.previousSessionTopic || '',
+    input.nextSessionTopic || '',
+  ].join(' ');
+
+  const sourceTokens = new Set(tokenize(sourceText));
+
+  // overlap mínimo con el contenido real
+  let overlap = 0;
+  for (const t of titleTokens) {
+    if (sourceTokens.has(t)) overlap++;
+  }
+
+  // si el título tiene 1 palabra, exigir que esa palabra venga del contenido
+  if (titleTokens.size <= 2) return overlap >= 1;
+
+  // si tiene más palabras, exigir al menos 2
+  return overlap >= 2;
+}
+
+function sanitizeAICopy(copy: SessionCopy, input: SessionCopyInput): SessionCopy {
+  const fallback = generateFallbackCopy(input);
+
+  const badTitle =
+    !copy?.title ||
+    copy.title.trim().length < 3 ||
+    !titleLooksGrounded(copy.title, input);
+
+  const badIntro =
+    !copy?.intro ||
+    copy.intro.trim().length < 15;
+
+  return {
+    title: badTitle ? fallback.title : copy.title.trim(),
+    intro: badIntro ? fallback.intro : copy.intro.trim(),
+  };
+}
+
 export function generateFallbackCopy(input: SessionCopyInput): SessionCopy {
   const { role, topicLabel, previousSessionTopic } = input;
   const t = topicLabel || 'este tema';
@@ -83,7 +139,7 @@ export async function writeSessionCopyWithAI(
     return sessions.map(s => {
       const ai = byN.get(s.sessionNumber);
       if (!ai?.title || !ai?.intro) return generateFallbackCopy(s);
-      return { title: ai.title, intro: ai.intro };
+      return sanitizeAICopy({ title: ai.title, intro: ai.intro }, s);
     });
 
   } catch (err: any) {

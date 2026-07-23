@@ -5,6 +5,15 @@ import type { AdaptiveSetup } from '../../../../lib/studySessions';
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
+// Caché simple para deduplicar llamadas dobles (StrictMode en development)
+const recentCache = new Map<string, { result: any; timestamp: number }>();
+const CACHE_TTL = 8000; // 8 segundos
+
+function hashPayload(sessions: any[], materialTitle: string, setup: any): string {
+  const key = `${materialTitle}|${setup.examDateType}|${setup.knowledgeLevel}|${sessions.length}`;
+  return key;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -16,6 +25,13 @@ export async function POST(req: NextRequest) {
 
     if (!sessions?.length) {
       return NextResponse.json({ success: true, copies: [] });
+    }
+
+    const cacheKey = hashPayload(sessions, materialTitle, setup);
+    const cached = recentCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      console.log(`[session-copy] Cache hit para "${materialTitle}"`);
+      return NextResponse.json(cached.result);
     }
 
     const urgency = setup.examDateType === 'today' ? 'hoy mismo'
@@ -47,12 +63,14 @@ Para cada sesión genera:
 - title: Título específico del tema (máx 7 palabras, NO genérico)
 - intro: 1-2 oraciones como un profesor hablando directamente al estudiante
 
-REGLAS:
-- Títulos deben mencionar el tema real de la sesión
-- La intro debe conectar con la sesión anterior si existe
+REGLAS CRÍTICAS:
+- Los títulos SIEMPRE deben ser relevantes al material "${materialTitle}"
+- Usa principalmente palabras ya presentes en topic, concepts, prev o next
+- NO inventes categorías o terminología que no aparezcan en el contenido
+- Si el "topic" parece demasiado genérico o inadecuado, apóyate en los concepts, pero no inventes cosas ajenas al material
+- Nunca menciones temas que no estén en el material real
 - Escribe en español natural, varía los verbos
-- Para role="orientation": título inspirador para la sesión introductoria
-- Para role="final_review": título de cierre poderoso (NO "Conquista final", algo más específico al material)
+- Mantén títulos cortos, claros y específicos al contenido real
 - Responde SOLO con JSON array: [{"n":1,"title":"...","intro":"..."},...]`;
 
     const result = await alaiRequest(async (client, getModel) => {
@@ -73,7 +91,13 @@ REGLAS:
 
     const parsed = JSON.parse(match[0]);
     console.log(`[session-copy] ${parsed.length} títulos generados para "${materialTitle}"`);
-    return NextResponse.json({ success: true, copies: parsed });
+    const responsePayload = { success: true, copies: parsed };
+    recentCache.set(cacheKey, { result: responsePayload, timestamp: Date.now() });
+    // Limpiar entradas viejas
+    for (const [k, v] of recentCache.entries()) {
+      if (Date.now() - v.timestamp > CACHE_TTL) recentCache.delete(k);
+    }
+    return NextResponse.json(responsePayload);
 
   } catch (e: any) {
     console.error('[session-copy] Error:', e?.message);
