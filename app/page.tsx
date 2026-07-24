@@ -1558,11 +1558,36 @@ export default function Home() {
   const { data: session, status } = useSession();
   useEffect(() => {
     const u = session?.user as any;
-    const name = u?.name || (u?.email ? u.email.split('@')[0] : '');
-    if (name) {
-      setUserName(name);
-      try { localStorage.setItem('studyal_user_name', name); } catch {}
-    }
+    if (!u?.id) return;
+
+    // Leer nombre del perfil privado (sin parpadeo)
+    // 1. Usar localStorage inmediatamente (ya tiene el nombre correcto si ya cargó antes)
+    const cached = localStorage.getItem('studyal_user_name');
+    if (cached) setUserName(cached);
+
+    // 2. Actualizar desde el servidor en background
+    fetch('/api/user-profile?userId=' + encodeURIComponent(u.id), {
+      cache: 'no-store',
+      credentials: 'same-origin',
+    })
+      .then(r => r.json())
+      .then(json => {
+        const profileName = json?.data?.nombre;
+        const name = profileName || u?.name || (u?.email ? u.email.split('@')[0] : '');
+        if (name) {
+          setUserName(name);
+          try { localStorage.setItem('studyal_user_name', name); } catch {}
+        }
+      })
+      .catch(() => {
+        if (!cached) {
+          const name = u?.name || (u?.email ? u.email.split('@')[0] : '');
+          if (name) {
+            setUserName(name);
+            try { localStorage.setItem('studyal_user_name', name); } catch {}
+          }
+        }
+      });
   }, [session]);
 
   const [authChecked, setAuthChecked] = useState(false);

@@ -10,9 +10,11 @@ const CACHE_TTL = 60000;
 
 function hashPayload(sessions: any[], materialTitle: string, setup: any): string {
   const topicSignature = sessions
-    .map((s: any) => `${s.sessionNumber}:${s.topicLabel}`)
+    .map((s: any) => `${s.sessionNumber}:${s.topicLabel}:${s.blockCount}`)
     .join('|');
-  return `${materialTitle}|${setup.examDateType}|${setup.knowledgeLevel}|${topicSignature}`;
+  // Incluir longitud total para mayor especificidad
+  const totalBlocks = sessions.reduce((s: number, c: any) => s + (c.blockCount || 0), 0);
+  return `${materialTitle}|${setup.examDateType}|${setup.knowledgeLevel}|${totalBlocks}|${topicSignature}`;
 }
 
 // Traducir labels del blueprint que vienen en inglés
@@ -94,7 +96,7 @@ export async function POST(req: NextRequest) {
     const cacheKey = hashPayload(sessions, materialTitle, setup);
     const cached = recentCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      console.log(`[session-copy] Cache hit para "${materialTitle}"`);
+      console.log(`[session-copy] Cache hit para "${materialTitle}" (key: ${cacheKey.slice(0, 40)}...)`);
       return NextResponse.json(cached.result);
     }
 
@@ -126,15 +128,15 @@ ${JSON.stringify(translateSessionsToLanguage(sessions, lang).map((s: any) => ({
 })), null, 2)}
 
 Para cada sesión genera:
-- title: Título específico del tema (máx 6 palabras, NO genérico)
-- intro: 1-2 oraciones como un profesor hablando directamente al estudiante
+- title: El topic principal en pocas palabras (exactamente como viene del material)
+- bullets: Lista de 3-5 puntos concretos de lo que se estudia en esa sesión, basados en los concepts y el topic
 
 REGLAS:
-- Los títulos deben mencionar el tema real de la sesión
-- La intro debe conectar con la sesión anterior si existe
-- Varía los verbos, no empieces todas las sesiones igual
-- Mantén títulos cortos y específicos al contenido
-- Responde SOLO con JSON array: [{"n":1,"title":"...","intro":"..."},...]`;
+- El title debe ser el tema real, sin adornos ni metáforas
+- Los bullets deben ser específicos: qué conceptos, fórmulas, procesos o ideas se cubren
+- NO inventes contenido que no esté en topic o concepts
+- NO uses títulos de otros materiales
+- Responde SOLO con JSON array: [{"n":1,"title":"...","bullets":["punto 1","punto 2","punto 3"]}]`;
 
     const result = await alaiRequest(async (client, getModel) => {
       return await client.chat.completions.create({

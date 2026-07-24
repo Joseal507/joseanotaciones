@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
 
 const API = process.env.STUDYAL_API_URL || '';
-export const CURRENT_ONBOARDING_VERSION = 2;
+export const CURRENT_ONBOARDING_VERSION = 3;
 
 export async function GET() {
   try {

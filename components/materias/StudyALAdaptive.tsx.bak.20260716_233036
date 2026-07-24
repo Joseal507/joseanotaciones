@@ -1,0 +1,846 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import {
+  getSessionById,
+  upsertSession,
+  findSession,
+  type AdaptiveSetup,
+} from "../../lib/studySessions";
+
+const HAND = "'Caveat', cursive";
+const BODY = "'Inter', system-ui, sans-serif";
+
+interface Props {
+  materiales: any[];
+  temaId?: string;
+  userId?: string;
+  sessionId?: string;
+  onClose: () => void;
+}
+
+type UserProfile = {
+  nombre?: string | null;
+  name?: string | null;
+  username?: string | null;
+  tipo_estudiante?: string | null;
+  universidad?: string | null;
+  escuela?: string | null;
+  carrera?: string | null;
+  objetivo?: string | null;
+};
+
+function getMaterialId(material: any) {
+  return String(material?.materialId || material?.id || "").trim();
+}
+
+const defaultSetup: AdaptiveSetup = {
+  knowledgeLevel: "never_seen",
+  examDateType: "just_studying",
+  examDateCustom: "",
+  targetScore: 80,
+  mainConcern: "",
+  professorExamStyle: [],
+  evalPreference: "mixed",
+  planView: "book",
+  completedAt: 0,
+};
+
+const examStyleOptions = [
+  { id: "multiple_choice", label: "Opción múltiple", emoji: "🔘" },
+  { id: "true_false", label: "Verdadero / falso", emoji: "✅" },
+  { id: "matching", label: "Relacionar", emoji: "🔗" },
+  { id: "development", label: "Desarrollo", emoji: "✍️" },
+  { id: "reading", label: "Comprensión lectora", emoji: "📖" },
+  { id: "mixed", label: "Mixto / de todo", emoji: "🧩" },
+  { id: "no_idea", label: "No tengo idea", emoji: "🤷" },
+];
+
+function cardStyle(active: boolean, color = "#38bdf8") {
+  return {
+    border: "2px solid " + (active ? color : "var(--border-color)"),
+    background: active
+      ? "linear-gradient(135deg, " + color + "22, var(--bg-card))"
+      : "var(--bg-card)",
+    color: active ? color : "var(--text-primary)",
+    borderRadius: 18,
+    padding: "16px 18px",
+    cursor: "pointer",
+    fontWeight: 900,
+    fontFamily: BODY,
+    textAlign: "left" as const,
+    boxShadow: active ? "0 0 0 4px " + color + "18" : "none",
+    transition: "all .18s ease",
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+  };
+}
+
+export default function StudyALAdaptive({
+  materiales,
+  temaId,
+  userId,
+  sessionId,
+  onClose,
+}: Props) {
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [setup, setSetup] = useState<AdaptiveSetup>({ ...defaultSetup });
+  const [step, setStep] = useState(0);
+  const [done, setDone] = useState(false);
+
+  const materialIds = useMemo(
+    () =>
+      materiales
+        .map((m: any) => getMaterialId(m))
+        .filter(Boolean)
+        .slice(0, 5),
+    [materiales],
+  );
+
+  const materialNames = useMemo(
+    () =>
+      materiales
+        .map((m: any) => String(m?.nombre || m?.name || "").trim())
+        .filter(Boolean)
+        .slice(0, 5),
+    [materiales],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProfile() {
+      try {
+        // 1. user-profile con userId (fuente de verdad — onboarding + settings)
+        if (userId) {
+          const res = await fetch("/api/user-profile?userId=" + encodeURIComponent(userId), {
+            cache: "no-store",
+            credentials: "same-origin",
+          });
+          const json = await res.json().catch(() => ({}));
+          if (cancelled) return;
+
+          const data = json?.data || null;
+          if (data) {
+            setProfile({
+              nombre: data.nombre || data.name || null,
+              name: data.name || data.nombre || null,
+              username: data.username || null,
+              tipo_estudiante: data.tipo_estudiante || data.tipo_usuario || null,
+              universidad: data.universidad || null,
+              escuela: data.escuela || null,
+              carrera: data.carrera || null,
+              objetivo: data.objetivo || null,
+            });
+            if (!cancelled) setProfileLoading(false);
+            return;
+          }
+        }
+
+        // 2. Fallback: leaderboard (myEntry siempre disponible)
+        const res2 = await fetch("/api/leaderboard", { cache: "no-store", credentials: "same-origin" });
+        const json2 = await res2.json().catch(() => ({}));
+        if (cancelled) return;
+        const lb = json2?.myEntry || null;
+        if (lb) {
+          setProfile({
+            nombre: lb.nombre || lb.name || null,
+            name: lb.name || lb.nombre || null,
+            username: lb.username || null,
+            tipo_estudiante: lb.tipo_estudiante || null,
+            universidad: lb.universidad || null,
+            escuela: lb.escuela || null,
+            carrera: lb.carrera || null,
+              objetivo: lb.objetivo || null,
+            });
+          }
+        } else {
+          setProfile({
+            nombre: me.nombre || me.name || null,
+            name: me.name || me.nombre || null,
+            username: me.username || null,
+            tipo_estudiante: me.tipo_estudiante || null,
+            universidad: me.universidad || null,
+            escuela: me.escuela || null,
+            carrera: me.carrera || null,
+            objetivo: me.objetivo || null,
+          });
+        }
+      } catch {
+        if (!cancelled) setProfile(null);
+      } finally {
+        if (!cancelled) setProfileLoading(false);
+      }
+    }
+
+    loadProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (sessionId) {
+      const sess = getSessionById(sessionId);
+      if (sess?.adaptiveSetup?.completedAt) {
+        setSetup(sess.adaptiveSetup);
+        setDone(true);
+        return;
+      }
+    }
+
+    if (temaId && materialIds.length > 0) {
+      const sess = findSession(temaId, materialIds, "adaptive");
+      if (sess?.adaptiveSetup?.completedAt) {
+        setSetup(sess.adaptiveSetup);
+        setDone(true);
+      }
+    }
+  }, [sessionId, temaId, materialIds]);
+
+  const userSummary = useMemo(() => {
+    const nombre = profile?.nombre || profile?.name || profile?.username || "Estudiante";
+    const tipo = profile?.tipo_estudiante || "usuario";
+    const lugar = profile?.universidad || profile?.escuela || null;
+    const carrera = profile?.carrera || null;
+    const objetivo = profile?.objetivo || null;
+    return { nombre, tipo, lugar, carrera, objetivo };
+  }, [profile]);
+
+  const stepTitles = [
+    "¿Qué tanto conoces este material?",
+    "¿Cuándo es tu examen?",
+    "¿Qué nota buscas?",
+    "¿Qué te preocupa más de este material?",
+    "¿Cómo hace los exámenes tu profe?",
+    "¿Cómo quieres que te evalúe ALAI?",
+    "¿Cómo quieres ver tu plan?",
+  ];
+
+  function toggleExamStyle(id: string) {
+    setSetup((prev) => {
+      const set = new Set(prev.professorExamStyle || []);
+      if (set.has(id)) set.delete(id);
+      else set.add(id);
+      return { ...prev, professorExamStyle: Array.from(set) };
+    });
+  }
+
+  function canContinue() {
+    if (step === 0) return !!setup.knowledgeLevel;
+    if (step === 1) {
+      if (setup.examDateType !== "custom") return true;
+      return !!String(setup.examDateCustom || "").trim();
+    }
+    if (step === 2) return Number(setup.targetScore) >= 50;
+    if (step === 3) return String(setup.mainConcern || "").trim().length >= 2 || setup.mainConcern === "(omitido)";
+    if (step === 4) return (setup.professorExamStyle || []).length > 0;
+    if (step === 5) return !!setup.evalPreference;
+    if (step === 6) return !!setup.planView;
+    return true;
+  }
+
+  function next() {
+    if (!canContinue()) return;
+
+    if (step < stepTitles.length - 1) {
+      setStep((s) => s + 1);
+      return;
+    }
+
+    const finalSetup: AdaptiveSetup = {
+      ...setup,
+      completedAt: Date.now(),
+    };
+
+    upsertSession({
+      temaId: temaId || "",
+      enfoque: "teorico",
+      processMode: "adaptive",
+      materialIds,
+      materialNames,
+      adaptiveSetup: finalSetup,
+    });
+
+    setSetup(finalSetup);
+    setDone(true);
+  }
+
+  function back() {
+    if (step > 0) setStep((s) => s - 1);
+  }
+
+  const progress = Math.round(((step + 1) / stepTitles.length) * 100);
+
+  const knowledgeLabels: Record<string, string> = {
+    never_seen: "Nunca lo he visto",
+    know_little: "Lo conozco un poco",
+    want_review: "Quiero repasarlo",
+    already_know: "Ya lo domino, quiero practicar",
+  };
+
+  const objetivoLabels: Record<string, string> = {
+    mejorar_notas: "Mejorar mis notas",
+    aprobar_examen: "Aprobar un examen",
+    entender_materias: "Entender mejor mis materias",
+    habito_estudio: "Crear un hábito de estudio",
+    graduarme: "Graduarme",
+  };
+
+  const evalLabels: Record<string, string> = {
+    quick_test: "Evaluaciones rápidas sin escribir",
+    write_explain: "Evaluaciones escribiendo / explicando",
+    mixed: "Mixto",
+  };
+
+  const planViewLabels: Record<string, string> = {
+    book: "Como un libro",
+    levels: "Como niveles",
+    missions: "Como misiones",
+  };
+
+  const examDateLabel =
+    setup.examDateType === "today"
+      ? "Hoy"
+      : setup.examDateType === "tomorrow"
+        ? "Mañana"
+        : setup.examDateType === "this_week"
+          ? "Esta semana"
+          : setup.examDateType === "custom"
+            ? setup.examDateCustom || "Fecha personalizada"
+            : "Solo quiero estudiar";
+
+  const examStyleLabels = (setup.professorExamStyle || []).map((id) => {
+    const found = examStyleOptions.find((x) => x.id === id);
+    return found?.label || id;
+  });
+
+  if (done) {
+    return (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 9999,
+          overflowY: "auto",
+          padding: 24,
+          background:
+            "radial-gradient(circle at 20% 10%, rgba(56,189,248,.14), transparent 28%), linear-gradient(135deg, var(--bg-primary), color-mix(in srgb, var(--bg-primary) 78%, #000))",
+          color: "var(--text-primary)",
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 980,
+            margin: "0 auto",
+            display: "grid",
+            gap: 18,
+            fontFamily: BODY,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={{ fontFamily: HAND, fontSize: 22, color: "#38bdf8" }}>
+                🤖 modo adaptativo
+              </div>
+              <h1
+                style={{
+                  margin: "6px 0 0",
+                  fontSize: 46,
+                  fontFamily: HAND,
+                  fontWeight: 900,
+                  color: "#fff",
+                }}
+              >
+                así quedó tu setup
+              </h1>
+            </div>
+
+            <button
+              onClick={onClose}
+              style={{
+                padding: "12px 24px",
+                background: "#38bdf8",
+                color: "#000",
+                border: "2px solid var(--text-primary)",
+                borderRadius: 14,
+                fontFamily: HAND,
+                fontSize: 22,
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              ← volver al mapa
+            </button>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1.15fr .85fr",
+              gap: 18,
+            }}
+          >
+            <div
+              style={{
+                background: "var(--bg-card)",
+                border: "1.5px solid var(--border-color)",
+                borderRadius: 24,
+                padding: 22,
+              }}
+            >
+              <div style={{ fontFamily: HAND, fontSize: 28, color: "#38bdf8", marginBottom: 12 }}>
+                yo soy este
+              </div>
+
+              {profileLoading ? (
+                <div style={{ color: "var(--text-muted)" }}>Cargando perfil...</div>
+              ) : (
+                <div style={{ display: "grid", gap: 10, fontSize: 15 }}>
+                  <div>
+                    <strong style={{ color: "#fff", fontSize: 20 }}>{userSummary.nombre}</strong>
+                  </div>
+                  <div>👤 {userSummary.tipo}</div>
+                  {userSummary.lugar && <div>🏫 {userSummary.lugar}</div>}
+                  {userSummary.carrera && <div>📚 {userSummary.carrera}</div>}
+                  {userSummary.objetivo && (
+                    <div>🎯 {objetivoLabels[userSummary.objetivo] || userSummary.objetivo}</div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                background: "var(--bg-card)",
+                border: "1.5px solid var(--border-color)",
+                borderRadius: 24,
+                padding: 22,
+              }}
+            >
+              <div style={{ fontFamily: HAND, fontSize: 28, color: "#38bdf8", marginBottom: 12 }}>
+                material
+              </div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {materialNames.map((name, i) => (
+                  <div key={i}>📄 {name}</div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              background: "var(--bg-card)",
+              border: "1.5px solid var(--border-color)",
+              borderRadius: 24,
+              padding: 22,
+            }}
+          >
+            <div style={{ fontFamily: HAND, fontSize: 28, color: "#38bdf8", marginBottom: 14 }}>
+              así quise hacer mi setup para este material
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 14,
+              }}
+            >
+              {[
+                ["Conocimiento inicial", knowledgeLabels[setup.knowledgeLevel] || setup.knowledgeLevel],
+                ["Examen", examDateLabel],
+                ["Nota buscada", setup.targetScore + "%"],
+                ["Qué más me preocupa", setup.mainConcern || "No definido"],
+                ["Cómo evalúa mi profe", examStyleLabels.join(", ") || "No definido"],
+                ["Cómo quiero que me evalúe ALAI", evalLabels[setup.evalPreference] || setup.evalPreference],
+                ["Cómo quiero ver mi plan", planViewLabels[setup.planView] || setup.planView],
+              ].map(([label, value], i) => (
+                <div
+                  key={i}
+                  style={{
+                    background: "var(--bg-secondary)",
+                    borderRadius: 18,
+                    padding: 16,
+                  }}
+                >
+                  <div style={{ color: "var(--text-faint)", fontSize: 13 }}>{label}</div>
+                  <div style={{ fontWeight: 900, marginTop: 4 }}>{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        overflowY: "auto",
+        padding: 24,
+        background:
+          "radial-gradient(circle at 20% 10%, rgba(56,189,248,.14), transparent 28%), linear-gradient(135deg, var(--bg-primary), color-mix(in srgb, var(--bg-primary) 78%, #000))",
+        color: "var(--text-primary)",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 920,
+          margin: "0 auto",
+          background: "color-mix(in srgb, var(--bg-card) 92%, transparent)",
+          border: "1px solid color-mix(in srgb, #38bdf8 35%, var(--border-color))",
+          borderRadius: 28,
+          overflow: "hidden",
+          boxShadow: "0 20px 80px rgba(0,0,0,.45)",
+        }}
+      >
+        <div style={{ padding: "22px 24px 10px" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={{ fontFamily: HAND, fontSize: 22, color: "#38bdf8" }}>
+                🤖 modo adaptativo
+              </div>
+              <h1 style={{ margin: "4px 0 0", fontFamily: HAND, fontSize: 42, color: "#fff" }}>
+                setup de este material
+              </h1>
+            </div>
+
+            <button
+              onClick={onClose}
+              style={{
+                padding: "10px 18px",
+                background: "transparent",
+                color: "var(--text-muted)",
+                border: "2px solid var(--border-color)",
+                borderRadius: 14,
+                fontFamily: HAND,
+                fontSize: 20,
+                cursor: "pointer",
+              }}
+            >
+              ← volver
+            </button>
+          </div>
+
+          <div
+            style={{
+              height: 8,
+              background: "var(--bg-secondary)",
+              borderRadius: 999,
+              overflow: "hidden",
+              marginTop: 16,
+            }}
+          >
+            <div
+              style={{
+                height: "100%",
+                width: progress + "%",
+                background: "#38bdf8",
+                transition: "width .25s ease",
+              }}
+            />
+          </div>
+        </div>
+
+        <div style={{ padding: 26 }}>
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ color: "var(--text-faint)", fontFamily: BODY, fontSize: 13 }}>
+              Paso {step + 1} de {stepTitles.length}
+            </div>
+            <div style={{ color: "#fff", fontFamily: HAND, fontSize: 34, fontWeight: 900 }}>
+              {stepTitles[step]}
+            </div>
+          </div>
+
+          {step === 0 && (
+            <div style={{ display: "grid", gap: 12 }}>
+              {[
+                ["never_seen", "🆕", "Nunca lo he visto"],
+                ["know_little", "📘", "Lo conozco un poco"],
+                ["want_review", "🔄", "Quiero repasarlo"],
+                ["already_know", "🧠", "Ya lo domino, quiero practicar"],
+              ].map(([id, emoji, label]) => (
+                <button
+                  key={id}
+                  onClick={() => setSetup((prev) => ({ ...prev, knowledgeLevel: id as any }))}
+                  style={cardStyle(setup.knowledgeLevel === id)}
+                >
+                  <span style={{ fontSize: 28 }}>{emoji}</span>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {step === 1 && (
+            <div style={{ display: "grid", gap: 12 }}>
+              {[
+                ["today", "⚡", "Hoy"],
+                ["tomorrow", "⏰", "Mañana"],
+                ["this_week", "📅", "Esta semana"],
+                ["just_studying", "📚", "Solo quiero estudiar"],
+                ["custom", "🗓️", "Elegir fecha"],
+              ].map(([id, emoji, label]) => (
+                <button
+                  key={id}
+                  onClick={() => setSetup((prev) => ({ ...prev, examDateType: id as any }))}
+                  style={cardStyle(setup.examDateType === id)}
+                >
+                  <span style={{ fontSize: 28 }}>{emoji}</span>
+                  {label}
+                </button>
+              ))}
+
+              {setup.examDateType === "custom" && (
+                <input
+                  type="date"
+                  value={String(setup.examDateCustom || "")}
+                  onChange={(e) =>
+                    setSetup((prev) => ({ ...prev, examDateCustom: e.target.value }))
+                  }
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    border: "2px solid #38bdf8",
+                    borderRadius: 16,
+                    padding: "14px 16px",
+                    background: "var(--bg-secondary)",
+                    color: "var(--text-primary)",
+                    fontFamily: BODY,
+                    fontSize: 16,
+                  }}
+                />
+              )}
+            </div>
+          )}
+
+          {step === 2 && (
+            <div style={{ display: "grid", gap: 18 }}>
+              <div style={{ fontFamily: HAND, fontSize: 48, color: "#38bdf8", textAlign: "center" }}>
+                {setup.targetScore}%
+              </div>
+
+              <input
+                type="range"
+                min={50}
+                max={100}
+                step={5}
+                value={setup.targetScore}
+                onChange={(e) =>
+                  setSetup((prev) => ({ ...prev, targetScore: Number(e.target.value) }))
+                }
+                style={{ width: "100%" }}
+              />
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
+                {[60, 70, 80, 90, 100].map((score) => (
+                  <button
+                    key={score}
+                    onClick={() => setSetup((prev) => ({ ...prev, targetScore: score }))}
+                    style={{
+                      ...cardStyle(setup.targetScore === score),
+                      justifyContent: "center",
+                      minWidth: 70,
+                    }}
+                  >
+                    {score}%
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div style={{ display: "grid", gap: 14 }}>
+              <p style={{ color: "var(--text-muted)", fontFamily: BODY, fontSize: 14, margin: 0 }}>
+                Escríbelo con tus palabras, o toca omitir si no estás seguro.
+              </p>
+              <textarea
+                value={setup.mainConcern || ""}
+                onChange={(e) =>
+                  setSetup((prev) => ({ ...prev, mainConcern: e.target.value }))
+                }
+                placeholder="Ej: Me confundo con los conceptos, no entiendo las fórmulas, no sé qué es lo más importante..."
+                rows={4}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  border: "2px solid #38bdf8",
+                  borderRadius: 16,
+                  padding: "14px 16px",
+                  background: "var(--bg-secondary)",
+                  color: "var(--text-primary)",
+                  fontFamily: BODY,
+                  fontSize: 16,
+                  resize: "vertical",
+                }}
+              />
+              <button
+                onClick={() => {
+                  setSetup((prev) => ({ ...prev, mainConcern: "(omitido)" }));
+                  setStep((s) => s + 1);
+                }}
+                style={{
+                  padding: "10px 18px",
+                  background: "transparent",
+                  color: "var(--text-muted)",
+                  border: "1.5px dashed var(--border-color)",
+                  borderRadius: 12,
+                  fontFamily: BODY,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  textAlign: "center",
+                }}
+              >
+                Omitir →
+              </button>
+            </div>
+          )}
+
+          {step === 4 && (
+            <div style={{ display: "grid", gap: 12 }}>
+              <div style={{ color: "var(--text-muted)", fontFamily: BODY, marginBottom: 4 }}>
+                Puedes marcar una o varias opciones.
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: 12,
+                }}
+              >
+                {examStyleOptions.map((opt) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => toggleExamStyle(opt.id)}
+                    style={cardStyle(setup.professorExamStyle.includes(opt.id))}
+                  >
+                    <span style={{ fontSize: 24 }}>{opt.emoji}</span>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {step === 5 && (
+            <div style={{ display: "grid", gap: 12 }}>
+              {[
+                ["quick_test", "⚡", "Evaluaciones rápidas sin escribir"],
+                ["write_explain", "✍️", "Evaluaciones escribiendo / explicando"],
+                ["mixed", "🧩", "Mixto"],
+              ].map(([id, emoji, label]) => (
+                <button
+                  key={id}
+                  onClick={() => setSetup((prev) => ({ ...prev, evalPreference: id as any }))}
+                  style={cardStyle(setup.evalPreference === id)}
+                >
+                  <span style={{ fontSize: 28 }}>{emoji}</span>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {step === 6 && (
+            <div style={{ display: "grid", gap: 12 }}>
+              {[
+                ["book", "📘", "Como un libro", "Avanzas capítulo por capítulo, lineal y ordenado."],
+                ["levels", "🪜", "Como niveles", "Subes de nivel al dominar cada bloque."],
+                ["missions", "🗺️", "Como misiones", "Completas misiones y desbloqueas nuevas."],
+              ].map(([id, emoji, label, desc]) => (
+                <button
+                  key={id}
+                  onClick={() => setSetup((prev) => ({ ...prev, planView: id as any }))}
+                  style={{
+                    ...cardStyle(setup.planView === id),
+                    flexDirection: "column",
+                    alignItems: "flex-start",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 28 }}>{emoji}</span>
+                    <strong>{label}</strong>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: "var(--text-muted)",
+                      marginTop: 4,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {desc}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: "0 26px 24px", display: "flex", gap: 12 }}>
+          <button
+            onClick={back}
+            disabled={step === 0}
+            style={{
+              padding: "12px 18px",
+              background: "transparent",
+              color: step === 0 ? "var(--text-faint)" : "var(--text-primary)",
+              border: "2px solid var(--border-color)",
+              borderRadius: 14,
+              fontFamily: BODY,
+              fontWeight: 900,
+              cursor: step === 0 ? "not-allowed" : "pointer",
+            }}
+          >
+            Atrás
+          </button>
+
+          <button
+            onClick={next}
+            disabled={!canContinue()}
+            style={{
+              flex: 1,
+              padding: "12px 18px",
+              background: canContinue() ? "#38bdf8" : "var(--bg-secondary)",
+              color: canContinue() ? "#000" : "var(--text-faint)",
+              border: "2px solid color-mix(in srgb, #38bdf8 45%, var(--border-color))",
+              borderRadius: 14,
+              fontFamily: BODY,
+              fontWeight: 900,
+              cursor: canContinue() ? "pointer" : "not-allowed",
+            }}
+          >
+            {step === stepTitles.length - 1 ? "Guardar setup" : "Continuar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

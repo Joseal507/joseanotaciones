@@ -96,6 +96,8 @@ export async function PATCH(req: NextRequest) {
     if (body.tipo_estudiante !== undefined) payload.tipo_estudiante = body.tipo_estudiante?.trim() || null;
     if (body.genero !== undefined) payload.genero = body.genero || null;
     if (body.nombre !== undefined) payload.nombre = body.nombre?.trim() || payload.nombre;
+    if (body.objetivo !== undefined) payload.objetivo = body.objetivo?.trim() || null;
+    if (body.escuela !== undefined) payload.escuela = body.escuela?.trim() || null;
     if (body.avatar_url !== undefined) payload.avatar_url = body.avatar_url || null;
     if (body.visible_leaderboard !== undefined) payload.visible_leaderboard = !!body.visible_leaderboard;
 

@@ -1,9 +1,100 @@
-// Blueprint eliminado — funciones stub para no romper masteryEngine
-const calculateTopicMastery = (..._args: any[]): any[] => []
-const buildConceptScoreMap = (..._args: any[]): Record<string, number> => ({})
-const getWeakTopics = (..._args: any[]): any[] => []
-const getCriticalTopics = (..._args: any[]): any[] => []
-const getDominatedTopics = (..._args: any[]): any[] => []
+// ─── Blueprint Topic Mastery Engine ─────────────────────────
+function buildConceptScoreMap(concepts: any[]): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const c of concepts) {
+    if (!c?.conceptId) continue;
+    // Usar el score general del concepto (0-100)
+    const score = typeof c.overallScore === 'number'
+      ? c.overallScore
+      : typeof c.domain === 'number'
+        ? c.domain
+        : 0;
+    map[c.conceptId] = score;
+    // También indexar por nombre normalizado como fallback
+    if (c.conceptName) {
+      const key = c.conceptName.toLowerCase().replace(/\s+/g, '_');
+      map[key] = score;
+    }
+  }
+  return map;
+}
+
+function calculateTopicMastery(blueprint: any, scoreMap: Record<string, number>): any[] {
+  // Soportar tanto blueprint v3 (topics) como v2 (topicsIndex)
+  const topics: any[] = blueprint.topics || blueprint.topicsIndex || [];
+  const blocks: any[] = blueprint.blocks || blueprint.globalOrderedAnalysis || [];
+  const ctMap: Record<string, string> = blueprint.conceptToTopicMap || {};
+
+  const result: any[] = [];
+
+  for (const topic of topics) {
+    // Obtener bloques que pertenecen a este topic
+    const topicBlocks = blocks.filter((b: any) =>
+      b.topicId === topic.id ||
+      ctMap[b.id] === topic.id ||
+      b.topicLabel === topic.title
+    );
+
+    const conceptBlocks = topicBlocks.filter((b: any) =>
+      ['concept', 'definition', 'formula'].includes(b.kind)
+    );
+
+    if (conceptBlocks.length === 0) continue;
+
+    // Calcular score por bloque
+    const scores: number[] = [];
+    const coveredIds: string[] = [];
+    const strongConcepts: string[] = [];
+    const weakConcepts: string[] = [];
+
+    for (const block of conceptBlocks) {
+      // Buscar score por ID canónico, luego por label normalizado
+      let score = scoreMap[block.id];
+      if (score === undefined) {
+        const labelKey = (block.label || '').toLowerCase().replace(/\s+/g, '_');
+        score = scoreMap[labelKey] ?? -1;
+      }
+
+      if (score >= 0) {
+        scores.push(score);
+        coveredIds.push(block.id);
+        if (score >= 70) strongConcepts.push(block.label);
+        else if (score < 40) weakConcepts.push(block.label);
+      }
+    }
+
+    const avgScore = scores.length > 0
+      ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+      : 0;
+
+    result.push({
+      topicId: topic.id,
+      topicTitle: topic.title,
+      score: avgScore,
+      conceptCount: conceptBlocks.length,
+      coveredCount: coveredIds.length,
+      dominated: avgScore >= 80,
+      weak: avgScore < 40,
+      critical: avgScore < 20,
+      strongConcepts,
+      weakConcepts,
+    });
+  }
+
+  return result.sort((a, b) => a.score - b.score);
+}
+
+function getDominatedTopics(topics: any[]): any[] {
+  return topics.filter(t => t.dominated);
+}
+
+function getWeakTopics(topics: any[]): any[] {
+  return topics.filter(t => t.weak && !t.critical);
+}
+
+function getCriticalTopics(topics: any[]): any[] {
+  return topics.filter(t => t.critical);
+}
 // ═══════════════════════════════════════════════════════════════
 // StudyAL Mastery Engine v2.0
 // Dominio real medido por evidencia, no por clics.

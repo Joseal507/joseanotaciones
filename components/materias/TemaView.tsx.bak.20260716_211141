@@ -3,8 +3,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Materia, Tema, Apunte, Documento } from "../../lib/storage";
 import StudyALProcess from "./StudyALProcess";
-import StudyALAdaptive from "./StudyALAdaptive";
-import StudyALManual from "./StudyALManual";
 import MasteryCoach from "./MasteryCoach";
 import ALAIStudyALCheatCodes from "./ALAIStudyALCheatCodes";
 import ALAIStudyMap from "./ALAIStudyMap";
@@ -37,11 +35,59 @@ const normalizeIdStrict = (v: any) => String(v || "").trim();
 // ═══════════════════════════════════════════════════════════════
 // Sistema de sesiones unificado v3
 // ═══════════════════════════════════════════════════════════════
-// materialSession ya no se usa — sesiones unificadas en studySessions.ts
+import { loadMaterialSession, buildStableKey, type MaterialSessionState } from "../../lib/materialSession";
+const normalizeNameForMatch = (v: any) => String(v || "").trim().toLowerCase().replace(/\.pdf$/, "").replace(/\s+/g, " ");
 
+const buildSelectedMaterialsFingerprint = (
+  docs: any[] = [],
+  seleccionResult?: any,
+) => {
+  const matIds = docs
+    .map((d: any) => normalizeIdStrict(getMaterialKey(d)))
+    .filter(Boolean)
+    .sort();
 
+  const matsKey = matIds.join("|");
 
+  const pagesKey = Array.isArray(seleccionResult) && seleccionResult.length
+    ? seleccionResult
+        .map((s: any) => {
+          const matId = normalizeIdStrict(s?.materialId);
+          const pages = Array.isArray(s?.pages)
+            ? [...new Set(s.pages.map(Number).filter((n: number) => Number.isFinite(n) && n > 0))].sort((a: number, b: number) => a - b)
+            : [];
+          return `${matId}:${pages.join(",")}`;
+        })
+        .filter(Boolean)
+        .sort()
+        .join("|")
+    : "";
 
+  return `${matsKey}__PAGES__${pagesKey}`;
+};
+
+const buildSessionMaterialsFingerprint = (session: any) => {
+  const matIds = (session?.materialIds || [])
+    .map((id: any) => normalizeIdStrict(id))
+    .filter(Boolean)
+    .sort();
+
+  const matsKey = matIds.join("|");
+
+  const selectedPages = session?.selectedPages || {};
+  const pagesKey = Object.entries(selectedPages)
+    .map(([matId, pages]) => {
+      const cleanPages = Array.isArray(pages)
+        ? [...new Set((pages as any[]).map(Number).filter((n) => Number.isFinite(n) && n > 0))].sort((a, b) => a - b)
+        : [];
+      return `${normalizeIdStrict(matId)}:${cleanPages.join(",")}`;
+    })
+    .filter(Boolean)
+    .sort()
+    .join("|");
+
+  return `${matsKey}__PAGES__${pagesKey}`;
+};
 
 function hexToRgb(hex: string) {
   const clean = String(hex || "")
@@ -999,8 +1045,9 @@ export default function TemaView({
   const [activeSessions, setActiveSessions] = useState<StudySession[]>([]);
   // ── ID de sesión a reanudar (cuando se hace "seguir estudiando") ──
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
+  const [resumeProcessMode, setResumeProcessMode] = useState<'free' | 'adaptive' | null>(null);
   // Ref para el modo elegido — nunca se pisa por guards o re-renders
-  const chosenModeRef = useRef<'free' | 'adaptive' | 'manual' | null>(null);
+  const chosenModeRef = useRef<'free' | 'adaptive' | null>(null);
 
 
 
@@ -1101,9 +1148,10 @@ export default function TemaView({
     console.log("⚡ [returnToEnfoque] Sesión:", lastSession.id, "| processMode guardado:", lastSession.processMode, "| modo final:", lastMode);
 
     setStudyMode('free');
+    setResumeProcessMode('free');
 
     // Abrir el StudyAL Process directamente, sin pasar por el enfoque
-    setOpenFree(true);
+    setOpenTeorico(true);
     onClearReturnToEnfoque?.();
 
     // Sincronizar con servidor en background (sin bloquear UI)
@@ -1215,20 +1263,17 @@ export default function TemaView({
   }, [zoom]);
 
   const [showEnfoque, setShowEnfoque] = useState(false);
-  const [openFree, setOpenFree] = useState(false);
-  const [openAdaptive, setOpenAdaptive] = useState(false);
-  const [openManual, setOpenManual] = useState(false);
+  const [openTeorico, setOpenTeorico] = useState(false);
   const [returningToEnfoque, setReturningToEnfoque] = useState(false);
   const [showSeleccion, setShowSeleccion] = useState(false);
   const [enfoqueElegido, setEnfoqueElegido] = useState<"teorico" | "matematico" | "mixto" | "practico" | null>("teorico");
   const [showModeSelector, setShowModeSelector] = useState(false);
-  const [studyMode, setStudyMode] = useState<'free' | 'adaptive' | 'manual'>('free');
+  const [studyMode, setStudyMode] = useState<'free' | 'adaptive'>('free');
   const [seleccionResult, setSeleccionResult] = useState<
     SeleccionResult[] | null
   >(null);
   const [contextMenu, setContextMenu] = useState<any>(null);
   const [vp, setVp] = useState({ w: 1400, h: 900 });
-
 
   const dragState = useRef<{
     active: boolean;
@@ -1248,10 +1293,6 @@ export default function TemaView({
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
-
-
-
-
 
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
@@ -1630,15 +1671,21 @@ export default function TemaView({
     const resumeSession = activeSessions.find((s) => s.id === resumeSessionId);
     if (!resumeSession) {
       setResumeSessionId(null);
+      setResumeProcessMode("free" as any);
       setStudyMode("free");
       return;
     }
 
-    // Si los materiales seleccionados cambiaron, limpiar sesión
-    const resumeKey = [...(resumeSession.materialIds || [])].sort().join(',');
-    const currentKey = selectedDocs.map((d: any) => getMaterialKey(d)).filter(Boolean).sort().join(',');
-    if (resumeKey !== currentKey) {
+    const currentFP = buildSelectedMaterialsFingerprint(
+      selectedDocs,
+      seleccionResult,
+    );
+    const resumeFP = buildSessionMaterialsFingerprint(resumeSession);
+
+    if (currentFP !== resumeFP) {
       setResumeSessionId(null);
+      setResumeProcessMode("free" as any);
+      // Solo limpiar studyMode si el usuario no eligió un modo explícitamente
       if (!chosenModeRef.current) {
         setStudyMode("free");
       }
@@ -1821,6 +1868,7 @@ export default function TemaView({
       const clickedSession = matSessions[0] || null;
 
       setResumeSessionId(null);
+      setResumeProcessMode('free' as any);
       setStudyMode('free');
       setSelectedIds((prev) => {
         // ¿La selección actual coincide con alguna sesión completa?
@@ -1910,7 +1958,7 @@ export default function TemaView({
         onClose={() => {
           setShowCoach(false);
           if (coachBackToProcess) {
-            setOpenFree(true);
+            setOpenTeorico(true);
             setCoachBackToProcess(false);
           }
         }}
@@ -1936,7 +1984,7 @@ export default function TemaView({
         onMasteryEvent={onMasteryEvent}
         onBack={() => {
           setShowStudyMap(false);
-          setOpenFree(true);
+          setOpenTeorico(true);
         }}
       />
     );
@@ -1956,14 +2004,14 @@ export default function TemaView({
         onMasteryEvent={onMasteryEvent}
         onBack={() => {
           setShowCheatCodes(false);
-          setOpenFree(true);
+          setOpenTeorico(true);
         }}
       />
     );
 
   // ── Memoizar el masteryState reconstruido para evitar re-renders infinitos ──
   const reconstructedMasteryState = useMemo(() => {
-    if (!resumeSessionId || !openFree) return masteryState;
+    if (!resumeSessionId || !openTeorico) return masteryState;
     const all = getSessionsByTema(tema?.id || '');
     let sess: any = all.find(s => s.id === resumeSessionId);
 
@@ -2000,35 +2048,9 @@ export default function TemaView({
       };
     }
     return masteryState;
-  }, [resumeSessionId, openFree, tema?.id, masteryState]);
+  }, [resumeSessionId, openTeorico, tema?.id, masteryState]);
 
-  if (openAdaptive)
-    return (
-      <StudyALAdaptive
-        materiales={selectedDocs}
-        temaId={tema?.id}
-        userId={userId || undefined}
-        sessionId={resumeSessionId || undefined}
-        onClose={() => {
-          setOpenAdaptive(false);
-          refreshSessions();
-        }}
-      />
-    );
-
-  if (openManual)
-    return (
-      <StudyALManual
-        materiales={selectedDocs}
-        temaId={tema?.id}
-        onClose={() => {
-          setOpenManual(false);
-          refreshSessions();
-        }}
-      />
-    );
-
-  if (openFree)
+  if (openTeorico)
     return (
       <StudyALProcess
         userId={userId || undefined}
@@ -2039,22 +2061,22 @@ export default function TemaView({
         enfoque={enfoqueElegido || 'teorico'}
         onOpenStudyMap={() => {
           setShowStudyMap(true);
-          setOpenFree(false);
+          setOpenTeorico(false);
         }}
         onOpenCheatCodes={() => {
           setShowCheatCodes(true);
-          setOpenFree(false);
+          setOpenTeorico(false);
         }}
         materiales={selectedDocs}
         onOpenCoach={() => {
           setCoachBackToProcess(true);
-          setOpenFree(false);
+          setOpenTeorico(false);
           setShowCoach(true);
         }}
         onClose={() => {
-          setOpenFree(false);
+          setOpenTeorico(false);
           chosenModeRef.current = null; // Limpiar modo elegido al cerrar
-          // NO borrar studyMode al cerrar
+          // NO borrar studyMode/resumeProcessMode al cerrar
           // para que "seguir estudiando" recuerde el modo correcto
           refreshSessions();
         }}
@@ -2219,7 +2241,13 @@ export default function TemaView({
 
             if (tema?.id && matIds.length > 0) {
               // Leer el modo real desde la sesión activa que coincida con estos materiales
-              const _matchingMode = studyMode || 'free';
+              const _matchingMode: 'free' | 'adaptive' = (() => {
+                if (studyMode) return studyMode; // El explícito manda
+                if (resumeProcessMode) return resumeProcessMode;
+                const existing = activeSessions.find(s => matIds.every((id: string) => s.materialIds.includes(id)));
+                if (existing) return (existing.processMode || existing.studyMode || 'free') as 'free' | 'adaptive';
+                return 'free';
+              })();
               const sess = upsertSession({
                 temaId: tema.id,
                 enfoque: enfoqueElegido as any,
@@ -2445,7 +2473,13 @@ export default function TemaView({
               .filter(Boolean) as string[];
 
             if (tema?.id && matIds.length > 0) {
-              const _repasarMode = studyMode || 'free';
+              const _repasarMode: 'free' | 'adaptive' = (() => {
+                if (studyMode) return studyMode;
+                if (resumeProcessMode) return resumeProcessMode;
+                const existing = activeSessions.find(s => matIds.every((id: string) => s.materialIds.includes(id)));
+                if (existing) return (existing.processMode || existing.studyMode || 'free') as 'free' | 'adaptive';
+                return 'free';
+              })();
               const sess = upsertSession({
                 temaId: tema.id,
                 enfoque: "teorico" as any,
@@ -2969,26 +3003,110 @@ export default function TemaView({
       {/* ═══════════════════════════════════════════════════════ */}
       {/* BOTÓN ESTUDIAR — REDISEÑO ÉPICO                        */}
       {/* ═══════════════════════════════════════════════════════ */}
-      {openFree === false && openAdaptive === false && openManual === false &&
+      {openTeorico === false &&
         showEnfoque === false &&
         showSeleccion === false &&
         selectedIds.length > 0 &&
         expanded.includes("material") &&
         (() => {
-          // ── Detectar sesión existente para estos materiales (v3 limpio) ──
+          // ── Detectar si la selección actual coincide con una sesión guardada ──
+          const normalizeId = (v: any) => String(v || '').trim();
+
           const selectedMatIds = selectedDocs
-            .map((d: any) => getMaterialKey(d))
+            .map((d: any) => normalizeId(getMaterialKey(d)))
             .filter(Boolean)
             .sort();
-          const selectedKey = selectedMatIds.join(',');
 
-          const matchingSession = activeSessions.find((s) => {
-            const sessKey = [...(s.materialIds || [])].sort().join(',');
-            return sessKey === selectedKey;
-          }) || null;
+          const selectedKey = selectedMatIds.join('|');
 
-          const isResumeMode = !!matchingSession;
-          const resumeMode = (matchingSession?.processMode || 'free') as 'free' | 'adaptive' | 'manual';
+          const currentSelectedPagesKey = (() => {
+            if (!Array.isArray(seleccionResult) || !seleccionResult.length) return '';
+            const normalized = seleccionResult
+              .map((s: any) => {
+                const matId = normalizeId(s?.materialId);
+                const pages = Array.isArray(s?.pages)
+                  ? [...new Set(s.pages.map(Number).filter((n: number) => Number.isFinite(n) && n > 0))].sort((a: number, b: number) => a - b)
+                  : [];
+                return `${matId}:${pages.join(',')}`;
+              })
+              .filter(Boolean)
+              .sort();
+            return normalized.join('|');
+          })();
+
+          // Blindaje máximo por fingerprint exacto de selección
+          const currentSelectionFingerprint = buildSelectedMaterialsFingerprint(
+            selectedDocs,
+            seleccionResult,
+          );
+
+          // Nombres de los materiales seleccionados actualmente (para matching estable)
+          // Usa normalizeNameForMatch: lowercase, sin .pdf, espacios colapsados
+          const selectedMatNames = selectedDocs
+            .map((d: any) => normalizeNameForMatch(d?.nombre || d?.name || d?.title || ''))
+            .filter(Boolean)
+            .sort();
+          const selectedNamesKey = selectedMatNames.join('|');
+
+          const allMatchingSessions = activeSessions.filter((s) => {
+            const sessionFingerprint = buildSessionMaterialsFingerprint(s);
+
+            // 1. Match exacto por materiales + páginas
+            if (currentSelectionFingerprint === sessionFingerprint) return true;
+
+            // 2. Match por IDs de materiales
+            const sessionMatIds = (s.materialIds || [])
+              .map((id: any) => normalizeId(id))
+              .filter(Boolean)
+              .sort();
+
+            const sessionKey = sessionMatIds.join('|');
+            if (sessionKey && sessionKey === selectedKey) {
+              if (!currentSelectedPagesKey) {
+                const hasSessionPages =
+                  !!(s as any)?.selectedPages &&
+                  Object.keys((s as any).selectedPages || {}).length > 0;
+                return !hasSessionPages;
+              }
+              return false;
+            }
+
+            // 3. Fallback: match por nombre del material (por si el ID cambió)
+            const sessionMatNames = ((s as any).materialNames || [])
+              .map((n: any) => normalizeNameForMatch(n))
+              .filter(Boolean)
+              .sort();
+            const sessionNamesKey = sessionMatNames.join('|');
+            if (sessionNamesKey && sessionNamesKey === selectedNamesKey) return true;
+
+            return false;
+          });
+
+          // Ordenar priorizando: 1) tiene adaptiveProgram, 2) más reciente
+          const sortedMatchingSessions = [...allMatchingSessions].sort((a, b) => {
+            const aHasProg = !!(a as any).adaptiveProgram
+            const bHasProg = !!(b as any).adaptiveProgram
+            if (aHasProg && !bHasProg) return -1
+            if (!aHasProg && bHasProg) return 1
+            return Number(b.lastOpenedAt || 0) - Number(a.lastOpenedAt || 0)
+          });
+
+          // ═══ SISTEMA UNIFICADO V3 ═══
+          // Fuente ÚNICA: materialSession por stableKey
+          const primaryDoc = selectedDocs[0]
+          const stableKey = primaryDoc ? buildStableKey(tema?.id || '', primaryDoc) : ''
+          const unifiedSession: MaterialSessionState | null = stableKey ? loadMaterialSession(stableKey) : null
+          const hasUnifiedAdaptive = !!(unifiedSession?.adaptiveProgram)
+
+          // Sesiones existentes: usar la más reciente
+          const matchingSession = sortedMatchingSessions[0] || null;
+
+          // isResumeMode: SOLO TRUE si hay materialSession v3 con programa guardado
+          // Y el título del material guardado coincide con el seleccionado actualmente
+          const selectedTitle = (primaryDoc?.nombre || primaryDoc?.name || '').toLowerCase().replace(/\.pdf$/, '').trim()
+          const savedTitle = (unifiedSession?.materialTitle || '').toLowerCase().replace(/\.pdf$/, '').trim()
+          const titleMatches = selectedTitle && savedTitle && (selectedTitle === savedTitle || selectedTitle.includes(savedTitle) || savedTitle.includes(selectedTitle))
+          const isResumeMode = hasUnifiedAdaptive && titleMatches;
           return (
             <div
               style={{
@@ -3079,34 +3197,23 @@ export default function TemaView({
                 {/* BOTÓN ESTUDIAR / SEGUIR */}
                 <button
                   onClick={() => {
-                    if (isResumeMode && matchingSession) {
-                      // ── Reanudar sesión existente ──
-                      setResumeSessionId(matchingSession.id);
-                      setStudyMode(resumeMode as any);
+                    if (isResumeMode && unifiedSession) {
+                      // ── Fuente única: unifiedSession (materialSession v3) ──
+                      const resolvedMode: 'free' | 'adaptive' =
+                        unifiedSession.processMode === 'adaptive' ? 'adaptive' : 'free';
 
-                      // Restaurar páginas seleccionadas si las tiene
-                      if (matchingSession.selectedPages) {
-                        const rebuilt = matchingSession.materialIds.map(
-                          (matId: string, idx: number) => ({
-                            materialId: matId,
-                            materialIndex: idx,
-                            pages: matchingSession.selectedPages![matId] || [],
-                          }),
-                        );
-                        setSeleccionResult(rebuilt as any);
+                      // sessionId del sistema viejo: solo si matchingSession existe (opcional)
+                      if (matchingSession?.id) {
+                        setResumeSessionId(matchingSession.id);
                       }
 
-                      console.log("✅ Reanudando sesión:", matchingSession.id, "| mode:", resumeMode);
-                      if (resumeMode === 'adaptive') {
-                        setOpenAdaptive(true);
-                      } else if (resumeMode === 'manual') {
-                        setOpenManual(true);
-                      } else {
-                        setOpenFree(true);
-                      }
+                      console.log("✅ [v3] Continuando con materialSession:", stableKey, "| mode:", resolvedMode);
+                      setStudyMode(resolvedMode);
+                      setResumeProcessMode(resolvedMode);
+                      setOpenTeorico(true);
                     } else {
-                      // ── Nueva sesión: elegir modo ──
                       setResumeSessionId(null);
+                      setResumeProcessMode(null);
                       setStudyMode('free');
                       setShowModeSelector(true);
                     }
@@ -3187,7 +3294,7 @@ export default function TemaView({
                     }}
                   >
                     {isResumeMode
-                      ? (resumeMode === 'free' ? '🔓 libre' : resumeMode === 'adaptive' ? '🤖 adapt.' : '🎯 manual')
+                      ? matchingSession?.enfoque || "teorico"
                       : `${selectedIds.length}/5`}
                   </span>
 
@@ -4392,218 +4499,6 @@ export default function TemaView({
       )}
 
 
-
-      {showModeSelector && (
-        <div
-          onClick={() => setShowModeSelector(false)}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 99999,
-            background: 'rgba(0,0,0,0.85)',
-            backdropFilter: 'blur(18px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontFamily: "'Caveat', cursive",
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: 'relative',
-              display: 'flex', flexDirection: 'column', alignItems: 'center',
-              gap: 24,
-            }}
-          >
-            {/* Líneas de cuaderno */}
-            <div style={{
-              position: 'absolute', inset: 0, pointerEvents: 'none',
-              backgroundImage: 'linear-gradient(to bottom, transparent 47px, rgba(255,255,255,0.03) 47px, rgba(255,255,255,0.03) 48px, transparent 48px)',
-              backgroundSize: '100% 48px',
-            }} />
-
-            <div style={{ textAlign: 'center', marginBottom: 8 }}>
-              <div style={{ fontSize: 16, color: 'rgba(255,255,255,0.5)', marginBottom: 6 }}>
-                ~ {selectedIds.length} {selectedIds.length === 1 ? 'material seleccionado' : 'materiales seleccionados'} ~
-              </div>
-              <h2 style={{
-                fontSize: 48, fontWeight: 900, color: '#fff', margin: 0,
-                textShadow: '0 4px 30px rgba(255,255,255,0.15)',
-              }}>
-                ¿cómo querés estudiar?
-              </h2>
-              <div style={{ fontSize: 18, color: 'rgba(255,255,255,0.55)', marginTop: 6, fontStyle: 'italic' }}>
-                elegí tu modo ↓
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', justifyContent: 'center' }}>
-
-              {/* ── MODO LIBRE ── */}
-              {[
-                {
-                  id: 'free',
-                  emoji: '🔓',
-                  label: 'Libre',
-                  sub: 'Vos elegís el orden',
-                  desc: 'Accedés a todas las herramientas sin restricciones. Estudiás como quieras.',
-                  color: '#4ade80',
-                  locked: false,
-                },
-                {
-                  id: 'adaptive',
-                  emoji: '🤖',
-                  label: 'Adaptativo',
-                  sub: 'La IA te guía',
-                  desc: 'El sistema analiza tu rendimiento y decide qué estudiar, cuándo y en qué orden.',
-                  color: '#38bdf8',
-                  locked: false,
-                },
-                {
-                  id: 'manual',
-                  emoji: '🎯',
-                  label: 'Manual',
-                  sub: 'Vos configurás todo',
-                  desc: 'Definís el orden, las herramientas y los tiempos. Control total del proceso.',
-                  color: '#a78bfa',
-                  locked: false,
-                },
-              ].map((mode) => {
-                return (
-                  <button
-                    key={mode.id}
-                    onClick={() => {
-                      if (mode.locked) return;
-                      setShowModeSelector(false);
-                      setStudyMode(mode.id as any);
-                      chosenModeRef.current = mode.id as any;
-                      setEnfoqueElegido('teorico');
-                      setShowSeleccion(true);
-                    }}
-                    disabled={mode.locked}
-                    style={{
-                      position: 'relative',
-                      width: 260,
-                      minHeight: 320,
-                      background: mode.locked
-                        ? 'linear-gradient(160deg, #111114, #0a0a0c)'
-                        : `linear-gradient(160deg, ${mode.color}18, ${mode.color}05)`,
-                      border: `1.5px solid ${mode.locked ? '#333' : mode.color + '88'}`,
-                      borderRadius: 20,
-                      padding: '28px 20px',
-                      cursor: mode.locked ? 'not-allowed' : 'pointer',
-                      opacity: mode.locked ? 0.55 : 1,
-                      display: 'flex', flexDirection: 'column', alignItems: 'center',
-                      textAlign: 'center',
-                      fontFamily: "'Caveat', cursive",
-                      transition: 'all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                      boxShadow: mode.locked
-                        ? 'none'
-                        : `0 10px 30px ${mode.color}33`,
-                    }}
-                    onMouseEnter={(e) => {
-                      if (mode.locked) return;
-                      e.currentTarget.style.transform = 'translateY(-10px) scale(1.03)';
-                      e.currentTarget.style.borderColor = mode.color;
-                      e.currentTarget.style.boxShadow = `0 20px 50px ${mode.color}55, 0 0 70px ${mode.color}22`;
-                    }}
-                    onMouseLeave={(e) => {
-                      if (mode.locked) return;
-                      e.currentTarget.style.transform = 'translateY(0) scale(1)';
-                      e.currentTarget.style.borderColor = mode.color + '88';
-                      e.currentTarget.style.boxShadow = `0 10px 30px ${mode.color}33`;
-                    }}
-                  >
-                    {/* Pestañita top */}
-                    <div style={{
-                      position: 'absolute', top: -2, left: '50%',
-                      transform: 'translateX(-50%)',
-                      width: 55, height: 10,
-                      background: mode.locked ? '#333' : mode.color,
-                      borderRadius: '0 0 6px 6px',
-                      opacity: mode.locked ? 0.4 : 1,
-                    }} />
-
-                    {/* Candado */}
-                    {mode.locked && (
-                      <div style={{
-                        position: 'absolute', top: 12, right: 12,
-                        fontSize: 16, opacity: 0.6,
-                      }}>🔒</div>
-                    )}
-
-                    <div style={{
-                      fontSize: 60, marginTop: 12, marginBottom: 10,
-                      filter: mode.locked ? 'grayscale(1)' : `drop-shadow(0 0 16px ${mode.color}99)`,
-                    }}>
-                      {mode.emoji}
-                    </div>
-
-                    <div style={{
-                      fontSize: 34, fontWeight: 800,
-                      color: mode.locked ? '#555' : mode.color,
-                      marginBottom: 4, lineHeight: 1,
-                    }}>
-                      {mode.label}
-                    </div>
-
-                    <div style={{
-                      fontSize: 15, color: 'rgba(255,255,255,0.45)',
-                      fontStyle: 'italic', marginBottom: 14,
-                    }}>
-                      {mode.sub}
-                    </div>
-
-                    <div style={{
-                      fontSize: 15, color: 'rgba(255,255,255,0.75)',
-                      fontFamily: "'Inter', sans-serif",
-                      lineHeight: 1.4, flex: 1,
-                    }}>
-                      {mode.desc}
-                    </div>
-
-                    <div style={{
-                      marginTop: 18,
-                      padding: '7px 18px',
-                      borderRadius: 30,
-                      background: mode.locked ? 'rgba(255,255,255,0.04)' : mode.color + '22',
-                      color: mode.locked ? '#444' : mode.color,
-                      border: `1.5px solid ${mode.locked ? '#333' : mode.color}`,
-                      fontSize: 16, fontWeight: 700,
-                      fontFamily: "'Inter', sans-serif",
-                    }}>
-                      {mode.locked ? 'próximamente' : 'empezar →'}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={() => setShowModeSelector(false)}
-              style={{
-                background: 'transparent',
-                border: '1.5px solid rgba(255,255,255,0.25)',
-                padding: '9px 26px', borderRadius: 30,
-                color: 'rgba(255,255,255,0.75)',
-                fontFamily: "'Caveat', cursive",
-                fontSize: 18, fontWeight: 600,
-                cursor: 'pointer',
-                marginTop: 4,
-                transition: 'all 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
-                e.currentTarget.style.borderColor = '#fff';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.25)';
-              }}
-            >
-              ← volver
-            </button>
-          </div>
-        </div>
-      )}
-
       {showSeleccion && (
         <SeleccionPaginas
           materiales={selectedDocs}
@@ -4660,18 +4555,25 @@ export default function TemaView({
               });
 
               if (tema?.id && matIds.length > 0) {
+                // Determinar modo real: studyMode > sesión existente adaptive > 'free'
+                const _seleccionMode: 'free' = 'free';
                 const sess = upsertSession({
                   temaId: tema.id,
-                  enfoque: (enfoqueElegido || 'teorico') as any,
-                  processMode: (studyMode || 'free') as any,
+                  enfoque: enfoqueElegido as any,
+                  processMode: 'free',
+                  studyMode: 'free',
                   materialIds: matIds,
-                  materialNames: selectedDocs.map((m: any) => String(m?.nombre || m?.name || '').trim()).filter(Boolean),
-                  selectedPages: Object.keys(pagesByMat).length ? pagesByMat : {},
+                  selectedPages: Object.keys(pagesByMat).length
+                    ? pagesByMat
+                    : undefined,
+                  currentPhase: "workspace",
                 });
                 savedSessionId = sess.id;
                 setResumeSessionId(sess.id);
+                setResumeProcessMode(_seleccionMode);
+                setStudyMode(_seleccionMode);
                 refreshSessions();
-                console.log("💾 Sesión guardada:", sess.id, "| modo:", studyMode);
+                console.log("💾 Sesión SeleccionPaginas:", sess.id, "| processMode:", _seleccionMode);
               }
             } catch (e) {
               console.warn("Error guardando sesión al entrar al enfoque:", e);
@@ -4679,13 +4581,11 @@ export default function TemaView({
 
             setShowSeleccion(false);
 
-            // Abrir el modo que el usuario eligió
-            if (studyMode === 'adaptive') {
-              setOpenAdaptive(true);
-            } else if (studyMode === 'manual') {
-              setOpenManual(true);
-            } else {
-              setOpenFree(true);
+            if (true) { // enfoque siempre es teórico
+              setOpenTeorico(true);
+            } else if (enfoqueElegido === "practico") {
+              const matsSeleccionados = selectedDocs;
+              onOpenQuiz?.(matsSeleccionados, resultado as any);
             }
           }}
         />

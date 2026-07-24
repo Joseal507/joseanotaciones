@@ -47,8 +47,6 @@ export default function SettingsPage() {
   const [uniCustom, setUniCustom] = useState('');
   const [carrera, setCarrera] = useState('');
   const [carreraCustom, setCarreraCustom] = useState('');
-  const [edad, setEdad] = useState('');
-  const [objetivo, setObjetivo] = useState('');
   const [escuela, setEscuela] = useState('');
   const [escuelaCustom, setEscuelaCustom] = useState('');
   const [guardandoPerfil, setGuardandoPerfil] = useState(false);
@@ -95,42 +93,23 @@ export default function SettingsPage() {
 
       setUsuario(data.user);
       setUserId(data.user.id);
-      // NO setear nombre aquí — se lee del perfil privado abajo
-      // Solo como fallback temporal
-      const googleName = data.user.user_metadata?.nombre || data.user.email?.split('@')[0] || '';
+      setNombre(data.user.user_metadata?.nombre || data.user.email?.split('@')[0] || '');
 
-      // Cargar perfil privado (user-profile) — fuente de verdad
-      try {
-        const upRes = await fetch('/api/user-profile?userId=' + encodeURIComponent(data.user.id), { cache: 'no-store', credentials: 'same-origin' });
-        const upJson = await upRes.json().catch(() => ({}));
-        const up = upJson?.data || null;
-        if (up) {
-          setNombre(up.nombre || googleName);
-          setDescripcion(up.descripcion || '');
-          setGenero(up.genero || '');
-          setTipoEstudiante(up.tipo_estudiante || up.tipo_usuario || '');
-          setEdad(String(up.edad || ''));
-          setObjetivo(up.objetivo || '');
-          if ((up.tipo_estudiante || up.tipo_usuario) === 'universitario') {
-            setUniversidad(up.universidad || '');
-            setCarrera(up.carrera || '');
-          } else if ((up.tipo_estudiante || up.tipo_usuario) === 'escuela' || (up.tipo_estudiante || up.tipo_usuario) === 'estudiante') {
-            setEscuela(up.escuela || up.universidad || '');
-          }
-        }
-      } catch {}
-
-      // El nombre ya se seteó arriba desde user-profile
-      // Si user-profile no tenía nombre, usar Google como último fallback
-      // (no necesitamos hacer nada porque setNombre(up.nombre || googleName) ya cubre ambos casos)
-
-      // Cargar visible_leaderboard del perfil público
       try {
         const res = await fetch('/api/leaderboard', { cache: 'no-store', credentials: 'same-origin' });
         const json = await res.json();
         const lb = (json.data || []).find((x: any) => x.user_id === data.user.id);
         if (lb) {
+          setDescripcion(lb.descripcion || '');
+          setGenero(lb.genero || '');
+          setTipoEstudiante(lb.tipo_estudiante || '');
           setVisibleLeaderboard(lb.visible_leaderboard !== false && lb.visible_leaderboard !== 0);
+          if (lb.tipo_estudiante === 'universitario') {
+            setUniversidad(lb.universidad || '');
+            setCarrera(lb.carrera || '');
+          } else if (lb.tipo_estudiante === 'escuela') {
+            setEscuela(lb.universidad || '');
+          }
         }
       } catch {}
 
@@ -190,33 +169,36 @@ export default function SettingsPage() {
           : undefined;
         const carreraFinal = carrera === 'Otra carrera' ? carreraCustom : carrera;
 
-        if (!userId) throw new Error('No se pudo identificar tu cuenta');
+        const perfilPayload = {
+          nombre, descripcion, genero,
+          tipo_estudiante: tipoEstudiante,
+          universidad: universidadFinal,
+          carrera: tipoEstudiante === 'universitario' ? carreraFinal : null,
+          escuela: tipoEstudiante === 'escuela' ? universidadFinal : null,
+        };
 
-        // Guardar en user-profile (fuente de verdad privada)
-        // user-profile sincroniza automáticamente a perfil-publico
-        const saveRes = await fetch('/api/user-profile', {
-          method: 'POST',
+        // Guardar en perfil público (leaderboard)
+        await fetch('/api/perfil-publico', {
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: userId,
-            nombre,
-            descripcion,
-            genero,
-            tipo_estudiante: tipoEstudiante,
-            tipo_usuario: tipoEstudiante,
-            universidad: universidadFinal,
-            carrera: tipoEstudiante === 'universitario' ? carreraFinal : null,
-            escuela: tipoEstudiante === 'escuela' ? universidadFinal : null,
-            edad: edad ? Number(edad) : null,
-            objetivo: objetivo || null,
-            visible_leaderboard: visibleLeaderboard,
-          }),
+          body: JSON.stringify(perfilPayload),
         });
-        
-        if (!saveRes.ok) {
-          const errData = await saveRes.json().catch(() => ({}));
-          throw new Error(errData?.error || 'No se pudo guardar el perfil');
-        }
+
+        // Guardar también en user-profile (fuente de verdad del modo adaptativo)
+        try {
+          await fetch('/api/user-profile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              nombre,
+              tipo_estudiante: tipoEstudiante,
+              tipo_usuario: tipoEstudiante,
+              universidad: universidadFinal,
+              carrera: tipoEstudiante === 'universitario' ? carreraFinal : null,
+              escuela: tipoEstudiante === 'escuela' ? universidadFinal : null,
+            }),
+          });
+        } catch {}
       }
       setMensajePerfil('✅ ' + (idioma === 'en' ? 'Profile updated!' : '¡Perfil actualizado!'));
     } catch (err: any) {
@@ -341,7 +323,7 @@ export default function SettingsPage() {
     );
   }
 
-  const nombre_usuario = nombre || usuario?.user_metadata?.nombre || usuario?.email?.split('@')[0] || 'Usuario';
+  const nombre_usuario = usuario?.user_metadata?.nombre || usuario?.email?.split('@')[0] || 'Usuario';
   const inicial = nombre_usuario.charAt(0).toUpperCase();
 
   const secciones = [
@@ -533,8 +515,8 @@ export default function SettingsPage() {
 
           {/* ===== PERFIL ===== */}
           {seccion === 'perfil' && (
-            <NotebookCard color="var(--gold)" emoji="👤" title={idioma === "en" ? "My Profile" : "Mi perfil"} rot={-0.4}>
-              <Texto>{idioma === "en" ? "Your personal and academic information" : "Tu información personal y académica"}</Texto>
+            <NotebookCard color="var(--gold)" emoji="👤" title={tr('publicProfile')} rot={-0.4}>
+              <Texto>{tr('publicProfileDesc')}</Texto>
 
               {/* Foto */}
               <div style={{
@@ -688,47 +670,6 @@ export default function SettingsPage() {
                   )}
                 </Field>
               )}
-
-              {/* ── Datos privados (solo visibles para ti) ── */}
-              <div style={{
-                marginTop: 12,
-                padding: '12px 16px',
-                background: 'color-mix(in srgb, var(--blue) 8%, var(--bg-secondary))',
-                border: '1.5px dashed var(--blue)',
-                borderRadius: 12,
-              }}>
-                <div style={{
-                  fontFamily: "'Caveat', cursive",
-                  fontSize: 18,
-                  fontWeight: 800,
-                  color: 'var(--blue)',
-                  marginBottom: 10,
-                }}>
-                  🔒 Datos privados (solo tú los ves)
-                </div>
-
-                <Field label="📅 Edad">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={120}
-                    value={edad}
-                    onChange={(e: any) => setEdad(e.target.value)}
-                    placeholder="Tu edad"
-                  />
-                </Field>
-
-                <Field label="🎯 Objetivo">
-                  <Select value={objetivo} onChange={(e: any) => setObjetivo(e.target.value)}>
-                    <option value="">Sin especificar</option>
-                    <option value="mejorar_notas">Mejorar mis notas</option>
-                    <option value="aprobar_examen">Aprobar un examen</option>
-                    <option value="entender_materias">Entender mejor mis materias</option>
-                    <option value="habito_estudio">Crear un hábito de estudio</option>
-                    <option value="graduarme">Graduarme</option>
-                  </Select>
-                </Field>
-              </div>
 
               <Alert msg={mensajePerfil} />
 

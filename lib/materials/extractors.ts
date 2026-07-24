@@ -156,22 +156,31 @@ export async function extractPdf(
     };
   }
 
-  // ── Estrategia 2: Gemini 2.5 Flash vía OpenRouter (PDFs escaneados) ──
-  if (process.env.OPENROUTER_API_KEY && buffer.length < 50 * 1024 * 1024) {
-    try {
-      const text = await extractWithOpenRouterGemini(buffer, process.env.OPENROUTER_API_KEY);
-      if (text.length >= 50) {
-        console.log(`✅ Gemini 2.5 Flash (OpenRouter): ${text.length} chars`);
-        return {
-          text,
-          method: 'openrouter-gemini-2.5-flash',
-          chars: text.length,
-          isImageBased: true,
-          hasText: true,
-        };
+  // ── Estrategia 2: Gemini directo rotando keys (PDFs escaneados) ──
+  const geminiKeysForOcr = [
+    process.env.GEMINI_API_KEY,
+    process.env.GEMINI_API_KEY_2,
+    process.env.GEMINI_API_KEY_3,
+    process.env.GEMINI_API_KEY_4,
+  ].filter(Boolean) as string[];
+
+  if (geminiKeysForOcr.length > 0 && buffer.length < 50 * 1024 * 1024) {
+    for (const gKey of geminiKeysForOcr) {
+      try {
+        const text = await extractWithGemini(buffer, gKey);
+        if (text.length >= 50) {
+          console.log(`✅ Gemini OCR (key rotada): ${text.length} chars`);
+          return {
+            text,
+            method: 'gemini-ocr',
+            chars: text.length,
+            isImageBased: true,
+            hasText: true,
+          };
+        }
+      } catch (e: any) {
+        console.warn(`Gemini OCR key falló: ${e?.message}`);
       }
-    } catch (e: any) {
-      console.warn('OpenRouter Gemini error:', e?.message);
     }
   }
 

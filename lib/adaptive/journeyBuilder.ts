@@ -243,11 +243,18 @@ export async function buildLearningJourney(
         if (!copy) continue;
         const idx = chapters.findIndex(c => c.chapterNumber === ch.chapterNumber);
         if (idx !== -1) {
+          const bulletPoints = (copy as any).bullets || [];
           chapters[idx] = {
             ...chapters[idx],
             title: copy.title || ch.title,
-            hook: copy.intro || ch.hook,
-            objective: copy.intro || ch.objective,
+            // Los bullets se guardan en exitCriteria para mostrarse como puntos
+            exitCriteria: bulletPoints.length > 0 ? bulletPoints : ch.exitCriteria,
+            hook: bulletPoints.length > 0
+              ? `En esta sesión estudiarás: ${bulletPoints.slice(0, 2).join(', ')}.`
+              : ch.hook,
+            objective: bulletPoints.length > 0
+              ? bulletPoints.join(' · ')
+              : ch.objective,
           };
         }
       }

@@ -1,0 +1,697 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { alaiRequest, alaiJson } from '../../../../lib/alai';
+import { getMaterialText, getMaterial } from '../../../../lib/materials/repository';
+import { downloadFromR2 } from '../../../../lib/materials/storage';
+import { extractText } from '../../../../lib/materials/extractors';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../../lib/auth/options';
+
+export const maxDuration = 180;
+export const dynamic = 'force-dynamic';
+
+// ─── Tipos ───────────────────────────────────────────────────
+interface RawSegment {
+  text: string;
+  pageHint: number;
+  order: number;
+  materialId: string;
+  materialName: string;
+}
+
+interface EnrichedBlock {
+  id: string;
+  kind: 'topic' | 'concept' | 'entity' | 'definition' | 'formula' | 'example' | 'fact' | 'common_mistake' | 'note';
+  label: string;
+  summary: string;
+  materialId: string;
+  materialName: string;
+  pages: number[];
+  firstPage: number;
+  globalOrder: number;
+  topicId: string | null;
+  topicLabel: string;
+  dependsOn: string[];
+  relatedTo: string[];
+  importance: number;
+  difficulty: 'basic' | 'intermediate' | 'advanced';
+  examTypes: string[];
+}
+
+// ─── Paso 1: dividir texto en segmentos por código (sin IA) ──
+function segmentTextByCode(
+  text: string,
+  materialId: string,
+  materialName: string,
+  selectedPages: number[],
+): RawSegment[] {
+  const segments: RawSegment[] = [];
+  let order = 0;
+
+  // Detectar marcadores de página (sin flag g para evitar lastIndex roto)
+  const PAGE_MARKER_DETECT = /\[(?:Pagina|Página|Page|pág|pg|p)\.?\s*(\d+)\]/i;
+  const PAGE_MARKER_CLEAN  = /\[(?:Pagina|Página|Page|pág|pg|p)\.?\s*\d+\]/gi;
+  let currentPage = selectedPages[0] || 1;
+
+  // Normalizar form feeds (\f) que usa pdf-parse entre páginas
+  const normalizedText = text.replace(/\f/g, '\n');
+
+  // Estrategia 1: dividir por saltos dobles (markdown/docx style)
+  let rawParagraphs = normalizedText.split(/\n{2,}/).map(p => p.trim()).filter(p => p.length > 20);
+
+  // Estrategia 2: si hay muy pocos párrafos (PDF plano), dividir por salto simple
+  if (rawParagraphs.length < 5) {
+    const byNewline = normalizedText.split(/\n/).map(p => p.trim()).filter(p => p.length > 40);
+    if (byNewline.length > rawParagraphs.length * 2) {
+      rawParagraphs = byNewline;
+    }
+  }
+
+  // Estrategia 3: si aún hay muy pocos, dividir por punto final + mayúscula
+  if (rawParagraphs.length < 4) {
+    const bySentence = normalizedText
+      .replace(/([.!?])\s+([A-ZÁÉÍÓÚÜÑ])/g, '$1\n$2')
+      .split('\n')
+      .map(p => p.trim())
+      .filter(p => p.length > 60);
+    if (bySentence.length > rawParagraphs.length) {
+      rawParagraphs = bySentence;
+    }
+  }
+
+  // Tamaño de segmento calibrado: más pequeño = más bloques = más cobertura
+  const MIN_SEGMENT = 80;
+  const MAX_SEGMENT = 600;
+  let buffer = '';
+
+  for (const para of rawParagraphs) {
+    // Detectar marcador de página — regex sin g, no rompe lastIndex
+    const pageMatch = PAGE_MARKER_DETECT.exec(para);
+    if (pageMatch) {
+      const detectedPage = parseInt(pageMatch[1]);
+      if (!isNaN(detectedPage)) currentPage = detectedPage;
+    }
+
+    const cleanPara = para.replace(PAGE_MARKER_CLEAN, '').trim();
+    if (cleanPara.length < 10) continue;
+
+    buffer = buffer ? buffer + ' ' + cleanPara : cleanPara;
+
+    // Flush si el buffer es suficientemente grande
+    if (buffer.length >= MIN_SEGMENT) {
+      // Si es muy grande, dividir
+      if (buffer.length > MAX_SEGMENT) {
+        // Dividir en mitades por punto
+        const mid = buffer.lastIndexOf('. ', MAX_SEGMENT);
+        const cut = mid > MIN_SEGMENT ? mid + 1 : MAX_SEGMENT;
+        segments.push({ text: buffer.slice(0, cut).trim(), pageHint: currentPage, order: order++, materialId, materialName });
+        buffer = buffer.slice(cut).trim();
+      } else {
+        segments.push({ text: buffer, pageHint: currentPage, order: order++, materialId, materialName });
+        buffer = '';
+      }
+    }
+  }
+
+  // Flush del buffer restante
+  if (buffer.length > 30) {
+    segments.push({ text: buffer, pageHint: currentPage, order: order++, materialId, materialName });
+  }
+
+  // Fallback: si aún hay muy pocos segmentos, dividir el texto crudo en chunks fijos
+  if (segments.length < 3 && normalizedText.length > 500) {
+    const chunkSize = Math.min(400, Math.floor(normalizedText.length / 10));
+    const fallbackSegments: RawSegment[] = [];
+    let pos = 0;
+    let fallbackOrder = 0;
+    while (pos < normalizedText.length) {
+      let end = pos + chunkSize;
+      if (end < normalizedText.length) {
+        const dot = normalizedText.lastIndexOf('. ', end);
+        if (dot > pos + 100) end = dot + 1;
+      }
+      const chunk = normalizedText.slice(pos, end).trim();
+      if (chunk.length > 30) {
+        fallbackSegments.push({
+          text: chunk,
+          pageHint: currentPage,
+          order: fallbackOrder++,
+          materialId,
+          materialName,
+        });
+      }
+      pos = end;
+    }
+    console.log(`Fallback segmentation: ${fallbackSegments.length} segments`);
+    return fallbackSegments;
+  }
+
+  return segments;
+}
+
+// ─── Paso 2: agrupar segmentos en chunks para IA ─────────────
+function groupSegmentsIntoChunks(
+  segments: RawSegment[],
+  maxCharsPerChunk = 6000,
+): RawSegment[][] {
+  const chunks: RawSegment[][] = [];
+  let current: RawSegment[] = [];
+  let currentLen = 0;
+
+  for (const seg of segments) {
+    if (currentLen + seg.text.length > maxCharsPerChunk && current.length > 0) {
+      chunks.push(current);
+      current = [];
+      currentLen = 0;
+    }
+    current.push(seg);
+    currentLen += seg.text.length;
+  }
+
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+
+// ─── Paso 3: IA enriquece cada chunk ─────────────────────────
+async function enrichChunkWithAI(
+  segments: RawSegment[],
+  chunkIndex: number,
+  totalChunks: number,
+  materialName: string,
+): Promise<any[]> {
+
+  // Preparar el texto para IA con índices para que pueda referenciar
+  const numberedText = segments
+    .map((s, i) => `[${i}] (p.${s.pageHint}) ${s.text}`)
+    .join('\n\n');
+
+  const prompt = `You are a pedagogical knowledge modeler for an adaptive study system.
+
+I will give you ${segments.length} numbered text segments from "${materialName}".
+Your job: classify and enrich each segment as a knowledge block.
+
+CLASSIFICATION RULES:
+- topic: a main section or theme that groups other blocks
+- concept: a teachable IDEA (not just a name). Must describe what something DOES or WHY it matters
+- entity: a person, institution, place, date — just a "who/where/when"
+- definition: a formal explanation of a specific term
+- formula: a mathematical or scientific expression
+- example: a concrete case illustrating a concept
+- fact: a specific isolated data point
+- common_mistake: a frequent student misconception about the previous concept
+- note: supporting context that does not fit elsewhere
+
+IMPORTANT:
+- "Niels Bohr" alone = entity. "Bohr proposed quantized orbits to solve atomic stability" = concept
+- Every concept MUST have dependsOn listing what the student needs to know first
+- importance 0-100: how likely to appear on a real exam
+- difficulty: basic | intermediate | advanced
+- examTypes: which question types fit: mcq | true_false | matching | open_ended | fill_blank
+
+Chunk ${chunkIndex + 1} of ${totalChunks} from "${materialName}":
+
+${numberedText}
+
+Return ONLY valid JSON — no markdown, no explanation:
+{
+  "blocks": [
+    {
+      "segmentIndex": 0,
+      "kind": "topic | concept | entity | definition | formula | example | fact | common_mistake | note",
+      "label": "Short descriptive label capturing the IDEA (max 10 words)",
+      "summary": "2-3 sentences: what it teaches and why it matters for the exam",
+      "topicLabel": "parent topic label (or same as label if this IS a topic)",
+      "dependsOn": ["prerequisite concept label"],
+      "relatedTo": ["related concept label"],
+      "importance": 80,
+      "difficulty": "basic | intermediate | advanced",
+      "examTypes": ["mcq", "open_ended"]
+    }
+  ]
+}`;
+
+  try {
+    const parsed = await alaiJson({
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1,
+      maxTokens: 4000,
+      json: true,
+    });
+
+    if (!parsed?.blocks) return [];
+
+    // Combinar resultado de IA con datos de código (páginas, orden, materialId)
+    return parsed.blocks.map((b: any) => {
+      const segIdx = typeof b.segmentIndex === 'number' ? b.segmentIndex : 0;
+      const seg = segments[segIdx] || segments[0];
+
+      return {
+        kind: b.kind || 'note',
+        label: String(b.label || '').trim(),
+        summary: String(b.summary || '').trim(),
+        materialId: seg.materialId,
+        materialName: seg.materialName,
+        pages: [seg.pageHint],
+        pageHint: seg.pageHint,
+        globalOrder: seg.order,
+        topicLabel: String(b.topicLabel || b.label || '').trim(),
+        dependsOn: Array.isArray(b.dependsOn) ? b.dependsOn : [],
+        relatedTo: Array.isArray(b.relatedTo) ? b.relatedTo : [],
+        importance: typeof b.importance === 'number' ? Math.max(0, Math.min(100, b.importance)) : 50,
+        difficulty: ['basic', 'intermediate', 'advanced'].includes(b.difficulty) ? b.difficulty : 'basic',
+        examTypes: Array.isArray(b.examTypes) ? b.examTypes : [],
+      };
+    });
+  } catch (e: any) {
+    console.error(`Chunk ${chunkIndex + 1} AI error:`, e?.message);
+
+    // Fallback: código solo sin IA
+    return segments.map(seg => ({
+      kind: 'note' as const,
+      label: seg.text.slice(0, 60) + (seg.text.length > 60 ? '...' : ''),
+      summary: seg.text.slice(0, 200),
+      materialId: seg.materialId,
+      materialName: seg.materialName,
+      pages: [seg.pageHint],
+      pageHint: seg.pageHint,
+      globalOrder: seg.order,
+      topicLabel: 'General',
+      dependsOn: [],
+      relatedTo: [],
+      importance: 50,
+      difficulty: 'basic' as const,
+      examTypes: [],
+    }));
+  }
+}
+
+// ─── Paso 4: deduplicar conceptos por código ─────────────────
+function deduplicateConcepts(blocks: any[]): {
+  uniqueConcepts: any[];
+  conceptIdMap: Record<string, string>;
+} {
+  const seen = new Map<string, any>();
+  const conceptIdMap: Record<string, string> = {};
+
+  for (const block of blocks) {
+    if (!['concept', 'definition', 'formula', 'entity'].includes(block.kind)) continue;
+
+    const key = block.label.toLowerCase().trim().replace(/\s+/g, ' ');
+
+    if (!seen.has(key)) {
+      const id = `concept_${seen.size}`;
+      seen.set(key, {
+        id,
+        name: block.label,
+        summary: block.summary,
+        kind: block.kind,
+        firstAppearanceOrder: block.globalOrder,
+        materialIds: [block.materialId],
+        pages: [...block.pages],
+        topicIds: [],
+        dependsOn: block.dependsOn || [],
+        relatedTo: block.relatedTo || [],
+        importance: block.importance || 50,
+        difficulty: block.difficulty || 'basic',
+        examTypes: block.examTypes || [],
+        appearances: block.pages.length,
+      });
+      conceptIdMap[block.label] = id;
+    } else {
+      const existing = seen.get(key)!;
+      // Acumular páginas
+      for (const p of block.pages) {
+        if (!existing.pages.includes(p)) existing.pages.push(p);
+      }
+      // Acumular materialIds
+      if (!existing.materialIds.includes(block.materialId)) {
+        existing.materialIds.push(block.materialId);
+      }
+      // Actualizar importancia al máximo encontrado
+      if (block.importance > existing.importance) {
+        existing.importance = block.importance;
+      }
+      existing.appearances++;
+    }
+  }
+
+  return {
+    uniqueConcepts: Array.from(seen.values())
+      .sort((a, b) => a.firstAppearanceOrder - b.firstAppearanceOrder),
+    conceptIdMap,
+  };
+}
+
+// ─── Paso 5: construir topics por código ─────────────────────
+function buildTopicsIndex(blocks: any[]): any[] {
+  const topicsMap = new Map<string, any>();
+  let topicOrder = 0;
+
+  for (const block of blocks) {
+    const tLabel = block.topicLabel || block.label;
+    if (!topicsMap.has(tLabel)) {
+      topicsMap.set(tLabel, {
+        id: `topic_${topicOrder++}`,
+        title: tLabel,
+        materialId: block.materialId,
+        materialName: block.materialName,
+        pages: [...block.pages],
+        order: topicOrder,
+        summary: block.kind === 'topic' ? block.summary : '',
+        blockCount: 0,
+        avgImportance: 0,
+        importanceSum: 0,
+      });
+    }
+
+    const topic = topicsMap.get(tLabel)!;
+    for (const p of block.pages) {
+      if (!topic.pages.includes(p)) topic.pages.push(p);
+    }
+    topic.blockCount++;
+    topic.importanceSum += block.importance || 0;
+    topic.avgImportance = Math.round(topic.importanceSum / topic.blockCount);
+  }
+
+  return Array.from(topicsMap.values()).sort((a, b) => a.order - b.order);
+}
+
+
+// ─── Paso 4b: consolidación semántica por código ─────────────
+function consolidateTopics(blocks: any[]): any[] {
+  // Agrupar topicLabels similares en macrotemas reales
+  const MACRO_TOPICS: { id: string; title: string; patterns: RegExp[] }[] = [
+    {
+      id: "macro_life",
+      title: "Vida y formación",
+      patterns: [/birth|born|life|early|education|family|childhood|university|student|formac|vida|nacim|infancia|familia|educac/i],
+    },
+    {
+      id: "macro_problem",
+      title: "El problema del átomo",
+      patterns: [/rutherford|nuclear model|problem|limitation|stability|instab|limitac|problema|estabilidad|nucleus/i],
+    },
+    {
+      id: "macro_model",
+      title: "Modelo atómico de Bohr",
+      patterns: [/atomic model|bohr model|orbit|energy level|quantum jump|hydrogen spectrum|electron|modelo atóm|órbita|nivel de energ|salto cuánt|espectro/i],
+    },
+    {
+      id: "macro_quantum",
+      title: "Mecánica cuántica e interpretación de Copenhague",
+      patterns: [/quantum mechanic|copenhagen|interpretation|wave|superposition|observation|subatomic|mecánica cuánt|interpretac|copenhague|observac|subatóm/i],
+    },
+    {
+      id: "macro_legacy",
+      title: "Liderazgo, ética y legado",
+      patterns: [/legacy|institute|collaboration|ethics|responsible|war|nobel|award|application|technology|legado|instituto|colaborac|ética|guerra|premio|aplicac|tecnolog/i],
+    },
+  ];
+
+  const topicsMap = new Map<string, any>();
+  let fallbackOrder = MACRO_TOPICS.length;
+
+  for (const block of blocks) {
+    const tLabel = block.topicLabel || block.label || "";
+
+    // Buscar macrotema matching
+    let assigned = false;
+    for (const macro of MACRO_TOPICS) {
+      if (macro.patterns.some(p => p.test(tLabel) || p.test(block.label || "") || p.test(block.summary || ""))) {
+        if (!topicsMap.has(macro.id)) {
+          topicsMap.set(macro.id, {
+            id: macro.id,
+            title: macro.title,
+            materialId: block.materialId,
+            materialName: block.materialName,
+            pages: [],
+            order: MACRO_TOPICS.findIndex(m => m.id === macro.id),
+            summary: "",
+            blockCount: 0,
+            avgImportance: 0,
+            importanceSum: 0,
+            conceptIds: [],
+          });
+        }
+        const topic = topicsMap.get(macro.id)!;
+        for (const p of block.pages || []) {
+          if (!topic.pages.includes(p)) topic.pages.push(p);
+        }
+        topic.blockCount++;
+        topic.importanceSum += block.importance || 0;
+        topic.avgImportance = Math.round(topic.importanceSum / topic.blockCount);
+        // Reasignar topicLabel al macrotema
+        block.topicLabel = macro.title;
+        block.topicId = macro.id;
+        assigned = true;
+        break;
+      }
+    }
+
+    // Si no matchea ningún macrotema, crear uno genérico pero agrupado
+    if (!assigned) {
+      const fallbackKey = "macro_other";
+      if (!topicsMap.has(fallbackKey)) {
+        topicsMap.set(fallbackKey, {
+          id: fallbackKey,
+          title: "Contexto general",
+          materialId: block.materialId,
+          materialName: block.materialName,
+          pages: [],
+          order: fallbackOrder++,
+          summary: "",
+          blockCount: 0,
+          avgImportance: 0,
+          importanceSum: 0,
+          conceptIds: [],
+        });
+      }
+      const topic = topicsMap.get(fallbackKey)!;
+      for (const p of block.pages || []) {
+        if (!topic.pages.includes(p)) topic.pages.push(p);
+      }
+      topic.blockCount++;
+      topic.importanceSum += block.importance || 0;
+      topic.avgImportance = Math.round(topic.importanceSum / topic.blockCount);
+      block.topicLabel = "Contexto general";
+      block.topicId = fallbackKey;
+    }
+  }
+
+  return Array.from(topicsMap.values())
+    .filter(t => t.blockCount > 0)
+    .sort((a, b) => a.order - b.order);
+}
+
+// ─── Paso 4c: normalizar importancia con distribución real ────
+function normalizeImportance(blocks: any[]): any[] {
+  if (!blocks.length) return blocks;
+
+  // Separar por kind — entidades y notas tienen techo más bajo
+  const CAPS: Record<string, number> = {
+    concept: 100,
+    definition: 100,
+    formula: 100,
+    entity: 75,
+    fact: 70,
+    example: 65,
+    note: 50,
+    common_mistake: 80,
+    topic: 90,
+  };
+
+  // Aplicar cap por kind
+  for (const b of blocks) {
+    const cap = CAPS[b.kind] ?? 80;
+    b.importance = Math.min(b.importance ?? 50, cap);
+  }
+
+  // Detectar inflación: si más del 60% tiene importance >= 90, reescalar
+  const concepts = blocks.filter(b => ["concept","definition","formula"].includes(b.kind));
+  const highCount = concepts.filter(b => b.importance >= 90).length;
+  const inflated = concepts.length > 0 && (highCount / concepts.length) > 0.6;
+
+  if (inflated) {
+    // Reescalar: el máximo real se mapea a 98, el mínimo a 40
+    const vals = concepts.map(b => b.importance);
+    const max = Math.max(...vals);
+    const min = Math.min(...vals);
+    const range = max - min || 1;
+    for (const b of concepts) {
+      b.importance = Math.round(40 + ((b.importance - min) / range) * 58);
+    }
+  }
+
+  return blocks;
+}
+
+// ─── Main handler ─────────────────────────────────────────────
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const rawMaterials: {
+      materialId: string;
+      materialName: string;
+      text?: string;
+      selectedPages: number[];
+    }[] = body.materials || [];
+
+    if (!rawMaterials.length) {
+      return NextResponse.json({ success: false, error: 'No materials provided' }, { status: 400 });
+    }
+
+    // ── Extraer texto de cada material ──────────────────────
+    const session = await getServerSession(authOptions);
+    const userId = (session?.user as any)?.id;
+
+    const materialsWithText = await Promise.all(rawMaterials.map(async (m) => {
+      let text = m.text || '';
+
+      if (!text && m.materialId) {
+        // Intento 1: DB
+        try {
+          const materialText = await getMaterialText(m.materialId);
+          text = materialText?.raw_text || '';
+          if (text) console.log(`DB text for ${m.materialName}: ${text.length} chars`);
+        } catch (e) {
+          console.warn(`DB error for ${m.materialId}:`, e);
+        }
+
+        // Intento 2: R2
+        if (!text && userId) {
+          try {
+            const material = await getMaterial(m.materialId, userId);
+            if (material?.storage_key) {
+              console.log(`R2 download: ${material.storage_key}`);
+              const buffer = await downloadFromR2(material.storage_key);
+              const result = await extractText(
+                buffer,
+                material.kind as any,
+                material.mime_type,
+                m.materialName,
+              );
+              text = result.text || '';
+              if (text) console.log(`R2 text for ${m.materialName}: ${text.length} chars`);
+            }
+          } catch (e) {
+            console.warn(`R2 error for ${m.materialId}:`, e);
+          }
+        }
+      }
+
+      return { ...m, text };
+    }));
+
+    const validMaterials = materialsWithText.filter(m => m.text.trim().length > 30);
+
+    if (!validMaterials.length) {
+      return NextResponse.json({
+        success: false,
+        error: 'No se pudo extraer el texto. Asegúrate de que el material haya sido procesado primero en el modo libre.',
+      }, { status: 400 });
+    }
+
+    // ── Paso 1: segmentar por código ─────────────────────────
+    const allSegments: RawSegment[] = [];
+    for (const m of validMaterials) {
+      const segs = segmentTextByCode(m.text, m.materialId, m.materialName, m.selectedPages);
+      allSegments.push(...segs);
+    }
+
+    console.log(`Blueprint | ${allSegments.length} segments | ${validMaterials.length} materials`);
+
+    // ── Paso 2: agrupar en chunks ────────────────────────────
+    const chunks = groupSegmentsIntoChunks(allSegments, 5000);
+    console.log(`${chunks.length} chunks para IA`);
+
+    // ── Paso 3: enriquecer con IA (paralelo de 2) ────────────
+    const allRawBlocks: any[] = [];
+    const PARALLEL = 2;
+
+    for (let i = 0; i < chunks.length; i += PARALLEL) {
+      const batch = chunks.slice(i, i + PARALLEL);
+      const results = await Promise.all(
+        batch.map((chunk, bi) =>
+          enrichChunkWithAI(chunk, i + bi, chunks.length, validMaterials[0].materialName)
+        )
+      );
+      for (const r of results) allRawBlocks.push(...r);
+    }
+
+    // ── Paso 4: ordenar por globalOrder (código, no IA) ──────
+    allRawBlocks.sort((a, b) => a.globalOrder - b.globalOrder);
+
+    // ── Paso 5: consolidar topics en macrotemas + normalizar importancia ────
+    normalizeImportance(allRawBlocks);
+    const topicsIndex = consolidateTopics(allRawBlocks);
+    const topicLabelToId: Record<string, string> = {};
+    for (const t of topicsIndex) topicLabelToId[t.title] = t.id;
+
+    const blocksWithIds: EnrichedBlock[] = allRawBlocks.map((b, i) => ({
+      id: `block_${i}`,
+      kind: b.kind,
+      label: b.label,
+      summary: b.summary,
+      materialId: b.materialId,
+      materialName: b.materialName,
+      pages: b.pages,
+      firstPage: b.pages[0] || 0,
+      globalOrder: i,
+      topicId: topicLabelToId[b.topicLabel] || null,
+      topicLabel: b.topicLabel,
+      dependsOn: b.dependsOn,
+      relatedTo: b.relatedTo,
+      importance: b.importance,
+      difficulty: b.difficulty,
+      examTypes: b.examTypes,
+    }));
+
+    // Asignar conceptIds a topics
+    for (const block of blocksWithIds) {
+      if (block.topicId) {
+        const topic = topicsIndex.find(t => t.id === block.topicId);
+        if (topic) {
+          if (!topic.conceptIds) topic.conceptIds = [];
+          if (!topic.conceptIds.includes(block.id)) topic.conceptIds.push(block.id);
+        }
+      }
+    }
+
+    // ── Paso 6: deduplicar conceptos por código ───────────────
+    const { uniqueConcepts } = deduplicateConcepts(blocksWithIds);
+
+    // ── Coverage por código ───────────────────────────────────
+    const highImportance = blocksWithIds.filter(b => b.importance >= 80);
+    const coverageSummary = {
+      totalMaterials: validMaterials.length,
+      totalSelectedPages: validMaterials.reduce((s, m) => s + m.selectedPages.length, 0),
+      totalTopics: topicsIndex.length,
+      totalUniqueConcepts: uniqueConcepts.length,
+      totalBlocks: blocksWithIds.length,
+      totalHighImportance: highImportance.length,
+      estimatedMinutes: Math.max(5, Math.round(blocksWithIds.length * 1.8)),
+    };
+
+    const blueprint = {
+      version: 2,
+      createdAt: Date.now(),
+      materials: validMaterials.map((m, i) => ({
+        materialId: m.materialId,
+        materialName: m.materialName,
+        selectionOrder: i,
+        selectedPages: m.selectedPages,
+      })),
+      globalOrderedAnalysis: blocksWithIds,
+      uniqueConceptsIndex: uniqueConcepts,
+      topicsIndex,
+      coverageSummary,
+    };
+
+    console.log(`Blueprint OK | ${topicsIndex.length} topics | ${uniqueConcepts.length} concepts | ${blocksWithIds.length} blocks | ${highImportance.length} high importance`);
+
+    return NextResponse.json({ success: true, blueprint });
+
+  } catch (e: any) {
+    console.error('Blueprint error:', e);
+    return NextResponse.json({ success: false, error: e.message }, { status: 500 });
+  }
+}

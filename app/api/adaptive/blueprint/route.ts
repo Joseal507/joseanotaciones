@@ -546,103 +546,42 @@ function buildTopicsIndex(blocks: any[]): any[] {
 
 // ─── Paso 4b: consolidación semántica por código ─────────────
 function consolidateTopics(blocks: any[]): any[] {
-  // Agrupar topicLabels similares en macrotemas reales
-  const MACRO_TOPICS: { id: string; title: string; patterns: RegExp[] }[] = [
-    {
-      id: "macro_life",
-      title: "Vida y formación",
-      patterns: [/birth|born|life|early|education|family|childhood|university|student|formac|vida|nacim|infancia|familia|educac/i],
-    },
-    {
-      id: "macro_problem",
-      title: "El problema del átomo",
-      patterns: [/rutherford|nuclear model|problem|limitation|stability|instab|limitac|problema|estabilidad|nucleus/i],
-    },
-    {
-      id: "macro_model",
-      title: "Modelo atómico de Bohr",
-      patterns: [/atomic model|bohr model|orbit|energy level|quantum jump|hydrogen spectrum|electron|modelo atóm|órbita|nivel de energ|salto cuánt|espectro/i],
-    },
-    {
-      id: "macro_quantum",
-      title: "Mecánica cuántica e interpretación de Copenhague",
-      patterns: [/quantum mechanic|copenhagen|interpretation|wave|superposition|observation|subatomic|mecánica cuánt|interpretac|copenhague|observac|subatóm/i],
-    },
-    {
-      id: "macro_legacy",
-      title: "Liderazgo, ética y legado",
-      patterns: [/legacy|institute|collaboration|ethics|responsible|war|nobel|award|application|technology|legado|instituto|colaborac|ética|guerra|premio|aplicac|tecnolog/i],
-    },
-  ];
+  // NO usar macrotemas hardcodeados de Bohr.
+  // Usar los topicLabels reales que la IA asignó a cada bloque.
+  // Consolidar blocks con el mismo topicLabel en un solo topic.
 
   const topicsMap = new Map<string, any>();
-  let fallbackOrder = MACRO_TOPICS.length;
 
   for (const block of blocks) {
-    const tLabel = block.topicLabel || block.label || "";
+    const tLabel = (block.topicLabel || block.label || "Sin clasificar").trim();
+    const tId = block.topicId || `topic_${tLabel.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 40)}`;
 
-    // Buscar macrotema matching
-    let assigned = false;
-    for (const macro of MACRO_TOPICS) {
-      if (macro.patterns.some(p => p.test(tLabel) || p.test(block.label || "") || p.test(block.summary || ""))) {
-        if (!topicsMap.has(macro.id)) {
-          topicsMap.set(macro.id, {
-            id: macro.id,
-            title: macro.title,
-            materialId: block.materialId,
-            materialName: block.materialName,
-            pages: [],
-            order: MACRO_TOPICS.findIndex(m => m.id === macro.id),
-            summary: "",
-            blockCount: 0,
-            avgImportance: 0,
-            importanceSum: 0,
-            conceptIds: [],
-          });
-        }
-        const topic = topicsMap.get(macro.id)!;
-        for (const p of block.pages || []) {
-          if (!topic.pages.includes(p)) topic.pages.push(p);
-        }
-        topic.blockCount++;
-        topic.importanceSum += block.importance || 0;
-        topic.avgImportance = Math.round(topic.importanceSum / topic.blockCount);
-        // Reasignar topicLabel al macrotema
-        block.topicLabel = macro.title;
-        block.topicId = macro.id;
-        assigned = true;
-        break;
-      }
+    if (!topicsMap.has(tId)) {
+      topicsMap.set(tId, {
+        id: tId,
+        title: tLabel,
+        materialId: block.materialId,
+        materialName: block.materialName,
+        pages: [],
+        order: topicsMap.size,
+        summary: "",
+        blockCount: 0,
+        avgImportance: 0,
+        importanceSum: 0,
+        conceptIds: [],
+      });
     }
 
-    // Si no matchea ningún macrotema, crear uno genérico pero agrupado
-    if (!assigned) {
-      const fallbackKey = "macro_other";
-      if (!topicsMap.has(fallbackKey)) {
-        topicsMap.set(fallbackKey, {
-          id: fallbackKey,
-          title: "Contexto general",
-          materialId: block.materialId,
-          materialName: block.materialName,
-          pages: [],
-          order: fallbackOrder++,
-          summary: "",
-          blockCount: 0,
-          avgImportance: 0,
-          importanceSum: 0,
-          conceptIds: [],
-        });
-      }
-      const topic = topicsMap.get(fallbackKey)!;
-      for (const p of block.pages || []) {
-        if (!topic.pages.includes(p)) topic.pages.push(p);
-      }
-      topic.blockCount++;
-      topic.importanceSum += block.importance || 0;
-      topic.avgImportance = Math.round(topic.importanceSum / topic.blockCount);
-      block.topicLabel = "Contexto general";
-      block.topicId = fallbackKey;
+    const topic = topicsMap.get(tId)!;
+    for (const pg of block.pages || []) {
+      if (!topic.pages.includes(pg)) topic.pages.push(pg);
     }
+    topic.blockCount++;
+    topic.importanceSum += block.importance || 0;
+    topic.avgImportance = Math.round(topic.importanceSum / topic.blockCount);
+
+    // Sincronizar topicId en el block para que quede consistente
+    block.topicId = tId;
   }
 
   return Array.from(topicsMap.values())

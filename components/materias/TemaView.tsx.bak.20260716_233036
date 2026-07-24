@@ -1229,7 +1229,6 @@ export default function TemaView({
   const [contextMenu, setContextMenu] = useState<any>(null);
   const [vp, setVp] = useState({ w: 1400, h: 900 });
 
-
   const dragState = useRef<{
     active: boolean;
     startX: number;
@@ -1248,10 +1247,6 @@ export default function TemaView({
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
-
-
-
-
 
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
