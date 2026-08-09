@@ -15,7 +15,7 @@ import {
   type PreparedTeachingContent,
   type SessionPreparationState,
 } from '../../../../lib/ai/sessionPreparationFactory';
-import { runSessionContentGenerationPipeline, repairJsonLocally } from '../../../../lib/ai/sessionContentGenerationPipeline';
+import { runSessionContentGenerationPipeline, repairJsonLocally, withTechnicalJsonRetry } from '../../../../lib/ai/sessionContentGenerationPipeline';
 import { parseTeachingContent, teachingResponseDiagnostics, type TeachingContent } from '../../../../lib/ai/teachingContentContract';
 import {
   canonicalizeGeneratedSession,
@@ -1052,7 +1052,7 @@ function buildLazyEvaluationBlocks(
 }
 
 
-function parseFactoryJson(value: string): Record<string, any> {
+export function parseFactoryJson(value: string): Record<string, any> {
   const parsed = repairJsonLocally(value)
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('INVALID_JSON')
   return parsed as Record<string, any>
@@ -1634,7 +1634,51 @@ async function prepareSessionByFactory(body: TeachRequest & { userId?: string },
   let remoteCallNumber = 0
   const telemetry = (event:string,payload:Record<string,unknown>) => console.info('[session-preparation]',JSON.stringify({event,sessionId:session.id,planId:String(body.planVersion||''),materialId:body.materialHash||null,generationKey,provider:'openrouter',model:'google/gemini-2.5-flash',remoteCallNumber,...payload}))
   if (body.preparationState?.evaluationPlan) telemetry('plan_regeneration_prevented',{generationKey})
-  const remote = async(stage:string,content:string,maxTokens:number) => { remoteCallNumber += 1; const startedAt=Date.now(); const generated=await alai({messages:[{role:'user',content}],temperature:0.2,maxTokens,json:true,taskType:'session_content',stage,maxProviderAttempts:1}); telemetry(`${stage}_remote_succeeded`,{stage,durationMs:Date.now()-startedAt,provider:generated.provider,model:generated.model}); const planningStage='evaluation_'+'planning';const questionStages=new Set(['evaluation_'+'block_generation','incremental_'+'evaluation_repair']);if(stage===planningStage)telemetry('evaluation_plan_raw_received',{stage,raw:generated.text.slice(0,20000),rawLength:generated.text.length});if(questionStages.has(stage))telemetry('evaluation_questions_raw_received',{stage,raw:generated.text.slice(0,12000),rawLength:generated.text.length});try{return parseFactoryJson(generated.text)}catch(error){telemetry(stage===planningStage?'evaluation_plan_parse_failed':'session_stage_parse_failed',{stage,errorCode:'INVALID_JSON',message:error instanceof Error?error.message:String(error),raw:generated.text.slice(0,20000)});throw error} }
+  // Presupuesto de retry TÉCNICO (JSON malformado/truncado de UNA llamada
+  // remota) — nunca pedagogical repair, que sigue viviendo exclusivamente en
+  // repairEvaluationBlock/diagnoseEvaluationBlock, disparado solo cuando el
+  // JSON YA es válido pero la cobertura/contenido pedagógico no lo es. Bug
+  // real (chapter_6, remoteCallNumber=3): una única respuesta con JSON
+  // corrupto ("text": "Rojo"\n immunotherapy") en evaluation_block_generation
+  // propagaba el throw directo hasta session_assembly, sin ninguna
+  // oportunidad de reintento — a diferencia de generateTeachingStrict, que sí
+  // reintenta 2 veces. remote() es el punto compartido por
+  // evaluation_plan_enrichment, evaluation_block_generation e
+  // incremental_evaluation_repair — las 3 carecían de retry técnico por
+  // igual. El fix vive aquí, una sola vez, para las 3.
+  const MAX_STAGE_JSON_ATTEMPTS = 2
+  const remote = async(stage:string,content:string,maxTokens:number) => {
+    const planningStage='evaluation_'+'planning'
+    const questionStages=new Set(['evaluation_'+'block_generation','incremental_'+'evaluation_repair'])
+    let lastRawText = ''
+    return withTechnicalJsonRetry({
+      maxAttempts: MAX_STAGE_JSON_ATTEMPTS,
+      attempt: async (attemptNumber, isRetry) => {
+        remoteCallNumber += 1
+        const startedAt = Date.now()
+        // Retry técnico: MISMA instrucción pedagógica + aviso de sintaxis.
+        // Nunca regenera teaching, evaluation plan, ni bloques ya aceptados —
+        // eso sigue exactamente igual, gobernado por sessionPreparationFactory
+        // (state persistido), ajeno a este retry local de una sola llamada.
+        const attemptContent = isRetry
+          ? `${content}\n\nREPARACIÓN TÉCNICA — tu respuesta anterior no era JSON válido. Devuelve EXCLUSIVAMENTE el objeto JSON solicitado, sin markdown, sin fences, sin texto antes o después del JSON, sin comas finales colgantes. No cambies el contenido pedagógico solicitado, corrige únicamente la sintaxis.`
+          : content
+        const generated = await alai({messages:[{role:'user',content:attemptContent}],temperature:0.2,maxTokens,json:true,taskType:'session_content',stage,maxProviderAttempts:1})
+        lastRawText = generated.text
+        telemetry(`${stage}_remote_succeeded`,{stage,attempt:attemptNumber,durationMs:Date.now()-startedAt,provider:generated.provider,model:generated.model})
+        if(stage===planningStage)telemetry('evaluation_plan_raw_received',{stage,attempt:attemptNumber,raw:generated.text.slice(0,20000),rawLength:generated.text.length})
+        if(questionStages.has(stage))telemetry('evaluation_questions_raw_received',{stage,attempt:attemptNumber,raw:generated.text.slice(0,12000),rawLength:generated.text.length})
+        return generated.text
+      },
+      parse: parseFactoryJson,
+      onAttemptFailed: (attemptNumber, error) => {
+        telemetry(stage===planningStage?'evaluation_plan_parse_failed':'session_stage_parse_failed',{stage,attempt:attemptNumber,errorCode:'INVALID_JSON',message:error instanceof Error?error.message:String(error),raw:lastRawText.slice(0,20000)})
+      },
+      onRetryScheduled: (attemptNumber, nextAttempt) => {
+        telemetry(`${stage}_technical_retry_scheduled`,{stage,attempt:attemptNumber,nextAttempt,reason:'INVALID_JSON'})
+      },
+    })
+  }
   const generateTeachingStrict=async():Promise<PreparedTeachingContent>=>{let lastError='TEACHING_SCHEMA_INVALID';for(let attempt=1;attempt<=2;attempt++){remoteCallNumber+=1;const startedAt=Date.now();const content=attempt===1?`${teachingPrompt}
 
 REGLA DE SALIDA:

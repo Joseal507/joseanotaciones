@@ -113,6 +113,40 @@ export function repairJsonLocally(rawText: string): unknown | null {
   }
 }
 
+// Retry T\u00C9CNICO acotado para una \u00DANICA llamada remota que exige JSON
+// estructurado \u2014 nunca pedagogical repair (coverage, duplicados, matching,
+// drift), que sigue viviendo exclusivamente donde ya viv\u00EDa
+// (diagnoseEvaluationBlock/repairEvaluationBlock), disparado solo cuando el
+// JSON YA es v\u00E1lido pero el contenido pedag\u00F3gico no lo es. Esta funci\u00F3n no
+// sabe nada de "bloques" ni "sesiones" \u2014 solo reintenta N veces una llamada
+// que puede fallar al parsear, con la MISMA instrucci\u00F3n pedag\u00F3gica en cada
+// intento (attempt() decide si a\u00F1ade un aviso de sintaxis en el retry).
+// Extra\u00EDda como funci\u00F3n pura e inyectable espec\u00EDficamente para poder
+// probarse sin red real ni mocks de fetch (el SDK de OpenAI usa
+// require('node-fetch') internamente, no globalThis.fetch \u2014 no interceptable
+// desde fuera sin tocar lib/alai.ts).
+export async function withTechnicalJsonRetry<T>(params: {
+  maxAttempts: number
+  attempt: (attemptNumber: number, isRetry: boolean) => Promise<string>
+  parse: (raw: string) => T
+  onAttemptFailed?: (attemptNumber: number, error: unknown) => void
+  onRetryScheduled?: (attemptNumber: number, nextAttempt: number) => void
+}): Promise<T> {
+  let lastError: unknown
+  for (let attemptNumber = 1; attemptNumber <= params.maxAttempts; attemptNumber++) {
+    const raw = await params.attempt(attemptNumber, attemptNumber > 1)
+    try {
+      return params.parse(raw)
+    } catch (error) {
+      lastError = error
+      params.onAttemptFailed?.(attemptNumber, error)
+      if (attemptNumber >= params.maxAttempts) throw error
+      params.onRetryScheduled?.(attemptNumber, attemptNumber + 1)
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
 async function executeSessionContentPipeline<T>(
   input: SessionContentPipelineInput<T>,
 ): Promise<SessionContentPipelineResult<T>> {
