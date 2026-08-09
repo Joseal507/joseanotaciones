@@ -156,7 +156,20 @@ export function diagnoseEvaluationBlock(block:EvaluationPlanBlock,questions:Prep
     const semanticDuplicate=acceptedQuestions.some(prev=>isSemanticDuplicate(prev,q))||externalAccepted.some(prev=>isSemanticDuplicate(prev,q))
     if(literalDuplicate||semanticDuplicate){duplicates.push(id);continue}
     seen.add(key);accepted.push(id);acceptedQuestions.push(q)}
-  const coveredSteps=new Set(acceptedQuestions.flatMap(q=>q.targetStepIds));const coveredPoints=new Set(acceptedQuestions.flatMap(q=>q.targetKeyPointIds));const scopedSteps=teaching.steps.filter(step=>block.coveredStepIds.includes(step.stepId));const missingRequiredStepIds=scopedSteps.filter(step=>(step.importance==='important'||step.importance==='critical')&&!coveredSteps.has(step.stepId)).map(step=>step.stepId);const missingCriticalKeyPointIds=scopedSteps.filter(step=>step.importance==='critical').flatMap(step=>step.keyPointIds).filter(point=>!coveredPoints.has(point));const missingImportantKeyPointIds=scopedSteps.filter(step=>step.importance==='important').flatMap(step=>step.keyPointIds).filter(point=>!coveredPoints.has(point));const requiredReplacementCount=Math.max(invalid.length+duplicates.length,missingRequiredStepIds.length,missingCriticalKeyPointIds.length,missingImportantKeyPointIds.length);return{code:requiredReplacementCount?'PARTIAL_EVALUATION_COVERAGE':'EVALUATION_COMPLETE',blockId:block.blockId,missingRequiredStepIds:uniq(missingRequiredStepIds),missingCriticalKeyPointIds:uniq(missingCriticalKeyPointIds),missingImportantKeyPointIds:uniq(missingImportantKeyPointIds),invalidQuestionIds:uniq(invalid),duplicateQuestionIds:uniq(duplicates),acceptedQuestionIds:accepted,requiredReplacementCount}
+  const coveredSteps=new Set(acceptedQuestions.flatMap(q=>q.targetStepIds));const coveredPoints=new Set(acceptedQuestions.flatMap(q=>q.targetKeyPointIds));const scopedSteps=teaching.steps.filter(step=>block.coveredStepIds.includes(step.stepId))
+  // CONTRATO DE PARIDAD (ver sessionEvaluation.ts: canonicalizeGeneratedSession
+  // → STRICT COVERAGE BLOCKER, y el comentario "todo lo enseñado debe quedar
+  // evaluado" en validateGeneratedSessionEvaluation): la canonicalización
+  // final exige el 100% de los steps/keyPoints de la sesión, SIN excluir
+  // steps 'supporting' — un bloque del blueprint con importance<80 se mapea a
+  // 'supporting' (ver session-teach/route.ts) y es una clasificación común,
+  // no un caso raro. Si aquí se siguiera exigiendo cobertura solo para
+  // 'important'/'critical', un bloque con un step 'supporting' sin cubrir
+  // podía declararse EVALUATION_COMPLETE y solo fallar 120s después, en
+  // session_assembly_validation, tras pagar todos los provider calls (bug
+  // real: CLUTCH 1, sesión 5, step_3:kp:3). Debe exigirse TODO lo que exige
+  // el guard final, sin excepción por importance.
+  const missingRequiredStepIds=scopedSteps.filter(step=>!coveredSteps.has(step.stepId)).map(step=>step.stepId);const missingCriticalKeyPointIds=scopedSteps.filter(step=>step.importance==='critical').flatMap(step=>step.keyPointIds).filter(point=>!coveredPoints.has(point));const missingImportantKeyPointIds=scopedSteps.filter(step=>step.importance!=='critical').flatMap(step=>step.keyPointIds).filter(point=>!coveredPoints.has(point));const requiredReplacementCount=Math.max(invalid.length+duplicates.length,missingRequiredStepIds.length,missingCriticalKeyPointIds.length,missingImportantKeyPointIds.length);return{code:requiredReplacementCount?'PARTIAL_EVALUATION_COVERAGE':'EVALUATION_COMPLETE',blockId:block.blockId,missingRequiredStepIds:uniq(missingRequiredStepIds),missingCriticalKeyPointIds:uniq(missingCriticalKeyPointIds),missingImportantKeyPointIds:uniq(missingImportantKeyPointIds),invalidQuestionIds:uniq(invalid),duplicateQuestionIds:uniq(duplicates),acceptedQuestionIds:accepted,requiredReplacementCount}
 }
 export function diagnoseEvaluationCoverage(teaching: PreparedTeachingContent, blocks: PreparedEvaluationBlock[], evaluationPreference='mixed'): EvaluationCoverageDiagnosis {
   // externalAccepted: las preguntas ya aceptadas en los bloques ANTERIORES (por
