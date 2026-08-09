@@ -12,7 +12,19 @@ const SYMBOL_ONLY = /^[\p{Sm}\p{Sk}\p{So}]+$/u
 const CHEMISTRY_EXPLICIT = /^\\ce\{([\s\S]*)\}$/
 const CHEMISTRY_EQUATION = /(?:<=>|<->|->|←|→|⇌|↔|⟶|⟷)/
 const CHEMISTRY_TERM = /(?:^|[\s+])(?:\d+\s*)?(?:[A-Z][a-z]?\d*)+(?:\([a-z]{1,3}\))?(?:\^?[+-]\d*|\d*[+-])?(?=$|[\s+])/g
-const INLINE_TOKEN = /(`[^`\n]+`|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$|\$[^$\n]+?\$|<math(?:\s[^>]*)?>[\s\S]*?<\/math>|\\ce\{(?:[^{}]|\{[^{}]*\})*\}|___|\{\{(?:blank|slot|answer|internal):[^}]+\}\}|\[\[(?:blank|slot|answer):[^\]]+\]\]|\*\*(?=\S)[\s\S]*?\S\*\*|__(?=\S)[\s\S]*?\S__|~~(?=\S)[\s\S]*?\S~~|(?<![\p{L}\p{N}])\*(?=\S)[^*\n]*?\S\*(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])_(?=\S)[^_\n]*?\S_(?![\p{L}\p{N}])|\[[^\]\n]+\]\([^) \n]+\))/giu
+// Los 4 delimitadores de math (\(...\), \[...\], $$...$$, $...$) NUNCA deben
+// cruzar un ___ literal: ___ es el sentinel reservado de blank (word_bank),
+// y una pregunta word_bank_formula legítima puede escribir el hueco DENTRO
+// de una expresión matemática (p.ej. "$pH = -log[___]$"). Sin el guard
+// (?!___), el escaneo de math (no-greedy pero "cualquier carácter") se
+// tragaba el ___ como si fuera contenido LaTeX real — KaTeX lo rechaza
+// ("Expected group after '_'", el _ exige un grupo de subíndice) y la
+// pregunta, académicamente válida, se marcaba invalid_academic_content.
+// Con el guard, el intento de match de $...$ falla al llegar al ___ (no
+// puede saltarlo), así que ___ se tokeniza aparte como blank real y el
+// texto matemático alrededor queda como texto plano — nunca se rechaza una
+// pregunta válida por esto, aunque pierda el render matemático de esa parte.
+const INLINE_TOKEN = /(`[^`\n]+`|\\\((?:(?!___)[\s\S])*?\\\)|\\\[(?:(?!___)[\s\S])*?\\\]|\$\$(?:(?!___)[\s\S])*?\$\$|\$(?:(?!___)[^$\n])+?\$|<math(?:\s[^>]*)?>[\s\S]*?<\/math>|\\ce\{(?:[^{}]|\{[^{}]*\})*\}|___|\{\{(?:blank|slot|answer|internal):[^}]+\}\}|\[\[(?:blank|slot|answer):[^\]]+\]\]|\*\*(?=\S)[\s\S]*?\S\*\*|__(?=\S)[\s\S]*?\S__|~~(?=\S)[\s\S]*?\S~~|(?<![\p{L}\p{N}])\*(?=\S)[^*\n]*?\S\*(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])_(?=\S)[^_\n]*?\S_(?![\p{L}\p{N}])|\[[^\]\n]+\]\([^) \n]+\))/giu
 
 function safeText(value: AcademicFragmentInput): string {
   if (value === null || value === undefined) return ''
