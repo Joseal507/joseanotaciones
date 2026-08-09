@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
+import { deriveIsProgramComplete } from '../../../lib/adaptive/resume';
 
 const API = process.env.STUDYAL_API_URL || process.env.NEXT_PUBLIC_STUDYAL_API_URL || '';
 
@@ -17,6 +18,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const temaId = searchParams.get('temaId') || '';
+    const sessionId = searchParams.get('sessionId') || '';
 
     if (!API) return NextResponse.json({ success: true, sessions: [] });
 
@@ -27,12 +29,46 @@ export async function GET(req: NextRequest) {
 
     const json = await res.json();
 
+    const rawSessions = Array.isArray(json.sessions) ? json.sessions : [];
+    const filteredSessions = sessionId
+      ? rawSessions.filter((s: any) => String(s?.id || '') === sessionId)
+      : rawSessions;
+
     return NextResponse.json({
       success: true,
-      sessions: (json.sessions || []).map((s: any) => {
+      sessions: filteredSessions.map((s: any) => {
         // Normalizar processMode al salir del servidor
         const mode = s.processMode || s.studyMode || s.process_mode || s.study_mode || 'free';
-        return { ...s, processMode: mode, studyMode: mode };
+        const persistedJourney = s.journey || s.adaptiveProgram || s.adaptive_program || null;
+        const resumeState = persistedJourney?.resumeState || {};
+        return {
+          ...s,
+          processMode: mode,
+          studyMode: mode,
+          // Normalizar blueprint y journey desde nombres del backend
+          blueprint: s.blueprint || s.materialBlueprint || s.material_blueprint || null,
+          journey: persistedJourney,
+          adaptiveSetup: s.adaptiveSetup || s.adaptive_setup || null,
+          setupHash: s.setupHash || s.setup_hash || null,
+          primaryMaterialId: s.primaryMaterialId || s.primary_material_id || s.materialId || s.material_id || s.materialIds?.[0] || s.material_ids?.[0] || null,
+          masteryMaterialKey: s.masteryMaterialKey || s.mastery_material_key || null,
+          currentSessionNumber: s.currentSessionNumber || s.current_session_number || resumeState.currentSessionNumber || null,
+          currentStep: s.currentStep ?? s.current_step ?? resumeState.currentStep ?? 0,
+          completedSessionNumbers: s.completedSessionNumbers || s.completed_session_numbers || resumeState.completedSessionNumbers || [],
+          status: s.status || resumeState.status || null,
+          adaptiveState: s.adaptiveState || s.adaptive_state || resumeState.adaptiveState || null,
+          replaySessionNumber: s.replaySessionNumber || s.replay_session_number || resumeState.replaySessionNumber || null,
+          replayAttempt: s.replayAttempt || s.replay_attempt || resumeState.replayAttempt || 0,
+          sessionContent: s.sessionContent || s.session_content || resumeState.sessionContent || null,
+          recoveryQueues: s.recoveryQueues || s.recovery_queues || resumeState.recoveryQueues || {},
+          isProgramComplete: s.isProgramComplete === true || s.is_program_complete === true || resumeState.isProgramComplete === true,
+          unresolvedMicroIds: s.unresolvedMicroIds || s.unresolved_micro_ids || resumeState.unresolvedMicroIds || [],
+          activeStudyMs: s.activeStudyMs || s.active_study_ms || resumeState.activeStudyMs || 0,
+          breakHoursAcknowledged: s.breakHoursAcknowledged || s.break_hours_acknowledged || resumeState.breakHoursAcknowledged || 0,
+          materialNames: s.materialNames || s.material_names || [],
+          selectedPages: s.selectedPages || s.selected_pages || {},
+          updatedAt: s.updatedAt || s.updated_at || null,
+        };
       }),
     });
   } catch (err: any) {
@@ -55,35 +91,83 @@ export async function POST(req: NextRequest) {
 
     if (!API) return NextResponse.json({ success: true, session: body });
 
+    // Construir payload SOLO con campos que llegan con valor válido
+    // Esto evita sobreescribir campos existentes en el backend con null
+    // cuando el frontend hace updates parciales
+    const payload: any = {
+      user_id: userId,
+      id: body.id,
+      tema_id: body.temaId,
+      enfoque: body.enfoque,
+      process_mode: mode,
+      study_mode: mode,
+      material_ids: body.materialIds || [],
+      created_at: body.createdAt || Date.now(),
+      updated_at: body.updatedAt || Date.now(),
+      last_opened_at: body.lastOpenedAt || Date.now(),
+    };
+
+    // Campos opcionales: solo incluir si llegan con valor truthy
+    // Esto previene que un sync sin adaptiveSetup borre el setup existente
+    if (body.primaryMaterialId || body.materialIds?.[0]) payload.primary_material_id = body.primaryMaterialId || body.materialIds[0];
+    if (body.masteryMaterialKey) payload.mastery_material_key = body.masteryMaterialKey;
+    if (body.selectedPages && Object.keys(body.selectedPages).length > 0) payload.selected_pages = body.selectedPages;
+    if (body.flashcards) payload.flashcards = body.flashcards;
+    if (body.notes) payload.notes = body.notes;
+    if (body.materialText) payload.material_text = body.materialText;
+    if (body.currentPhase) payload.current_phase = body.currentPhase;
+    if (body.adaptiveProgram) payload.adaptive_program = body.adaptiveProgram;
+    if (body.processStyle) payload.process_style = body.processStyle;
+    if (body.targetScore != null) payload.target_score = body.targetScore;
+    if (body.examDate) payload.exam_date = body.examDate;
+    if (body.examDateCustom) payload.exam_date_custom = body.examDateCustom;
+    if (body.materialBlueprint) payload.material_blueprint = body.materialBlueprint;
+    if (body.masterySnapshot) payload.mastery_snapshot = body.masterySnapshot;
+    // CRITICAL: guardar blueprint y journey en el servidor para persistencia cross-browser
+    if (body.materialBlueprint || body.blueprint) {
+      payload.material_blueprint = body.materialBlueprint || body.blueprint;
+    }
+    if (body.adaptiveProgram || body.journey) {
+      payload.adaptive_program = body.adaptiveProgram || body.journey;
+    }
+    if (body.adaptiveSetup) payload.adaptive_setup = body.adaptiveSetup;
+    if (body.setupHash) payload.setup_hash = body.setupHash;
+    if (body.currentSessionNumber != null) payload.current_session_number = body.currentSessionNumber;
+    if (body.currentStep != null) payload.current_step = body.currentStep;
+    if (body.completedSessionNumbers && body.completedSessionNumbers.length > 0) payload.completed_session_numbers = body.completedSessionNumbers;
+    if (body.status) payload.status = body.status;
+    if (body.adaptiveState) payload.adaptive_state = body.adaptiveState;
+    if (body.replaySessionNumber) payload.replay_session_number = body.replaySessionNumber;
+    if (body.replayAttempt) payload.replay_attempt = body.replayAttempt;
+    if (body.sessionContent) payload.session_content = body.sessionContent;
+    // EL CLIENTE NO PUEDE DECLARAR PROGRAM COMPLETION — el servidor deriva
+    // isProgramComplete de forma independiente a partir de datos verificables (todas las
+    // sesiones del journey realmente en completedSessionNumbers + unresolvedMicroIds
+    // vacío), nunca del booleano que manda el cliente.
+    const serverDerivedProgramComplete = deriveIsProgramComplete({
+      journey: body.journey || body.adaptiveProgram,
+      completedSessionNumbers: Array.isArray(body.completedSessionNumbers) ? body.completedSessionNumbers : [],
+      unresolvedMicroIds: Array.isArray(body.unresolvedMicroIds) ? body.unresolvedMicroIds : [],
+    });
+    if (body.isProgramComplete === true && !serverDerivedProgramComplete) {
+      console.warn('[study-sessions]', JSON.stringify({
+        event: 'client_program_completion_rejected',
+        sessionId: body.id,
+        userId,
+        reason: 'client_claimed_true_but_server_derivation_false',
+      }));
+    }
+    if (serverDerivedProgramComplete) payload.is_program_complete = true;
+    if (body.unresolvedMicroIds && body.unresolvedMicroIds.length > 0) payload.unresolved_micro_ids = body.unresolvedMicroIds;
+    if (body.activeStudyMs) payload.active_study_ms = body.activeStudyMs;
+    if (body.breakHoursAcknowledged) payload.break_hours_acknowledged = body.breakHoursAcknowledged;
+    if (body.materialNames?.length) payload.material_names = body.materialNames;
+    if (body.recoveryQueues) payload.recovery_queues = body.recoveryQueues;
+
     const res = await fetch(`${API}/study-sessions/upsert`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        user_id: userId,
-        id: body.id,
-        tema_id: body.temaId,
-        enfoque: body.enfoque,
-        process_mode: mode,
-        study_mode: mode,
-        material_ids: body.materialIds || [],
-        selected_pages: body.selectedPages || null,
-        flashcards: body.flashcards || null,
-        notes: body.notes || null,
-        material_text: body.materialText || null,
-        current_phase: body.currentPhase || null,
-        // ── Estado adaptive completo ──
-        adaptive_program: body.adaptiveProgram || null,
-        process_style: body.processStyle || null,
-        target_score: body.targetScore ?? null,
-        exam_date: body.examDate || null,
-        exam_date_custom: body.examDateCustom || null,
-        material_blueprint: body.materialBlueprint || null,
-        mastery_snapshot: body.masterySnapshot || null,
-        adaptive_setup: body.adaptiveSetup || null,
-        setup_hash: body.setupHash || null,
-        created_at: body.createdAt || Date.now(),
-        last_opened_at: body.lastOpenedAt || Date.now(),
-      }),
+      body: JSON.stringify(payload),
     });
 
     const json = await res.json();

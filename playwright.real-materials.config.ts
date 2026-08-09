@@ -16,9 +16,9 @@ export default defineConfig({
   outputDir: 'reports/playwright-real-materials-artifacts',
   webServer: {
     command: 'npm run dev -- --hostname 127.0.0.1 --port 3101',
-    // Esperar a la ruta dinámica garantiza que el primer multipart no coincida
-    // con su compilación en frío dentro de Next dev.
-    url: 'http://127.0.0.1:3101/api/e2e-real-materials/extract',
+    // Precompilar la superficie cliente evita que el primer documento se abra
+    // con HTML estático antes de que Next haya emitido el chunk de hidratación.
+    url: 'http://127.0.0.1:3101/e2e-real-materials',
     reuseExistingServer: true,
     timeout: 120_000,
   },

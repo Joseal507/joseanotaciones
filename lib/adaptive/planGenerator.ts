@@ -1,9 +1,10 @@
 import type { AdaptiveSetup } from '../studySessions';
 import { buildLearningJourney } from './journeyBuilder';
+import type { SessionKind } from './sessionKind';
 
 export interface LegacyPlanSession {
   sessionNumber: number;
-  type: string;
+  kind: SessionKind;
   title: string;
   objective: string;
   why: string;
@@ -52,14 +53,24 @@ export interface LegacyStudyPlan {
 export async function generateStudyPlan(
   rawBlueprint: any,
   setup: AdaptiveSetup,
-  _userProfile: any,
+  userProfile: any,
   materialTitle: string,
 ): Promise<LegacyStudyPlan> {
-  const journey = await buildLearningJourney(rawBlueprint, setup, materialTitle);
+  // Normalizar userProfile al formato que espera buildLearningJourney
+  const profileContext = userProfile ? {
+    name: userProfile.name || userProfile.nombre,
+    type: userProfile.type || userProfile.tipo,
+    university: userProfile.university || userProfile.universidad,
+    career: userProfile.career || userProfile.carrera,
+    goal: userProfile.goal || userProfile.objetivo,
+    age: userProfile.age || userProfile.edad,
+  } : undefined;
+
+  const journey = await buildLearningJourney(rawBlueprint, setup, materialTitle, undefined, profileContext);
 
   const sessions: LegacyPlanSession[] = journey.chapters.map(ch => ({
     sessionNumber: ch.chapterNumber,
-    type: ch.type === 'learning' ? 'deep' : ch.type,
+    kind: ch.kind,
     title: ch.title,
     objective: ch.objective,
     why: ch.why,

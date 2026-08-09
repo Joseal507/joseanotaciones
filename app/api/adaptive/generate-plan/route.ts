@@ -14,11 +14,30 @@ function getBaseUrl(req: NextRequest): string {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { blueprint, setup, materialTitle, quality } = body as {
+    const { blueprint, setup, materialTitle, quality, userProfile } = body as {
       blueprint: any;
       setup: AdaptiveSetup;
       materialTitle: string;
-      quality?: { status: string; reasons?: string[]; metrics?: any };
+      quality?: {
+        status: string;
+        reasons?: string[];
+        metrics?: any;
+        coverageCertified?: boolean;
+        planGenerationAllowed?: boolean;
+        certificationReasons?: string[];
+        auditIssues?: Array<{
+          kind: 'omission' | 'invention' | 'other' | 'audit_failure';
+          message: string;
+        }>;
+      };
+      userProfile?: {
+        name?: string;
+        type?: string;
+        university?: string;
+        career?: string;
+        goal?: string;
+        age?: number;
+      };
     };
 
     if (!blueprint || !setup || !materialTitle) {
@@ -28,22 +47,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // BLOQUEAR si el blueprint está degradado
-    if (quality?.status === 'degraded') {
-      console.warn(`[generate-plan] BLOQUEADO — Blueprint degradado para "${materialTitle}"`);
-      console.warn(`[generate-plan] Razones: ${(quality.reasons || []).join(' | ')}`);
+    // BLOQUEAR si la certificación no permite generar el plan
+    const planBlocked =
+      quality?.planGenerationAllowed === false ||
+      (quality?.planGenerationAllowed === undefined && quality?.status === 'degraded');
+
+    if (planBlocked) {
+      const reasons = [
+        ...(quality?.certificationReasons || []),
+        ...(quality?.reasons || []),
+      ].filter(Boolean);
+      console.warn(`[generate-plan] BLOQUEADO — Plan no certificado para "${materialTitle}"`);
+      if (reasons.length) console.warn(`[generate-plan] Razones: ${reasons.join(' | ')}`);
       return NextResponse.json({
         success: false,
-        error: 'El análisis del material no está completo. No se puede generar un plan confiable.',
+        error: 'El análisis del material no está certificado. No se puede generar un plan confiable.',
         quality,
         degraded: true,
       }, { status: 422 });
     }
 
-    console.log(`[generate-plan] Generando journey para "${materialTitle}" | exam=${setup.examDateType} | level=${setup.knowledgeLevel}`);
+    console.log(`[generate-plan] Generando journey para "${materialTitle}" | exam=${setup.examDateType} | level=${setup.knowledgeLevel} | blocks=${blueprint?.blocks?.length || 0} | topics=${blueprint?.topics?.length || 0}`);
+
+    if (!blueprint?.blocks?.length && !blueprint?.globalOrderedAnalysis?.length) {
+      console.error("[generate-plan] Blueprint sin bloques — no se puede generar journey");
+      return NextResponse.json({
+        success: false,
+        error: "El análisis del material no tiene bloques. Regenera el blueprint primero.",
+        degraded: true,
+      }, { status: 422 });
+    }
 
     const baseUrl = getBaseUrl(req);
-    const journey = await buildLearningJourney(blueprint, setup, materialTitle, baseUrl);
+    const journey = await buildLearningJourney(blueprint, setup, materialTitle, baseUrl, userProfile);
 
     console.log(`[generate-plan] Journey generado: ${journey.totalChapters} sesiones para "${materialTitle}"`);
 

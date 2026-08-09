@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const GROQ_KEYS = [
-  process.env.GROQ_API_KEY, process.env.GROQ_API_KEY_2, process.env.GROQ_API_KEY_3,
-  process.env.GROQ_API_KEY_4, process.env.GROQ_API_KEY_5, process.env.GROQ_API_KEY_6,
-  process.env.GROQ_API_KEY_7,
-].filter(Boolean) as string[];
-
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -14,31 +8,26 @@ export async function POST(request: NextRequest) {
 
     if (!audio) return NextResponse.json({ success: false, error: 'No audio file' }, { status: 400 });
 
+    const key = process.env.OPENROUTER_API_KEY;
+    if (!key) throw new Error('OpenRouter no configurado');
     const buffer = Buffer.from(await audio.arrayBuffer());
-    const audioFile = new File([buffer], audio.name || 'audio.webm', { type: audio.type || 'audio/webm' });
-
-    // Rotar keys hasta que una funcione
-    let lastError: any;
-    for (const key of GROQ_KEYS) {
-      try {
-        const { default: OpenAI } = await import('openai');
-        const client = new OpenAI({ apiKey: key, baseURL: 'https://api.groq.com/openai/v1' });
-        const transcription = await (client.audio as any).transcriptions.create({
-          file: audioFile,
-          model: 'whisper-large-v3',
-          language: idioma === 'en' ? 'en' : 'es',
-          response_format: 'json',
-          temperature: 0.0,
-        });
-        return NextResponse.json({ success: true, text: transcription.text, language: idioma });
-      } catch (err: any) {
-        lastError = err;
-        if (err?.status === 429) continue;
-        throw err;
-      }
-    }
-
-    throw lastError;
+    const format = audio.type.includes('wav') ? 'wav' : audio.type.includes('mp3') ? 'mp3' : 'webm';
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [{ role: 'user', content: [
+          { type: 'text', text: `Transcribe este audio literalmente en ${idioma === 'en' ? 'inglés' : 'español'}. Devuelve solo la transcripción.` },
+          { type: 'input_audio', input_audio: { data: buffer.toString('base64'), format } },
+        ] }],
+        temperature: 0,
+      }),
+    });
+    if (!response.ok) throw new Error(`OpenRouter transcription ${response.status}`);
+    const data = await response.json();
+    const text = data?.choices?.[0]?.message?.content || '';
+    return NextResponse.json({ success: true, text, language: idioma });
   } catch (error: any) {
     console.error('Transcription error:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

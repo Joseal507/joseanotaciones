@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { alai, safeParseJson } from '../../../lib/alai';
 import { detectLanguage } from '../../../lib/detectLanguage';
+import { generateValidatedLegacyJson } from '../../../lib/ai/legacyRouteGeneration';
 
 export const maxDuration = 120;
 export const dynamic = 'force-dynamic';
@@ -562,15 +563,27 @@ async function generateCardsFromChunk(
   masteryCtx: any = null
 ): Promise<RawCard[]> {
   try {
-    const res = await alai({
-      messages: [{ role: 'user', content: buildPrompt(chunk, block, profile, isOnlyChunk, masteryCtx) }],
+    const raw = await generateValidatedLegacyJson<any[]>({
+      taskType: 'session_content',
+      prompt: buildPrompt(chunk, block, profile, isOnlyChunk, masteryCtx),
       temperature: 0.08,
       maxTokens: 4200,
-      json: true,
-    });
-
-    const parsed = safeParseJson(res.text);
-    const raw: any[] = Array.isArray(parsed?.cards) ? parsed.cards : [];
+      normalize: value => Array.isArray((value as any)?.cards) ? (value as any).cards : [],
+      validate: value => {
+        const cards = Array.isArray(value) ? value : []
+        const errors: string[] = []
+        if (!cards.length) errors.push('LOW_DIVERSITY:no_study_cards')
+        const content = cards.map(card => cleanContent(card?.content).toLowerCase())
+        if (new Set(content).size !== content.length) errors.push('SEMANTIC_DUPLICATION:study_cards')
+        for (const card of cards) {
+          if (!cleanContent(card?.content) || !cleanStr(card?.title, 120)) {
+            errors.push('STRUCTURAL_VALIDATION_FAILED:invalid_study_card')
+          }
+        }
+        return { valid: errors.length === 0, errors }
+      },
+      telemetryContext: { route: 'cheat_codes', phase: 'cards', materialId: block.id },
+    })
 
     return raw.map((card: any): RawCard | null => {
       const type = cleanStr(card?.type, 40) as CardType;
@@ -608,7 +621,7 @@ async function generateCardsFromChunk(
     }).filter(Boolean) as RawCard[];
   } catch (err: any) {
     console.warn(`[Truquitos] chunk failed: ${err?.message?.slice(0, 100)}`);
-    return [];
+    throw err;
   }
 }
 

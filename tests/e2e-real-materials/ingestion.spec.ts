@@ -2,6 +2,8 @@ import path from 'node:path'
 import { statSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 
+test.describe.configure({ timeout: 90_000 })
+
 const fixtures = [
   'CLUTCH 1.pdf',
   'CLUTCH 2.pdf',
@@ -35,7 +37,10 @@ for (const name of fixtures) {
       }
     })
     await page.goto('/e2e-real-materials')
-    await expect(page.getByTestId('real-materials-ready')).toHaveText('ready')
+    // The first route compilation in dev can outlive Playwright's 5 s default.
+    // This marker is set only after React hydration, so it remains a functional
+    // readiness assertion rather than a fixed sleep.
+    await expect(page.getByTestId('real-materials-ready')).toHaveText('ready', { timeout: 60_000 })
     await expect(page.getByTestId('material-upload')).toBeEnabled()
     const expectedSize = statSync(fixturePath(name)).size
     const expectedType = name.endsWith('.pdf') ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -58,6 +63,11 @@ for (const name of fixtures) {
     await expect(page.getByTestId('openrouter-used')).toHaveText('false')
     await expect.poll(async () => Number(await page.getByTestId('server-extraction-chars').textContent())).toBeGreaterThan(50)
     await expect.poll(async () => Number(await page.getByTestId('extraction-chars').textContent())).toBeGreaterThan(50)
+    const delivered = page.getByTestId('extracted-text')
+    await expect(delivered.locator('[data-academic-content]')).toHaveCount(1)
+    await expect(delivered).not.toContainText(
+      /INVALID_ACADEMIC_FRAGMENT|\[object Object\]|\{\{(?:internal|answer):|\\(?:text|mathrm|frac|ce)\b|\b(?:extm|exts|exth|mathrmm)\b/i,
+    )
     if (name === 'TAREA CLUTCH 2.pdf') {
       await expect(page.getByTestId('extraction-classification')).toHaveText('scanned_pdf')
       await expect(page.getByTestId('extraction-method')).toHaveText('pdf-parse-partial')
@@ -75,7 +85,7 @@ for (const name of fixtures) {
 
 test('dos materiales consecutivos no comparten identidad ni contenido visible', async ({ page }) => {
   await page.goto('/e2e-real-materials')
-  await expect(page.getByTestId('real-materials-ready')).toHaveText('ready')
+  await expect(page.getByTestId('real-materials-ready')).toHaveText('ready', { timeout: 60_000 })
   await expect(page.getByTestId('material-upload')).toBeEnabled()
   await page.getByTestId('material-upload').setInputFiles(fixturePath('niels bohr.pdf'))
   await expect(page.getByTestId('ingestion-result')).toHaveAttribute('data-source-name', 'niels bohr.pdf')

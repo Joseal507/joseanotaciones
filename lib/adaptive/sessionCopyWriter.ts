@@ -78,37 +78,41 @@ function sanitizeAICopy(copy: SessionCopy, input: SessionCopyInput): SessionCopy
 }
 
 export function generateFallbackCopy(input: SessionCopyInput): SessionCopy {
-  const { role, topicLabel, previousSessionTopic } = input;
+  const { role, topicLabel, previousSessionTopic, concepts } = input;
   const t = topicLabel || 'este tema';
 
-  const titles: Record<string, string> = {
-    orientation: 'Antes de comenzar',
-    final_review: 'Conquista final',
-    foundation: t,
-    problem: t,
-    mechanism: t,
-    application: t,
-    integration: t,
-    context: t,
-  };
+  // Los títulos SIEMPRE vienen del topic real del material
+  // Solo intro y final_review tienen labels especiales
+  let title: string;
+  if (role === 'orientation') {
+    title = 'Antes de comenzar';
+  } else if (role === 'final_review') {
+    title = 'Repaso final';
+  } else {
+    title = t;
+  }
 
-  const intros: Record<string, string> = {
-    foundation: `Explorarás el contexto y las bases de ${t}.`,
-    problem: `Descubrirás la pregunta central de ${t} que hace necesario avanzar.`,
-    mechanism: previousSessionTopic
-      ? `Verás cómo ${t} resolvió el problema de la sesión anterior.`
-      : `Comprenderás ${t} y por qué es central en este material.`,
-    application: `Aplicarás lo aprendido sobre ${t} a la evidencia y los casos más importantes.`,
-    integration: `Conectarás las ideas anteriores para entender cómo convergieron en ${t}.`,
-    context: `Analizarás el alcance de ${t} más allá del contenido central.`,
-    orientation: 'Construirás una visión general del recorrido antes de comenzar.',
-    final_review: 'Demostrarás que dominas el material completo.',
-  };
+  // Intro con al menos un concepto real si está disponible
+  const firstConcept = concepts?.[0] ? ` empezando por ${concepts[0]}` : '';
 
-  return {
-    title: titles[role] || t,
-    intro: intros[role] || `Avanzarás en el recorrido con ${t}.`,
-  };
+  let intro: string;
+  if (role === 'orientation') {
+    intro = 'Construirás una visión general del material antes de comenzar el estudio detallado.';
+  } else if (role === 'final_review') {
+    intro = 'Repasarás los conceptos clave del material para consolidar todo lo aprendido.';
+  } else if (previousSessionTopic) {
+    intro = `Estudiarás ${t}${firstConcept}, avanzando desde ${previousSessionTopic}.`;
+  } else {
+    intro = `Estudiarás ${t}${firstConcept}.`;
+  }
+
+  return { title, intro };
+}
+
+export interface UserProfileForCopy {
+  name?: string;
+  career?: string;
+  goal?: string;
 }
 
 export async function writeSessionCopyWithAI(
@@ -116,6 +120,7 @@ export async function writeSessionCopyWithAI(
   materialTitle: string,
   setup: AdaptiveSetup,
   baseUrl?: string,
+  userProfile?: UserProfileForCopy,
 ): Promise<SessionCopy[]> {
   if (sessions.length === 0) return [];
 
@@ -126,7 +131,7 @@ export async function writeSessionCopyWithAI(
     const res = await fetch(sessionCopyUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessions, materialTitle, setup }),
+      body: JSON.stringify({ sessions, materialTitle, setup, userProfile }),
     });
 
     const data = await res.json();

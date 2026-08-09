@@ -1,10 +1,10 @@
 import OpenAI from 'openai';
-
-// ═══════════════════════════════════════════════════════════════
-// ALAI — motor unificado de IA para StudyAL
-// Rotación real por proveedor + key + modelo
-// Compatibilidad OpenAI Chat Completions cuando aplica
-// ═══════════════════════════════════════════════════════════════
+import {
+  classifyProviderFailure,
+  sanitizedProviderMessage,
+  shouldFallbackToGroq,
+  type ProviderError,
+} from './ai/providerPolicy';
 
 type Role = 'system' | 'user' | 'assistant';
 
@@ -13,6 +13,12 @@ export interface ALAIParams {
   temperature?: number;
   maxTokens?: number;
   json?: boolean;
+  excludeProviders?: string[];
+  excludeModels?: string[];
+  maxProviderAttempts?: number;
+  fallbackError?: ProviderError;
+  taskType?: string;
+  stage?: string;
 }
 
 export interface ALAIResult {
@@ -22,6 +28,7 @@ export interface ALAIResult {
 }
 
 type Provider =
+  | 'openrouter'
   | 'groq'
   | 'github'
   | 'gemini'
@@ -55,7 +62,11 @@ function unique(arr: string[]) {
 function envKeys(base: string): string[] {
   const exact = process.env[base];
   const numbered = Object.keys(process.env)
-    .filter(k => k === base || k.startsWith(`${base}_`))
+    .filter(k => {
+      if (k !== base && !k.startsWith(`${base}_`)) return false;
+      if (k.endsWith('_TEST')) return false;
+      return true;
+    })
     .sort((a, b) => {
       const na = Number(a.replace(`${base}_`, '').replace(base, '1')) || 1;
       const nb = Number(b.replace(`${base}_`, '').replace(base, '1')) || 1;
@@ -104,6 +115,8 @@ function rotate<T extends QueueEntry>(entries: T[], provider: Provider): T[] {
 
 function modelFor(provider: Provider): string {
   switch (provider) {
+    case 'openrouter':
+      return 'google/gemini-2.5-flash';
     case 'groq':
       return process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
     case 'github':
@@ -144,7 +157,7 @@ function geminiClient(key: string, model: string) {
               body: JSON.stringify({
                 contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: {
-                  maxOutputTokens: p.max_tokens || 4096,
+                  maxOutputTokens: p.max_tokens || 8192,
                   temperature: p.temperature ?? 0.7,
                 },
               }),
@@ -229,24 +242,42 @@ function buildQueue(): QueueEntry[] {
     }
   };
 
+  const openrouterKey = process.env.OPENROUTER_API_KEY || '';
+  if (openrouterKey && !disabledProviders.has('openrouter')) {
+    queue.push({
+      provider: 'openrouter',
+      key: openrouterKey,
+      model: modelFor('openrouter'),
+      client: openAIClient(openrouterKey, 'https://openrouter.ai/api/v1'),
+    });
+  }
+
   addOpenAIProvider('groq', envKeys('GROQ_API_KEY'), 'https://api.groq.com/openai/v1');
-
-  // JIT = GitHub Models token(s). GitHub Models usa PAT con models:read.
-  // Endpoint oficial OpenAI-compatible: https://models.github.ai/inference
   addOpenAIProvider('github', envKeysLoose('JIT'), 'https://models.github.ai/inference');
-
   addOpenAIProvider('cerebras', envKeys('CEREBRAS_API_KEY'), 'https://api.cerebras.ai/v1');
-  addOpenAIProvider('hf', envKeys('HF_API_KEY'), 'https://router.huggingface.co/v1');
-  addOpenAIProvider('sambanova', envKeys('SAMBANOVA_API_KEY'), 'https://api.sambanova.ai/v1');
+
+  if (!process.env.HF_DISABLED) {
+    addOpenAIProvider('hf', envKeys('HF_API_KEY'), 'https://router.huggingface.co/v1');
+  }
+  if (!process.env.SAMBANOVA_DISABLED) {
+    addOpenAIProvider('sambanova', envKeys('SAMBANOVA_API_KEY'), 'https://api.sambanova.ai/v1');
+  }
 
   const geminiModel = modelFor('gemini');
-  if (!disabledProviders.has('gemini')) for (const key of envKeys('GEMINI_API_KEY')) {
-    queue.push({
-      provider: 'gemini',
-      key,
-      model: geminiModel,
-      client: geminiClient(key, geminiModel),
-    });
+  const geminiDisabled = disabledProviders.has('gemini') || !!process.env.GEMINI_DISABLED;
+  if (!geminiDisabled) {
+    const geminiKeys = [
+      ...envKeys('GEMINI_API_KEY'),
+      ...(process.env.GEMINI_PREMIUM_KEY ? [process.env.GEMINI_PREMIUM_KEY] : []),
+    ].filter(Boolean);
+    for (const key of unique(geminiKeys)) {
+      queue.push({
+        provider: 'gemini',
+        key,
+        model: geminiModel,
+        client: geminiClient(key, geminiModel),
+      });
+    }
   }
 
   const mistralKey = process.env.MISTRAL_API_KEY || '';
@@ -270,14 +301,15 @@ function buildQueue(): QueueEntry[] {
   }
 
   const order: Provider[] = [
+    'openrouter',
     'groq',
     'github',
+    'hf',
+    'mistral',
+    'sambanova',
     'gemini',
     'cerebras',
-    'sambanova',
-    'mistral',
     'cloudflare',
-    'hf',
   ];
 
   return order.flatMap(provider =>
@@ -290,17 +322,15 @@ function shouldUseJson(provider: Provider, params: ALAIParams) {
     params.json &&
     provider !== 'gemini' &&
     provider !== 'cloudflare' &&
-    provider !== 'cerebras'
+    provider !== 'cerebras' &&
+    provider !== 'openrouter'
   );
 }
 
 function providerMaxTokens(provider: Provider, requested?: number) {
   const base = requested ?? 4096;
-
-  // Cerebras gpt-oss usa tokens de reasoning antes de content.
-  // Si el límite es muy bajo, responde 200 pero message.content viene vacío.
-  if (provider === 'cerebras') return Math.max(base, 1024);
-
+  if (provider === 'cerebras') return Math.max(base, 4000);
+  if (provider === 'openrouter') return Math.max(base, 8192); // Forzar presupuesto alto en OpenRouter
   return base;
 }
 
@@ -328,18 +358,63 @@ function isAuthError(err: any) {
 function isProviderUnavailable(err: any) {
   const status = err?.status || err?.statusCode;
   const msg = String(err?.message || '').toLowerCase();
-  return status === 402 || status === 404 || status === 410 ||
-    msg.includes('depleted') ||
-    msg.includes('not available') ||
-    msg.includes('model') && msg.includes('not');
+  // 429 = rate limit, nunca provider unavailable
+  if (status === 429) return false;
+  // 404 con "no endpoints" o "model not found" = MODEL_NOT_AVAILABLE
+  // No bloquear key: es un error de configuración, no financiero ni de autenticación
+  if (status === 404) return false;
+  return status === 402 || status === 410 ||
+    msg.includes('depleted');
+}
+
+function isModelNotAvailable(err: any) {
+  const status = err?.status || err?.statusCode;
+  const msg = String(err?.message || '').toLowerCase();
+  return status === 404 ||
+    (msg.includes('model') && msg.includes('not found')) ||
+    msg.includes('no endpoints');
+}
+
+function normalizedProviderError(error: any, provider: Provider): ProviderError {
+  return {
+    provider,
+    status: Number(error?.status || error?.statusCode || error?.response?.status || 0),
+    message: String(error?.message || ''),
+    body: error?.body || error?.error || error?.response?.data,
+  };
+}
+
+function providerTelemetry(
+  event: string,
+  entry: Pick<QueueEntry, 'provider' | 'model'>,
+  params: ALAIParams,
+  details: Record<string, unknown>,
+) {
+  console.info('[provider-policy]', JSON.stringify({
+    event,
+    provider: entry.provider,
+    model: entry.model,
+    stage: params.stage || 'normal',
+    taskType: params.taskType || 'unspecified',
+    ...details,
+  }));
 }
 
 export async function alai(params: ALAIParams): Promise<ALAIResult> {
-  const queue = buildQueue();
+  const fallbackAllowed = Boolean(params.fallbackError && shouldFallbackToGroq(params.fallbackError));
+  const requestedExclusions = (params.excludeProviders || []).map(value => value.toLowerCase());
+  if (requestedExclusions.includes('openrouter') && !fallbackAllowed) {
+    throw new Error('PROVIDER_POLICY_VIOLATION:openrouter_exclusion_without_credits_exhausted');
+  }
+  const excludedProviders = new Set(fallbackAllowed ? ['openrouter'] : requestedExclusions.filter(value => value !== 'openrouter'));
+  const excludedModels = new Set(params.excludeModels || []);
+  const selectedProvider: Provider = fallbackAllowed ? 'groq' : 'openrouter';
+  const queue = buildQueue().filter(entry => entry.provider === selectedProvider && !excludedProviders.has(entry.provider) && !excludedModels.has(entry.model));
   let lastError: any;
+  let providerAttempts = 0;
 
   if (!queue.length) {
-    throw new Error('ALAI: no hay proveedores configurados en .env.local');
+    throw new Error(`ALAI: proveedor canónico ${selectedProvider} no configurado`);
   }
 
   for (const entry of queue) {
@@ -347,6 +422,11 @@ export async function alai(params: ALAIParams): Promise<ALAIResult> {
     if (key && isBlocked(key)) continue;
 
     try {
+      providerAttempts += 1;
+      providerTelemetry('provider_call_started', entry, params, {
+        status: null, normalizedFailureReason: null, fallbackAllowed,
+        fallbackTarget: fallbackAllowed ? 'groq' : null, excludedProviders: [...excludedProviders], rawProviderMessage: '',
+      });
       const res = await client.chat.completions.create({
         model,
         messages: params.messages,
@@ -373,26 +453,39 @@ export async function alai(params: ALAIParams): Promise<ALAIResult> {
       }
 
       console.log(`✅ ALAI: ${provider} OK · ${model}`);
+      providerTelemetry('provider_call_succeeded', entry, params, {
+        status: 200, normalizedFailureReason: null, fallbackAllowed,
+        fallbackTarget: fallbackAllowed ? 'groq' : null, excludedProviders: [...excludedProviders], rawProviderMessage: '',
+      });
+
       return { text, provider, model };
     } catch (err: any) {
       lastError = err;
-      const msg = String(err?.message || '').slice(0, 140);
-
+      err.alaiProvider = provider;
+      const policyError = normalizedProviderError(err, provider);
+      err.providerError = policyError;
+      const normalizedFailureReason = classifyProviderFailure(policyError);
+      providerTelemetry('provider_call_failed', entry, params, {
+        status: policyError.status || 0, normalizedFailureReason,
+        fallbackAllowed: shouldFallbackToGroq(policyError),
+        fallbackTarget: shouldFallbackToGroq(policyError) ? 'groq' : null,
+        excludedProviders: [...excludedProviders], rawProviderMessage: sanitizedProviderMessage(policyError),
+      });
       if (isRateLimit(err)) {
         blockALAIKey(key, retrySeconds(err));
         console.warn(`⚠️ ALAI: rate/quota ${provider} · ${model}`);
       } else if (isAuthError(err)) {
         blockALAIKey(key, 3600);
-        console.warn(`⚠️ ALAI: auth ${provider} · ${model}`);
-      } else if (String(err?.message || '').includes('ALAI_EMPTY_RESPONSE')) {
-        blockALAIKey(key, 120);
-        console.warn(`⚠️ ALAI: respuesta vacía ${provider} · ${model}`);
+        console.warn(`⚠️ ALAI: auth error ${provider} · ${model}`);
+      } else if (isModelNotAvailable(err)) {
+        // MODEL_NOT_AVAILABLE: error de configuración, no financiero
+        // NO bloquear key, NO habilitar Groq — reportar y fallar limpio
+        console.error(`🔴 ALAI: MODEL_NOT_AVAILABLE ${provider} · ${model} — verifica OPENROUTER_MODEL o modelFor()`);
       } else if (isProviderUnavailable(err)) {
-        blockALAIKey(key, 24 * 3600);
-        console.warn(`⚠️ ALAI: provider/model no disponible ${provider} · ${model}`);
-      } else {
-        console.warn(`⚠️ ALAI: error ${provider} · ${model} — ${msg}`);
+        blockALAIKey(key, 300);
+        console.warn(`⚠️ ALAI: provider unavailable ${provider} · ${model}`);
       }
+      if (providerAttempts >= Math.max(1, params.maxProviderAttempts ?? 1)) break;
     }
   }
 
@@ -411,59 +504,55 @@ export async function alaiJson<T = any>(params: ALAIParams): Promise<T> {
 export const alaiRequest = async <T>(
   fn: (client: any, model: (m?: string) => string) => Promise<T>,
 ): Promise<T> => {
-  const queue = buildQueue();
-  let lastError: any;
-
-  for (const entry of queue) {
-    const { client, provider, key, model } = entry;
-    if (key && isBlocked(key)) continue;
-
-    try {
-      const result = await fn(client, () => model);
-      console.log(`✅ ALAI request: ${provider} OK · ${model}`);
-      return result;
-    } catch (err: any) {
-      lastError = err;
-
-      if (isRateLimit(err)) {
-        blockALAIKey(key, retrySeconds(err));
-      } else if (isAuthError(err)) {
-        blockALAIKey(key, 3600);
-      } else if (isProviderUnavailable(err)) {
-        blockALAIKey(key, 24 * 3600);
-      } else {
-        console.warn(`⚠️ ALAI request: ${provider} · ${model} — ${String(err?.message || '').slice(0, 120)}`);
-      }
-    }
+  const openrouter = buildQueue().find(entry => entry.provider === 'openrouter' && !isBlocked(entry.key));
+  if (!openrouter) throw new Error('ALAI: proveedor canónico openrouter no configurado');
+  try {
+    const result = await fn(openrouter.client, () => openrouter.model);
+    return result;
+  } catch (error: any) {
+    const policyError = normalizedProviderError(error, 'openrouter');
+    if (!shouldFallbackToGroq(policyError)) throw error;
+    console.info('[provider-policy]', JSON.stringify({
+      event: 'openrouter_credits_exhausted', provider: 'openrouter', model: openrouter.model,
+      status: policyError.status, normalizedFailureReason: 'OPENROUTER_CREDITS_EXHAUSTED', fallbackAllowed: true,
+      fallbackTarget: 'groq', excludedProviders: ['openrouter'], rawProviderMessage: sanitizedProviderMessage(policyError),
+    }));
+    const groq = buildQueue().find(entry => entry.provider === 'groq' && !isBlocked(entry.key));
+    if (!groq) throw error;
+    return await fn(groq.client, () => groq.model);
   }
-
-  throw lastError || new Error('ALAI: todos los proveedores fallaron');
 };
 
 export const getALAIClient = () => {
-  const first = buildQueue().find(x => x.provider === 'groq' && !isBlocked(x.key))
-    || buildQueue().find(x => !isBlocked(x.key));
+  const first = buildQueue().find(x => x.provider === 'openrouter' && !isBlocked(x.key));
   return first?.client || null;
 };
 
 export function safeParseJson(raw: string): any {
   if (!raw) return null;
-  try { return JSON.parse(raw); } catch {}
-  const m = raw.match(/```(?:json)?\s*([\s\S]*?)```/) || raw.match(/(\{[\s\S]*\})/);
-  if (m) {
-    try { return JSON.parse(m[1]); } catch {}
-  }
+  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const candidate = fenceMatch ? fenceMatch[1] : raw;
+  const braceMatch = !fenceMatch ? candidate.match(/(\{[\s\S]*\})/) : null;
+  const jsonStr = braceMatch ? braceMatch[1] : candidate;
+  const repaired = repairJson(jsonStr);
+  try { return JSON.parse(repaired); } catch {}
+  try { return JSON.parse(jsonStr); } catch {}
   return null;
+}
+
+function repairJson(raw: string): string {
+  let s = raw;
+  s = s.replace(/"(?:[^"\\]|\\.)*"/g, (strMatch: string) => {
+      return strMatch.replace(/\\([a-zA-Z][a-zA-Z]+)/g, (_: string, cmd: string) => '\\\\' + cmd);
+  });
+  s = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  s = s.replace(/,\s*([}\]])/g, '$1');
+  return s.trim();
 }
 
 export function cleanText(s: any): string {
   if (typeof s !== 'string') return '';
-  return s
-    .replace(/\\x([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
-    .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
-    .replace(/[\x00-\x08\x0B-\x1F\x7F]/g, '')
-    .replace(/[ \t]+/g, ' ')
-    .trim();
+  return s.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, '').trim();
 }
 
 export function cleanDeep(obj: any): any {
@@ -476,4 +565,3 @@ export function cleanDeep(obj: any): any {
   }
   return obj;
 }
-

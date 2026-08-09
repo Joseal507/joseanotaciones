@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { alaiRequest, getALAIClient } from '../../../lib/alai';
+import { alaiRequest } from '../../../lib/alai';
 
 // ── JSON PARSER ROBUSTO ──────────────────────────────────
 function safeParseJSON(raw: string): any {
@@ -32,74 +32,32 @@ function safeParseJSON(raw: string): any {
   throw new Error('Could not parse JSON');
 }
 
-// ── VISION: ALAI llama-4-scout (con imagen) ─────────────
+// ── VISION: OpenRouter Gemini 2.5 Flash ─────────────
 async function solveWithVision(
   imageBase64: string,
   imageMime: string,
   prompt: string
 ): Promise<string> {
-  const GROQ_KEYS = [
-    process.env.GROQ_API_KEY, process.env.GROQ_API_KEY_2,
-    process.env.GROQ_API_KEY_3, process.env.GROQ_API_KEY_4,
-    process.env.GROQ_API_KEY_5, process.env.GROQ_API_KEY_6,
-  ].filter(Boolean) as string[];
-
-  const GEMINI_KEYS = [
-    process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_2,
-    process.env.GEMINI_API_KEY_3, process.env.GEMINI_API_KEY_4,
-  ].filter(Boolean) as string[];
-
-  // 1. ALAI Vision (llama-4-scout) - todas las keys
-  for (const key of GROQ_KEYS) {
-    try {
-      const res = await fetch('https://api.ALAI.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-        body: JSON.stringify({
-          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image_url', image_url: { url: `data:${imageMime};base64,${imageBase64}` } },
-              { type: 'text', text: prompt },
-            ],
-          }],
-          temperature: 0.1,
-          max_tokens: 4096,
-        }),
-      });
-      const data = await res.json();
-      if (data.error) { console.log('ALAI vision key 429/error, next...'); continue; }
-      const text = data?.choices?.[0]?.message?.content || '';
-      if (text.trim()) { console.log('✅ ALAI Vision OK'); return text; }
-    } catch { continue; }
-  }
-
-  // 2. Gemini Vision - todas las keys
-  for (const key of GEMINI_KEYS) {
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [
-              { inlineData: { mimeType: imageMime, data: imageBase64 } },
-              { text: prompt },
-            ]}],
-            generationConfig: { temperature: 0.05, maxOutputTokens: 4096 },
-          }),
-        }
-      );
-      const data = await res.json();
-      if (data.error) { console.log('Gemini vision key failed:', data.error.code); continue; }
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      if (text.trim()) { console.log('✅ Gemini Vision OK'); return text; }
-    } catch { continue; }
-  }
-
-  throw new Error('All vision models exhausted');
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) throw new Error('OpenRouter no configurado');
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: 'google/gemini-2.5-flash',
+      messages: [{ role: 'user', content: [
+        { type: 'image_url', image_url: { url: `data:${imageMime};base64,${imageBase64}` } },
+        { type: 'text', text: prompt },
+      ] }],
+      temperature: 0.05,
+      max_tokens: 4096,
+    }),
+  });
+  if (!res.ok) throw new Error(`OpenRouter vision ${res.status}`);
+  const data = await res.json();
+  const text = data?.choices?.[0]?.message?.content || '';
+  if (!text.trim()) throw new Error('OpenRouter vision empty response');
+  return text;
 }
 
 // ── PROMPT BUILDER ───────────────────────────────────────

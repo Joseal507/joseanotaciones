@@ -1603,11 +1603,11 @@ CATÁLOGO DE SECCIONES (elige solo las útiles):
 REGLA #2 — EJEMPLOS DE BUENA SELECCIÓN
 ═══════════════════════════════════════════
 
-CONCEPTO: "Nacimiento de Niels Bohr" (dato biográfico)
+CONCEPTO: "Nacimiento de una figura histórica" (dato biográfico)
 ✅ Secciones: 💡 Lo esencial → 📅 Cuándo y dónde → 🌍 Contexto de la época → ✨ Para recordarlo
 ❌ NO uses: Fórmula, Pasos, Cómo funciona
 
-CONCEPTO: "Modelo atómico de Bohr" (teoría científica)
+CONCEPTO: "Modelo científico específico" (teoría científica)
 ✅ Secciones: 💡 Lo esencial → 🔬 Cómo funciona → 🧪 Postulados → ⚗️ Estructura → 🎯 Por qué importa → ✨ Para recordarlo
 ❌ NO uses: Quién fue, Contexto de la época
 

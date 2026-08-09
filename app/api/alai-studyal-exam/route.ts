@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { alai, safeParseJson } from '../../../lib/alai';
+import { generateValidatedLegacyJson } from '../../../lib/ai/legacyRouteGeneration';
 import { detectLanguage } from '../../../lib/detectLanguage';
 
 export const maxDuration = 120;
@@ -757,32 +758,38 @@ ${batch.map((s, i) => `
 `).join('\n')}`;
 
   try {
-    const res = await alai({
-      messages: [{ role: 'user', content: prompt }],
+    return await generateValidatedLegacyJson<ExamQuestion[]>({
+      taskType: 'final_exam',
+      prompt,
       temperature: 0.22,
       maxTokens: 4200,
-      json: true,
-    });
-
-    const parsed = safeParseJson(res.text);
-    const raw = Array.isArray(parsed?.questions) ? parsed.questions : [];
-
-    const result: ExamQuestion[] = [];
-    raw.forEach((q: any, idx: number) => {
-      const slot = batch[idx] || batch[0];
-      const mat = materialBlocks.find((b) => b.id === slot.fact.materialId);
-      const sanitized = sanitizeQuestion(
-        { ...q, section: slot.section, type: q.type || slot.type },
-        slot.section,
-        mat
-      );
-      if (sanitized) result.push(sanitized);
-    });
-    console.log(`✅ [Exam] Lote ${batchNum}/${totalBatches}: ${result.length}/${batch.length} válidas`);
-    return result;
+      normalize: value => {
+        const raw = Array.isArray((value as any)?.questions) ? (value as any).questions : []
+        return raw.flatMap((question: any, index: number) => {
+          const slot = batch[index] || batch[0]
+          const material = materialBlocks.find(block => block.id === slot.fact.materialId)
+          const sanitized = sanitizeQuestion(
+            { ...question, section: slot.section, type: question.type || slot.type },
+            slot.section,
+            material,
+          )
+          return sanitized ? [sanitized] : []
+        })
+      },
+      validate: value => {
+        const questions = Array.isArray(value) ? value : []
+        const errors: string[] = []
+        if (!questions.length) errors.push('STRUCTURAL_VALIDATION_FAILED:no_exam_questions')
+        if (questions.length < Math.min(2, batch.length)) errors.push('LOW_DIVERSITY:exam_batch')
+        const prompts = questions.map(question => normalize(question.prompt))
+        if (new Set(prompts).size !== prompts.length) errors.push('SEMANTIC_DUPLICATION:exam_prompt')
+        return { valid: errors.length === 0, errors }
+      },
+      telemetryContext: { route: 'exam', phase: 'generate', batch: batchNum },
+    })
   } catch (err: any) {
     console.warn(`⚠️ [Exam] Lote ${batchNum} falló:`, err?.message || err);
-    return [];
+    throw err;
   }
 }
 
@@ -912,19 +919,21 @@ Reglas estrictas:
 10. gradeProbabilities: distribución realista. Si score=85 → A:60, B:35, C:5, fail:0 aprox.
 11. recoveryPlan: 3-5 pasos concretos enfocados en weakSkills + weakConcepts.`;
 
-  const res = await alai({
-    messages: [{ role: 'user', content: prompt }],
+  return generateValidatedLegacyJson({
+    taskType: 'final_exam',
+    prompt,
     temperature: 0.12,
     maxTokens: 3600,
-    json: true,
+    normalize: value => value,
+    validate: value => {
+      const record = value as any
+      const errors: string[] = []
+      if (!Number.isFinite(Number(record?.score))) errors.push('STRUCTURAL_VALIDATION_FAILED:exam_score')
+      if (!Array.isArray(record?.questionResults)) errors.push('STRUCTURAL_VALIDATION_FAILED:question_results')
+      return { valid: errors.length === 0, errors }
+    },
+    telemetryContext: { route: 'exam', phase: 'evaluate' },
   });
-
-  const parsed = safeParseJson(res.text);
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('ALAI no pudo corregir el examen.');
-  }
-
-  return parsed;
 }
 
 // ═══════════════════════════════════════════════════════════════

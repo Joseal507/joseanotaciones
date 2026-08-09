@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import dynamicImport from 'next/dynamic';
@@ -42,6 +42,8 @@ import {
   type MasteryContext,
   type SessionSummary,
 } from '../../lib/masteryEngine';
+import { getSessionById, syncSessionsFromServer } from '../../lib/studySessions';
+import { hasPersistedAdaptiveArtifacts } from '../../lib/adaptive/resume';
 
 type Vista = 'materias' | 'materia' | 'tema' | 'apunte' | 'documento' | 'flashcards' | 'quiz' | 'repasar' | 'analisis' | 'alai' | 'exam';
 
@@ -72,12 +74,84 @@ export default function MateriasPage() {
   const [examMateriales, setExamMateriales] = useState<any[]>([]);
   const [examSeleccion, setExamSeleccion] = useState<any[] | null>(null);
   const [returnToEnfoque, setReturnToEnfoque] = useState(false);
+  const [autoOpenAdaptive, setAutoOpenAdaptive] = useState(false);
+  const [autoOpenAdaptiveSessionId, setAutoOpenAdaptiveSessionId] = useState<string | null>(null);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
   const [summaryVisible, setSummaryVisible] = useState(false);
+  const adaptiveResumeExtractionGuardRef = useRef(
+    typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).has('adaptiveSessionId'),
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const routeParams = new URLSearchParams(window.location.search);
+    const adaptiveSessionId = routeParams.get('adaptiveSessionId');
+    const temaId = routeParams.get('temaId');
+    if (!adaptiveSessionId) {
+      adaptiveResumeExtractionGuardRef.current = false;
+      return;
+    }
+
+    // Un ID adaptativo explícito se resuelve antes de permitir inicializaciones
+    // de background. La studySession del servidor, no el estado React, decide.
+    adaptiveResumeExtractionGuardRef.current = true;
+    syncSessionsFromServer(temaId || undefined)
+      .then(() => {
+        const persisted = getSessionById(adaptiveSessionId);
+        adaptiveResumeExtractionGuardRef.current = hasPersistedAdaptiveArtifacts(persisted);
+      })
+      .catch(() => {
+        // Un fallo de carga no autoriza generación: conservar el guard evita
+        // confundir "todavía no cargó" con "no existe".
+        adaptiveResumeExtractionGuardRef.current = true;
+      });
+  }, []);
 
   // ── Auto-inicializar mastery cuando hay tema activo ──
   // Se ejecuta cuando el usuario entra a un tema que tiene documentos
   // No espera a que abra ninguna herramienta
+  // Auto-abrir tema + adaptativo si viene desde /materias/[tema]/sesion/[N]
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const routeParams = new URLSearchParams(window.location.search);
+    const targetTemaId = routeParams.get('temaId') || localStorage.getItem('studyal_open_tema');
+    if (!targetTemaId) return;
+
+    const findAndOpen = () => {
+      try {
+        const materias = getMaterias() || [];
+        for (const materia of materias) {
+          const tema = (materia.temas || []).find((t: any) => t.id === targetTemaId);
+          if (tema) {
+            setMateriaActual(materia);
+            setTemaActual(tema);
+            setVista('tema');
+            const routeSessionId = routeParams.get('adaptiveSessionId');
+            const openAdaptive = routeParams.get('adaptiveView') === 'plan'
+              || localStorage.getItem('studyal_open_tema_adaptive') === 'true';
+            setAutoOpenAdaptive(openAdaptive);
+            setAutoOpenAdaptiveSessionId(routeSessionId || localStorage.getItem('studyal_open_adaptive_session_id'));
+            localStorage.removeItem('studyal_open_tema');
+            localStorage.removeItem('studyal_open_tema_adaptive');
+            return true;
+          }
+        }
+      } catch (e) {
+        console.warn('Error buscando tema:', e);
+      }
+      return false;
+    };
+
+    // Intentar inmediatamente y después con reintentos
+    if (!findAndOpen()) {
+      const interval = setInterval(() => {
+        if (findAndOpen()) clearInterval(interval);
+      }, 400);
+      setTimeout(() => clearInterval(interval), 8000);
+    }
+  }, []);
+
   useEffect(() => {
     if (!temaActual?.documentos?.length) return;
     if (vista !== 'tema') return;
@@ -103,6 +177,7 @@ export default function MateriasPage() {
 
   // Auto-extraer conceptos en background cuando el mastery existe pero no tiene conceptos
   const autoExtractConcepts = async (mastery: MaterialMastery) => {
+    if (adaptiveResumeExtractionGuardRef.current) return;
     if (!mastery || mastery.conceptsExtracted || mastery.concepts.length > 0) return;
     if (!mastery.materialId && !mastery.sessionKey) return;
 
@@ -244,7 +319,9 @@ export default function MateriasPage() {
     if (loaded) saveMaterialMastery(mastery);
 
     // Auto-extraer conceptos si no los tiene
-    if (!mastery.conceptsExtracted && !mastery.concepts.length) {
+    if (!adaptiveResumeExtractionGuardRef.current
+      && !mastery.conceptsExtracted
+      && !mastery.concepts.length) {
       setTimeout(() => autoExtractConcepts(mastery), 500);
     }
   };
@@ -967,7 +1044,7 @@ const eliminarDocumento = async (id: string) => {
           <MateriaView
             materia={materiaActual}
             onBack={() => setVista('materias')}
-            onAbrirTema={(t: any) => { setTemaActual(t); setVista('tema'); }}
+            onAbrirTema={(t: any) => { setTemaActual(t); setVista('tema'); setAutoOpenAdaptive(false); }}
             onEliminarTema={eliminarTema}
             onNuevoTema={() => setModalTema(true)}
             onActualizarMateria={actualizarMateria}
@@ -992,6 +1069,8 @@ const eliminarDocumento = async (id: string) => {
             onAbrirUploader={() => setShowUploader(true)}
             returnToEnfoque={returnToEnfoque}
             onClearReturnToEnfoque={() => setReturnToEnfoque(false)}
+            autoOpenAdaptive={autoOpenAdaptive}
+            autoOpenAdaptiveSessionId={autoOpenAdaptiveSessionId}
             onOpenFlashcards={(mats?: any[], sel?: any[], sessionId?: string | null) => {
               const matsToUse = mats || temaActual?.documentos || [];
               const normalizedSel = normalizeSeleccionForFlashcards(sel || null, matsToUse);

@@ -1,17 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   getSessionById,
+  getSessionsByTema,
   upsertSession,
   findSession,
   hashSetup,
+  syncSessionsFromServer,
+  updateSessionById,
   type AdaptiveSetup,
 } from "../../lib/studySessions";
 import { generateStudyPlan, type LegacyStudyPlan } from "../../lib/adaptive/planGenerator";
-import { buildLearningJourney } from "../../lib/adaptive/journeyBuilder";
 import { roleBadge } from "../../lib/adaptive/narrativeFormatter";
 import type { LearningJourney } from "../../lib/adaptive/journeyBuilder";
+import {
+  adaptiveSessionRoute,
+  getAdaptiveLifecycleState,
+  mayGenerateAdaptiveArtifacts,
+  normalizeAdaptivePlanSnapshot,
+} from "../../lib/adaptive/resume";
 
 const HAND = "'Caveat', cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -160,6 +168,9 @@ export default function StudyALAdaptive({
   const [profileLoading, setProfileLoading] = useState(true);
   const [setup, setSetup] = useState<AdaptiveSetup>({ ...defaultSetup });
   const [currentSetupHash, setCurrentSetupHash] = useState<string | null>(null);
+  const [resolvedSession, setResolvedSession] = useState<any>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [done, setDone] = useState(false);
 
@@ -167,10 +178,12 @@ export default function StudyALAdaptive({
   const [blueprint, setBlueprint] = useState<any>(null);
   const [blueprintLoading, setBlueprintLoading] = useState(false);
   const [blueprintError, setBlueprintError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"plan">("plan");
+  const [activeTab, setActiveTab] = useState<"perfil" | "setup" | "blueprint" | "plan">("perfil");
   const [studyPlan, setStudyPlan] = useState<LegacyStudyPlan | null>(null);
   const [journey, setJourney] = useState<LearningJourney | null>(null);
   const lastJourneyKeyRef = useRef<string | null>(null);
+  const generationInFlightRef = useRef(false);
+  const generationAuthorizedRef = useRef(false);
   const [journeyError, setJourneyError] = useState<string | null>(null);
   const [blueprintQuality, setBlueprintQuality] = useState<any>(null);
   const setupReady = Boolean(setup?.completedAt);
@@ -179,27 +192,39 @@ export default function StudyALAdaptive({
   );
   const blueprintDegraded = blueprintQuality?.status === "degraded";
   const journeyReady = Boolean(journey && journey.chapters && journey.chapters.length > 0);
-
   const prerequisitesReady = setupReady && blueprintReady && !blueprintDegraded;
   // Si degraded, mostrar error claro en vez del plan
   const canShowPlan = journeyReady;
   const showGeneratingPlan = prerequisitesReady && !journeyReady && !journeyError;
-  const showIncompleteMessage = !blueprintLoading && !prerequisitesReady && !journeyError;
+  const showIncompleteMessage = !setupReady;
 
 
-  const materialIds = useMemo(
-    () => materiales.map((m: any) => getMaterialId(m)).filter(Boolean).slice(0, 5),
-    [materiales],
-  );
+  const materialIds = useMemo(() => {
+    const fromProps = materiales.map((m: any) => getMaterialId(m)).filter(Boolean).slice(0, 5);
+    if (fromProps.length > 0) return fromProps;
+    return Array.isArray(resolvedSession?.materialIds) ? resolvedSession.materialIds.slice(0, 5) : [];
+  }, [materiales, resolvedSession]);
 
-  const materialNames = useMemo(
-    () =>
-      materiales
-        .map((m: any) => String(m?.nombre || m?.name || "").trim())
-        .filter(Boolean)
-        .slice(0, 5),
-    [materiales],
-  );
+  const materialNames = useMemo(() => {
+    const fromProps = materiales
+      .map((m: any) => String(m?.nombre || m?.name || "").trim())
+      .filter(Boolean)
+      .slice(0, 5);
+    if (fromProps.length > 0) return fromProps;
+    return Array.isArray(resolvedSession?.materialNames) ? resolvedSession.materialNames.slice(0, 5) : [];
+  }, [materiales, resolvedSession]);
+
+  const lifecycleState = getAdaptiveLifecycleState(resolvedSession
+    ? { ...resolvedSession, adaptiveSetup: setup, blueprint, journey }
+    : {
+        id: sessionId || "",
+        temaId: temaId || "",
+        processMode: "adaptive",
+        materialIds,
+        adaptiveSetup: setup,
+        blueprint,
+        journey,
+      });
 
   // Load profile
   useEffect(() => {
@@ -238,38 +263,161 @@ export default function StudyALAdaptive({
     return () => { cancelled = true; };
   }, [userId]);
 
-  // Load existing session setup + blueprint
+  // Load existing session setup + blueprint (server first, localStorage fallback)
   useEffect(() => {
-    const sess = sessionId
-      ? getSessionById(sessionId)
-      : temaId && materialIds.length > 0
-        ? findSession(temaId, materialIds, "adaptive")
-        : null;
+    let cancelled = false;
 
-    if (sess?.adaptiveSetup?.completedAt) {
-      setSetup(sess.adaptiveSetup);
-      setDone(true);
-      if ((sess as any).blueprint) {
-        setBlueprint((sess as any).blueprint);
-        // El plan legacy ya no se reconstruye aquí.
-        // El journey real se reconstruye de forma reactiva cuando
-        // setup + blueprint están listos.
-        setStudyPlan(null);
+    async function loadSession() {
+      // Sync desde servidor primero para datos cross-browser
+      if (temaId) {
+        try { await syncSessionsFromServer(temaId); } catch {}
       }
-    }
-  }, [sessionId, temaId, materialIds]);
+      if (cancelled) return;
 
-  // Generate blueprint after setup is done
+      const allAdaptive = temaId
+        ? getSessionsByTema(temaId).filter((s: any) => s.processMode === "adaptive")
+        : [];
+
+      const keyOf = (ids?: string[]) =>
+        [...new Set((ids || []).map((x: any) => String(x || "").trim()).filter(Boolean))]
+          .sort()
+          .join("|");
+
+      const scoreSession = (s: any) => {
+        let score = 0;
+        if (s?.adaptiveSetup?.completedAt) score += 10;
+        if (s?.blueprint) score += 20;
+        if (s?.journey) score += 40;
+        return score;
+      };
+
+      let sess = sessionId
+        ? getSessionById(sessionId)
+        : (temaId && materialIds.length > 0 ? findSession(temaId, materialIds, "adaptive") : null);
+
+      const targetKey = keyOf(
+        (sess?.materialIds?.length ? sess.materialIds : materialIds) as string[]
+      );
+
+      const bestSess =
+        allAdaptive
+          .filter((s: any) => !targetKey || keyOf((s.materialIds || []) as string[]) === targetKey)
+          .sort((a: any, b: any) => {
+            const diff = scoreSession(b) - scoreSession(a);
+            if (diff !== 0) return diff;
+            return Number(b.lastOpenedAt || 0) - Number(a.lastOpenedAt || 0);
+          })[0] || null;
+
+      if (!sessionId && bestSess && (!sess || scoreSession(bestSess) > scoreSession(sess))) {
+        sess = bestSess;
+      }
+
+      console.log("[StudyALAdaptive] sesión resuelta:", {
+        sessionId,
+        temaId,
+        materialIds,
+        allAdaptiveCount: allAdaptive.length,
+        allAdaptiveScores: allAdaptive.map((s: any) => ({ id: s.id, score: scoreSession(s), hasSetup: !!s?.adaptiveSetup?.completedAt, hasBlueprint: !!s?.blueprint, hasJourney: !!s?.journey })),
+        chosen: sess?.id || null,
+        chosenScore: scoreSession(sess),
+        chosenHasSetup: !!sess?.adaptiveSetup?.completedAt,
+        chosenHasBlueprint: !!sess?.blueprint,
+        chosenHasJourney: !!sess?.journey,
+      });
+
+      if (cancelled) return;
+
+      if (sessionId && !sess) {
+        setSessionLoadError("No se encontró el proceso adaptativo solicitado.");
+      } else if (sess) {
+        if (userId && (sess as any).userId && String((sess as any).userId) !== String(userId)) {
+          setSessionLoadError("La sesión solicitada no pertenece al usuario actual.");
+          setSessionLoading(false);
+          return;
+        }
+
+        const normalizedSession = normalizeAdaptivePlanSnapshot(sess);
+        setResolvedSession(normalizedSession);
+
+        if (normalizedSession.adaptiveSetup?.completedAt) {
+          setSetup(normalizedSession.adaptiveSetup);
+          if (normalizedSession.setupHash) setCurrentSetupHash(normalizedSession.setupHash);
+          setDone(true);
+          // CRITICAL: autorizar generación de artifacts al restaurar sesión existente
+          generationAuthorizedRef.current = true;
+        }
+
+        let loadedBlueprint = normalizedSession.blueprint;
+        if (!loadedBlueprint && temaId) {
+          try {
+            const raw = localStorage.getItem(`studyal_blueprint_${temaId}`);
+            if (raw) loadedBlueprint = JSON.parse(raw);
+          } catch {}
+        }
+        if (loadedBlueprint) {
+          setBlueprint(loadedBlueprint);
+          setStudyPlan(null);
+          // Resetear key para que el journey pueda generarse si no existe
+          lastJourneyKeyRef.current = null;
+        }
+
+        let loadedJourney = normalizedSession.journey;
+        if (!loadedJourney && temaId) {
+          try {
+            const raw = localStorage.getItem(`studyal_journey_${temaId}`);
+            if (raw) loadedJourney = JSON.parse(raw);
+          } catch {}
+        }
+        if (loadedJourney) {
+          setJourney(loadedJourney);
+          setActiveTab("plan");
+        } else if (normalizedSession.adaptiveSetup?.completedAt) {
+          // No hay journey pero sí setup — intentar generar
+          setActiveTab("plan");
+          lastJourneyKeyRef.current = null;
+          // Solo mostrar error si fue una sesión específica por sessionId
+          if (sessionId && !loadedBlueprint) {
+            setJourneyError("No encontramos el plan persistido solicitado. Puedes volver al mapa o crear un plan nuevo explícitamente.");
+          }
+        }
+      }
+
+      // Marcar como listo AL FINAL — después de setear blueprint y journey
+      if (!cancelled) setSessionLoading(false);
+    }
+
+    loadSession().catch(() => { if (!cancelled) setSessionLoading(false); });
+    return () => { cancelled = true; };
+  }, [sessionId, temaId]);
+  // Generate blueprint — solo si sessionLoading terminó Y no hay blueprint ya cargado
   useEffect(() => {
-    if (!done || blueprint || blueprintLoading) return;
+    if (sessionLoading) return;
+    if (blueprint) return;
+    if (blueprintError) return;
+    if (!generationAuthorizedRef.current) return;
+    if (!mayGenerateAdaptiveArtifacts({
+      lifecycleState,
+      hasBlueprint: Boolean(blueprint),
+      hasJourney: Boolean(journey),
+    }) || blueprintLoading) return;
     generateBlueprint();
-  }, [done]);
+  }, [sessionLoading, blueprint, blueprintError, blueprintLoading, journey, lifecycleState]);
 
   async function generateBlueprint() {
+    if (generationInFlightRef.current) return;
+    generationInFlightRef.current = true;
     setBlueprintLoading(true);
     setBlueprintError(null);
 
     try {
+      const activeSessionId = resolvedSession?.id || sessionId;
+      if (!activeSessionId) throw new Error("No existe un draft adaptativo canónico.");
+      const generatingSession = updateSessionById(activeSessionId, current => ({
+        ...current,
+        adaptiveState: "generating",
+      }));
+      if (generatingSession) setResolvedSession(generatingSession);
+
       // Get text content for each material
       const materialsWithText = await Promise.all(
         materiales.slice(0, 5).map(async (m: any) => {
@@ -288,9 +436,7 @@ export default function StudyALAdaptive({
           }
 
           // Get session selectedPages
-          const sess = sessionId
-            ? getSessionById(sessionId)
-            : temaId ? findSession(temaId, materialIds, "adaptive") : null;
+          const sess = getSessionById(activeSessionId);
           const selectedPages = sess?.selectedPages?.[getMaterialId(m)] || [];
 
           return {
@@ -331,22 +477,21 @@ export default function StudyALAdaptive({
       } catch (planErr) {
       }
 
-      // Guardar blueprint en la sesión del setup actual
-      if (temaId && currentSetupHash) {
-        upsertSession({
-          temaId,
-          enfoque: "teorico",
-          processMode: "adaptive",
-          materialIds,
-          materialNames,
-          adaptiveSetup: setup,
-          setupHash: currentSetupHash,
-          ...({ blueprint: json.blueprint } as any),
-        });
-      }
+      const blueprintSession = updateSessionById(activeSessionId, current => ({
+        ...current,
+        blueprint: json.blueprint,
+        adaptiveState: "generating",
+      }));
+      if (blueprintSession) setResolvedSession(blueprintSession);
     } catch (e: any) {
       setBlueprintError(e.message || "Error desconocido");
+      const activeSessionId = resolvedSession?.id || sessionId;
+      if (activeSessionId) {
+        const failed = updateSessionById(activeSessionId, current => ({ ...current, adaptiveState: "error" }));
+        if (failed) setResolvedSession(failed);
+      }
     } finally {
+      generationInFlightRef.current = false;
       setBlueprintLoading(false);
     }
   }
@@ -367,6 +512,19 @@ export default function StudyALAdaptive({
       setJourneyError(null);
       return;
     }
+
+    // ✅ Si ya tenemos journey cargado (de localStorage o sesión), no regenerar
+    if (journey) {
+      setActiveTab("plan");
+      return;
+    }
+    if (journeyError) return;
+    if (!generationAuthorizedRef.current) return;
+    if (!mayGenerateAdaptiveArtifacts({
+      lifecycleState,
+      hasBlueprint: true,
+      hasJourney: false,
+    })) return;
 
     const journeyKey = JSON.stringify({
       material: materialNames[0] || "Material",
@@ -414,11 +572,25 @@ export default function StudyALAdaptive({
       const j = data.journey;
       setJourney(j);
       setJourneyError(null);
+      const activeSessionId = resolvedSession?.id || sessionId;
+      if (!activeSessionId) throw new Error("No existe un draft adaptativo canónico.");
+      const readySession = updateSessionById(activeSessionId, current => ({
+        ...current,
+        blueprint: blueprint || current.blueprint,
+        journey: j,
+        adaptiveState: "ready",
+      }));
+      if (readySession) setResolvedSession(readySession);
     } catch (err: any) {
       console.error("[StudyALAdaptive] Error construyendo journey reactivo:", err?.message || err);
       lastJourneyKeyRef.current = null;
       setJourney(null);
       setJourneyError(err?.message || "No se pudo construir el plan adaptativo");
+      const activeSessionId = resolvedSession?.id || sessionId;
+      if (activeSessionId) {
+        const failed = updateSessionById(activeSessionId, current => ({ ...current, adaptiveState: "error" }));
+        if (failed) setResolvedSession(failed);
+      }
     }
     })(); // fin async IIFE
   }, [
@@ -428,6 +600,10 @@ export default function StudyALAdaptive({
     blueprint,
     setup,
     materialNames,
+    lifecycleState,
+    resolvedSession,
+    sessionId,
+    journeyError,
   ]);
 
   const userSummary = useMemo(() => {
@@ -477,19 +653,24 @@ export default function StudyALAdaptive({
     if (!canContinue()) return;
     if (step < stepTitles.length - 1) { setStep((s) => s + 1); return; }
     const finalSetup: AdaptiveSetup = { ...setup, completedAt: Date.now() };
+    generationAuthorizedRef.current = true;
     const newHash = hashSetup(finalSetup);
     setCurrentSetupHash(newHash);
-    // Crear SIEMPRE una sesión nueva con el setup actual
-    // No reutilizar sesiones de otros setups del mismo material
-    upsertSession({
+    const activeSessionId = resolvedSession?.id || sessionId;
+    const persisted = upsertSession({
+      id: activeSessionId || undefined,
+      userId,
       temaId: temaId || "",
       enfoque: "teorico",
       processMode: "adaptive",
       materialIds,
+      primaryMaterialId: materialIds[0],
       materialNames,
       adaptiveSetup: finalSetup,
       setupHash: newHash,
+      adaptiveState: "setup_complete",
     });
+    setResolvedSession(persisted);
     setSetup(finalSetup);
     setDone(true);
     // Limpiar estado anterior para evitar contaminación
@@ -553,10 +734,99 @@ export default function StudyALAdaptive({
           }}>← volver al mapa</button>
         </div>
 
-
+        {/* Tabs */}
+        <div style={{
+          display: "flex", gap: 0, borderBottom: "1.5px solid var(--border-color)",
+          flexShrink: 0,
+          background: "color-mix(in srgb, var(--bg-card) 80%, transparent)",
+          overflowX: "auto",
+        }}>
+          {([
+            { id: "perfil",    label: "Yo soy este",          emoji: "👤" },
+            { id: "setup",     label: "Mi setup",             emoji: "⚙️" },
+            { id: "blueprint", label: "Análisis",             emoji: "🗺️" },
+            { id: "plan",      label: "Mi plan",              emoji: "📋" },
+          ] as const).map((tab) => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
+              style={{
+                padding: "12px 20px",
+                background: activeTab === tab.id ? "rgba(56,189,248,.15)" : "transparent",
+                border: "none",
+                borderBottom: activeTab === tab.id ? "2px solid #38bdf8" : "2px solid transparent",
+                color: activeTab === tab.id ? "#38bdf8" : "var(--text-muted)",
+                fontFamily: BODY, fontSize: 13, fontWeight: 800,
+                cursor: "pointer", transition: "all .2s",
+                display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
+              }}>
+              <span>{tab.emoji}</span>
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
         {/* Content */}
         <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+
+          {/* TAB: PERFIL */}
+          {activeTab === "perfil" && (
+            <div style={{ maxWidth: 700, margin: "0 auto", display: "grid", gap: 16 }}>
+              <div style={{ background: "var(--bg-card)", border: "1.5px solid var(--border-color)", borderRadius: 20, padding: 24 }}>
+                <div style={{ fontFamily: HAND, fontSize: 28, color: "#38bdf8", marginBottom: 16 }}>yo soy este</div>
+                {profileLoading ? (
+                  <div style={{ color: "var(--text-muted)" }}>Cargando perfil...</div>
+                ) : (
+                  <div style={{ display: "grid", gap: 12 }}>
+                    <div style={{ fontSize: 28, fontFamily: HAND, fontWeight: 900, color: "#fff" }}>{userSummary.nombre}</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {[
+                        { label: "👤 " + userSummary.tipo, show: !!userSummary.tipo },
+                        { label: "🎂 " + userSummary.edad + " años", show: !!userSummary.edad },
+                        { label: "🏫 " + userSummary.lugar, show: !!userSummary.lugar },
+                        { label: "📚 " + userSummary.carrera, show: !!userSummary.carrera },
+                        { label: "🎯 " + userSummary.objetivo, show: !!userSummary.objetivo },
+                      ].filter(x => x.show).map((x, i) => (
+                        <div key={i} style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)", borderRadius: 999, padding: "6px 14px", fontSize: 14, fontWeight: 700 }}>{x.label}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div style={{ background: "var(--bg-card)", border: "1.5px solid var(--border-color)", borderRadius: 20, padding: 24 }}>
+                <div style={{ fontFamily: HAND, fontSize: 24, color: "#38bdf8", marginBottom: 12 }}>material seleccionado</div>
+                <div style={{ display: "grid", gap: 8 }}>
+                  {materialNames.map((name, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "var(--bg-secondary)", borderRadius: 12, fontSize: 14, fontWeight: 700 }}>
+                      <span>📄</span> {name}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: SETUP */}
+          {activeTab === "setup" && (
+            <div style={{ maxWidth: 700, margin: "0 auto" }}>
+              <div style={{ background: "var(--bg-card)", border: "1.5px solid var(--border-color)", borderRadius: 20, padding: 24 }}>
+                <div style={{ fontFamily: HAND, fontSize: 28, color: "#38bdf8", marginBottom: 16 }}>así quise hacer mi setup para este material</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+                  {[
+                    ["Conocimiento inicial", knowledgeLabels[setup.knowledgeLevel] || setup.knowledgeLevel],
+                    ["Examen", examDateLabel],
+                    ["Nota buscada", setup.targetScore + "%"],
+                    ["Qué me preocupa", setup.mainConcern === "(omitido)" ? "No especificado" : (setup.mainConcern || "No definido")],
+                    ["Cómo quiero ser evaluado", evalLabels[setup.evalPreference] || setup.evalPreference],
+                    ["Cómo quiero ver el plan", planViewLabels[setup.planView] || setup.planView],
+                  ].map(([label, value], i) => (
+                    <div key={i} style={{ background: "var(--bg-secondary)", borderRadius: 14, padding: 16 }}>
+                      <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 4 }}>{label}</div>
+                      <div style={{ fontWeight: 900, fontSize: 15 }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* TAB: PLAN */}
           {activeTab === "plan" && (
@@ -614,6 +884,15 @@ export default function StudyALAdaptive({
                 </div>
               )}
 
+              {setupReady && !blueprintReady && !blueprintError && !blueprintLoading && !journeyError && (
+                <div style={{ textAlign: "center", padding: 60 }}>
+                  <div style={{ fontSize: 40, marginBottom: 12 }}>🔍</div>
+                  <div style={{ fontFamily: HAND, fontSize: 24, color: "#38bdf8" }}>
+                    Preparando el análisis inicial…
+                  </div>
+                </div>
+              )}
+
               {journeyError && !journeyReady && (
                 <div style={{
                   background: "rgba(239,68,68,.10)",
@@ -628,6 +907,24 @@ export default function StudyALAdaptive({
                   <div style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6 }}>
                     {journeyError}
                   </div>
+                  <button
+                    onClick={() => {
+                      generationAuthorizedRef.current = true;
+                      lastJourneyKeyRef.current = null;
+                      setJourneyError(null);
+                      const activeSessionId = resolvedSession?.id || sessionId;
+                      if (activeSessionId) {
+                        const retrying = updateSessionById(activeSessionId, current => ({
+                          ...current,
+                          adaptiveState: "setup_complete",
+                        }));
+                        if (retrying) setResolvedSession(retrying);
+                      }
+                    }}
+                    style={{ marginTop: 14, padding: "10px 16px", borderRadius: 10, border: 0, cursor: "pointer" }}
+                  >
+                    Reintentar preparación del plan
+                  </button>
                 </div>
               )}
 
@@ -700,13 +997,9 @@ export default function StudyALAdaptive({
                         {journey?.totalChapters ?? 0} sesiones
                       </span>
                       <span style={{ fontSize: 13, padding: "4px 12px", background: "rgba(74,222,128,.12)", color: "#4ade80", borderRadius: 999, fontWeight: 700 }}>
-                        {blueprintDegraded ? "cobertura en revisión" : "100% incluido"}
+                        {blueprintDegraded ? "cobertura en revisión" : "cobertura textual completa"}
                       </span>
-                      {(journey?.arcs?.length ?? 0) > 0 && (
-                        <span style={{ fontSize: 13, padding: "4px 12px", background: "rgba(167,139,250,.12)", color: "#a78bfa", borderRadius: 999, fontWeight: 700 }}>
-                          {journey.arcs.length} arcos pedagógicos
-                        </span>
-                      )}
+
                     </div>
                   </div>
 
@@ -720,8 +1013,8 @@ export default function StudyALAdaptive({
                       const isLocked = chapter.status === "locked";
 
                       const chapterColor =
-                        chapter.type === "intro"  ? "#38bdf8" :
-                        chapter.type === "final_review"  ? "#4ade80" :
+                        chapter.kind === "introduction"  ? "#38bdf8" :
+                        chapter.kind === "final_review"  ? "#4ade80" :
                         chapter.arcRole === "foundation"   ? "#38bdf8" :
                         chapter.arcRole === "problem"      ? "#fbbf24" :
                         chapter.arcRole === "mechanism"     ? "#4ade80" :
@@ -731,8 +1024,8 @@ export default function StudyALAdaptive({
                         "#a78bfa";
 
                       const chapterEmoji =
-                        chapter.type === "intro"  ? "📖" :
-                        chapter.type === "final_review"  ? "🏁" :
+                        chapter.kind === "introduction"  ? "📖" :
+                        chapter.kind === "final_review"  ? "🏁" :
                         chapter.arcRole === "foundation"  ? "🗺️" :
                         chapter.arcRole === "problem"     ? "❓" :
                         chapter.arcRole === "mechanism"    ? "💡" :
@@ -769,18 +1062,47 @@ export default function StudyALAdaptive({
                           </div>
 
                           {/* Tarjeta */}
-                          <div style={{
-                            flex: 1, marginLeft: 12,
-                            marginBottom: isLast ? 0 : 12,
-                            background: isAvailable
-                              ? `linear-gradient(135deg, ${chapterColor}10, var(--bg-card))`
-                              : "var(--bg-card)",
-                            border: `1.5px solid ${isAvailable ? chapterColor + "60" : "var(--border-color)"}`,
-                            borderRadius: 16,
-                            padding: "18px 20px",
-                            opacity: isLocked ? 0.65 : 1,
-                            transition: "all .2s",
-                          }}>
+                          <div
+                            onClick={(e) => {
+                              if (isLocked) return;
+                              // Feedback visual inmediato
+                              const target = e.currentTarget as HTMLDivElement;
+                              target.style.transform = "scale(0.98)";
+                              target.style.opacity = "0.6";
+                              target.style.pointerEvents = "none";
+                              // Overlay de loading
+                              const overlay = document.createElement("div");
+                              overlay.style.cssText = `position:fixed;inset:0;background:rgba(15,23,42,0.85);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;color:#e2e8f0;font-size:16px;font-weight:600;flex-direction:column;gap:12px;`;
+                              overlay.innerHTML = `<div style="font-size:48px">📚</div><div>Abriendo sesión ${chapter.chapterNumber}...</div>`;
+                              document.body.appendChild(overlay);
+                              const stableSessionId = resolvedSession?.id || sessionId;
+                              if (!stableSessionId) return;
+                              window.location.href = adaptiveSessionRoute(String(temaId || ""), stableSessionId, chapter.chapterNumber);
+                            }}
+                            style={{
+                              flex: 1, marginLeft: 12,
+                              marginBottom: isLast ? 0 : 12,
+                              background: isAvailable
+                                ? `linear-gradient(135deg, ${chapterColor}10, var(--bg-card))`
+                                : "var(--bg-card)",
+                              border: `1.5px solid ${isAvailable ? chapterColor + "60" : "var(--border-color)"}`,
+                              borderRadius: 16,
+                              padding: "18px 20px",
+                              opacity: isLocked ? 0.65 : 1,
+                              transition: "all .15s",
+                              cursor: isLocked ? "not-allowed" : "pointer",
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isLocked) {
+                                (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)";
+                                (e.currentTarget as HTMLDivElement).style.boxShadow = `0 8px 24px ${chapterColor}30`;
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)";
+                              (e.currentTarget as HTMLDivElement).style.boxShadow = "none";
+                            }}
+                          >
                             {/* Solo número de sesión */}
                             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                               <span style={{ fontSize: 12, color: "var(--text-faint)", fontWeight: 700 }}>
@@ -798,7 +1120,7 @@ export default function StudyALAdaptive({
                             </div>
 
                             {/* Hook — solo en available o intro */}
-                            {(!isLocked || chapter.type === "intro") && (
+                            {(!isLocked || chapter.kind === "introduction") && (
                               <div style={{
                                 fontSize: 14, color: "var(--text-muted)",
                                 lineHeight: 1.6, marginBottom: 10,
@@ -819,7 +1141,7 @@ export default function StudyALAdaptive({
                             )}
 
                             {/* Por qué existe */}
-                            {!isLocked && chapter.type === "learning" && (
+                            {!isLocked && chapter.kind === "learning" && (
                               <div style={{
                                 fontSize: 12, color: "var(--text-faint)",
                                 marginBottom: 10,
@@ -831,7 +1153,7 @@ export default function StudyALAdaptive({
                             )}
 
                             {/* Exit criteria — solo sesión activo/disponible, no intro */}
-                            {isAvailable && chapter.type !== "intro" && chapter.exitCriteria.length > 0 && (
+                            {isAvailable && chapter.kind !== "introduction" && chapter.exitCriteria.length > 0 && (
                               <div style={{
                                 marginTop: 10, paddingTop: 10,
                                 borderTop: "1px solid var(--border-color)",
@@ -854,7 +1176,7 @@ export default function StudyALAdaptive({
                             )}
 
                             {/* Unlock message */}
-                            {!isLocked && chapter.type !== "final_review" && chapter.unlockMessage && (
+                            {!isLocked && chapter.kind !== "final_review" && chapter.unlockMessage && (
                               <div style={{
                                 marginTop: 10, fontSize: 12,
                                 color: chapterColor, fontWeight: 600,
@@ -891,7 +1213,7 @@ export default function StudyALAdaptive({
           )}
 
           {/* TAB: BLUEPRINT */}
-          {false && (
+          {activeTab === "blueprint" && (
             <div style={{ maxWidth: 900, margin: "0 auto" }}>
               {blueprintLoading && (
                 <div style={{ textAlign: "center", padding: 60 }}>
@@ -930,11 +1252,23 @@ export default function StudyALAdaptive({
                     Error generando el análisis
                   </div>
                   <div style={{ color: "var(--text-muted)", marginBottom: 20 }}>{blueprintError}</div>
-                  <button onClick={generateBlueprint} style={{
+                  <button onClick={() => {
+                    generationAuthorizedRef.current = true;
+                    void generateBlueprint();
+                  }} style={{
                     padding: "10px 24px", background: "#38bdf8", color: "#000",
                     border: "none", borderRadius: 12,
                     fontFamily: BODY, fontWeight: 900, cursor: "pointer",
                   }}>Reintentar</button>
+                </div>
+              )}
+
+              {!blueprintLoading && !blueprintError && !blueprint && setupReady && (
+                <div style={{ textAlign: "center", padding: 60 }}>
+                  <div style={{ fontSize: 44, marginBottom: 14 }}>🔍</div>
+                  <div style={{ fontFamily: HAND, fontSize: 26, color: "#38bdf8" }}>
+                    Preparando el análisis inicial…
+                  </div>
                 </div>
               )}
 
@@ -1238,7 +1572,7 @@ export default function StudyALAdaptive({
                         {studyPlan.totalSessions} sesiones
                       </span>
                       <span style={{ fontSize: 13, padding: "4px 12px", background: "rgba(74,222,128,.12)", color: "#4ade80", borderRadius: 999, fontWeight: 700 }}>
-                        {blueprintDegraded ? "cobertura en revisión" : "100% incluido"}
+                        {blueprintDegraded ? "cobertura en revisión" : "cobertura textual completa"}
                       </span>
                     </div>
                     {canShowPlan && (journey?.programObjectives?.length ?? 0) > 0 && (
@@ -1263,12 +1597,11 @@ export default function StudyALAdaptive({
                       const isLocked = session.status === "locked";
 
                       const typeConfig = {
-                        intro:         { emoji: "📖", color: "#38bdf8",  label: "Sesión" },
-                        deep:          { emoji: "📘", color: "#a78bfa",  label: "Sesión" },
-                        integration:   { emoji: "🔗", color: "#fbbf24",  label: "Sesión" },
+                        introduction:  { emoji: "📖", color: "#38bdf8",  label: "Sesión" },
+                        learning:      { emoji: "📘", color: "#a78bfa",  label: "Sesión" },
                         final_review:  { emoji: "🏁", color: "#4ade80",  label: "Sesión final" },
                       };
-                      const cfg = typeConfig[session.type] || typeConfig.deep;
+                      const cfg = typeConfig[session.kind];
 
                       const loadConfig = {
                         light:  { label: "fundamentos",    color: "#4ade80" },
@@ -1378,7 +1711,7 @@ export default function StudyALAdaptive({
                             )}
 
                             {/* Al terminar podrás */}
-                            {!isLocked && session.type === "intro" && (
+                            {!isLocked && session.kind === "introduction" && (
                               <div style={{ display: "grid", gap: 4 }}>
                                 {session.whatYouWillBeAbleToDo.slice(0, 3).map((w, wi) => (
                                   <div key={wi} style={{ fontSize: 12, color: "var(--text-faint)", display: "flex", gap: 6 }}>
@@ -1447,6 +1780,25 @@ export default function StudyALAdaptive({
   // ═══════════════════════════════════════
   // SETUP WIZARD
   // ═══════════════════════════════════════
+  if (sessionLoading) {
+    return (
+      <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "grid", placeItems: "center", background: "var(--bg-primary)", color: "var(--text-primary)", fontFamily: BODY }}>
+        {sessionId ? "Cargando tu proceso adaptativo…" : "Creando tu proceso adaptativo…"}
+      </div>
+    );
+  }
+
+  if (sessionLoadError) {
+    return (
+      <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "grid", placeItems: "center", padding: 24, background: "var(--bg-primary)", color: "var(--text-primary)", fontFamily: BODY }}>
+        <div style={{ maxWidth: 560, textAlign: "center" }}>
+          <p>{sessionLoadError}</p>
+          <button onClick={onClose}>Volver al tema</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 9999, overflowY: "auto", padding: 24,

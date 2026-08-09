@@ -79,15 +79,10 @@ function sentenceFromRole(
 
 function personalizeFinalChapter(ch: StudyChapter, setup: AdaptiveSetup): StudyChapter {
   const voice = buildSetupVoice(setup);
-  const styles = setup.professorExamStyle || [];
 
   const hasExamSoon = setup.examDateType === 'today' || setup.examDateType === 'tomorrow';
-  const highScore = (setup.targetScore || 0) >= 90;
 
   let objective = 'Integrar todo lo aprendido para resolver preguntas con el nivel de exigencia esperado en tu evaluación.';
-  if (highScore) {
-    objective = 'Demostrar que puedes reconocer, relacionar y aplicar con seguridad las ideas esenciales del tema en un contexto similar al de un examen.';
-  }
 
   let why = 'Todo lo que estudiaste te trajo hasta aquí. Es el momento de demostrar que el recorrido valió la pena.';
   if (hasExamSoon) {
@@ -96,21 +91,12 @@ function personalizeFinalChapter(ch: StudyChapter, setup: AdaptiveSetup): StudyC
 
   let unlockMessage = 'Habrás completado el 100% del recorrido de aprendizaje.';
 
-  if (styles.length > 0) {
-    why = `${why} La validación está orientada al estilo de tu profesor: ${styles.slice(0, 2).join(' y ')}.`;
-  }
-
-  const extraCriteria: string[] = [];
-  if (styles.includes('true_false')) extraCriteria.push('Distinguir enunciados verdaderos y falsos con seguridad');
-  if (styles.includes('matching')) extraCriteria.push('Relacionar conceptos, definiciones y consecuencias correctamente');
-  if (styles.includes('multiple_choice')) extraCriteria.push('Reconocer la opción correcta entre alternativas cercanas');
-
   return {
     ...ch,
     objective,
     why,
     unlockMessage,
-    exitCriteria: uniq([...(ch.exitCriteria || []), ...extraCriteria]).slice(0, 4),
+    exitCriteria: uniq([...(ch.exitCriteria || [])]).slice(0, 4),
   };
 }
 
@@ -125,8 +111,8 @@ export function personalizeJourney(journey: LearningJourney, setup: AdaptiveSetu
   const voice = buildSetupVoice(setup);
 
   const chapters = (journey.chapters || []).map((ch: StudyChapter, idx: number) => {
-    if (ch.type === 'intro') return fixIntroChapter(ch);
-    if (ch.type === 'final_review') return personalizeFinalChapter(ch, setup);
+    if (ch.kind === 'introduction') return fixIntroChapter(ch);
+    if (ch.kind === 'final_review') return personalizeFinalChapter(ch, setup);
 
     // learning chapter
     const objective = sentenceFromRole(ch.arcRole, ch.title, ch.concepts || [], setup);

@@ -22,7 +22,7 @@ export interface StudyChapter {
   segmentIndex: number;
 
   chapterNumber: number;
-  type: 'intro' | 'learning' | 'final_review';
+  kind: 'introduction' | 'learning' | 'final_review';
 
   title: string;
   hook: string;

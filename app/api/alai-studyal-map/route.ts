@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { alaiRequest } from '../../../lib/alai';
 import { detectLanguage } from '../../../lib/detectLanguage';
+import { generateValidatedLegacyJson } from '../../../lib/ai/legacyRouteGeneration';
 
 export const maxDuration = 180;
 
@@ -182,27 +182,23 @@ ${sample}
 
 ⚠️ ONLY JSON. No markdown.`;
 
-    let schema: any = null;
-    try {
-      const schemaResult = await alaiRequest(async (client: any, model: any) => {
-        const r = await client.chat.completions.create({
-          model: model('llama-3.3-70b-versatile'),
-          messages: [{ role: 'user', content: schemaPrompt }],
-          temperature: 0.2,
-          max_tokens: 2500,
-        });
-        return r.choices[0]?.message?.content || '';
-      });
-
-      try {
-        schema = JSON.parse(schemaResult.replace(/```json|```/g, '').trim());
-      } catch {
-        const m = schemaResult.match(/\{[\s\S]*\}/);
-        if (m) schema = JSON.parse(m[0]);
-      }
-    } catch (e: any) {
-      console.error('❌ Error esquema:', e?.message);
-    }
+    const schema: any = await generateValidatedLegacyJson({
+      taskType: 'session_content',
+      prompt: schemaPrompt,
+      maxTokens: 2500,
+      normalize: value => value,
+      validate: value => {
+        const record = value as any
+        const categories = Array.isArray(record?.categorias) ? record.categorias : []
+        const errors: string[] = []
+        if (!record?.title || !categories.length) errors.push('STRUCTURAL_VALIDATION_FAILED:invalid_map_schema')
+        const names = categories.map((category: any) => String(category?.nombre || '').toLowerCase().trim()).filter(Boolean)
+        if (new Set(names).size !== names.length) errors.push('SEMANTIC_DUPLICATION:map_categories')
+        if (categories.length < 3) errors.push('LOW_DIVERSITY:map_categories')
+        return { valid: errors.length === 0, errors }
+      },
+      telemetryContext: { route: 'mind_map', phase: 'schema' },
+    })
 
     if (!schema || !schema.categorias || !Array.isArray(schema.categorias) || schema.categorias.length === 0) {
       return NextResponse.json({ success: false, error: 'No se pudo analizar la estructura del material.' });
@@ -303,29 +299,29 @@ ${chunk}
 ⚠️ JSON only.`;
 
           try {
-            const result = await alaiRequest(async (client: any, model: any) => {
-              const r = await client.chat.completions.create({
-                model: model('llama-3.3-70b-versatile'),
-                messages: [{ role: 'user', content: extractPrompt }],
-                temperature: 0.2,
-                max_tokens: 4000,
-              });
-              return r.choices[0]?.message?.content || '';
-            });
-
-            let parsed: any = null;
-            try {
-              parsed = JSON.parse(result.replace(/```json|```/g, '').trim());
-            } catch {
-              const m = result.match(/\{[\s\S]*\}/);
-              if (m) { try { parsed = JSON.parse(m[0]); } catch {} }
-            }
-            const conceptos = parsed?.conceptos || [];
+            const conceptos = await generateValidatedLegacyJson<any[]>({
+              taskType: 'session_content',
+              prompt: extractPrompt,
+              maxTokens: 4000,
+              normalize: value => Array.isArray((value as any)?.conceptos) ? (value as any).conceptos : [],
+              validate: value => {
+                const concepts = Array.isArray(value) ? value : []
+                const errors: string[] = []
+                if (!concepts.length) errors.push('LOW_DIVERSITY:no_map_concepts')
+                for (const concept of concepts) {
+                  if (!concept?.categoria || !concept?.concepto || !concept?.explicacion) {
+                    errors.push('STRUCTURAL_VALIDATION_FAILED:invalid_map_concept')
+                  }
+                }
+                return { valid: errors.length === 0, errors }
+              },
+              telemetryContext: { route: 'mind_map', phase: 'concepts', chunk: i + 1 },
+            })
             console.log(`📝 Chunk ${i + 1}: ${conceptos.length} conceptos`);
             return conceptos;
           } catch (e: any) {
             console.error(`❌ Error chunk ${i + 1}:`, e?.message);
-            return [];
+            throw e;
           }
         })
       );

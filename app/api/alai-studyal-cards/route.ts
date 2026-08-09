@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { alaiRequest } from '../../../lib/alai';
 import { detectLanguage } from '../../../lib/detectLanguage';
+import { generateValidatedLegacyJson } from '../../../lib/ai/legacyRouteGeneration';
 
 export const maxDuration = 120;
 
@@ -202,33 +203,26 @@ ${texto.slice(0, 14000)}
 Conceptos:
 ${batch.map((c, idx) => `${idx + 1}. ${c}`).join('\n')}`;
 
-      const cards = await alaiRequest(async (client, model) => {
-        const r = await client.chat.completions.create({
-          model: model('llama-3.3-70b-versatile'),
-          messages: [{ role: 'user', content: flashPrompt }],
-          temperature: 0.2,
-          max_tokens: 10000,
-        });
-
-        const text = r.choices[0]?.message?.content || '';
-        let parsed: any = null;
-        try { parsed = JSON.parse(text.trim()); } catch {}
-        if (!parsed) {
-          const match = text.match(/\{[\s\S]*\}/);
-          if (match) { try { parsed = JSON.parse(match[0]); } catch {} }
-        }
-        const cards = parsed?.flashcards || [];
-        // Debug: ver si trae sourceText
-        if (cards.length > 0) {
-          const first = cards[0];
-          console.log('🔍 Primera card:', {
-            hasSourceText: !!first?.sourceText,
-            hasSourcePage: !!first?.sourcePage,
-            sourceTextPreview: first?.sourceText?.slice(0, 60),
-            sourcePage: first?.sourcePage,
-          });
-        }
-        return cards;
+      const cards = await generateValidatedLegacyJson<any[]>({
+        taskType: 'session_content',
+        prompt: flashPrompt,
+        maxTokens: 10000,
+        temperature: 0.2,
+        normalize: parsed => Array.isArray((parsed as any)?.flashcards) ? (parsed as any).flashcards : [],
+        validate: value => {
+          const cards = Array.isArray(value) ? value : []
+          const errors: string[] = []
+          if (!cards.length) errors.push('LOW_DIVERSITY:no_flashcards')
+          const seen = new Set<string>()
+          for (const card of cards) {
+            if (!card?.question?.trim() || !card?.answer?.trim()) errors.push('STRUCTURAL_VALIDATION_FAILED:invalid_flashcard')
+            const key = String(card?.question || '').toLowerCase().replace(/\W+/g, ' ').trim()
+            if (seen.has(key)) errors.push('SEMANTIC_DUPLICATION:flashcard_question')
+            seen.add(key)
+          }
+          return { valid: errors.length === 0, errors }
+        },
+        telemetryContext: { route: 'flashcards', batch: Math.floor(i / BATCH_SIZE) + 1 },
       });
 
       // ─── Filtrar respuestas inútiles ───

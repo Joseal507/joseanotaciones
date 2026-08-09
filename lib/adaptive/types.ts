@@ -59,7 +59,7 @@ export interface PlanSession {
 
   // El corazón: objetivo, no tema
   title: string;            // nombre corto para el mapa visual
-  objective: string;        // "Comprender cómo Bohr resolvió..."
+  objective: string;        // "Comprender cómo se resolvió el problema..."
   why: string;              // "Necesario para entender mecánica cuántica"
   whatYouWillBeAbleToDo: string[];  // al terminar podrás...
 

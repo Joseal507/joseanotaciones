@@ -3,6 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:question-types": "node --import tsx scripts/tests/question-type-layer-contracts.ts",
+    "test:session-final-transition": "node --import tsx scripts/tests/session-final-transition-contracts.ts",
+    "test:adaptive-generality": "node --import tsx scripts/tests/adaptive-generality-static-contracts.ts && node --import tsx scripts/tests/adaptive-generality-generative-contracts.ts",
+    "test:academic-domain": "node --import tsx scripts/tests/academic-domain-question-contracts.ts && node --import tsx scripts/tests/falcons-session-teach-revalidation-contract.ts",
+    "test:session-preparation": "node --import tsx scripts/tests/session-preparation-factory-contracts.ts",
+    "test:teaching-content": "node --import tsx scripts/tests/teaching-content-contracts.ts",
+    "test:evaluation-planner": "node --import tsx scripts/tests/evaluation-planner-contracts.ts",
+    "test:evaluation-block-repair": "node --import tsx scripts/tests/evaluation-block-migration-repair-contracts.ts",
+    "test:adaptive-canonical-evaluation": "node --import tsx scripts/tests/adaptive-canonical-evaluation-contracts.ts && node --import tsx scripts/tests/prepared-recovery-round-contracts.ts",
+    "test:adaptive-matching-recovery": "node --import tsx scripts/tests/adaptive-matching-recovery-contracts.ts && node --import tsx scripts/tests/prepared-recovery-round-contracts.ts",
+    "pretest": "node --import tsx scripts/tests/provider-policy-contracts.ts && node --import tsx scripts/tests/adaptive-provider-route-contracts.ts && node --import tsx scripts/tests/adaptive-dead-cluster-barrier-contracts.ts && node --import tsx scripts/tests/adaptive-numeric-scoring-contracts.ts && node --import tsx scripts/tests/session-preparation-factory-contracts.ts && node --import tsx scripts/tests/academic-content-properties.ts && node --import tsx scripts/tests/assessment-blueprint-contracts.ts && node --import tsx scripts/tests/session-evaluation-block-contracts.ts && node --import tsx scripts/tests/adaptive-session-kind-contracts.ts && node --import tsx scripts/tests/adaptive-recovery-target-contracts.ts && node --import tsx scripts/tests/adaptive-recovery-target-alignment-integration-contracts.ts && node --import tsx scripts/tests/session-final-transition-contracts.ts && node --import tsx scripts/tests/adaptive-canonical-evaluation-contracts.ts && node --import tsx scripts/tests/ai-generation-pipeline-contracts.ts && node --import tsx scripts/tests/session-content-generation-pipeline-contracts.ts && node --import tsx scripts/tests/study-session-persistence-contracts.ts && node --import tsx scripts/tests/adaptive-resume-contracts.ts && node --import tsx scripts/tests/adaptive-program-completion-authority-contracts.ts",
+    "simulate:v3:smoke": "node --import tsx scripts/simulation/adaptive-v3/runSmoke.ts",
+    "simulate:v3:deterministic": "node --import tsx scripts/simulation/adaptive-v3/runDeterministic.ts",
+    "test": "node --import tsx scripts/tests/adaptive-evaluation-mode-contracts.ts && node --import tsx scripts/tests/adaptive-evaluation-contracts.ts && node --import tsx scripts/tests/adaptive-matching-recovery-contracts.ts && node --import tsx scripts/tests/adaptive-v3-product-flow.ts && node --import tsx scripts/tests/adaptive-v3-interaction-flow.ts && node --import tsx scripts/tests/adaptive-v3-bohr-product-contracts.ts && node --import tsx scripts/tests/simulation-strategy-metrics.ts && node --import tsx scripts/tests/phase2-evidence.ts && node --import tsx scripts/tests/phase3-telemetry.ts && node --import tsx scripts/tests/phase4-assistance-context.ts && node --import tsx scripts/tests/phase5-pedagogical-decisions.ts && node --import tsx scripts/tests/phase6-consistency.ts && node --import tsx scripts/tests/phase7-e2e.ts && node --import tsx scripts/tests/phase8-program-completion.ts && node --import tsx scripts/tests/phase9-canonical-mastery.ts && node --import tsx scripts/tests/phase10-pedagogical-contracts.ts && node --import tsx scripts/tests/adaptive-learning-experience-contracts.ts",
+    "test:adaptive-v3-bohr": "node --import tsx scripts/tests/adaptive-v3-bohr-regression.ts",
+    "test:adaptive-resume": "node --import tsx scripts/tests/adaptive-resume-contracts.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -15,7 +31,8 @@
     "simulate-mastery": "node --import tsx scripts/simulate-mastery.ts",
     "simulate-batch": "node --import tsx scripts/simulate-batch.ts",
     "test:e2e": "playwright test",
-    "test:e2e:real-materials": "playwright test --config=playwright.real-materials.config.ts"
+    "test:e2e:real-materials": "playwright test --config=playwright.real-materials.config.ts",
+    "test:e2e:adaptive-real-materials": "playwright test tests/e2e/adaptive-real-materials-flow.spec.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1033.0",
@@ -54,7 +71,9 @@
     "react-markdown": "^10.1.0",
     "react-pdf": "^7.7.3",
     "recharts": "^3.8.1",
+    "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "sharp": "^0.34.5",
     "tesseract.js": "^7.0.0",
     "youtube-transcript": "^1.3.0"

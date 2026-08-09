@@ -38,7 +38,7 @@ function cleanTitle(materialTitle: string) {
 
 function buildProgramNarrative(setup: AdaptiveSetup, totalChapters: number) {
   const fromZero =
-    setup.knowledgeLevel === 'never_seen' ? 'empezar desde cero' :
+    setup.knowledgeLevel === 'never_seen' ? 'construir todo desde el principio' :
     setup.knowledgeLevel === 'know_little' ? 'reforzar lo que ya sabes' :
     setup.knowledgeLevel === 'want_review' ? 'repasar y consolidar' :
     'perfeccionar lo que ya dominas';
@@ -56,20 +56,7 @@ function buildProgramNarrative(setup: AdaptiveSetup, totalChapters: number) {
       ? 'Las sesiones son compactas pero cubren el 100% del material.'
       : 'Cada capítulo fue ordenado para que cada idea se apoye en la anterior.';
 
-  // Setup de evaluación reflejado
-  const evalStyles = setup.professorExamStyle || [];
-  const evalParts: string[] = [];
-  if (evalStyles.includes('multiple_choice')) evalParts.push('opción múltiple');
-  if (evalStyles.includes('true_false')) evalParts.push('verdadero/falso');
-  if (evalStyles.includes('matching')) evalParts.push('relacionar');
-  if (evalStyles.includes('development')) evalParts.push('desarrollo');
-  if (evalStyles.includes('mixed')) evalParts.push('formato mixto');
-
-  const evalLine = evalParts.length > 0
-    ? ` Las evaluaciones se enfocan en ${evalParts.join(', ')}.`
-    : '';
-
-  return `Diseñé este recorrido para ${fromZero} ${time}. ${density}${evalLine}`;
+  return `Diseñé este recorrido para ${fromZero} ${time}. ${density}`;
 }
 
 function objectivesFromArcs(arcs: LearningArc[]): string[] {
@@ -85,25 +72,43 @@ function objectivesFromArcs(arcs: LearningArc[]): string[] {
   return arcs.map(a => roleObjective[a.role] || a.title);
 }
 
-function buildIntroChapter(rawBlueprint: any): StudyChapter {
+function buildIntroChapter(
+  rawBlueprint: any,
+  setup: AdaptiveSetup,
+  userProfile?: UserProfileContext,
+): StudyChapter {
   const topics = rawBlueprint?.topics?.length ? rawBlueprint.topics : (rawBlueprint?.topicsIndex || []);
   const topicNames = topics.map((t: any) => t.title).slice(0, 6);
+
+  // Personalizar según usuario
+  const userName = userProfile?.name ? userProfile.name.split(' ')[0] : null;
+  const greeting = userName ? `${userName}, antes de comenzar` : 'Antes de comenzar';
+
+  // Personalizar según preocupación específica del usuario
+  const rawConcern = String(setup.mainConcern || '').trim();
+  const invalidConcerns = ['', 'no especificado', 'ninguna', 'ninguno', '(omitido)', 'omitido', 'n/a', 'na', '-'];
+  const validConcern = rawConcern.length > 3 && !invalidConcerns.includes(rawConcern.toLowerCase());
+  const concernNote = validConcern
+    ? ` Anotaste que te preocupa: "${rawConcern}" — lo tendremos en cuenta durante el recorrido.`
+    : '';
+
+  const objective = `Construirás una visión general del recorrido para entender dónde encaja cada idea antes de estudiarla.${concernNote}`;
 
   return {
     id: 'chapter_intro',
     arcId: 'intro',
     segmentIndex: 0,
     chapterNumber: 1,
-    type: 'intro',
-    title: 'Antes de comenzar',
-    hook: 'Hoy no vas a memorizar nada.',
-    objective: 'Construirás una visión general del recorrido para entender dónde encaja cada idea antes de estudiarla.',
-    why: 'Un buen profesor siempre empieza mostrando el camino completo antes de recorrerlo.',
-    unlockMessage: 'Cuando estés listo, comenzaremos por entender la primera idea que necesitas para seguir el resto del recorrido.',
+    kind: 'introduction',
+    title: greeting,
+    hook: 'Antes de estudiar, vamos a ver el mapa completo del material.',
+    objective,
+    why: 'Ver el camino completo antes de recorrerlo hace que cada idea encaje mejor cuando llegues a ella.',
+    unlockMessage: 'Cuando estés listo, comenzaremos por la primera idea del recorrido.',
     exitCriteria: [
-      'Reconocer las etapas principales del recorrido de aprendizaje',
-      'Identificar el vocabulario esencial del material',
-      'Detectar los puntos de mayor dificultad',
+      'Reconocer las etapas principales del recorrido',
+      'Identificar los conceptos que vas a estudiar',
+      'Detectar los puntos que requieren más atención',
       'Entender cómo se conectan las ideas del material',
     ],
     ownedConceptIds: [],
@@ -128,35 +133,28 @@ function buildFinalChapter(
   chapterNumber: number,
   learningChapters: StudyChapter[],
   setup: AdaptiveSetup,
+  userProfile?: UserProfileContext,
 ): StudyChapter {
   const ownedConceptIds = [...new Set(learningChapters.flatMap(c => c.ownedConceptIds))];
   const reviewConceptIds = [...ownedConceptIds];
 
   const exitCriteria: string[] = [];
 
-  if ((setup.professorExamStyle || []).includes('multiple_choice')) {
-    exitCriteria.push('Resolver preguntas de opción múltiple sobre todo el recorrido');
-  }
-  if ((setup.professorExamStyle || []).includes('true_false')) {
-    exitCriteria.push('Distinguir enunciados verdaderos y falsos con precisión');
-  }
-  if ((setup.professorExamStyle || []).includes('matching')) {
-    exitCriteria.push('Relacionar conceptos y definiciones correctamente');
-  }
-  if (exitCriteria.length === 0) {
-    exitCriteria.push('Demostrar comprensión completa del material');
-  }
+  // Criterios de salida basados en dominio del contenido, no en formato de examen
+  exitCriteria.push('Explicar los conceptos centrales del material con tus propias palabras');
+  exitCriteria.push('Aplicar lo aprendido a preguntas y situaciones nuevas');
+  exitCriteria.push('Identificar las ideas más importantes del recorrido');
 
   return {
     id: `chapter_final_${chapterNumber}`,
     arcId: 'final',
     segmentIndex: 0,
     chapterNumber,
-    type: 'final_review',
-    title: 'Conquista final',
+    kind: 'final_review',
+    title: 'Repaso final',
     hook: 'Todo lo que estudiaste te trajo hasta aquí.',
-    objective: 'Demuestra que dominas todo el material. Sin atajos.',
-    why: 'Todo el recorrido te trajo hasta aquí. Ahora toca demostrarlo.',
+    objective: 'Repasarás todos los conceptos clave del material para consolidar lo aprendido.',
+    why: 'El repaso final integra las ideas del recorrido para que se queden contigo.',
     unlockMessage: 'Habrás completado el 100% del recorrido de aprendizaje.',
     exitCriteria: exitCriteria.slice(0, 3),
     ownedConceptIds: [],
@@ -164,7 +162,9 @@ function buildFinalChapter(
     reviewConceptIds,
     unitIds: [],
     topicIds: [...new Set(learningChapters.flatMap(c => c.topicIds))],
-    blockIds: [...new Set(learningChapters.flatMap(c => c.blockIds))],
+    // El repaso NO recibe blockIds primarios — sintetiza lo enseñado en learning
+    // Los bloques quedan disponibles vía "previouslyTaughtBlocks" que se pasa al session-teach
+    blockIds: [],
     pages: [...new Set(learningChapters.flatMap(c => c.pages))].sort((a, b) => a - b),
     concepts: [...new Set(learningChapters.flatMap(c => c.concepts))].slice(0, 10),
     arcRole: 'final_review',
@@ -177,11 +177,21 @@ function buildFinalChapter(
   };
 }
 
+export interface UserProfileContext {
+  name?: string;
+  type?: string;
+  university?: string;
+  career?: string;
+  goal?: string;
+  age?: number;
+}
+
 export async function buildLearningJourney(
   rawBlueprint: any,
   setup: AdaptiveSetup,
   materialTitle: string,
   baseUrl?: string,
+  userProfile?: UserProfileContext,
 ): Promise<LearningJourney> {
   const clean = cleanTitle(materialTitle);
 
@@ -190,8 +200,8 @@ export async function buildLearningJourney(
   const arcs = buildLearningArcs(path);
   const learningChapters = buildChaptersFromArcs(path, arcs, setup);
 
-  const intro = buildIntroChapter(rawBlueprint);
-  const final = buildFinalChapter(learningChapters.length + 2, learningChapters, setup);
+  const intro = buildIntroChapter(rawBlueprint, setup, userProfile);
+  const final = buildFinalChapter(learningChapters.length + 2, learningChapters, setup, userProfile);
 
   // reenumerar y conectar
   const chapters: StudyChapter[] = [intro, ...learningChapters, final].map((ch, idx, arr) => ({
@@ -221,7 +231,7 @@ export async function buildLearningJourney(
   // La IA solo renombra sesiones reales de aprendizaje.
   // Intro y final_review están protegidas.
   const learningChs = chapters.filter(
-    ch => ch.type !== 'intro' && ch.type !== 'final_review'
+    ch => ch.kind === 'learning'
   ); // la intro ya tiene nombre fijo
 
   if (learningChs.length > 0) {
@@ -236,7 +246,7 @@ export async function buildLearningJourney(
     }));
 
     try {
-      const aiCopies = await writeSessionCopyWithAI(copyInputs, clean, setup, baseUrl);
+      const aiCopies = await writeSessionCopyWithAI(copyInputs, clean, setup, baseUrl, userProfile);
       for (let i = 0; i < learningChs.length; i++) {
         const ch = learningChs[i];
         const copy = aiCopies[i];

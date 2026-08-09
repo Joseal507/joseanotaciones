@@ -124,12 +124,31 @@ export function useMultiContent(
       // Los que necesitan API: llamada en batch
       if (needAPI.length > 0) {
         try {
+          const validNeedAPI = needAPI.filter(m =>
+            typeof m.materialId === 'string' &&
+            !m.materialId.startsWith('studyal_mastery_v2_')
+          )
+
+          const ignoredMasteryKeys = needAPI
+            .filter(m => typeof m.materialId === 'string' && m.materialId.startsWith('studyal_mastery_v2_'))
+            .map(m => m.materialId)
+
+          if (ignoredMasteryKeys.length > 0) {
+            console.warn('[useContent] ignored enfoques/teorico/start mastery keys:', ignoredMasteryKeys)
+          }
+
+          if (validNeedAPI.length === 0) {
+            setTexts(result)
+            setStatus('ready')
+            return
+          }
+
           const res = await fetch('/api/enfoques/teorico/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
             body: JSON.stringify({
-              materialIds: needAPI.map(m => m.materialId),
+              materialIds: validNeedAPI.map(m => m.materialId),
             }),
           });
 
@@ -137,7 +156,7 @@ export function useMultiContent(
           const data = await res.json();
 
           if (data.materials) {
-            for (const m of needAPI) {
+            for (const m of validNeedAPI) {
               const extracted = data.materials[m.materialId!];
               if (extracted?.text) {
                 result[m.id] = extracted.text;
@@ -166,6 +185,11 @@ async function fetchContent(
   materialId: string,
   kind: string,
 ): Promise<{ text: string; fromCache: boolean }> {
+  if (typeof materialId === 'string' && materialId.startsWith('studyal_mastery_v2_')) {
+    console.warn('[useContent] ignored single enfoques/teorico/start call with mastery key:', materialId)
+    return { text: '', fromCache: false }
+  }
+
   const res = await fetch('/api/enfoques/teorico/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

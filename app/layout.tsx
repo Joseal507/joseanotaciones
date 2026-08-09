@@ -3,6 +3,7 @@ import { Analytics } from '@vercel/analytics/next';
 import RangoWatcher from '../components/RangoWatcher';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
+import 'katex/dist/katex.min.css';
 import ThemeInit from '../components/ThemeInit';
 import NavLoader from '../components/NavLoader';
 import PomodoroProvider from '../components/PomodoroProvider';
@@ -28,10 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es" className={`${plusJakartaSans.variable}`}>
       <head>
-        <link
-          rel="stylesheet"
-          href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css"
-        />
+        {/* katex css loaded via import in each page that uses it */}
       </head>
       <body>
         <ThemeInit />

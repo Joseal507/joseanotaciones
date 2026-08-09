@@ -4,6 +4,7 @@
 // ═══════════════════════════════════════════════════════
 
 import type { MaterialKind } from './types';
+import { classifyProviderFailure, sanitizedProviderMessage, shouldFallbackToGroq, type ProviderError } from '../ai/providerPolicy';
 
 export interface ExtractionResult {
   text: string;
@@ -156,73 +157,22 @@ export async function extractPdf(
     };
   }
 
-  // ── Estrategia 2: Gemini directo rotando keys (PDFs escaneados) ──
-  const geminiKeysForOcr = [
-    process.env.GEMINI_API_KEY,
-    process.env.GEMINI_API_KEY_2,
-    process.env.GEMINI_API_KEY_3,
-    process.env.GEMINI_API_KEY_4,
-  ].filter(Boolean) as string[];
-
-  if (geminiKeysForOcr.length > 0 && buffer.length < 50 * 1024 * 1024) {
-    for (const gKey of geminiKeysForOcr) {
-      try {
-        const text = await extractWithGemini(buffer, gKey);
-        if (text.length >= 50) {
-          console.log(`✅ Gemini OCR (key rotada): ${text.length} chars`);
-          return {
-            text,
-            method: 'gemini-ocr',
-            chars: text.length,
-            isImageBased: true,
-            hasText: true,
-          };
-        }
-      } catch (e: any) {
-        console.warn(`Gemini OCR key falló: ${e?.message}`);
-      }
-    }
-  }
-
-  // ── Estrategia 3: Mistral OCR (fallback) ──
-  if (process.env.MISTRAL_API_KEY) {
+  // ── Estrategia remota canónica: OpenRouter Gemini 2.5 Flash ──
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
+  if (openrouterKey && buffer.length < 50 * 1024 * 1024) {
     try {
-      const text = await extractWithMistralOcr(buffer);
-      if (text.length >= 100) {
-        console.log(`✅ Mistral OCR (fallback): ${text.length} chars`);
-        return {
-          text,
-          method: 'mistral-ocr',
-          chars: text.length,
-          isImageBased: true,
-          hasText: true,
-        };
-      }
-    } catch (e: any) {
-      console.warn('Mistral OCR error:', e?.message);
-    }
-  }
-
-  // ── Estrategia 4: Gemini directo (último recurso) ──
-  const geminiKey = process.env.GEMINI_API_KEY
-    ?? process.env.GEMINI_API_KEY_2
-    ?? process.env.GEMINI_API_KEY_3;
-
-  if (geminiKey && buffer.length < 20 * 1024 * 1024) {
-    try {
-      const text = await extractWithGemini(buffer, geminiKey);
+      const text = await extractWithOpenRouterGemini(buffer, openrouterKey);
       if (text.length >= 50) {
-        console.log(`✅ Gemini PDF directo: ${text.length} chars`);
         return {
           text,
-          method: 'gemini',
+          method: 'openrouter-gemini-ocr',
           chars: text.length,
           isImageBased: true,
           hasText: true,
         };
       }
     } catch (e: any) {
-      console.warn('Gemini PDF error:', e?.message);
+      console.warn('OpenRouter Gemini OCR error:', e?.message);
     }
   }
 
@@ -237,7 +187,7 @@ export async function extractPdf(
 }
 
 // ════════════════════════════════════════
-// IMAGEN — visión con Groq/Gemini
+// IMAGEN — OpenRouter Gemini 2.5 Flash; Groq solo por créditos agotados confirmados
 // Solo se llama cuando el usuario usa un enfoque
 // ════════════════════════════════════════
 export async function extractImage(
@@ -246,33 +196,7 @@ export async function extractImage(
 ): Promise<ExtractionResult> {
   const base64 = buffer.toString('base64');
 
-  // ── Intentar Groq Vision primero (más rápido) ──
-  const groqKeys = [
-    process.env.GROQ_API_KEY,
-    process.env.GROQ_API_KEY_2,
-    process.env.GROQ_API_KEY_3,
-  ].filter(Boolean) as string[];
-
-  for (const key of groqKeys) {
-    try {
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${key}`,
-        },
-        body: JSON.stringify({
-          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-          messages: [{
-            role: 'user',
-            content: [
-              {
-                type: 'image_url',
-                image_url: { url: `data:${mime};base64,${base64}` },
-              },
-              {
-                type: 'text',
-                text: `Analiza esta imagen de estudio completamente.
+  const prompt = `Analiza esta imagen de estudio completamente.
 
 1. Extrae TODO el texto visible (exactamente como aparece)
 2. Describe diagramas, gráficos, tablas o figuras
@@ -280,75 +204,67 @@ export async function extractImage(
 4. Si hay código, transcríbelo completo
 5. Organiza por secciones si las hay
 
-Sé exhaustivo — cada detalle cuenta para el estudio.`,
-              },
-            ],
-          }],
+Sé exhaustivo — cada detalle cuenta para el estudio.`;
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
+  let creditsError: ProviderError | undefined;
+  if (openrouterKey) {
+    try {
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${openrouterKey}`,
+          'HTTP-Referer': 'https://studyal.app',
+          'X-Title': 'StudyAL Image Extraction',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash',
+          messages: [{ role: 'user', content: [
+            { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } },
+            { type: 'text', text: prompt },
+          ] }],
           max_tokens: 8192,
         }),
       });
-
-      if (!res.ok) continue;
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        const providerError = { provider: 'openrouter', status: res.status, message: `OpenRouter ${res.status}`, body };
+        if (shouldFallbackToGroq(providerError)) creditsError = providerError;
+        else return { text: '', method: 'error', chars: 0, isImageBased: true, hasText: false };
+      } else {
       const data = await res.json();
       const text = data?.choices?.[0]?.message?.content ?? '';
-
       if (text.length > 50) {
-        console.log(`✅ Groq Vision imagen: ${text.length} chars`);
-        return {
-          text,
-          method: 'groq-vision',
-          chars: text.length,
-          isImageBased: true,
-          hasText: true,
-        };
-      }
-    } catch { continue; }
-  }
-
-  // ── Fallback: Gemini Vision ──
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (geminiKey) {
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { inlineData: { mimeType: mime, data: base64 } },
-                {
-                  text: `Analiza esta imagen de estudio:
-1. Extrae todo el texto visible
-2. Describe diagramas y figuras
-3. Fórmulas en LaTeX
-4. Sé exhaustivo`,
-                },
-              ],
-            }],
-            generationConfig: { maxOutputTokens: 8192 },
-          }),
-        },
-      );
-
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-        if (text.length > 50) {
-          console.log(`✅ Gemini Vision imagen: ${text.length} chars`);
-          return {
-            text,
-            method: 'gemini-vision',
-            chars: text.length,
-            isImageBased: true,
-            hasText: true,
-          };
+          return { text, method: 'openrouter-gemini-vision', chars: text.length, isImageBased: true, hasText: true };
         }
       }
-    } catch (e: any) {
-      console.warn('Gemini Vision error:', e?.message);
+    } catch (error: any) {
+      return { text: '', method: 'error', chars: 0, isImageBased: true, hasText: false };
     }
+  }
+
+  if (creditsError) {
+    console.info('[provider-policy]', JSON.stringify({
+      event: 'openrouter_credits_exhausted', provider: 'openrouter', model: 'google/gemini-2.5-flash',
+      status: creditsError.status, normalizedFailureReason: classifyProviderFailure(creditsError), fallbackAllowed: true,
+      fallbackTarget: 'groq', excludedProviders: ['openrouter'], rawProviderMessage: sanitizedProviderMessage(creditsError),
+      stage: 'image_extraction', taskType: 'material_analysis',
+    }));
+    const groqKey = process.env.GROQ_API_KEY;
+    if (!groqKey) return { text: '', method: 'none', chars: 0, isImageBased: true, hasText: false };
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
+        body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: [{ role: 'user', content: [
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } }, { type: 'text', text: prompt },
+        ] }], max_tokens: 8192 }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.choices?.[0]?.message?.content ?? '';
+        if (text.length > 50) return { text, method: 'groq-vision', chars: text.length, isImageBased: true, hasText: true };
+      }
+    } catch {}
   }
 
   return {
@@ -361,32 +277,35 @@ Sé exhaustivo — cada detalle cuenta para el estudio.`,
 }
 
 // ════════════════════════════════════════
-// AUDIO — Whisper via Groq
+// AUDIO — transcripción canónica vía OpenRouter Gemini 2.5 Flash
 // ════════════════════════════════════════
 export async function extractAudio(
   buffer: Buffer,
   mime: string,
   fileName: string,
 ): Promise<ExtractionResult> {
-  const groqKey = process.env.GROQ_API_KEY;
-  if (!groqKey) {
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
+  if (!openrouterKey) {
     return { text: '', method: 'none', chars: 0, isImageBased: false, hasText: false };
   }
 
   try {
-    const { default: Groq } = await import('groq-sdk');
-    const client = new Groq({ apiKey: groqKey });
-    const audioFile = new File([new Uint8Array(buffer)], fileName, { type: mime });
-
-    const transcription = await (client.audio as any).transcriptions.create({
-      file: audioFile,
-      model: 'whisper-large-v3',
-      response_format: 'json',
-      temperature: 0.0,
+    const format = mime.includes('wav') ? 'wav' : mime.includes('mp3') ? 'mp3' : 'webm';
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${openrouterKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [{ role: 'user', content: [
+          { type: 'text', text: `Transcribe literalmente el archivo ${fileName}. Devuelve solo la transcripción.` },
+          { type: 'input_audio', input_audio: { data: buffer.toString('base64'), format } },
+        ] }],
+        temperature: 0,
+      }),
     });
-
-    const text = transcription.text ?? '';
-    console.log(`✅ Whisper audio: ${text.length} chars`);
+    if (!response.ok) throw new Error(`OpenRouter audio ${response.status}`);
+    const data = await response.json();
+    const text = data?.choices?.[0]?.message?.content ?? '';
     return {
       text,
       method: 'whisper',
@@ -475,33 +394,6 @@ async function extractWithMistralOcr(buffer: Buffer): Promise<string> {
   }).catch(() => {});
 
   return text;
-}
-
-async function extractWithGemini(buffer: Buffer, apiKey: string): Promise<string> {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            {
-              inlineData: {
-                mimeType: 'application/pdf',
-                data: buffer.toString('base64'),
-              },
-            },
-            { text: 'Extract ALL text from this PDF exactly as it appears. Include all content.' },
-          ],
-        }],
-        generationConfig: { maxOutputTokens: 8192 },
-      }),
-    },
-  );
-  if (!res.ok) return '';
-  const data = await res.json();
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 }
 
 // ════════════════════════════════════════

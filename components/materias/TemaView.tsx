@@ -19,6 +19,7 @@ import {
   syncSessionsFromServer,
   type StudySession,
 } from "../../lib/studySessions";
+import { resolveAdaptiveResumeTarget } from "../../lib/adaptive/resume";
 
 const HAND = "'Caveat', cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -936,6 +937,8 @@ export default function TemaView({
   onOpenExam,
   returnToEnfoque,
   onClearReturnToEnfoque,
+  autoOpenAdaptive,
+  autoOpenAdaptiveSessionId,
   masteryState,
   masterySnapshot,
   masteryContext,
@@ -945,6 +948,7 @@ export default function TemaView({
 }: any) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [adaptiveAutoOpenConsumed, setAdaptiveAutoOpenConsumed] = useState(false);
   const [modalArchivo, setModalArchivo] = useState<{
     nombre: string;
     tipo: "pptx" | "otro";
@@ -1118,6 +1122,70 @@ export default function TemaView({
     onClearReturnToEnfoque,
     refreshSessions,
   ]);
+
+  const shouldAutoOpenAdaptive = autoOpenAdaptive && !adaptiveAutoOpenConsumed;
+
+  function clearAdaptiveAutoOpenState() {
+    setAdaptiveAutoOpenConsumed(true);
+    if (typeof window === "undefined") return;
+
+    try {
+      localStorage.removeItem("studyal_open_tema_adaptive");
+      localStorage.removeItem("studyal_open_adaptive_session_id");
+    } catch {}
+
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("adaptiveSessionId");
+      url.searchParams.delete("adaptiveView");
+      const next = `${url.pathname}${url.searchParams.toString() ? `?${url.searchParams.toString()}` : ""}${url.hash || ""}`;
+      window.history.replaceState({}, "", next);
+    } catch {}
+  }
+
+  // Auto-abrir adaptive cuando viene desde /sesion/[N] (volver al plan)
+  useEffect(() => {
+    if (!shouldAutoOpenAdaptive) return;
+    let cancelled = false;
+    async function restoreExactAdaptiveSession() {
+      if (tema?.id) await syncSessionsFromServer(tema.id);
+      if (cancelled) return;
+      const allSessions = getSessionsByTema(tema?.id || "");
+      const adaptiveSess = autoOpenAdaptiveSessionId
+        ? allSessions.find((s: any) => s.id === autoOpenAdaptiveSessionId && s.processMode === "adaptive")
+        : allSessions
+            .filter((s: any) => s.processMode === "adaptive")
+            .sort((a: any, b: any) => Number(b.lastOpenedAt || 0) - Number(a.lastOpenedAt || 0))[0];
+      if (!adaptiveSess) return;
+
+      const matIds = adaptiveSess.materialIds || [];
+      setSelectedIds(
+        matIds.map((id: string) => {
+          const doc = tema.documentos?.find(
+            (d: any) => sameId(getMaterialKey(d), id) || sameId(d.id, id),
+          );
+          return doc?.id || id;
+        }).filter(Boolean),
+      );
+      if (adaptiveSess.selectedPages) {
+        setSeleccionResult(matIds.map((matId: string, idx: number) => ({
+          materialId: matId,
+          materialIndex: idx,
+          pages: (adaptiveSess.selectedPages as any)[matId] || [],
+        })) as any);
+      }
+      setResumeSessionId(adaptiveSess.id);
+      setStudyMode("adaptive");
+      chosenModeRef.current = "adaptive";
+      // Doble rAF: garantiza que React procesó todos los setState anteriores
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (!cancelled) setOpenAdaptive(true);
+      }));
+    }
+    restoreExactAdaptiveSession().catch(() => {});
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldAutoOpenAdaptive, autoOpenAdaptiveSessionId, tema?.id]);
 
   // Sincronizar selectedIds con documentos existentes (limpia IDs de docs borrados)
   // Se desactiva mientras se está borrando para evitar interferencia
@@ -1616,11 +1684,30 @@ export default function TemaView({
 
   const selectedDocs = useMemo(() => {
     const selectedSet = new Set(selectedIds.map(String));
-    return tema.documentos.filter(
-      (d: any) =>
-        selectedSet.has(String(d.id)) || selectedSet.has(getMaterialKey(d)),
-    );
-  }, [tema.documentos, selectedIds]);
+
+    // Selección normal desde selectedIds
+    if (selectedSet.size > 0) {
+      return tema.documentos.filter(
+        (d: any) =>
+          selectedSet.has(String(d.id)) || selectedSet.has(getMaterialKey(d)),
+      );
+    }
+
+    // Fallback crítico: cuando se reanuda una sesión adaptativa y React aún
+    // no ha aplicado selectedIds, reconstruir docs desde la sesión resumida.
+    if (resumeSessionId) {
+      const resumeSession = activeSessions.find((s) => s.id === resumeSessionId);
+      if (resumeSession?.materialIds?.length) {
+        const materialSet = new Set((resumeSession.materialIds || []).map(String));
+        return tema.documentos.filter(
+          (d: any) =>
+            materialSet.has(String(d.id)) || materialSet.has(getMaterialKey(d)),
+        );
+      }
+    }
+
+    return [];
+  }, [tema.documentos, selectedIds, resumeSessionId, activeSessions]);
 
 
   // Guard: si la selección actual no coincide con la sesión resumida, limpiar resume viejo
@@ -1634,9 +1721,25 @@ export default function TemaView({
       return;
     }
 
-    // Si los materiales seleccionados cambiaron, limpiar sesión
-    const resumeKey = [...(resumeSession.materialIds || [])].sort().join(',');
-    const currentKey = selectedDocs.map((d: any) => getMaterialKey(d)).filter(Boolean).sort().join(',');
+    const resumeKey = [...(resumeSession.materialIds || [])].map(String).sort().join(',');
+
+    // Fuente real de selección actual:
+    // 1) selectedDocs si ya está listo
+    // 2) seleccionResult si todavía se está hidratando
+    const currentMaterialIds =
+      selectedDocs.length > 0
+        ? selectedDocs.map((d: any) => getMaterialKey(d)).filter(Boolean)
+        : Array.isArray(seleccionResult) && seleccionResult.length > 0
+          ? seleccionResult.map((r: any) => String(r?.materialId || '')).filter(Boolean)
+          : [];
+
+    const currentKey = [...currentMaterialIds].sort().join(',');
+
+    // Si todavía no hay selección reconstruida, NO limpiar la sesión.
+    // Esto evita que al volver desde /sesion se pierda el resumeSessionId
+    // antes de que React termine de hidratar selectedIds/seleccionResult.
+    if (!currentKey) return;
+
     if (resumeKey !== currentKey) {
       setResumeSessionId(null);
       if (!chosenModeRef.current) {
@@ -2002,6 +2105,29 @@ export default function TemaView({
     return masteryState;
   }, [resumeSessionId, openFree, tema?.id, masteryState]);
 
+  // Loader instantáneo cuando venimos desde /sesion con autoOpenAdaptive
+  // Evita ver el mapa del tema por un instante antes de abrir el plan
+  if (shouldAutoOpenAdaptive && !openAdaptive)
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'radial-gradient(circle at 20% 10%, rgba(56,189,248,.14), transparent 28%), linear-gradient(135deg, var(--bg-primary), color-mix(in srgb, var(--bg-primary) 78%, #000))',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        gap: 16, color: 'var(--text-primary)',
+      }}>
+        <div style={{ fontSize: 48 }}>📖</div>
+        <div style={{ fontFamily: HAND, fontSize: 28, color: '#38bdf8' }}>abriendo tu plan...</div>
+        <div style={{
+          width: 32, height: 32,
+          border: '3px solid rgba(56,189,248,0.3)',
+          borderTopColor: '#38bdf8',
+          borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite',
+        }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+
   if (openAdaptive)
     return (
       <StudyALAdaptive
@@ -2010,6 +2136,7 @@ export default function TemaView({
         userId={userId || undefined}
         sessionId={resumeSessionId || undefined}
         onClose={() => {
+          clearAdaptiveAutoOpenState();
           setOpenAdaptive(false);
           refreshSessions();
         }}
@@ -2982,10 +3109,17 @@ export default function TemaView({
             .sort();
           const selectedKey = selectedMatIds.join(',');
 
-          const matchingSession = activeSessions.find((s) => {
-            const sessKey = [...(s.materialIds || [])].sort().join(',');
-            return sessKey === selectedKey;
-          }) || null;
+          const matchingSession = activeSessions
+            .filter((s) => {
+              const sessKey = [...(s.materialIds || [])].sort().join(',');
+              return sessKey === selectedKey;
+            })
+            .sort((a, b) => {
+              const aAdaptive = a.processMode === "adaptive" ? 1 : 0;
+              const bAdaptive = b.processMode === "adaptive" ? 1 : 0;
+              return bAdaptive - aAdaptive
+                || Number(b.lastOpenedAt || 0) - Number(a.lastOpenedAt || 0);
+            })[0] || null;
 
           const isResumeMode = !!matchingSession;
           const resumeMode = (matchingSession?.processMode || 'free') as 'free' | 'adaptive' | 'manual';
@@ -3078,11 +3212,12 @@ export default function TemaView({
 
                 {/* BOTÓN ESTUDIAR / SEGUIR */}
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     if (isResumeMode && matchingSession) {
                       // ── Reanudar sesión existente ──
                       setResumeSessionId(matchingSession.id);
                       setStudyMode(resumeMode as any);
+                      chosenModeRef.current = resumeMode as any;
 
                       // Restaurar páginas seleccionadas si las tiene
                       if (matchingSession.selectedPages) {
@@ -3098,6 +3233,18 @@ export default function TemaView({
 
                       console.log("✅ Reanudando sesión:", matchingSession.id, "| mode:", resumeMode);
                       if (resumeMode === 'adaptive') {
+                        const syncedSessions = await syncSessionsFromServer(tema?.id || "");
+                        setActiveSessions(syncedSessions);
+                        const target = resolveAdaptiveResumeTarget({
+                          sessions: syncedSessions,
+                          temaId: tema?.id || "",
+                          sessionId: matchingSession.id,
+                          materialId: matchingSession.primaryMaterialId || matchingSession.materialIds?.[0],
+                        });
+                        if (target.state === "existing" && target.view === "session") {
+                          window.location.href = target.route;
+                          return;
+                        }
                         setOpenAdaptive(true);
                       } else if (resumeMode === 'manual') {
                         setOpenManual(true);
@@ -4660,18 +4807,34 @@ export default function TemaView({
               });
 
               if (tema?.id && matIds.length > 0) {
-                const sess = upsertSession({
-                  temaId: tema.id,
-                  enfoque: (enfoqueElegido || 'teorico') as any,
-                  processMode: (studyMode || 'free') as any,
-                  materialIds: matIds,
-                  materialNames: selectedDocs.map((m: any) => String(m?.nombre || m?.name || '').trim()).filter(Boolean),
-                  selectedPages: Object.keys(pagesByMat).length ? pagesByMat : {},
-                });
-                savedSessionId = sess.id;
-                setResumeSessionId(sess.id);
-                refreshSessions();
-                console.log("💾 Sesión guardada:", sess.id, "| modo:", studyMode);
+                // Para modo adaptativo: NO crear sesión aquí.
+                // La sesión adaptativa la crea StudyALAdaptive.next() cuando termina el setup.
+                // Si ya existe una sesión adaptativa que estamos reanudando, la preservamos.
+                if (studyMode === 'adaptive') {
+                  if (resumeSessionId || autoOpenAdaptiveSessionId) {
+                    savedSessionId = resumeSessionId || autoOpenAdaptiveSessionId || null;
+                    console.log("♻️ Reanudando sesión adaptativa existente:", savedSessionId);
+                  } else {
+                    console.log("⏭️  Modo adaptativo: sesión se creará al terminar el setup");
+                  }
+                } else {
+                  // Free y manual: sí guardamos aquí
+                  const sess = upsertSession({
+                    sessionId: resumeSessionId || undefined,
+                    userId: userId || undefined,
+                    temaId: tema.id,
+                    enfoque: (enfoqueElegido || 'teorico') as any,
+                    processMode: (studyMode || 'free') as any,
+                    materialIds: matIds,
+                    primaryMaterialId: matIds[0],
+                    materialNames: selectedDocs.map((m: any) => String(m?.nombre || m?.name || '').trim()).filter(Boolean),
+                    selectedPages: Object.keys(pagesByMat).length ? pagesByMat : {},
+                  });
+                  savedSessionId = sess.id;
+                  setResumeSessionId(sess.id);
+                  refreshSessions();
+                  console.log("💾 Sesión guardada:", sess.id, "| modo:", studyMode);
+                }
               }
             } catch (e) {
               console.warn("Error guardando sesión al entrar al enfoque:", e);

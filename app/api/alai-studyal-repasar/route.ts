@@ -1,22 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { alai } from '../../../lib/alai';
+import { generateValidatedLegacyJson } from '../../../lib/ai/legacyRouteGeneration';
 
 export const maxDuration = 120;
-
-function extractJson(text: string) {
-  try {
-    return JSON.parse(text.trim());
-  } catch {}
-
-  const match = text.match(/\{[\s\S]*\}/);
-  if (match) {
-    try {
-      return JSON.parse(match[0]);
-    } catch {}
-  }
-
-  return null;
-}
 
 function cleanArray(value: any): string[] {
   if (!Array.isArray(value)) return [];
@@ -181,8 +166,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'No hay respuesta para verificar.' }, { status: 400 });
       }
 
-      const check = await alai({
-        json: true,
+      const parsedCheck: any = await generateValidatedLegacyJson({
+        taskType: 'evaluation_question',
         temperature: 0.18,
         maxTokens: 1200,
         messages: [
@@ -227,22 +212,17 @@ Devuelve EXACTAMENTE este JSON:
 `,
           },
         ],
+        normalize: value => value,
+        validate: value => {
+          const record = value as any
+          const errors: string[] = []
+          if (typeof record?.passed !== 'boolean') errors.push('STRUCTURAL_VALIDATION_FAILED:teach_check_passed')
+          if (!Number.isFinite(Number(record?.score))) errors.push('STRUCTURAL_VALIDATION_FAILED:teach_check_score')
+          if (!String(record?.message || '').trim()) errors.push('STRUCTURAL_VALIDATION_FAILED:teach_check_message')
+          return { valid: errors.length === 0, errors }
+        },
+        telemetryContext: { route: 'review', phase: 'teach_check', concept },
       });
-
-      const parsedCheck = extractJson(check.text);
-
-      if (!parsedCheck) {
-        return NextResponse.json({
-          check: {
-            passed: false,
-            score: 40,
-            message: check.text.slice(0, 900),
-            understood: [],
-            stillMissing: [concept],
-            improvedAnswer: '',
-          },
-        });
-      }
 
       const score = cleanScore(parsedCheck.score);
 
@@ -335,8 +315,8 @@ EVALUADOR NEUTRAL:
       return NextResponse.json({ error: 'No hay explicación del usuario.' }, { status: 400 });
     }
 
-    const result = await alai({
-      json: true,
+    const parsed: any = await generateValidatedLegacyJson({
+      taskType: 'summary',
       temperature: 0.22,
       maxTokens: 3000,
       messages: [
@@ -530,36 +510,17 @@ Devuelve EXACTAMENTE este JSON:
 `,
         },
       ],
+      normalize: value => value,
+      validate: value => {
+        const record = value as any
+        const errors: string[] = []
+        if (!Number.isFinite(Number(record?.score))) errors.push('STRUCTURAL_VALIDATION_FAILED:review_score')
+        if (!String(record?.feedback || record?.summary || '').trim()) errors.push('STRUCTURAL_VALIDATION_FAILED:review_feedback')
+        if (!Array.isArray(record?.followUpQuestions)) errors.push('LOW_DIVERSITY:review_followups')
+        return { valid: errors.length === 0, errors }
+      },
+      telemetryContext: { route: 'review', phase: 'analysis', mode },
     });
-
-    const parsed = extractJson(result.text);
-
-    if (!parsed) {
-      return NextResponse.json({
-        analysis: {
-          score: 50,
-          level: 'en progreso',
-          metrics: { coverage: 50, clarity: 50, depth: 50, connections: 50 },
-          masteryStage: 'comprension_basica',
-          summary: 'No pude estructurar el análisis automáticamente.',
-          mainIssue: 'La respuesta de la IA no llegó en el formato esperado.',
-          scoreReason: 'Se muestra feedback crudo para no perder información.',
-          estimatedNextScore: 65,
-          studyBreakdown: { remembered: 35, explained: 25, missing: 40 },
-          strengths: [],
-          missingConcepts: [],
-          confusions: [],
-          weakConcepts: [],
-          conceptStatus: [],
-          actions: [],
-          teachMissing: null,
-          reviewer: null,
-          followUpQuestions: [],
-          feedback: result.text.slice(0, 1200),
-          nextStep: 'Vuelve a intentar explicando la idea central, conceptos clave y una conexión importante.',
-        },
-      });
-    }
 
     const strengths = cleanArray(parsed.strengths);
     const missingConcepts = cleanArray(parsed.missingConcepts);

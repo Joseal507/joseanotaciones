@@ -20,65 +20,125 @@ function chapterLoadLabel(load: number): 'light' | 'medium' | 'heavy' {
   return 'light';
 }
 
-function maxChapterLoad(setup: AdaptiveSetup): number {
-  switch (setup.examDateType) {
-    case 'today': return 24;
-    case 'tomorrow': return 22;
-    case 'this_week': return 18;
-    case 'just_studying': return 16;
-    default: return 18;
-  }
+// ═══════════════════════════════════════════════════════════════
+// Cálculo del número de sesiones basado en CONTENIDO REAL
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Base natural: cuántas sesiones "quieren" existir según el contenido.
+ * Se calcula según la densidad total y la distribución de arcs.
+ */
+function calculateNaturalChapterCount(
+  arcs: LearningArc[],
+  totalBlocks: number,
+): number {
+  // Un arc puede ser 1 sesión, o 2 arcs pequeños pueden fusionarse en 1
+  // Referencia: ~6-8 bloques por sesión es "cómodo"
+  const idealSessions = Math.ceil(totalBlocks / 7);
+
+  // No menos que la mitad de arcs (si hay 10 arcs, mínimo 5 sesiones)
+  const minSessions = Math.max(2, Math.ceil(arcs.length / 2));
+
+  // No más que el número de arcs (nunca dividir un arc en múltiples sesiones aquí)
+  const maxSessions = arcs.length;
+
+  return Math.max(minSessions, Math.min(idealSessions, maxSessions));
 }
 
-function targetLearningChapterCount(setup: AdaptiveSetup, arcCount: number): number {
-  let base: number;
-
+/**
+ * Factor de compresión según urgencia del examen.
+ * Retorna un multiplicador aplicado a la base natural.
+ * NUNCA reduce contenido — solo agrupa más por sesión.
+ */
+function urgencyFactor(setup: AdaptiveSetup): number {
   switch (setup.examDateType) {
-    case 'today':
-      base = 3;
-      break;
-    case 'tomorrow':
-      base = 4;
-      break;
-    case 'this_week':
-      base = 5;
-      break;
+    case 'today': return 0.45;      // muy compacto
+    case 'tomorrow': return 0.60;   // compacto
+    case 'this_week': return 0.85;  // ligeramente compacto
+    case 'custom': {
+      // Días restantes hasta el examen
+      const daysLeft = calculateDaysUntilExam(setup.examDateCustom);
+      if (daysLeft <= 1) return 0.55;
+      if (daysLeft <= 3) return 0.70;
+      if (daysLeft <= 7) return 0.90;
+      return 1.0;
+    }
     case 'just_studying':
     default:
-      base = 5;
-      break;
+      return 1.10; // más digestible cuando no hay presión
   }
-
-  // Ajuste por nivel previo
-  // Los estudiantes que ya conocen el tema pueden comprimir más
-  if (setup.knowledgeLevel === 'want_review') base -= 1;
-  if (setup.knowledgeLevel === 'already_know') base -= 1;
-
-  // Los que nunca lo han visto no deben comprimirse más de la cuenta
-  if (setup.knowledgeLevel === 'never_seen' && setup.examDateType !== 'today') {
-    base += 0; // explícito: mantener
-  }
-
-  // límites
-  base = Math.max(2, base);
-  base = Math.min(base, arcCount);
-
-  return base;
 }
 
+function calculateDaysUntilExam(examDate: string | null | undefined): number {
+  if (!examDate) return 7;
+  try {
+    const target = new Date(examDate).getTime();
+    const now = Date.now();
+    return Math.max(0, Math.ceil((target - now) / (1000 * 60 * 60 * 24)));
+  } catch {
+    return 7;
+  }
+}
+
+/**
+ * Modificador según conocimiento previo.
+ * never_seen: +1 sesión (más pasos pequeños)
+ * know_little: mantener
+ * want_review: -1 sesión (comprimir)
+ * already_know: -2 sesiones (más comprimido)
+ */
+function knowledgeAdjustment(setup: AdaptiveSetup): number {
+  switch (setup.knowledgeLevel) {
+    case 'never_seen': return +1;
+    case 'want_review': return -1;
+    case 'already_know': return -2;
+    default: return 0;
+  }
+}
+
+/**
+ * Decide cuántas sesiones de aprendizaje habrá (sin contar intro ni resumen).
+ */
+function targetLearningChapterCount(
+  setup: AdaptiveSetup,
+  arcs: LearningArc[],
+  totalBlocks: number,
+): number {
+  const natural = calculateNaturalChapterCount(arcs, totalBlocks);
+  const urgency = urgencyFactor(setup);
+  const knowledge = knowledgeAdjustment(setup);
+
+  const target = Math.round(natural * urgency) + knowledge;
+
+  // Nunca menos de 2 sesiones de contenido, nunca más de los arcs disponibles
+  return Math.max(2, Math.min(target, arcs.length));
+}
+
+/**
+ * Cap de carga por sesión — cuando hay urgencia, se permite más carga por sesión.
+ */
+function maxChapterLoad(setup: AdaptiveSetup): number {
+  switch (setup.examDateType) {
+    case 'today': return 32;
+    case 'tomorrow': return 26;
+    case 'this_week': return 20;
+    case 'just_studying': return 16;
+    default: return 20;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Lógica de fusión de arcs
+// ═══════════════════════════════════════════════════════════════
+
 function mergePriority(a: LearningArc, b: LearningArc): number {
-  // cuanto más alto, más natural es fusionarlos
   if (a.role === 'foundation' && b.role === 'problem') return 100;
   if (a.role === 'mechanism' && b.role === 'application') return 95;
   if (a.role === 'integration' && b.role === 'context') return 90;
-
   if (a.role === b.role) return 70;
-
-  // compatibilidades menores
   if (a.role === 'foundation' && b.role === 'mechanism') return 30;
   if (a.role === 'problem' && b.role === 'mechanism') return 40;
   if (a.role === 'application' && b.role === 'integration') return 50;
-
   return 0;
 }
 
@@ -88,23 +148,18 @@ function groupLoad(group: LearningArc[]): number {
 
 function chapterTitleFromArcs(arcs: LearningArc[]): string {
   if (arcs.length === 1) return arcs[0].title;
-
   const a = arcs[0];
   const b = arcs[1];
-
   if (a.role === 'foundation' && b.role === 'problem') return b.title;
   if (a.role === 'mechanism' && b.role === 'application') return a.title;
   if (a.role === 'integration' && b.role === 'context') return a.title;
-
   return a.title;
 }
 
 function chapterObjectiveFromArcs(arcs: LearningArc[]): string {
   if (arcs.length === 1) return arcs[0].purpose;
-
   const a = arcs[0];
   const b = arcs[1];
-
   if (a.role === 'foundation' && b.role === 'problem') {
     return `${a.purpose} A partir de eso, ${b.purpose.charAt(0).toLowerCase()}${b.purpose.slice(1)}`;
   }
@@ -114,13 +169,11 @@ function chapterObjectiveFromArcs(arcs: LearningArc[]): string {
   if (a.role === 'integration' && b.role === 'context') {
     return `${a.purpose} Luego, ${b.purpose.charAt(0).toLowerCase()}${b.purpose.slice(1)}`;
   }
-
   return `${a.purpose} ${b.purpose}`;
 }
 
 function chapterWhyFromArcs(arcs: LearningArc[]): string {
   if (arcs.length === 1) return arcs[0].purpose;
-
   const a = arcs[0];
   const b = arcs[1];
   return `Esta sesión une dos pasos que se entienden mejor juntos: ${a.title} y ${b.title}.`;
@@ -128,9 +181,8 @@ function chapterWhyFromArcs(arcs: LearningArc[]): string {
 
 function chapterUnlockMessage(currentArcs: LearningArc[], nextArc: LearningArc | null): string {
   if (!nextArc) {
-    return 'Después de esto tendrás todo lo necesario para la validación final.';
+    return 'Después de esto tendrás todo lo necesario para el repaso final.';
   }
-
   if (nextArc.role === 'problem') {
     return 'Cuando termines esta sesión, estarás listo para entender el problema central del material.';
   }
@@ -146,7 +198,6 @@ function chapterUnlockMessage(currentArcs: LearningArc[], nextArc: LearningArc |
   if (nextArc.role === 'context') {
     return 'Cuando termines esta sesión, podrás evaluar el impacto y el legado del tema.';
   }
-
   return `Cuando termines esta sesión, podrás avanzar a ${nextArc.title}.`;
 }
 
@@ -178,7 +229,7 @@ function makeLearningChapter(
     arcId: arcs.map(a => a.id).join('__'),
     segmentIndex: 0,
     chapterNumber,
-    type: 'learning',
+    kind: 'learning',
     title,
     hook: why,
     objective,
@@ -208,14 +259,14 @@ function makeLearningChapter(
 }
 
 function fallbackDistinctTitle(role: string, previousTitle: string): string {
-  if (role === 'application') return previousTitle === 'Aplicación y evidencia' ? 'La evidencia principal' : 'Aplicación y evidencia';
-  if (role === 'mechanism') return previousTitle === 'Explicación central' ? 'La solución principal' : 'Explicación central';
-  if (role === 'problem') return previousTitle === 'El problema central' ? 'La pregunta principal' : 'El problema central';
-  if (role === 'integration') return previousTitle === 'Conectando las ideas' ? 'Integración del tema' : 'Conectando las ideas';
-  if (role === 'context') return previousTitle === 'Impacto y legado' ? 'Consecuencias y legado' : 'Impacto y legado';
-  if (role === 'foundation') return previousTitle === 'Construyendo las bases' ? 'Contexto inicial' : 'Construyendo las bases';
-  return 'Siguiente etapa';
+  // Solo se usa cuando dos sesiones consecutivas tienen el mismo título del topic
+  // Añadir un sufijo distintivo en vez de plantillas hardcoded
+  return `${previousTitle} (continuación)`;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Entry point
+// ═══════════════════════════════════════════════════════════════
 
 export function buildChaptersFromArcs(
   path: LearningPath,
@@ -225,13 +276,18 @@ export function buildChaptersFromArcs(
   const chapters: StudyChapter[] = [];
   const unitMap = new Map(path.units.map(u => [u.id, u]));
 
-  const target = targetLearningChapterCount(setup, arcs.length);
+  // Contar bloques totales del path para calcular densidad
+  const totalBlocks = path.units.reduce((sum, u) => sum + (u.blockIds?.length || 0), 0);
+
+  const target = targetLearningChapterCount(setup, arcs, totalBlocks);
   const loadCap = maxChapterLoad(setup);
+
+  console.log(`[buildChapters] target=${target} sesiones | arcs=${arcs.length} | totalBlocks=${totalBlocks} | urgency=${setup.examDateType} | knowledge=${setup.knowledgeLevel}`);
 
   // Empezar con 1 arco = 1 grupo
   const groups: LearningArc[][] = arcs.map(a => [a]);
 
-  // Mientras haya más grupos que presupuesto, fusionar los pares adyacentes más compatibles
+  // Mientras haya más grupos que target, fusionar los pares adyacentes más compatibles
   while (groups.length > target) {
     let bestIdx = -1;
     let bestScore = -Infinity;
@@ -246,7 +302,7 @@ export function buildChaptersFromArcs(
       const score = mergePriority(leftLast, rightFirst);
       const combinedLoad = groupLoad(left) + groupLoad(right);
 
-      // penalizar ligeramente grupos que quedan demasiado pesados
+      // Penalizar grupos que quedan demasiado pesados
       const adjustedScore = score - (combinedLoad > loadCap ? 20 : 0);
 
       if (
@@ -265,7 +321,7 @@ export function buildChaptersFromArcs(
     groups.splice(bestIdx + 1, 1);
   }
 
-  // Convertir grupos → capítulos
+  // Convertir grupos → capítulos (empezando en chapter 2 porque el 1 es intro)
   for (let i = 0; i < groups.length; i++) {
     const currentArcs = groups[i];
     const nextGroup = i < groups.length - 1 ? groups[i + 1] : null;
@@ -276,7 +332,7 @@ export function buildChaptersFromArcs(
     );
   }
 
-  // corregir duplicados visibles sin romper el plan
+  // Corregir duplicados visibles sin romper el plan
   for (let j = 1; j < chapters.length; j++) {
     const prev = chapters[j - 1];
     const curr = chapters[j];
@@ -292,17 +348,6 @@ export function buildChaptersFromArcs(
       chapters[j] = {
         ...chapters[j],
         objective: `${curr.objective} En esta sesión avanzarás a una nueva etapa del recorrido.`,
-      };
-    }
-  }
-
-  // nunca mostrar "Contexto general" literalmente
-  for (let j = 0; j < chapters.length; j++) {
-    const ch = chapters[j];
-    if (String(ch.title || '').trim().toLowerCase() === 'contexto general') {
-      chapters[j] = {
-        ...ch,
-        title: ch.arcRole === 'foundation' ? 'Construyendo las bases' : 'Impacto y contexto',
       };
     }
   }

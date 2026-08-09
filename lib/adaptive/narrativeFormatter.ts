@@ -65,14 +65,9 @@ export function displayName(raw: string): string {
     [/^Understanding Atomic Structure$/i, 'Comprensión de la estructura atómica'],
     [/^Impact of (.+)$/i, 'Impacto de $1'],
     [/^Nobel Prize( in Physics)?$/i, 'Premio Nobel de Física'],
-    [/^Niels Bohr Institute$/i, 'Instituto Niels Bohr'],
     [/^World War II$/i, 'Segunda Guerra Mundial'],
     [/^World War II Contributions$/i, 'Aportes durante la Segunda Guerra Mundial'],
     [/^Nuclear Research$/i, 'Investigación nuclear'],
-    [/^Bohr'?s? Legacy$/i, 'Legado de Bohr'],
-    [/^Bohr'?s? Lasting Impact$/i, 'Impacto duradero de Bohr'],
-    [/^Bohr'?s? True Greatness$/i, 'Verdadera grandeza de Bohr'],
-    [/^Bohr as a Leader$/i, 'Bohr como líder'],
     [/^Reevaluating Traditional Concepts$/i, 'Reevaluación de conceptos tradicionales'],
     [/^Understanding the Universe$/i, 'Comprensión del universo'],
   ];
@@ -184,10 +179,6 @@ export function displayName(raw: string): string {
       return wordMap[lower] || word;
     })
     .join(' ')
-    .replace(/\bniels\b/gi, 'Niels')
-    .replace(/\bbohr\b/gi, 'Bohr')
-    .replace(/\brutherford\b/gi, 'Rutherford')
-    .replace(/\bernest\b/gi, 'Ernest')
     .replace(/\bcopenhagen\b/gi, 'Copenhague')
     .replace(/\bcopenhague\b/gi, 'Copenhague');
 

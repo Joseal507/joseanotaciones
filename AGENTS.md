@@ -25,7 +25,12 @@ Terminar y estabilizar el modo adaptativo v3 para que un usuario pueda:
 - No debilitar Mastery Contracts solo para hacer pasar tests.
 - No crear más motores pedagógicos salvo necesidad demostrada.
 - No hacer commit ni deploy sin permiso explícito.
-- No usar OpenRouter.
+- Política canónica de proveedores para toda generación de IA:
+  - proveedor principal obligatorio: OpenRouter;
+  - modelo principal obligatorio: `google/gemini-2.5-flash`;
+  - Groq solo puede usarse después de que una respuesta de OpenRouter haya sido clasificada inequívocamente como `OPENROUTER_CREDITS_EXHAUSTED` por saldo o créditos agotados;
+  - `INVALID_JSON`, validación estructural, timeout, rate limit, error de autenticación, respuesta vacía o `CONTEXT_TOO_LARGE` no autorizan Groq;
+  - ninguna ruta puede excluir OpenRouter ni comenzar con Groq sin esa evidencia financiera persistida en la operación.
 - No ocultar errores con `as any`.
 - No sustituir el motor real por lógica paralela en frontend.
 - Leer completos los archivos relacionados antes de editarlos.

@@ -101,8 +101,8 @@ function classifyBlockRole(block: CanonicalBlock): LearningRole {
 
   // ── PRIORIDAD 2: topic del blueprint ───────────────────────────────
   if (/vida|biography|early life|formacion|formación|educacion|educación/.test(topic)) return 'foundation';
-  if (/problema|problem|rutherford/.test(topic)) return 'problem';
-  if (/modelo atomico|atomic model|bohr.*model/.test(topic)) return 'mechanism';
+  if (/problema|problem|limitacion|limitation/.test(topic)) return 'problem';
+  if (/modelo|model|mecanismo|mechanism/.test(topic)) return 'mechanism';
   if (/mecanica cuantica|quantum mechanic|interpretacion|interpretation|copenhague|copenhagen/.test(topic)) return 'integration';
   if (/liderazgo|legado|legacy|etica|ethics/.test(topic)) return 'context';
   if (/contexto|context|general/.test(topic)) return 'foundation';
@@ -116,7 +116,7 @@ function classifyBlockRole(block: CanonicalBlock): LearningRole {
     return 'integration';
   }
 
-  if (/problem|problema|limitations?|limitaciones?|rutherford|insufficient|insuficiente|mystery|misterio/.test(text)) {
+  if (/problem|problema|limitations?|limitaciones?|insufficient|insuficiente|mystery|misterio/.test(text)) {
     return 'problem';
   }
 
@@ -141,13 +141,16 @@ function classifyBlockRole(block: CanonicalBlock): LearningRole {
 }
 
 function buildUnitTitle(role: LearningRole, blocks: CanonicalBlock[]): string {
-  if (role === 'foundation') return 'Construyendo las bases';
-  if (role === 'problem') return 'Comprendiendo el problema';
-  if (role === 'mechanism') return 'Entendiendo la explicación central';
-  if (role === 'application') return 'Viendo cómo funciona';
-  if (role === 'integration') return 'Conectando las ideas';
-  if (role === 'context') return 'Impacto y contexto';
-  return blocks[0]?.topicLabel || 'Unidad';
+  // El título de una unidad SIEMPRE debe venir del contenido real del material
+  // Usar el topicLabel del primer bloque, o si no existe, del bloque con mayor importancia
+  const primary = blocks[0]?.topicLabel;
+  if (primary && primary.trim().length > 2) return primary;
+
+  const mostImportant = [...blocks].sort((a, b) => (b.importance || 0) - (a.importance || 0))[0];
+  if (mostImportant?.topicLabel) return mostImportant.topicLabel;
+  if (mostImportant?.label) return mostImportant.label;
+
+  return role; // último recurso: el rol como identificador, no como título mostrable
 }
 
 function buildUnitPurpose(role: LearningRole, blocks: CanonicalBlock[]): string {

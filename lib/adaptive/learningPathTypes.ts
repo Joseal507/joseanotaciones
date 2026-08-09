@@ -20,6 +20,12 @@ export interface CanonicalRelation {
   targetLabel: string;
 }
 
+export interface SourceSpan {
+  page: number;          // página exacta donde aparece
+  quote: string;         // fragmento literal del texto fuente (max 200 chars)
+  certainty: 'supported' | 'inferred' | 'uncertain';
+}
+
 export interface CanonicalBlock {
   id: string;
   kind: string;
@@ -39,6 +45,8 @@ export interface CanonicalBlock {
   bloomLevel?: string;
   examProbability?: number;
   estimatedMinutes?: number;
+  // Evidencia fuente — opcional por compatibilidad con pipeline legacy
+  sourceSpans?: SourceSpan[];
 }
 
 export interface CanonicalConcept {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { normalizeAcademicContent } from '../../lib/academic-content/validation';
 
 interface Props {
   math: string;
@@ -18,7 +19,10 @@ export default function MathRenderer({ math, display = false, color = 'inherit',
     const render = async () => {
       try {
         const katex = (await import('katex')).default;
-        katex.render(cleanMath(math), ref.current!, {
+        const cleaned = cleanMath(math);
+        const normalized = normalizeAcademicContent(`$${cleaned}$`);
+        if (!normalized.validation.valid) throw new Error('Invalid academic math node');
+        katex.render(cleaned, ref.current!, {
           displayMode: display,
           throwOnError: false,
           errorColor: '#ef4444',
@@ -26,8 +30,7 @@ export default function MathRenderer({ math, display = false, color = 'inherit',
           strict: false,
         });
       } catch (e) {
-        // Si KaTeX falla, mostrar texto plano
-        if (ref.current) ref.current.textContent = math;
+        if (ref.current) ref.current.textContent = 'Contenido matemático no disponible.';
       }
     };
     
@@ -44,36 +47,12 @@ export default function MathRenderer({ math, display = false, color = 'inherit',
   );
 }
 
-// Convierte texto plano a LaTeX válido
+// Compatibilidad: la inferencia de texto plano fue retirada. Solo se normalizan
+// invariantes Unicode que no cambian la semántica.
 export function cleanMath(text: string): string {
   if (!text) return '';
-  
   return text
-    // Ya tiene LaTeX → limpiar
-    .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '\\frac{$1}{$2}')
-    // Texto plano → LaTeX
-    .replace(/\bsqrt\(([^)]+)\)/g, '\\sqrt{$1}')
-    .replace(/\bsqrt\b/g, '\\sqrt')
-    .replace(/\bpi\b/g, '\\pi')
-    .replace(/\btheta\b/g, '\\theta')
-    .replace(/\balpha\b/g, '\\alpha')
-    .replace(/\bbeta\b/g, '\\beta')
-    .replace(/\binfty\b/g, '\\infty')
-    .replace(/\binfinity\b/g, '\\infty')
-    .replace(/\binfinito\b/g, '\\infty')
-    .replace(/\bsum\b/g, '\\sum')
-    .replace(/\bintegral\b/g, '\\int')
-    .replace(/\bdelta\b/g, '\\Delta')
-    .replace(/\bsigma\b/g, '\\sigma')
-    .replace(/([a-zA-Z0-9])\^2\b/g, '$1^{2}')
-    .replace(/([a-zA-Z0-9])\^3\b/g, '$1^{3}')
-    .replace(/\(([^)]+)\)\/\(([^)]+)\)/g, '\\frac{$1}{$2}')
-    .replace(/([a-zA-Z0-9]+)\/([a-zA-Z0-9]+)/g, '\\frac{$1}{$2}')
-    .replace(/\*\*/g, '\\cdot ')
-    .replace(/\*/g, '\\cdot ')
-    .replace(/!=/g, '\\neq ')
-    .replace(/<=/g, '\\leq ')
-    .replace(/>=/g, '\\geq ')
-    .replace(/\+-/g, '\\pm ')
+    .replace(/[−–—]/g, '-')
+    .replace(/\u00a0/g, ' ')
     .trim();
 }

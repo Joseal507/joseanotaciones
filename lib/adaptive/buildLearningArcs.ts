@@ -3,13 +3,10 @@ import { displayName, compactConceptList } from './narrativeFormatter';
 import { writeShortObjective } from './narrativeWriter';
 import type { LearningArc } from './learningArcTypes';
 
-function roleTitle(role: LearningRole): string {
-  if (role === 'foundation') return 'Construyendo las bases';
-  if (role === 'problem') return 'Comprendiendo el problema';
-  if (role === 'mechanism') return 'Entendiendo la explicación central';
-  if (role === 'application') return 'Viendo cómo funciona';
-  if (role === 'integration') return 'Conectando las ideas';
-  return 'Impacto y contexto';
+// roleTitle eliminado — los títulos deben venir del contenido real del material
+// La IA los genera únicos por sesión. Si no hay topic disponible, se usa el rol como fallback puro.
+function roleFallbackLabel(role: LearningRole): string {
+  return role; // devuelve el nombre del rol tal cual — luego la IA lo reemplaza
 }
 
 function rolePurpose(role: LearningRole): string {
@@ -47,7 +44,7 @@ function titleFromUnits(role: LearningRole, units: LearningPathUnit[]): string {
     return hasSpanish ? raw : displayName(raw);
   }
 
-  return roleTitle(role);
+  return roleFallbackLabel(role);
 }
 
 // Generar objetivo narrativo usando NarrativeWriter

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { alaiRequest } from '../../../lib/alai';
 import { detectLanguage } from '../../../lib/detectLanguage';
+import { generateValidatedLegacyJson } from '../../../lib/ai/legacyRouteGeneration';
 
 export const maxDuration = 60;
 
@@ -102,27 +102,23 @@ ${contextoTrunc}
 
 Respond ONLY with JSON. No text before, no markdown.`;
 
-    const result = await alaiRequest(async (client: any, model: any) => {
-      const r = await client.chat.completions.create({
-        model: model('llama-3.3-70b-versatile'),
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.15,
-        max_tokens: 2500,
-      });
-      return r.choices[0]?.message?.content || '';
-    });
-
-    let parsed: any = null;
-    try {
-      parsed = JSON.parse(result.replace(/```json|```/g, '').trim());
-    } catch {
-      const match = result.match(/\{[\s\S]*\}/);
-      if (match) { try { parsed = JSON.parse(match[0]); } catch {} }
-    }
-
-    if (!parsed) {
-      return NextResponse.json({ success: false, error: 'No se pudo generar la explicación.' });
-    }
+    const parsed: any = await generateValidatedLegacyJson({
+      taskType: 'explanation',
+      prompt,
+      temperature: 0.15,
+      maxTokens: 2500,
+      normalize: value => value,
+      validate: value => {
+        const record = value as any
+        const required = ['explicacion_simple', 'profundidad', 'ejemplo', 'por_que_importa', 'conexiones', 'cita_material', 'tip_memorizar']
+        const missing = required.filter(field => !String(record?.[field] || '').trim())
+        return {
+          valid: missing.length === 0,
+          errors: missing.map(field => `STRUCTURAL_VALIDATION_FAILED:missing_${field}`),
+        }
+      },
+      telemetryContext: { route: 'mind_map_explanation', concept: concepto },
+    })
 
     return NextResponse.json({ success: true, explicacion: parsed });
   } catch (error: any) {

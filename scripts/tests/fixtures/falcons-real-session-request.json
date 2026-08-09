@@ -1,0 +1,32 @@
+{
+  "userId": "falcons-real-run",
+  "materialHash": "mat_1785978610662vipbyp",
+  "planVersion": "journey_msgtl9ml",
+  "session": {
+    "id": "chapter_2",
+    "chapterNumber": 2,
+    "title": "Más allá del Anillo: La Grandeza de los Falcons con Ryan y Jones (Parte 1)",
+    "objective": "Comprender el liderazgo de Matt Ryan, el impacto de Julio Jones y el legado conjunto de ambos en Atlanta.",
+    "topicIds": ["falcons_era"],
+    "blockIds": ["f1", "f2", "f3", "f4", "f5", "f6"],
+    "concepts": ["Matt Ryan", "Julio Jones", "Atlanta Falcons", "Super Bowl LI", "legado"],
+    "pages": [],
+    "kind": "learning"
+  },
+  "blueprint": {
+    "version": 1,
+    "topics": [{"id":"falcons_era","title":"La era de Matt Ryan y Julio Jones"}],
+    "blocks": [
+      {"id":"f1","label":"Matt Ryan como pilar","summary":"Matt Ryan aportó estabilidad, liderazgo y consistencia durante más de una década.","kind":"concept","importance":100},
+      {"id":"f2","label":"Temporada 2016","summary":"Ryan fue MVP de la NFL en 2016 y condujo a Atlanta al Super Bowl LI.","kind":"fact","importance":100},
+      {"id":"f3","label":"Julio Jones","summary":"Julio Jones fue el receptor principal y una amenaza aérea por tamaño, velocidad y habilidad.","kind":"entity","importance":100},
+      {"id":"f4","label":"Conexión Ryan-Jones","summary":"Su coordinación fue decisiva para la productividad ofensiva de Atlanta.","kind":"concept","importance":90},
+      {"id":"f5","label":"Grandeza más allá del anillo","summary":"Su grandeza se sustenta en rendimiento, continuidad e impacto, no solo en campeonatos.","kind":"concept","importance":90},
+      {"id":"f6","label":"Legado","summary":"Ryan y Jones establecieron estándares duraderos para la franquicia y su afición.","kind":"concept","importance":90}
+    ]
+  },
+  "setup": {"knowledgeLevel":"beginner","examDateType":"no_date","evalPreference":"quick_test"},
+  "materialTitle":"Atlanta Falcons: Matt Ryan y Julio Jones",
+  "totalSessions":4,
+  "primaryBlockIds":["f1","f2","f3","f4","f5","f6"]
+}

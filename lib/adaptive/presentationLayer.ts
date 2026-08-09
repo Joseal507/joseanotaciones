@@ -17,9 +17,9 @@ export type LearningRole =
   | 'context';
 
 // ─── Normalizar nombre interno del blueprint ──────────────────
-// "Bohr's Impact on Science" → "El impacto científico de Bohr"
+// "Author's Impact on Science" → "El impacto científico del autor"
 // "Energy Level Equation"    → "Ecuación de niveles de energía"
-// Esta función NO sabe de Bohr — opera sobre patrones del inglés
+// Esta función no conoce topics concretos: opera sobre patrones del inglés
 
 function capitalize(s: string) {
   return s.length > 0 ? s[0].toUpperCase() + s.slice(1) : s;
@@ -45,7 +45,7 @@ export function filterCleanConcepts(concepts: string[]): string[] {
 }
 
 function removeTrailingPossessive(s: string) {
-  // "Bohr's" → "Bohr", "Newton's" → "Newton"
+  // "Author's" → "Author"
   return s.replace(/['']s\b/g, '');
 }
 
@@ -67,7 +67,7 @@ export function displayName(raw: string): string {
   s = camelToWords(s);
 
   // Remover apóstrofe posesivo de nombres propios
-  // "Bohr's" → "de Bohr", "Newton's" → "de Newton"
+  // "Author's" → "de Author"
   s = s.replace(/(\b[A-Z][a-z]+)['']s\b/g, 'de $1');
 
   // Patrones comunes de inglés académico → español

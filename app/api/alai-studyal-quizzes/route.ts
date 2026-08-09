@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { alai } from '../../../lib/alai';
 import { detectLanguage } from '../../../lib/detectLanguage';
 import { QuizQuestion, QuizQuestionType, MultipleChoiceQuestion, MultiSelectQuestion, TrueFalseQuestion, FillBlankQuestion, MatchingQuestion, ShortAnswerQuestion } from '../../../lib/types/quiz';
+import { generateValidatedLegacyJson } from '../../../lib/ai/legacyRouteGeneration';
 
 export const maxDuration = 120;
 
@@ -198,14 +199,7 @@ function sanitizeQuestion(q: any, defaultMaterialId = '', defaultMaterialName = 
       wordBank.unshift(answer);
     }
     
-    if (wordBank.length < 4) {
-      const fallbacks = ['teoría', 'proceso', 'concepto', 'estructura', 'método', 'función', 'análisis'];
-      for (const f of fallbacks) {
-        if (!wordBank.map((w: string) => w.toLowerCase()).includes(f.toLowerCase()) && wordBank.length < 4) {
-          wordBank.push(f);
-        }
-      }
-    }
+    if (wordBank.length < 4) return null;
     
     const shuffledBank = wordBank.sort(() => Math.random() - 0.5).slice(0, 5);
     return { ...base, type, question: updatedQuestion, answer, wordBank: shuffledBank } as FillBlankQuestion;
@@ -697,18 +691,33 @@ Tarea #${idx + 1}:
 `).join('\n')}`;
 
       try {
-        const res = await alai({
-          messages: [{ role: 'user', content: conversionPrompt }],
+        const parsedBatch = await generateValidatedLegacyJson<QuizQuestion[]>({
+          taskType: 'evaluation_question',
+          prompt: conversionPrompt,
           temperature: 0.15,
           maxTokens: 3500,
-          json: true
-        });
-
-        const parsedBatch = extractValidQuestions(res.text, materialBlocks);
+          normalize: value => extractValidQuestions(JSON.stringify(value), materialBlocks),
+          validate: value => {
+            const questions = Array.isArray(value) ? value : []
+            const errors: string[] = []
+            if (!questions.length) errors.push('STRUCTURAL_VALIDATION_FAILED:no_quiz_questions')
+            const seen = new Set<string>()
+            for (const question of questions) {
+              const key = normalizeText(question.question)
+              if (seen.has(key)) errors.push('SEMANTIC_DUPLICATION:quiz_question')
+              seen.add(key)
+              if (!tipos.includes(question.type)) errors.push(`INCOMPATIBLE_ACTIVITY:${question.type}`)
+            }
+            if (questions.length < Math.min(2, batchTasks.length)) errors.push('LOW_DIVERSITY:quiz_batch')
+            return { valid: errors.length === 0, errors }
+          },
+          telemetryContext: { route: 'quizzes', batch: batchNum },
+        })
         sanitized.push(...parsedBatch);
         console.log(`✅ Lote ${batchNum} procesado exitosamente: ${parsedBatch.length} preguntas añadidas.`);
       } catch (err: any) {
         console.error(`⚠️ Error al procesar lote ${batchNum}:`, err.message);
+        throw err
       }
     }
 

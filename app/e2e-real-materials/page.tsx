@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { AcademicContent } from '../../components/academic/AcademicContent'
 
 type Result = {
   file: { name: string; type: string; size: number; multipart: { contentType: string; hasBoundary: boolean; requestBytes: number } }
@@ -16,7 +17,18 @@ export default function RealMaterialsHarness() {
   const [loading, setLoading] = useState(false)
   const [ready, setReady] = useState(false)
 
-  useEffect(() => setReady(true), [])
+  useEffect(() => {
+    let active = true
+    void fetch('/api/e2e-real-materials/extract')
+      .then(response => {
+        if (!response.ok) throw new Error('E2E extraction route unavailable')
+        if (active) setReady(true)
+      })
+      .catch(cause => {
+        if (active) setError(cause instanceof Error ? cause.message : 'E2E extraction route unavailable')
+      })
+    return () => { active = false }
+  }, [])
 
   async function ingest(file: File) {
     setLoading(true); setError(''); setResult(null)
@@ -58,8 +70,8 @@ export default function RealMaterialsHarness() {
         <dt>Caracteres</dt><dd data-testid="extraction-chars">{result.extraction.chars}</dd>
         <dt>Páginas</dt><dd data-testid="extraction-pages">{result.extraction.pages ?? 'n/a'}</dd>
       </dl>
-      <div data-testid="extracted-text">{result.extraction.text.slice(0, 4000)}</div>
-      <ul data-testid="graph-micros">{result.graph.micros.map(micro => <li key={micro.id}>{micro.name}</li>)}</ul>
+      <div data-testid="extracted-text"><AcademicContent content={result.extraction.text.slice(0, 4000)} /></div>
+      <ul data-testid="graph-micros">{result.graph.micros.map(micro => <li key={micro.id}><AcademicContent content={micro.name} inline /></li>)}</ul>
       <div data-testid="identity-tokens">{result.graph.identityTokens.join(' ')}</div>
     </section>}
   </main>
