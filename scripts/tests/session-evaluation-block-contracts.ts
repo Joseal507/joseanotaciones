@@ -157,6 +157,41 @@ assert.equal(canonicalizeGeneratedSession(openQuestion, {
   evaluationMode: 'quick_test',
 }).session, null)
 
+// ---------------------------------------------------------------------------
+// REGRESIÓN: duplicados CROSS-BLOCK en el guard final de canonicalización.
+// Antes del fix, el escaneo de duplicados en validateGeneratedSessionEvaluation
+// estaba scopeado por bloque (`for (const block of session.evaluationBlocks)`,
+// comparando solo `block.questions.slice(0, index)` DENTRO de ese mismo
+// bloque). Dos bloques distintos, cada uno individualmente completo y válido,
+// podían compartir una pregunta semánticamente duplicada (mismo contenido,
+// prompt parafraseado) sin que nada la detectara — ninguna otra validación de
+// esta función compara entre bloques. Esto es el mismo patrón cross-block que
+// causó el bug real (eval_7_6): el duplicado nunca llegaba a evaluarse contra
+// preguntas de otros bloques hasta demasiado tarde.
+const crossBlockDuplicateQuestion = structuredClone(prepared.session!.evaluationBlocks[0].questions[0])
+crossBlockDuplicateQuestion.id = 'cross-block-dup'
+crossBlockDuplicateQuestion.questionText = 'Según el material, ¿qué explica de mejor manera el vínculo entre perseverancia y afición?'
+assert.ok(
+  crossBlockDuplicateQuestion.questionText !== prepared.session!.evaluationBlocks[0].questions[0].questionText,
+  'la pregunta cross-block debe ser un parafraseo (prompt distinto), no un duplicado literal — eso ya lo detectaba signature()',
+)
+const crossBlockSession = {
+  steps: prepared.session!.steps,
+  evaluationBlocks: [
+    { id: 'cb-1', afterStepId: 'model-a', coveredStepIds: ['model-a'], coveredKeyPoints: ['perseverancia fortalece vínculo'], coveredKeyPointIds: prepared.session!.evaluationBlocks[0].coveredKeyPointIds, questions: [prepared.session!.evaluationBlocks[0].questions[0]] },
+    { id: 'cb-2', afterStepId: 'model-a', coveredStepIds: ['model-a'], coveredKeyPoints: ['perseverancia fortalece vínculo'], coveredKeyPointIds: prepared.session!.evaluationBlocks[0].coveredKeyPointIds, questions: [crossBlockDuplicateQuestion] },
+  ],
+}
+const crossBlockValidation = validateGeneratedSessionEvaluation(crossBlockSession, 'quick_test', 'learning')
+assert.equal(crossBlockValidation.valid, false, 'un duplicado semántico entre bloques distintos debe invalidar la sesión — cada bloque por separado está completo, solo el cruce entre bloques revela el duplicado')
+assert.ok(
+  crossBlockValidation.errors.includes('SESSION_EVALUATION_INVALID:duplicate_question:cross-block-dup'),
+  `se esperaba duplicate_question:cross-block-dup, se obtuvo: ${JSON.stringify(crossBlockValidation.errors)}`,
+)
+// El bloque que llegó primero (cb-1) no debe señalarse como el duplicado —
+// mismo criterio "primero gana" que el resto del pipeline.
+assert.ok(!crossBlockValidation.errors.some(error => error.includes('duplicate_question') && error.includes(prepared.session!.evaluationBlocks[0].questions[0].id)))
+
 async function testCoordinator() {
   let concurrent = 0
   let maxConcurrent = 0

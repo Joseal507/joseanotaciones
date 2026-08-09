@@ -11,6 +11,14 @@ import { validateQuestionTypeForMode } from './evaluationModeContract'
 export type StepImportance = 'supporting' | 'important' | 'critical'
 export type SessionEvaluationKind = 'introduction' | 'learning' | 'final_review'
 
+// Umbral único de duplicado semántico para todo el assembly final — usado tanto
+// al construir cada bloque (canonicalizeGeneratedSession) como en el escaneo
+// completo posterior (validateGeneratedSessionEvaluation). Debe ser el mismo
+// valor en ambos puntos: un mismatch entre ellos permite que un duplicado
+// sobreviva a la construcción del bloque y solo sea detectado por el hard
+// blocker final, después de pagar todos los provider calls.
+const DUPLICATE_QUESTION_SIMILARITY_THRESHOLD = 0.8
+
 export interface SessionStep {
   id: string
   type: string
@@ -314,9 +322,21 @@ export function canonicalizeGeneratedSession(
         console.warn(`[sessionEvaluation] pregunta sin keyPoints: ${canonical.id}`)
       }
       const validation = validateQuestion(canonical, context, questions)
-      const relevantErrors = validation.errors.filter(error =>
-        error !== 'repeated_question' || questions.some(previous => questionSimilarity(previous, canonical) >= 0.8),
+      // validateQuestion marca repeated_question a partir de 0.92 (umbral interno,
+      // reusado también en generación en vivo). El guard final de esta misma
+      // función (validateGeneratedSessionEvaluation, más abajo) escanea el bloque
+      // completo a DUPLICATE_QUESTION_SIMILARITY_THRESHOLD (0.8) y es un hard
+      // blocker que descarta la sesión entera. Si aquí solo se filtrara por el
+      // 0.92 de validateQuestion, una pregunta entre 0.8 y 0.92 de similitud
+      // pasaría esta construcción sin ser excluida y solo sería detectada por el
+      // guard final — después de gastar todos los provider calls. Se revalida
+      // aquí al mismo 0.8 para excluirla en el punto donde se construye el
+      // bloque, sin depender del umbral interno de validateQuestion.
+      const isDuplicateInBlock = questions.some(previous =>
+        questionSimilarity(previous, canonical) >= DUPLICATE_QUESTION_SIMILARITY_THRESHOLD,
       )
+      const relevantErrors = validation.errors.filter(error => error !== 'repeated_question')
+      if (isDuplicateInBlock) relevantErrors.push('repeated_question')
       if (relevantErrors.length) {
         errors.push(...relevantErrors.map(error => `SESSION_EVALUATION_INVALID:${canonical.id}:${error}`))
         return
@@ -446,6 +466,10 @@ export function validateGeneratedSessionEvaluation(
   const scopedCriticalKeyPoints: string[] = []
   const questionCoveredCriticalKeyPoints: string[] = []
   const uncoveredImportantKeyPoints: string[] = []
+  // Duplicados a lo largo de TODA la sesión, no solo dentro de un bloque — el
+  // mismo hecho puede evaluarse dos veces en bloques distintos y eso también
+  // debe bloquear el assembly final.
+  const questionsSeenAcrossBlocks: SessionEvaluationQuestion[] = []
 
   for (const block of session.evaluationBlocks) {
     if (!session.steps.some(step => step.id === block.afterStepId)) {
@@ -496,10 +520,13 @@ export function validateGeneratedSessionEvaluation(
       }
     }
     for (let index = 0; index < block.questions.length; index += 1) {
-      if (block.questions.slice(0, index).some(previous =>
-        questionSimilarity(previous, block.questions[index]) >= 0.8
-      )) errors.push(`SESSION_EVALUATION_INVALID:duplicate_question:${block.questions[index].id}`)
+      const candidate = block.questions[index]
+      const duplicateOfPrevious = [...questionsSeenAcrossBlocks, ...block.questions.slice(0, index)].some(
+        previous => questionSimilarity(previous, candidate) >= DUPLICATE_QUESTION_SIMILARITY_THRESHOLD,
+      )
+      if (duplicateOfPrevious) errors.push(`SESSION_EVALUATION_INVALID:duplicate_question:${candidate.id}`)
     }
+    questionsSeenAcrossBlocks.push(...block.questions)
   }
   // NO validar cobertura global — cada bloque evalúa sus propios pasos declarados.
   // La filosofía del modo adaptativo es: evaluar después de cada grupo de pasos,
