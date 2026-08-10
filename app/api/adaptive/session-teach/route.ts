@@ -32,6 +32,34 @@ import { signQuestionsInPlace } from '../../../../lib/adaptive/evaluation/questi
 export const maxDuration = 120;
 export const dynamic = 'force-dynamic';
 
+// Auditoría de garantías (verificación post-misión, GARANTÍA 1): función
+// pura (sin closure, sin red) — module-scope y exportada para poder
+// probarse directamente con objetos de error sintéticos, sin mockear
+// alai()/el SDK. Solo TEMPORARY_PROVIDER_FAILURE/RATE_LIMITED (fallos de
+// proveedor genuinamente transitorios) y ALAI_EMPTY_RESPONSE (mismo
+// bucket) consumen un reintento sobre el MISMO proveedor — nunca
+// AUTH_ERROR, CONTEXT_TOO_LARGE ni OPENROUTER_CREDITS_EXHAUSTED (ese
+// último sigue gobernado exclusivamente por la política canónica de
+// proveedores vía callWithGroqFallbackOnCreditsExhausted más abajo, ajeno
+// a este retry técnico local).
+export function isTransientProviderError(error: unknown): boolean {
+  const providerError = (error as any)?.providerError
+  if (!providerError) return false
+  const reason = classifyProviderFailure(providerError)
+  if (reason === 'TEMPORARY_PROVIDER_FAILURE' || reason === 'RATE_LIMITED') return true
+  // alai() lanza 'ALAI_EMPTY_RESPONSE' cuando el proveedor responde sin
+  // contenido — classifyProviderFailure() lo cae en el bucket
+  // INVALID_RESPONSE (mismo regex genérico que INVALID_JSON/schema/parse),
+  // NO en TEMPORARY_PROVIDER_FAILURE, así que quedaba fuera de este retry
+  // pese a ser un fallo de proveedor genuinamente transitorio (no llegó
+  // ningún contenido que reparar). Match específico por mensaje, no se
+  // amplía la clasificación genérica de INVALID_RESPONSE (esa sigue
+  // cubriendo errores de validación de CONTENIDO que no deben reintentarse
+  // aquí).
+  if (reason === 'INVALID_RESPONSE' && String((providerError as any).message || '') === 'ALAI_EMPTY_RESPONSE') return true
+  return false
+}
+
 // Cache breve en memoria para no re-generar la misma clase varias veces seguidas
 const teachCache = new Map<string, { result: any; timestamp: number }>();
 const preparationStore = new Map<string, SessionPreparationState>();
@@ -1836,12 +1864,32 @@ async function prepareSessionByFactory(body: TeachRequest & { userId?: string },
   // transitorios reales) consumen un reintento sobre el MISMO proveedor —
   // nunca AUTH_ERROR, CONTEXT_TOO_LARGE ni OPENROUTER_CREDITS_EXHAUSTED
   // (ese último sigue gobernado exclusivamente por la política canónica de
-  // proveedores, ajena a este retry técnico local).
-  const isTransientProviderError = (error: unknown): boolean => {
-    const providerError = (error as any)?.providerError
-    if (!providerError) return false
-    const reason = classifyProviderFailure(providerError)
-    return reason === 'TEMPORARY_PROVIDER_FAILURE' || reason === 'RATE_LIMITED'
+  // proveedores, ajena a este retry técnico local). Función pura (sin
+  // dependencias de closure) — module-scope y exportada para poder
+  // probarse directamente (verificación de garantías post-misión).
+  // Auditoría de garantías (verificación post-misión, escenario "provider
+  // primario falla de forma recuperable → fallback permitido funciona"):
+  // remote()/generateTeachingStrict nunca pasaban fallbackError a alai(),
+  // así que un OPENROUTER_CREDITS_EXHAUSTED confirmado durante
+  // teaching/evaluation generation SIEMPRE agotaba los reintentos técnicos
+  // (ambos contra OpenRouter, ambos destinados a fallar igual) y terminaba
+  // en 503 — pese a que AGENTS.md sanciona explícitamente Groq exactamente
+  // en este caso. Este helper reintenta UNA vez vía Groq solo cuando
+  // classifyProviderFailure ya clasificó inequívocamente el error como
+  // OPENROUTER_CREDITS_EXHAUSTED (evidencia real, no especulativa) —
+  // nunca para ningún otro código de fallo, y nunca excluye OpenRouter de
+  // ninguna llamada que no haya fallado ya con esa evidencia.
+  const callWithGroqFallbackOnCreditsExhausted = async (params: Parameters<typeof alai>[0]) => {
+    try {
+      return await alai(params)
+    } catch (err: any) {
+      const providerError = err?.providerError
+      if (providerError && classifyProviderFailure(providerError) === 'OPENROUTER_CREDITS_EXHAUSTED') {
+        telemetry('provider_groq_fallback_attempted', { stage: params.stage, reason: 'OPENROUTER_CREDITS_EXHAUSTED' })
+        return await alai({ ...params, fallbackError: providerError })
+      }
+      throw err
+    }
   }
   const remote = async(stage:string,content:string,maxTokens:number) => {
     const planningStage='evaluation_'+'planning'
@@ -1859,7 +1907,7 @@ async function prepareSessionByFactory(body: TeachRequest & { userId?: string },
         const attemptContent = isRetry
           ? `${content}\n\nREPARACIÓN TÉCNICA — tu respuesta anterior no era JSON válido. Devuelve EXCLUSIVAMENTE el objeto JSON solicitado, sin markdown, sin fences, sin texto antes o después del JSON, sin comas finales colgantes. No cambies el contenido pedagógico solicitado, corrige únicamente la sintaxis.`
           : content
-        const generated = await alai({messages:[{role:'user',content:attemptContent}],temperature:0.2,maxTokens,json:true,taskType:'session_content',stage,maxProviderAttempts:1})
+        const generated = await callWithGroqFallbackOnCreditsExhausted({messages:[{role:'user',content:attemptContent}],temperature:0.2,maxTokens,json:true,taskType:'session_content',stage,maxProviderAttempts:1})
         lastRawText = generated.text
         telemetry(`${stage}_remote_succeeded`,{stage,attempt:attemptNumber,durationMs:Date.now()-startedAt,provider:generated.provider,model:generated.model})
         if(stage===planningStage)telemetry('evaluation_plan_raw_received',{stage,attempt:attemptNumber,raw:generated.text.slice(0,20000),rawLength:generated.text.length})
@@ -1882,7 +1930,7 @@ async function prepareSessionByFactory(body: TeachRequest & { userId?: string },
 REGLA DE SALIDA:
 - Devuelve JSON puro, sin markdown y sin fences.
 - Si la sesión tiene muchos pasos, prioriza cerrar un JSON completo y válido.
-- Mantén cada step conciso y evita redundancias innecesarias.`:`Repara exclusivamente la respuesta de enseñanza. ${lastError}. Devuelve solo sessionIntro, steps y closing. No generes preguntas ni bloques evaluativos. Usa exactamente TeachingContentSchema y termina inmediatamente después de closing. Sin markdown. Sin fences. JSON puro. Si el error anterior fue INVALID_JSON_TRUNCATED, conserva la estructura pedagógica pero acorta el texto de cada step drásticamente (máximo 300 caracteres por content) para garantizar que el JSON cierre completo. PRIORIDAD: JSON VÁLIDO > DETALLE.\n\n${teachingPrompt}`;let generated;try{generated=await alai({messages:[{role:'user',content}],temperature:0.2,maxTokens:lastError==='INVALID_JSON_TRUNCATED'?7200:6200,json:true,taskType:'session_content',stage:attempt===1?'teaching_generation':'targeted_repair',maxProviderAttempts:1})}catch(providerErr:any){const providerReason=providerErr?.providerError?classifyProviderFailure(providerErr.providerError):null;telemetry('teaching_generation_provider_error',{attempt,reason:providerReason,message:providerErr instanceof Error?providerErr.message:String(providerErr)});if(attempt<2&&(providerReason==='TEMPORARY_PROVIDER_FAILURE'||providerReason==='RATE_LIMITED')){lastError='TEACHING_SCHEMA_INVALID';continue}throw providerErr}const diagnostic=teachingResponseDiagnostics(generated.text);telemetry('teaching_generation_remote_succeeded',{stage:'teaching_generation',attempt,durationMs:Date.now()-startedAt,provider:generated.provider,model:generated.model,responseLength:diagnostic.length,first500:diagnostic.first500,last500:diagnostic.last500,detectedFence:diagnostic.detectedFence,appearsTruncated:diagnostic.appearsTruncated,lastValidToken:diagnostic.lastValidToken,extraFields:diagnostic.extraFields,containsForbiddenTeachingFields:/\"(?:evaluationBlocks|questions|correctAnswer)\"/.test(generated.text)});if(!diagnostic.parsed){lastError=diagnostic.appearsTruncated?'INVALID_JSON_TRUNCATED':'TEACHING_SCHEMA_INVALID';telemetry('teaching_schema_failed',{attempt,errorCode:lastError,appearsTruncated:diagnostic.appearsTruncated});continue}const parsed=parseTeachingContent(diagnostic.parsed);if(parsed.success===true){telemetry('teaching_schema_validated',{attempt,responseLength:diagnostic.length,extraFields:[]});return factoryTeaching(parsed.value,session)}lastError=parsed.errorCode;telemetry('teaching_schema_failed',{attempt,errorCode:parsed.errorCode,validationErrors:parsed.validationErrors,extraFields:parsed.extraFields})}throw new Error(lastError)}
+- Mantén cada step conciso y evita redundancias innecesarias.`:`Repara exclusivamente la respuesta de enseñanza. ${lastError}. Devuelve solo sessionIntro, steps y closing. No generes preguntas ni bloques evaluativos. Usa exactamente TeachingContentSchema y termina inmediatamente después de closing. Sin markdown. Sin fences. JSON puro. Si el error anterior fue INVALID_JSON_TRUNCATED, conserva la estructura pedagógica pero acorta el texto de cada step drásticamente (máximo 300 caracteres por content) para garantizar que el JSON cierre completo. PRIORIDAD: JSON VÁLIDO > DETALLE.\n\n${teachingPrompt}`;let generated;try{generated=await callWithGroqFallbackOnCreditsExhausted({messages:[{role:'user',content}],temperature:0.2,maxTokens:lastError==='INVALID_JSON_TRUNCATED'?7200:6200,json:true,taskType:'session_content',stage:attempt===1?'teaching_generation':'targeted_repair',maxProviderAttempts:1})}catch(providerErr:any){const providerReason=providerErr?.providerError?classifyProviderFailure(providerErr.providerError):null;telemetry('teaching_generation_provider_error',{attempt,reason:providerReason,message:providerErr instanceof Error?providerErr.message:String(providerErr)});if(attempt<2&&isTransientProviderError(providerErr)){lastError='TEACHING_SCHEMA_INVALID';continue}throw providerErr}const diagnostic=teachingResponseDiagnostics(generated.text);telemetry('teaching_generation_remote_succeeded',{stage:'teaching_generation',attempt,durationMs:Date.now()-startedAt,provider:generated.provider,model:generated.model,responseLength:diagnostic.length,first500:diagnostic.first500,last500:diagnostic.last500,detectedFence:diagnostic.detectedFence,appearsTruncated:diagnostic.appearsTruncated,lastValidToken:diagnostic.lastValidToken,extraFields:diagnostic.extraFields,containsForbiddenTeachingFields:/\"(?:evaluationBlocks|questions|correctAnswer)\"/.test(generated.text)});if(!diagnostic.parsed){lastError=diagnostic.appearsTruncated?'INVALID_JSON_TRUNCATED':'TEACHING_SCHEMA_INVALID';telemetry('teaching_schema_failed',{attempt,errorCode:lastError,appearsTruncated:diagnostic.appearsTruncated});continue}const parsed=parseTeachingContent(diagnostic.parsed);if(parsed.success===true){telemetry('teaching_schema_validated',{attempt,responseLength:diagnostic.length,extraFields:[]});return factoryTeaching(parsed.value,session)}lastError=parsed.errorCode;telemetry('teaching_schema_failed',{attempt,errorCode:parsed.errorCode,validationErrors:parsed.validationErrors,extraFields:parsed.extraFields})}throw new Error(lastError)}
   let state=await runSessionPreparationFactory({ sessionKind:session.kind,generationKey,evalPreference:setup.evalPreference||'mix_everything',load:async()=>body.preparationState||preparationStore.get(generationKey)||null,persist:async value=>{preparationStore.set(generationKey,structuredClone(value))},telemetry,
     generateTeaching:generateTeachingStrict,
     planEvaluations:async teaching=>{telemetry('evaluation_planning',{generationKey});const base=buildDeterministicEvaluationPlan(teaching,{evalPreference:setup.evalPreference||'mix_everything'});telemetry('deterministic_evaluation_plan_built',{blockCount:base.blocks.length,blocks:base.blocks.map(block=>({blockId:block.blockId,afterStepId:block.afterStepId,coveredStepIds:block.coveredStepIds}))});try{const raw=await remote('evaluation_plan_enrichment',`Enriquece únicamente cantidad, formatos y dificultad de estos bloques ya inmutables. Devuelve SOLO JSON {"blocks":[{"blockId":"...","recommendedQuestionCount":2,"recommendedFormats":["multiple_choice"],"difficulty":"medium"}]}. No devuelvas afterStepId, coveredStepIds, coveredKeyPointIds, coveredFactKeys ni targetObjectiveIds. Modo=${setup.evalPreference||'mix_everything'}.\nBLOQUES=${JSON.stringify(base.blocks.map(block=>({blockId:block.blockId,afterStepId:block.afterStepId,coveredStepIds:block.coveredStepIds,coveredKeyPointIds:block.coveredKeyPointIds,cognitiveTargets:block.cognitiveTargets,stepSummaries:compactTeachingForEvaluation(teaching).filter(step=>block.coveredStepIds.includes(step.stepId)).map(step=>({stepId:step.stepId,title:step.title,keyPoints:step.keyPoints}))})))}`,1200);const enrichments=Array.isArray(raw.blocks)?raw.blocks:[];const byId=new Map(enrichments.map((item:any)=>[String(item.blockId||''),item]));for(const item of enrichments){const forbidden=Object.keys(item||{}).filter(key=>!['blockId','recommendedQuestionCount','recommendedFormats','difficulty'].includes(key));if(forbidden.length)telemetry('EVALUATION_PLAN_FORBIDDEN_STRUCTURAL_OVERRIDE',{blockId:String(item?.blockId||''),fields:forbidden})}return{blocks:base.blocks.map(block=>mergeEvaluationPlanEnrichment(block,(byId.get(block.blockId)||{}) as Record<string,unknown>))}}catch(error){telemetry('evaluation_plan_enrichment_failed',{message:error instanceof Error?error.message:String(error),structuralPlanPreserved:true});return base}},

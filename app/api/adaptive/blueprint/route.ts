@@ -29,7 +29,7 @@ interface BlueprintAuditIssue {
   message: string;
 }
 
-interface BlueprintAuditReport {
+export interface BlueprintAuditReport {
   passed: boolean;
   issues: BlueprintAuditIssue[];
   uncoveredFragments: string[];
@@ -256,45 +256,101 @@ function deriveSourceSpansFromTopicText(
 }
 
 // PASO 0: Enriquecer páginas con poco texto usando Gemini Vision
-async function enrichPageWithVision(
+// Auditoría de garantías (verificación post-misión, GARANTÍA 2, test case
+// 10 CONFIRMADO): un fallo de red/HTTP de esta llamada (distinto de "la
+// página no tenía nada relevante que describir") no tenía NINGÚN reintento
+// — un solo hipo transitorio dejaba esa página con su texto pobre/vacío
+// original para siempre, sin log estructurado más allá de un console.warn,
+// exactamente "contenido visual necesario desapareciendo silenciosamente".
+// singleVisionAttempt lanza (en vez de devolver '') específicamente para
+// los casos de fallo real (HTTP no-ok, excepción de red/parseo) — nunca
+// para una respuesta 200 con contenido corto/vacío, que es un juicio de
+// CONTENIDO legítimo del modelo, no un fallo que un reintento vaya a
+// arreglar. enrichPageWithVision reintenta UNA vez solo ante ese throw.
+// Auditoría de garantías (verificación post-misión, GARANTÍA 2): extraídas
+// como funciones puras/exportadas para poder probarse directamente (sin
+// red, sin reimplementar la lógica en el test) que (a) la selección de
+// páginas que necesitan visión depende SOLO de cuánto texto extraíble
+// tiene cada página — nunca de una cuota — y (b) el batching nunca
+// descarta candidatas, solo agrupa para acotar concurrencia.
+export const VISION_MAX_CHARS = 80;
+export const VISION_BATCH_SIZE = 2;
+
+export function selectPagesNeedingVision(
+  fullPageMap: Map<number, string>,
+  totalPages: number,
+  stripNoise: (text: string) => string = stripEditorialNoise,
+): number[] {
+  const poorPages: number[] = [];
+  for (let p = 1; p <= totalPages; p++) {
+    const rawText = fullPageMap.get(p) || '';
+    const cleanText = stripNoise(rawText);
+    const cleanLen = cleanText.length;
+    const raw = rawText.trim().toLowerCase();
+    const isEmpty = !raw || raw === '(página vacía)' || raw === '(pagina vacia)' || cleanLen === 0;
+    const isNearlyEmpty = cleanLen > 0 && cleanLen <= VISION_MAX_CHARS;
+    if (isEmpty || isNearlyEmpty) poorPages.push(p);
+  }
+  poorPages.sort((a, b) => {
+    const aLen = stripNoise(fullPageMap.get(a) || '').length;
+    const bLen = stripNoise(fullPageMap.get(b) || '').length;
+    return aLen - bLen;
+  });
+  return poorPages;
+}
+
+export function chunkIntoBatches<T>(items: T[], batchSize: number): T[][] {
+  const batches: T[][] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    batches.push(items.slice(i, i + batchSize));
+  }
+  return batches;
+}
+
+// Auditoría de garantías (verificación post-misión, A1.2): extractDocumentStructure
+// recibía SIEMPRE `pageMap` (construido ANTES del enriquecimiento visual, y
+// que nunca gana nuevas keys de página) — una página puramente visual (texto
+// extraído ≤20 chars, nunca entra a pageMap) podía enriquecerse correctamente
+// en fullPageMap y aun así quedar sin topic asignado. Extraída como función
+// pura/exportada para verificar directamente que el contenido visual
+// enriquecido SÍ llega a pageMap (de donde lo consume extractDocumentStructure)
+// antes de detectar topics.
+export function syncVisualEnrichmentToPageMap(pageMap: Map<number, string>, fullPageMap: Map<number, string>): void {
+  for (const [pageNum, text] of fullPageMap.entries()) {
+    if (text && text !== pageMap.get(pageNum)) pageMap.set(pageNum, text);
+  }
+}
+
+async function singleVisionAttempt(
   pageNum: number,
   pdfBuffer: Buffer,
-  materialName: string,
-  existingText: string = '',
+  maxTokens: number,
+  openrouterKey: string,
 ): Promise<string> {
-  const openrouterKey = process.env.OPENROUTER_API_KEY;
-  if (!openrouterKey) {
-    console.warn(`  ⚠️ Sin OPENROUTER_API_KEY para visión en página ${pageNum}`);
-    return '';
-  }
-
-  try {
-    const base64 = pdfBuffer.toString('base64');
-    const maxTokens = estimateVisionMaxTokens(existingText);
-
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openrouterKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://studyal.app',
-        'X-Title': 'StudyAL Vision',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        max_tokens: maxTokens,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:application/pdf;base64,${base64}`,
-              },
+  const base64 = pdfBuffer.toString('base64');
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${openrouterKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://studyal.app',
+      'X-Title': 'StudyAL Vision',
+    },
+    body: JSON.stringify({
+      model: 'google/gemini-2.5-flash',
+      max_tokens: maxTokens,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:application/pdf;base64,${base64}`,
             },
-            {
-              type: 'text',
-              text: `Focus ONLY on page ${pageNum} of this document.
+          },
+          {
+            type: 'text',
+            text: `Focus ONLY on page ${pageNum} of this document.
 This page appears to contain visual content (diagrams, charts, images, slides) with limited extractable text.
 
 Your task:
@@ -303,28 +359,71 @@ Your task:
 3. Write in the same language as the document content.
 
 Return a thorough description of the content on page ${pageNum} only. Be specific.`,
-            },
-          ],
-        }],
-      }),
-    });
+          },
+        ],
+      }],
+    }),
+  });
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      console.warn(`  ⚠️ Vision OpenRouter página ${pageNum}: HTTP ${res.status} ${errText.slice(0, 100)}`);
-      return '';
-    }
-
-    const data = await res.json();
-    const enriched = data?.choices?.[0]?.message?.content ?? '';
-    if (enriched.length > 50) {
-      console.log(`  🖼️ Página ${pageNum} enriquecida con visión: ${enriched.length} chars`);
-    }
-    return enriched;
-  } catch (e: any) {
-    console.warn(`  ⚠️ Vision error página ${pageNum}: ${e?.message}`);
-    return '';
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`VISION_HTTP_${res.status}:${errText.slice(0, 100)}`);
   }
+
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content ?? '';
+}
+
+// Auditoría de garantías (verificación post-misión, GARANTÍA 1 de esta
+// ronda: "VISUAL FAILURE MUST AFFECT COVERAGE AUTHORITY"): antes esta
+// función devolvía '' tanto si el proveedor genuinamente no encontró nada
+// que describir en la página (contenido corto, resultado LEGÍTIMO) como si
+// TODOS los intentos fallaron técnicamente (HTTP/red, fallo REAL) — el
+// caller no podía distinguir "página analizada sin nada relevante" de
+// "página NUNCA analizada". Eso permitía que una página realmente
+// requerida quedara sin enriquecer y el blueprint se certificara "listo"
+// de todos modos, con solo un console.warn como rastro. `status` hace esa
+// distinción explícita y es AUTORIDAD real de coverage (ver
+// certifyBlueprint más abajo), no solo telemetría.
+export type VisionEnrichmentStatus = 'enriched' | 'no_content' | 'failed' | 'no_api_key';
+export interface VisionEnrichmentOutcome {
+  status: VisionEnrichmentStatus;
+  text: string;
+}
+
+export async function enrichPageWithVision(
+  pageNum: number,
+  pdfBuffer: Buffer,
+  materialName: string,
+  existingText: string = '',
+): Promise<VisionEnrichmentOutcome> {
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
+  if (!openrouterKey) {
+    console.warn(`  ⚠️ Sin OPENROUTER_API_KEY para visión en página ${pageNum}`);
+    return { status: 'no_api_key', text: '' };
+  }
+
+  const maxTokens = estimateVisionMaxTokens(existingText);
+  const MAX_VISION_ATTEMPTS = 2;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_VISION_ATTEMPTS; attempt++) {
+    try {
+      const enriched = await singleVisionAttempt(pageNum, pdfBuffer, maxTokens, openrouterKey);
+      if (enriched.length > 50) {
+        console.log(`  🖼️ Página ${pageNum} enriquecida con visión: ${enriched.length} chars${attempt > 1 ? ` (intento ${attempt})` : ''}`);
+        return { status: 'enriched', text: enriched };
+      }
+      // Respuesta legítima del proveedor (sin throw) pero sin contenido
+      // relevante — la página SÍ fue analizada, simplemente no había nada
+      // que describir. Nunca es "failed": un reintento no cambiaría esto.
+      return { status: 'no_content', text: '' };
+    } catch (e: any) {
+      lastError = e;
+      console.warn(`  ⚠️ Vision error página ${pageNum} (intento ${attempt}/${MAX_VISION_ATTEMPTS}): ${e?.message}`);
+    }
+  }
+  console.warn(`  ⚠️ Página ${pageNum}: visión agotó ${MAX_VISION_ATTEMPTS} intentos, queda sin enriquecer: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+  return { status: 'failed', text: '' };
 }
 
 // PASO 1: Detectar topics — basado en contenido real, sin límites artificiales
@@ -1345,16 +1444,32 @@ Return ONLY valid JSON:
 }
 
 // PASO 4: Certificación determinista
-function certifyBlueprint(
+// Auditoría de garantías (verificación post-misión, GARANTÍA 1 de esta
+// ronda: "VISUAL FAILURE MUST AFFECT COVERAGE AUTHORITY" CONFIRMADO): antes
+// certifyBlueprint no recibía NINGÚN dato sobre fallos de enriquecimiento
+// visual — una página realmente requerida podía agotar todos sus
+// reintentos de visión y el blueprint se certificaba "listo" de todos
+// modos mientras las comprobaciones estructurales/de auditoría no
+// tropezaran con ese hueco específico. failedVisualPages es ahora
+// AUTORIDAD real: si no está vacío, coverageCertified/planGenerationAllowed
+// se fuerzan a false, exactamente igual que cualquier otra razón de
+// bloqueo — nunca solo un warning en el log.
+export function certifyBlueprint(
   blueprint: any,
   quality: any,
   audit: BlueprintAuditReport,
+  failedVisualPages: Array<{ material: string; page: number }> = [],
 ): {
   coverageCertified: boolean;
   planGenerationAllowed: boolean;
   certificationReasons: string[];
 } {
   const reasons: string[] = [];
+
+  if (failedVisualPages.length > 0) {
+    const pageList = failedVisualPages.map(f => `${f.material} p.${f.page}`).join(', ');
+    reasons.push(`VISUAL_ENRICHMENT_FAILED: ${failedVisualPages.length} página(s) requerida(s) nunca fueron analizadas tras agotar reintentos: ${pageList}`);
+  }
 
   // Condición 1: calidad estructural mínima
   if (quality.status === 'degraded') {
@@ -1454,6 +1569,13 @@ export async function POST(req: NextRequest) {
     const allBlocks: any[] = [];
     const allTopics: DocumentTopic[] = [];
     let globalOrder = 0;
+    // Auditoría de garantías (verificación post-misión, GARANTÍA 1 de esta
+    // ronda: "VISUAL FAILURE MUST AFFECT COVERAGE AUTHORITY"): páginas
+    // requeridas que agotaron todos los reintentos de visión sin éxito —
+    // acumulado a través de TODOS los materiales para que certifyBlueprint
+    // pueda bloquear coverageCertified/planGenerationAllowed más abajo. Un
+    // console.warn nunca es suficiente autoridad de coverage.
+    const failedVisualPages: Array<{ material: string; page: number }> = [];
 
     for (const m of validMaterials) {
       console.log(`\n📖 ${m.materialName} (${m.text.length} chars)`);
@@ -1510,29 +1632,7 @@ export async function POST(req: NextRequest) {
 
         // Visión SOLO para páginas realmente vacías o casi vacías
         // (portadas de sección, diapositivas de imagen, páginas sin texto extraíble)
-        const VISION_MAX_CHARS = 80;
-
-        const poorPages: number[] = [];
-        for (let p = 1; p <= totalPdfPages; p++) {
-          const rawText = fullPageMap.get(p) || '';
-          const cleanText = stripEditorialNoise(rawText);
-          const cleanLen = cleanText.length;
-          const raw = rawText.trim().toLowerCase();
-
-          const isEmpty = !raw || raw === '(página vacía)' || raw === '(pagina vacia)' || cleanLen === 0;
-          const isNearlyEmpty = cleanLen > 0 && cleanLen <= VISION_MAX_CHARS;
-
-          if (isEmpty || isNearlyEmpty) {
-            poorPages.push(p);
-          }
-        }
-
-        // Ordenar por menos texto primero (las más vacías tienen prioridad)
-        poorPages.sort((a, b) => {
-          const aLen = stripEditorialNoise(fullPageMap.get(a) || '').length;
-          const bLen = stripEditorialNoise(fullPageMap.get(b) || '').length;
-          return aLen - bLen;
-        });
+        const poorPages = selectPagesNeedingVision(fullPageMap, totalPdfPages);
 
         if (poorPages.length > 0) {
           console.log(`🖼️ ${poorPages.length} páginas con poco texto → enriqueciendo con visión: p.${poorPages.join(', ')}`);
@@ -1544,19 +1644,26 @@ export async function POST(req: NextRequest) {
           // descarte). El cap ahora limita CONCURRENCIA/BATCH, no
           // cobertura total — se procesan TODAS las candidatas, en batches
           // acotados para no disparar 429s.
-          const VISION_BATCH_SIZE = 2;
-          for (let vi = 0; vi < poorPages.length; vi += VISION_BATCH_SIZE) {
-            const viBatch = poorPages.slice(vi, vi + VISION_BATCH_SIZE);
+          for (const viBatch of chunkIntoBatches(poorPages, VISION_BATCH_SIZE)) {
             await Promise.all(viBatch.map(async (pageNum) => {
-              const enriched = await enrichPageWithVision(
+              const outcome = await enrichPageWithVision(
                 pageNum,
                 pdfBuf!,
                 m.materialName,
                 fullPageMap.get(pageNum) || '',
               );
-              if (enriched.length > 50) {
+              if (outcome.status === 'enriched') {
                 const existing = fullPageMap.get(pageNum) || '';
-                fullPageMap.set(pageNum, existing + '\n\n[Visual content]\n' + enriched);
+                fullPageMap.set(pageNum, existing + '\n\n[Visual content]\n' + outcome.text);
+              }
+              // Auditoría de garantías (verificación post-misión, GARANTÍA 1
+              // de esta ronda): 'failed' es la ÚNICA salida que significa
+              // "esta página requerida NUNCA fue analizada" — 'no_content'
+              // significa que SÍ se analizó y genuinamente no había nada
+              // relevante (no es un hueco de cobertura). Solo 'failed' se
+              // registra como autoridad de coverage, no solo telemetría.
+              if (outcome.status === 'failed') {
+                failedVisualPages.push({ material: m.materialName, page: pageNum });
               }
             }));
           }
@@ -1572,9 +1679,7 @@ export async function POST(req: NextRequest) {
       // correctamente en fullPageMap y aun así quedar sin topic asignado, porque
       // la detección de topics nunca veía ese contenido. Sincronizar las keys y
       // el contenido enriquecido de vuelta a pageMap antes de detectar topics.
-      for (const [pageNum, text] of fullPageMap.entries()) {
-        if (text && text !== pageMap.get(pageNum)) pageMap.set(pageNum, text);
-      }
+      syncVisualEnrichmentToPageMap(pageMap, fullPageMap);
 
       console.log(`🗺️  Extrayendo estructura...`);
       const topics = await extractDocumentStructure(pageMap, m.materialName);
@@ -1885,7 +1990,7 @@ export async function POST(req: NextRequest) {
     }
 
     // PASO 4: Certificación determinista
-    const certification = certifyBlueprint(blueprint, quality, audit);
+    const certification = certifyBlueprint(blueprint, quality, audit, failedVisualPages);
 
     console.log(`\n══════════════════════════════════════════════`);
     console.log(`✅ Blueprint completado`);
@@ -1921,6 +2026,7 @@ export async function POST(req: NextRequest) {
         coverageCertified: certification.coverageCertified,
         planGenerationAllowed: certification.planGenerationAllowed,
         certificationReasons: certification.certificationReasons,
+        failedVisualPages,
         auditExecuted: !audit.issues.some(issue => issue.kind === 'audit_failure'),
         auditPassed: audit.passed,
         auditIssues: audit.issues,
