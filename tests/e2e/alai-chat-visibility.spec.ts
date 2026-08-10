@@ -17,11 +17,16 @@ import { buildAssessmentBlueprint } from '../../lib/adaptive/evaluation/assessme
 //   1. hidden durante evaluation      (pregunta normal activa)
 //   2. hidden durante reevaluation    (verificación de recovery activa)
 //   3. visible durante teaching
-//   4. visible durante práctica asistible (feedback: revisión tras
-//      responder — la evidencia de esa pregunta ya quedó capturada de forma
-//      síncrona ANTES de esta fase, ver recordNormalAnswerOutcome/
-//      recordRecoveryVerificationOutcome en page.tsx, así que pedir ayuda
-//      aquí no puede alterar retroactivamente ninguna evidencia)
+//   4. hidden durante feedback SI el bloque evaluativo sigue activo (misión
+//      REAL-SESSION QUALITY, C2 CONFIRMADO P1: la evidencia de ESA pregunta
+//      ya quedó capturada de forma síncrona antes de esta fase — eso sigue
+//      siendo cierto — pero el riesgo real no es alterar retroactivamente
+//      esa evidencia, es que el estudiante use el chat en esta pantalla
+//      para obtener ayuda sobre el MISMO concepto justo antes de la
+//      SIGUIENTE pregunta del mismo bloque. isIndependentEvaluationActive()
+//      ahora cubre sessionPhase==='feedback' mientras pendingQuestions.length
+//      > 0 o la recovery activa no esté resuelta — solo reaparece en el
+//      feedback de la ÚLTIMA pregunta de un bloque ya completado)
 //   5. visible durante recovery cuando corresponde (reteaching: la
 //      explicación de recuperación — "recovery con asistencia" — el
 //      estudiante aún no está respondiendo nada)
@@ -171,13 +176,13 @@ test('Preguntar a ALAI: presente solo donde pedagógicamente corresponde, nunca 
   await expect(page.getByText('Pregunta q-correct.')).toBeVisible()
   await assertChatAbsent(page, '1. evaluation (q-correct activa)')
 
-  // 4. visible durante práctica asistible (feedback: revisión tras
-  // responder — la evidencia de ESTA pregunta ya quedó capturada antes de
-  // esta fase, pedir ayuda aquí no puede alterarla retroactivamente).
+  // 4. hidden durante feedback: el bloque sigue activo — todavía queda
+  // q-fail sin responder en este mismo bloque (misión REAL-SESSION
+  // QUALITY, C2 CONFIRMADO P1).
   await page.getByRole('button', { name: 'Opción correcta' }).click()
   await page.getByRole('button', { name: 'Enviar respuesta' }).click()
   await expect(page.getByText('✅ ¡Correcto!')).toBeVisible()
-  await assertChatVisible(page, '4. feedback tras responder (práctica asistible)')
+  await assertChatAbsent(page, '4. feedback tras responder, con más preguntas pendientes en el bloque')
 
   // De vuelta a evaluation con la segunda pregunta (q-fail, se fallará
   // deliberadamente) — sigue oculto.

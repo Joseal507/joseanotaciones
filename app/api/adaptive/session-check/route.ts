@@ -73,7 +73,7 @@ PASO 4 — Evalúa fail-closed, cada uno independiente de los requisitos CORE:
 - reasoningRequired: ¿esta pregunta exige explicar POR QUÉ o CÓMO, no solo dar una conclusión?
 - reasoningValid (solo si reasoningRequired=true): ¿el razonamiento que dio el estudiante es correcto, aunque haya llegado a la conclusión correcta? Una conclusión correcta con un razonamiento críticamente equivocado NO es reasoningValid=true.
 
-PASO 5 — Redacta whatWasRight/whatWasWrong/feedback usando SOLO lo que realmente escribió el estudiante — nunca inventes una confusión psicológica específica sin evidencia; si no puedes inferir la causa exacta con confianza, usa lenguaje como "tu respuesta no coincide con X porque..." en vez de afirmar una confusión concreta. Tono de tutor personal, segunda persona singular.
+PASO 5 — Redacta whatWasRight/whatWasWrong/feedback usando SOLO lo que realmente escribió el estudiante — nunca inventes una confusión psicológica específica sin evidencia; si no puedes inferir la causa exacta con confianza, usa lenguaje como "tu respuesta no coincide con X porque..." en vez de afirmar una confusión concreta. Tono de tutor personal, segunda persona singular. La UI muestra whatWasRight, whatWasWrong y feedback como TRES bloques separados y consecutivos — "feedback" NUNCA debe repetir la misma oración o idea que ya dice whatWasRight/whatWasWrong; debe aportar contenido NUEVO (la explicación conceptual), no un resumen del veredicto que el estudiante ya leyó arriba.
 
 Tolera errores ortográficos, gramática imperfecta, frases incompletas si el significado es claro, abreviaciones comunes, símbolos equivalentes, singular/plural, reformulaciones, español/inglés técnico mezclado cuando el concepto sea inequívoco — estos NUNCA deben marcar un requisito CORE como no cumplido.
 
@@ -256,16 +256,24 @@ export async function POST(req: NextRequest) {
       // respondió el estudiante, no solo la respuesta correcta.
       const studentDisplay = presentAnswer(question, answer)
 
+      // Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, C1
+      // CONFIRMADO P1): whatWasRight/whatWasWrong se renderizan en la UI
+      // como bloque PROPIO, separado, ANTES del bloque de `feedback` (ver
+      // page.tsx ~3249-3287) — pero `feedback` volvía a incluir el mismo
+      // texto de whatWasRight/whatWasWrong como frase inicial, duplicando
+      // literalmente la misma oración dos veces en pantalla ('Tu respuesta
+      // ("Carbono") es correcta.' aparecía dos veces seguidas). Única
+      // fuente de verdad por fragmento: whatWasRight/whatWasWrong llevan el
+      // veredicto+respuesta, `feedback` lleva SOLO la explicación
+      // (contenido nuevo, nunca una repetición del veredicto).
       if (scoreResult.correct) {
         whatWasRight = `Tu respuesta ("${studentDisplay}") es correcta.`
-        feedback = sanitizedExplanation ? `${whatWasRight} ${sanitizedExplanation}` : whatWasRight
+        feedback = sanitizedExplanation || ''
       } else {
         const correctDisplay = presentAnswer(question, question.correctAnswer)
 
         whatWasWrong = `Respondiste "${studentDisplay}". La respuesta correcta era "${correctDisplay}".`
-        feedback = sanitizedExplanation
-          ? `${whatWasWrong} ${sanitizedExplanation}`
-          : `${whatWasWrong} Tu respuesta no coincide con "${correctDisplay}".`
+        feedback = sanitizedExplanation || ''
       }
 
       result = {

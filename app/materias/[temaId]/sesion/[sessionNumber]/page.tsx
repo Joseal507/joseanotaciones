@@ -1375,33 +1375,40 @@ export default function SessionPage() {
     return `normal:${currentQuestion.id}`
   }
 
-  // OBJETIVO A (auditoría adversarial post-319a5bc): "Preguntar a ALAI" NO
-  // debe EXISTIR en el DOM (nunca solo oculto/deshabilitado visualmente)
-  // durante ninguna actividad cuyo estado pedagógico sea evaluación o
-  // reevaluación independiente. Fuente ÚNICA de verdad: la MISMA condición
-  // que YA decide si un mensaje de chat cuenta como asistencia
-  // (handleSendChatMessage, Finding 1) — sessionPhase 'evaluating' con una
-  // pregunta activa. Cubre por igual assessment normal y verificación de
-  // recovery (reevaluación independiente): ambas presentan su pregunta con
-  // sessionPhase 'evaluating', y ambas exigen currentAssistanceLevel() ===
-  // 'independent' para producir evidencia (recordNormalAnswerOutcome /
-  // recordRecoveryVerificationOutcome) — no hay ninguna distinción entre
-  // "evaluación" y "reevaluación independiente" a nivel de este gate,
-  // porque el motor tampoco la hace: currentAttemptKey()/
-  // currentAssistanceLevel() ya tratan ambos casos de forma unificada.
-  // Nunca se basa en texto/título de la actividad, solo en este estado real
-  // del motor. Fuera de esa ventana exacta el chat sigue disponible:
-  // enseñanza (teaching), explicación de recovery (reteaching — "recovery
-  // con asistencia": el estudiante aún no está respondiendo nada, pedir
-  // ayuda ahí no puede contaminar ninguna evidencia), espera de generación
-  // de verificación sin pregunta aún presentada (verification_generation),
-  // y revisión de feedback tras responder (feedback: la evidencia de ESA
-  // pregunta ya quedó capturada de forma síncrona ANTES de esta fase, ver
-  // recordNormalAnswerOutcome/recordRecoveryVerificationOutcome llamados
-  // justo antes de setSessionPhase("feedback") — pedir ayuda revisando el
-  // resultado no puede alterar retroactivamente evidencia ya registrada).
+  // OBJETIVO A (auditoría adversarial post-319a5bc; ampliado en misión
+  // REAL-SESSION QUALITY, C2 CONFIRMADO P1): "Preguntar a ALAI" NO debe
+  // EXISTIR en el DOM (nunca solo oculto/deshabilitado visualmente) durante
+  // ninguna actividad cuyo estado pedagógico sea evaluación o reevaluación
+  // independiente. Cubre por igual assessment normal y verificación de
+  // recovery — ambas exigen currentAssistanceLevel() === 'independent' para
+  // producir evidencia (recordNormalAnswerOutcome/
+  // recordRecoveryVerificationOutcome).
+  //
+  // C2: la versión anterior solo cubría sessionPhase 'evaluating' (pregunta
+  // sin responder) — pero el BLOQUE evaluativo sigue activo durante
+  // 'feedback' mientras queden más preguntas en el mismo bloque
+  // (pendingQuestions) o mientras la recovery activa no esté resuelta. Ahí
+  // el riesgo no es alterar retroactivamente la evidencia YA capturada de
+  // la pregunta actual (eso es cierto, síncrono, correcto) — es que el
+  // estudiante puede usar ALAI en esa pantalla de feedback para obtener
+  // ayuda sobre el MISMO concepto justo antes de la SIGUIENTE pregunta del
+  // mismo bloque, o sobre el target de una recovery que todavía no cerró.
+  // Fuera de esa ventana el chat sigue disponible: enseñanza (teaching),
+  // explicación de recovery (reteaching — el estudiante aún no está
+  // respondiendo nada), espera de generación de verificación
+  // (verification_generation), y feedback de la ÚLTIMA pregunta de un
+  // bloque ya completado / de una recovery ya resuelta (nada más que
+  // proteger en ese bloque).
   function isIndependentEvaluationActive(): boolean {
-    return sessionPhase === "evaluating" && Boolean(currentQuestion)
+    if (sessionPhase === "evaluating" && Boolean(currentQuestion)) return true
+    if (sessionPhase === "feedback" && Boolean(currentQuestion)) {
+      if (pendingQuestions.length > 0) return true
+      if (activeRecoveryId) {
+        const recoveryItem = recoveryQueueRef.current.find(item => item.recoveryId === activeRecoveryId)
+        if (recoveryItem && recoveryItem.status !== "resolved") return true
+      }
+    }
+    return false
   }
 
   // Finding 1 — persiste/limpia el registro de asistencia del intento activo
@@ -1631,6 +1638,27 @@ export default function SessionPage() {
 
   function persistPreparedRecoveryRound(item: RecoveryItem, data: any, strategy: string): RecoveryItem {
     let prepared = beginRecoveryReteach(item, strategy)
+    // Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, B3
+    // CONFIRMADO P1): mismo patrón que el guard de duplicados — el
+    // siguiente paso, recordRecoveryReteachContent, se "auto-repara" a
+    // 'pending_reteach' en cuanto ve un status distinto de 'reteaching'
+    // (incluido 'unresolved'), borrando silenciosamente el límite de
+    // rondas de beginRecoveryReteach antes de que este caller pudiera
+    // verlo. Hay que cortar aquí, inmediatamente, antes de encadenar
+    // cualquier guard auto-reparador downstream.
+    if (prepared.status === "unresolved") {
+      const latestQueue = recoveryQueueRef.current
+      const nextQueue = latestQueue.map(candidate =>
+        candidate.recoveryId === prepared.recoveryId ? prepared : candidate
+      )
+      persistRecoveryQueue(nextQueue)
+      console.warn("[adaptive-recovery]", JSON.stringify({
+        event: "recovery_rounds_exhausted",
+        recoveryId: prepared.recoveryId,
+        reteachAttempt: prepared.reteachAttempt,
+      }))
+      return prepared
+    }
     prepared = recordRecoveryReteachContent(prepared, typeof data.explanation === "string" ? data.explanation : "")
     // Auditoría adversarial (Codex, Reteach 3.1): un duplicado NUNCA debe
     // encadenar a verificación. beginRecoveryVerification y
@@ -1793,6 +1821,17 @@ export default function SessionPage() {
       setEvalError(null)
       return
     }
+    // Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, revisión
+    // final, P1 CONFIRMADO — hallazgo #3): un item ya 'unresolved' no debe
+    // disparar una nueva generación remota — beginRecoveryReteach() lo
+    // devolvería igual de agotado, así que la llamada sería trabajo
+    // desperdiciado. Se corta ANTES de prefetchRecoveryRound, no después.
+    if (current.status === "unresolved") {
+      setEvalError("No se pudo resolver este punto tras varios intentos. Tu progreso está guardado — continúa con el resto de la sesión.")
+      setReteachingContent(null)
+      setEvalLoading(false)
+      return
+    }
     setReteachingContent(null)
     setEvalLoading(true)
     try {
@@ -1803,6 +1842,18 @@ export default function SessionPage() {
       if (prepared?.status === "pending_reteach" && hasNewContent) {
         const strategy = selectRecoveryStrategy(prepared) || `alternative_${prepared.reteachAttempt + 1}`
         prepared = persistPreparedRecoveryRound(prepared, data, strategy)
+      }
+      // Auditoría adversarial (Codex, B3 CONFIRMADO P1): un recovery que
+      // agotó MAX_RECOVERY_ROUNDS queda status='unresolved' — mostrar el
+      // mensaje genérico de "reintenta" ahí sería engañoso (implica que
+      // reintentar puede resolverlo; ya no puede). isOpen()/la comprobación
+      // de completion siguen bloqueando completion igual que con
+      // 'pending_reteach' — solo cambia el mensaje visible al estudiante.
+      if (prepared?.status === "unresolved") {
+        setEvalError("No se pudo resolver este punto tras varios intentos. Tu progreso está guardado — continúa con el resto de la sesión.")
+        setReteachingContent(null)
+        setEvalLoading(false)
+        return
       }
       if (!prepared?.preparedReteachContent) {
         setEvalError("La recuperación sigue activa. Reintenta la explicación sin perder tu progreso.")
@@ -3345,13 +3396,29 @@ export default function SessionPage() {
             {evalLoading && !reteachingContent && <div style={{ fontSize: 15, opacity: 0.8 }}>Preparando una nueva explicación...</div>}
             {!evalLoading && reteachingContent && <div style={{ fontSize: 16, color: "#e2e8f0", lineHeight: 1.7, marginBottom: 24 }}><AcademicContent content={reteachingContent} /></div>}
             {!evalLoading && !reteachingContent && evalError && <div style={{ fontSize: 14, opacity: 0.85, marginBottom: 18 }}>{evalError}</div>}
+            {/* Auditoría adversarial (Codex, misión REAL-SESSION QUALITY,
+                revisión final, P1 CONFIRMADO — hallazgo #3): cuando el
+                recovery activo está 'unresolved' (rondas agotadas), el
+                único botón disponible era "Reintentar explicación", que
+                vuelve a llamar startRecoveryReteach sobre un item que
+                beginRecoveryReteach() SIEMPRE devolverá agotado — un loop
+                sin salida real, pese a que el mensaje visible decía
+                "continúa con el resto de la sesión". nextRecoveryItem() ya
+                no vuelve a ofrecer este item agotado como bloqueante (ver
+                recoveryQueue.ts), así que advanceToNextTeachingStep() aquí
+                SÍ avanza de verdad — a la siguiente recovery pendiente si
+                la hay, o al siguiente paso de enseñanza si no. El item
+                permanece 'unresolved' en la cola y sigue bloqueando
+                completion vía isOpen()/hasPendingRecovery() sin cambios. */}
             {!evalLoading && <div style={{ display: "flex", justifyContent: "flex-end" }}>
               {reteachingContent
                 ? <button onClick={handleReteachNext} style={{ padding: "14px 32px", background: "#f59e0b", color: "#451a03", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Verificar comprensión →</button>
-                : <button onClick={() => {
-                    const active = recoveryQueue.find(item => item.recoveryId === activeRecoveryId)
-                    if (active) void startRecoveryReteach(recoveryQueue, active.recoveryId)
-                  }} style={{ padding: "14px 32px", background: "#f59e0b", color: "#451a03", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Reintentar explicación →</button>}
+                : (recoveryQueue.find(item => item.recoveryId === activeRecoveryId)?.status === "unresolved"
+                  ? <button onClick={() => advanceToNextTeachingStep()} style={{ padding: "14px 32px", background: "#f59e0b", color: "#451a03", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Continuar sesión →</button>
+                  : <button onClick={() => {
+                      const active = recoveryQueue.find(item => item.recoveryId === activeRecoveryId)
+                      if (active) void startRecoveryReteach(recoveryQueue, active.recoveryId)
+                    }} style={{ padding: "14px 32px", background: "#f59e0b", color: "#451a03", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Reintentar explicación →</button>)}
             </div>}
           </div>
         )}

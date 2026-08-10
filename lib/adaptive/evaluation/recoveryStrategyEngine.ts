@@ -41,6 +41,25 @@ export interface RecoveryStrategyDecision {
 // Instrucción genérica por TIPO de estrategia (independiente de contenido) — usada
 // para poder ejecutar realmente secondaryStrategy en rondas alternas (ver
 // buildReteachStrategyInstructions), no solo mencionarla en una etiqueta sin efecto.
+// Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, B3 CONFIRMADO
+// P1): buildReteachStrategyInstructions solo alternaba entre 2 estrategias
+// (primary/secondary) por PARIDAD de ronda — ronda 3 volvía a primary,
+// ronda 5 volvía a primary otra vez ("5 paráfrasis del mismo club
+// exclusivo"). Esta rotación amplía la progresión más allá de las 2
+// declaradas por la matriz para rondas 3+, sin inventar una nueva taxonomía
+// pedagógica — reutiliza el mismo catálogo cerrado de RecoveryStrategy ya
+// existente, solo evita repetir la MISMA estrategia dos rondas seguidas.
+const STRATEGY_ESCALATION_ORDER: RecoveryStrategy[] = [
+  'restate', 'analogy', 'counterexample', 'decompose', 'worked_example',
+  'contrast', 'socratic', 'heuristic', 'ordering', 'perspective_shift', 'find_the_error',
+]
+
+function buildStrategyRotation(decision: RecoveryStrategyDecision): RecoveryStrategy[] {
+  const used = new Set<RecoveryStrategy>([decision.primaryStrategy, decision.secondaryStrategy])
+  const extras = STRATEGY_ESCALATION_ORDER.filter(strategy => !used.has(strategy))
+  return [decision.primaryStrategy, decision.secondaryStrategy, ...extras]
+}
+
 const GENERIC_STRATEGY_INSTRUCTION: Record<RecoveryStrategy, string> = {
   restate: 'Reexplica el concepto completo con palabras y estructura de frase distintas a la explicación original — no reordenes las mismas frases, cámbialas.',
   analogy: 'Usa una analogía del mundo cotidiano (ajena al material) que capture la misma relación central del concepto.',
@@ -999,17 +1018,19 @@ export function buildReteachStrategyInstructions(params: {
   const decision = findStrategy(params.errorType, params.contentSignal)
   const { studentAnswerSummary, correctAnswerSummary, consecutiveFailures } = params
 
-  // Alternancia por ronda (P3.2): sin esto, dos rondas consecutivas con el MISMO
-  // errorType (p.ej. rondas 2 y 3, ambas ya escaladas a memory/false_confidence)
-  // recibían exactamente la misma "INSTRUCCIÓN PEDAGÓGICA" — riesgo real de
-  // "misma explicación → paráfrasis → paráfrasis" detectado en la auditoría P3.
-  // En rondas impares (consecutiveFailures 1, 3, 5...) se ejecuta realmente
-  // secondaryStrategy (no solo se etiqueta) con su propia instrucción genérica.
-  const useSecondary = consecutiveFailures >= 1 && consecutiveFailures % 2 === 1
-  const leadingStrategy = useSecondary ? decision.secondaryStrategy : decision.primaryStrategy
-  const approach = useSecondary
-    ? `${GENERIC_STRATEGY_INSTRUCTION[decision.secondaryStrategy]} (cambio de representación respecto al intento anterior — evita repetir la explicación ya dada).`
-    : decision.approach
+  // Rotación por ronda (B3, corrige P3.2): antes solo alternaba entre 2
+  // estrategias por paridad — round 3/5/7... volvían a repetir primary. La
+  // rotación completa (ver buildStrategyRotation) progresa genuinamente:
+  // ronda 1=primary, ronda 2=secondary, ronda 3+=siguiente estrategia del
+  // catálogo aún no usada por esta matriz — nunca repite la misma dos
+  // rondas seguidas mientras queden estrategias sin usar en el catálogo.
+  const rotation = buildStrategyRotation(decision)
+  const roundIndex = Math.min(Math.max(consecutiveFailures, 0), rotation.length - 1)
+  const leadingStrategy = rotation[roundIndex]
+  const useSecondary = roundIndex > 0
+  const approach = roundIndex === 0
+    ? decision.approach
+    : `${GENERIC_STRATEGY_INSTRUCTION[leadingStrategy]} (cambio de representación respecto al intento anterior — evita repetir la explicación ya dada).`
 
   const lengthMap = {
     brief: '3-4 frases. Ve al punto.',

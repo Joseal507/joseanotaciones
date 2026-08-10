@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sanitizeClassContent } from '../../../../lib/adaptive/sanitizeLatex';
 import { recoverAcademicFragment } from '../../../../lib/academic-content/recovery';
 import { alai, alaiJson } from '../../../../lib/alai';
+import { classifyProviderFailure } from '../../../../lib/ai/providerPolicy';
 import {
   buildDeterministicEvaluationPlan,
   compactTeachingForEvaluation,
@@ -1149,12 +1150,37 @@ ${JSON.stringify(finalReviewSessions)}`:''
     relatedBlockIds:body.session.kind==='introduction'||usesFinalReviewSynthesis?[]:[block.id],
     factKeys:[`${block.id}:fact:1`],
   }))
+  // Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, C3
+  // CONFIRMADO P1): la profundidad del teaching era puramente
+  // char-budget-driven (charLimitPerStep uniforme por sesión) — sin
+  // ninguna relación con el cognitiveTarget que la evaluación posterior
+  // exigirá para ESE mismo paso. Un concepto marcado
+  // cognitiveTarget='application' podía enseñarse en 1-2 frases (mismo
+  // presupuesto que uno 'recognition') y luego evaluarse con una pregunta
+  // de aplicación que el estudiante nunca tuvo material real para
+  // responder. No alarga TODA la clase — solo exige más detalle
+  // específicamente donde la evaluación lo exigirá.
+  const DEPTH_INSTRUCTION_BY_COGNITIVE_TARGET: Record<string, string> = {
+    recognition: 'recordar/nombrar basta — 1-2 frases son suficientes si el paso es reconocer un hecho o término.',
+    comprehension: 'explica la relación o el mecanismo, no solo lo nombres — el estudiante debe entender POR QUÉ o CÓMO, no solo QUÉ.',
+    application: 'incluye la regla/condición general Y al menos un ejemplo o contraste concreto que muestre cómo aplicarla — la evaluación posterior exigirá aplicar esto, no solo reconocerlo.',
+    analysis: 'incluye criterios de comparación/clasificación explícitos y al menos un caso límite o excepción — la evaluación posterior exigirá distinguir o clasificar con estos criterios, no adivinarlos.',
+    transfer: 'incluye la regla general Y, si aplica, un ejemplo resuelto paso a paso (fórmula + razonamiento) — la evaluación posterior exigirá transferir esto a un caso nuevo.',
+  }
+  const depthContract = (body.session.kind!=='introduction' && !usesFinalReviewSynthesis) ? `
+CONTRATO DE PROFUNDIDAD POR PASO — OBLIGATORIO: el nivel de detalle de "content" debe bastar para el cognitiveTarget declarado en METADATOS OBLIGATORIOS de ESE paso específico (no un mínimo uniforme para todos los pasos):
+- recognition: ${DEPTH_INSTRUCTION_BY_COGNITIVE_TARGET.recognition}
+- comprehension: ${DEPTH_INSTRUCTION_BY_COGNITIVE_TARGET.comprehension}
+- application: ${DEPTH_INSTRUCTION_BY_COGNITIVE_TARGET.application}
+- analysis: ${DEPTH_INSTRUCTION_BY_COGNITIVE_TARGET.analysis}
+- transfer: ${DEPTH_INSTRUCTION_BY_COGNITIVE_TARGET.transfer}
+No enseñes con una etiqueta de 1-2 frases un concepto cuyo cognitiveTarget exija aplicación, clasificación o transferencia — la evaluación posterior lo exigirá y el estudiante no habrá recibido lo necesario para responder.` : ''
   return `Genera únicamente la enseñanza de la sesión. No generes preguntas, evaluaciones, bloques evaluativos, respuestas correctas, opciones ni feedback. La evaluación se planificará en una operación posterior.
 
 MATERIAL: ${body.materialTitle}
 SESIÓN: ${body.session.title}
 OBJETIVO: ${body.session.objective}
-Genera exactamente ${stepCount} pasos docentes. PRESUPUESTO DE ESPACIO: Debido a que la sesión tiene ${stepCount} pasos, cada campo "content" DEBE tener menos de ${charLimitPerStep} caracteres para evitar truncamiento del JSON. Sé extremadamente directo y conciso.${body.session.kind==='introduction'?' (contrato de orientación: entre 3 y 5, vocabulario y mapa; cero desarrollo profundo)':usesFinalReviewSynthesis?' (contrato de repaso global: cada paso es una unidad de SÍNTESIS que tú defines libremente — big picture, conexiones entre sesiones, fórmulas esenciales, comparaciones, procesos, errores típicos recurrentes, "si recuerdas solo X cosas", puntos de examen — elige dinámicamente lo que el material real haga útil, NUNCA una lista fija de secciones ni un resumen sesión-por-sesión)':' , uno por cada bloque asignado'}, manteniendo un orden pedagógico coherente y sin inventar información.${finalReviewMaterialBlock}
+Genera exactamente ${stepCount} pasos docentes. PRESUPUESTO DE ESPACIO: Debido a que la sesión tiene ${stepCount} pasos, cada campo "content" DEBE tener menos de ${charLimitPerStep} caracteres para evitar truncamiento del JSON. Sé extremadamente directo y conciso.${body.session.kind==='introduction'?' (contrato de orientación — entre 3 y 5 pasos; cada uno cumple EXACTAMENTE uno de estos roles: qué vas a estudiar, cuáles son las grandes ideas, cómo se conectan entre sí, dónde están los puntos difíciles, o qué recorrido seguirás. PROHIBIDO en introduction: derivaciones completas paso a paso, fórmulas completas desarrolladas, notación técnica completa como configuraciones electrónicas o construcciones de hibridación, o cualquier explicación que pertenezca a la sesión de aprendizaje real — nombra el TEMA sin desarrollarlo, la sesión de aprendizaje lo hará después. Si esta introducción y la primera sesión de aprendizaje explicaran el mismo concepto con el mismo nivel de detalle, esta introducción está mal)':usesFinalReviewSynthesis?' (contrato de repaso global: cada paso es una unidad de SÍNTESIS que tú defines libremente — big picture, conexiones entre sesiones, fórmulas esenciales, comparaciones, procesos, errores típicos recurrentes, "si recuerdas solo X cosas", puntos de examen — elige dinámicamente lo que el material real haga útil, NUNCA una lista fija de secciones ni un resumen sesión-por-sesión)':' , uno por cada bloque asignado'}, manteniendo un orden pedagógico coherente y sin inventar información.${finalReviewMaterialBlock}${depthContract}
 ${usesFinalReviewSynthesis?`INSTRUCCIÓN DE SÍNTESIS: usa demonstratedFactKeys para saber qué SÍ demostró dominar el estudiante (puedes ser breve ahí) y recoverySummary para saber qué le costó (dale más énfasis o una comparación que aclare la confusión). Compacta el recorrido completo — el resultado debe sentirse como "ahora tengo toda la materia organizada en la cabeza", no como releer cada sesión de nuevo.`:`CONTENIDO ASIGNADO: ${JSON.stringify(source)}`}
 METADATOS OBLIGATORIOS POR PASO: ${JSON.stringify(fixedStepMetadata)}
 
@@ -1191,6 +1217,16 @@ function factoryPlan(raw: Record<string, any>): EvaluationPlan {
 // intento del LLM de devolver format="short_response" era descartado
 // silenciosamente por canonicalizeEvaluationFormat (retornaba null). Esto
 // hacía que write_explain no fuera realmente "written-only" en la práctica.
+// Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, D CONFIRMADO
+// P1): 'numeric_problem' se solicita y exige extensamente en el prompt vivo
+// (VARIANTS DISPONIBLES, MODO write_explain, FORMATO DE OPTIONS) y SÍ está
+// registrado en el registro canónico downstream
+// (questionFormatRegistry.ts), pero faltaba por completo en este
+// canonicalizador LOCAL — cualquier respuesta correcta del LLM con
+// format="numeric_problem" caía en el `default` de factoryQuestions,
+// perdía correctAnswer y quedaba inválida, disparando
+// incremental_evaluation_repair innecesariamente (~15.8s del caso real
+// medido). Mismo patrón exacto que el bug de short_response ya corregido.
 type CanonicalEvaluationFormat =
   | 'multiple_choice'
   | 'multi_select'
@@ -1202,6 +1238,7 @@ type CanonicalEvaluationFormat =
   | 'scenario'
   | 'find_the_error'
   | 'short_response'
+  | 'numeric_problem'
 
 const CANONICAL_EVALUATION_FORMATS = new Set<CanonicalEvaluationFormat>([
   'multiple_choice',
@@ -1214,6 +1251,7 @@ const CANONICAL_EVALUATION_FORMATS = new Set<CanonicalEvaluationFormat>([
   'scenario',
   'find_the_error',
   'short_response',
+  'numeric_problem',
 ])
 
 const EVALUATION_FORMAT_ALIASES: Record<string, CanonicalEvaluationFormat> = {
@@ -1301,6 +1339,15 @@ const EVALUATION_FORMAT_ALIASES: Record<string, CanonicalEvaluationFormat> = {
   'justify_answer': 'short_response',
   'teach_back': 'short_response',
   'problem_setup': 'short_response',
+
+  // numeric_problem — D CONFIRMADO P1: nombres realmente registrados en
+  // QUESTION_VARIANT_FORMAT (questionFormatRegistry.ts) para este formato.
+  'numeric_problem': 'numeric_problem',
+  'problem_solve': 'numeric_problem',
+  'numeric_missing_value': 'numeric_problem',
+  'numeric_compare': 'numeric_problem',
+  'numeric_estimate': 'numeric_problem',
+  'numeric_intermediate_step': 'numeric_problem',
 }
 
 const DEFAULT_VARIANT_BY_FORMAT: Record<CanonicalEvaluationFormat, string> = {
@@ -1314,6 +1361,7 @@ const DEFAULT_VARIANT_BY_FORMAT: Record<CanonicalEvaluationFormat, string> = {
   scenario: 'scenario_predict',
   find_the_error: 'find_error_reasoning',
   short_response: 'explain_why_cause',
+  numeric_problem: 'problem_solve',
 }
 
 function normalizeEvalToken(value: unknown): string {
@@ -1708,6 +1756,23 @@ function factoryQuestions(raw: Record<string, any>, block: EvaluationPlanBlock):
         correctAnswer = typeof item.correctAnswer === 'string' ? item.correctAnswer : optionText(item.correctAnswer)
         break
       }
+      case 'numeric_problem': {
+        // Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, D
+        // CONFIRMADO P1): sin este case, el `default` ponía correctAnswer=
+        // null — se perdía value/tolerance/unit aunque el LLM respondiera
+        // exactamente el shape pedido en el prompt (FORMATO DE OPTIONS),
+        // forzando un repair evitable. normalizeGeneratedQuestion
+        // (questionContract.ts) ya sabe leer {value,tolerance,unit} — solo
+        // había que preservarlo aquí en vez de descartarlo.
+        options = null
+        const rawAnswer = item.correctAnswer && typeof item.correctAnswer === 'object' ? item.correctAnswer as Record<string, unknown> : {}
+        correctAnswer = {
+          value: Number((rawAnswer as any).value),
+          tolerance: Number((rawAnswer as any).tolerance ?? 0),
+          unit: typeof (rawAnswer as any).unit === 'string' ? (rawAnswer as any).unit : '',
+        }
+        break
+      }
       default: {
         options = item.options ?? null
         correctAnswer = null
@@ -1763,6 +1828,21 @@ async function prepareSessionByFactory(body: TeachRequest & { userId?: string },
   // incremental_evaluation_repair — las 3 carecían de retry técnico por
   // igual. El fix vive aquí, una sola vez, para las 3.
   const MAX_STAGE_JSON_ATTEMPTS = 2
+  // Auditoría adversarial (Codex, A2.1 CONFIRMADO P1): un error de proveedor
+  // (timeout/429/5xx/network) lanzado dentro de attempt() escapaba
+  // withTechnicalJsonRetry en el primer intento sin consumir
+  // MAX_STAGE_JSON_ATTEMPTS, produciendo un 503 que un simple reload
+  // resolvía. Solo TEMPORARY_PROVIDER_FAILURE/RATE_LIMITED (fallos
+  // transitorios reales) consumen un reintento sobre el MISMO proveedor —
+  // nunca AUTH_ERROR, CONTEXT_TOO_LARGE ni OPENROUTER_CREDITS_EXHAUSTED
+  // (ese último sigue gobernado exclusivamente por la política canónica de
+  // proveedores, ajena a este retry técnico local).
+  const isTransientProviderError = (error: unknown): boolean => {
+    const providerError = (error as any)?.providerError
+    if (!providerError) return false
+    const reason = classifyProviderFailure(providerError)
+    return reason === 'TEMPORARY_PROVIDER_FAILURE' || reason === 'RATE_LIMITED'
+  }
   const remote = async(stage:string,content:string,maxTokens:number) => {
     const planningStage='evaluation_'+'planning'
     const questionStages=new Set(['evaluation_'+'block_generation','incremental_'+'evaluation_repair'])
@@ -1787,8 +1867,10 @@ async function prepareSessionByFactory(body: TeachRequest & { userId?: string },
         return generated.text
       },
       parse: parseFactoryJson,
+      isTransientError: isTransientProviderError,
       onAttemptFailed: (attemptNumber, error) => {
-        telemetry(stage===planningStage?'evaluation_plan_parse_failed':'session_stage_parse_failed',{stage,attempt:attemptNumber,errorCode:'INVALID_JSON',message:error instanceof Error?error.message:String(error),raw:lastRawText.slice(0,20000)})
+        const providerReason = isTransientProviderError(error) ? classifyProviderFailure((error as any).providerError) : null
+        telemetry(stage===planningStage?'evaluation_plan_parse_failed':'session_stage_parse_failed',{stage,attempt:attemptNumber,errorCode:providerReason||'INVALID_JSON',message:error instanceof Error?error.message:String(error),raw:lastRawText.slice(0,20000)})
       },
       onRetryScheduled: (attemptNumber, nextAttempt) => {
         telemetry(`${stage}_technical_retry_scheduled`,{stage,attempt:attemptNumber,nextAttempt,reason:'INVALID_JSON'})
@@ -1800,7 +1882,7 @@ async function prepareSessionByFactory(body: TeachRequest & { userId?: string },
 REGLA DE SALIDA:
 - Devuelve JSON puro, sin markdown y sin fences.
 - Si la sesión tiene muchos pasos, prioriza cerrar un JSON completo y válido.
-- Mantén cada step conciso y evita redundancias innecesarias.`:`Repara exclusivamente la respuesta de enseñanza. ${lastError}. Devuelve solo sessionIntro, steps y closing. No generes preguntas ni bloques evaluativos. Usa exactamente TeachingContentSchema y termina inmediatamente después de closing. Sin markdown. Sin fences. JSON puro. Si el error anterior fue INVALID_JSON_TRUNCATED, conserva la estructura pedagógica pero acorta el texto de cada step drásticamente (máximo 300 caracteres por content) para garantizar que el JSON cierre completo. PRIORIDAD: JSON VÁLIDO > DETALLE.\n\n${teachingPrompt}`;const generated=await alai({messages:[{role:'user',content}],temperature:0.2,maxTokens:lastError==='INVALID_JSON_TRUNCATED'?7200:6200,json:true,taskType:'session_content',stage:attempt===1?'teaching_generation':'targeted_repair',maxProviderAttempts:1});const diagnostic=teachingResponseDiagnostics(generated.text);telemetry('teaching_generation_remote_succeeded',{stage:'teaching_generation',attempt,durationMs:Date.now()-startedAt,provider:generated.provider,model:generated.model,responseLength:diagnostic.length,first500:diagnostic.first500,last500:diagnostic.last500,detectedFence:diagnostic.detectedFence,appearsTruncated:diagnostic.appearsTruncated,lastValidToken:diagnostic.lastValidToken,extraFields:diagnostic.extraFields,containsForbiddenTeachingFields:/\"(?:evaluationBlocks|questions|correctAnswer)\"/.test(generated.text)});if(!diagnostic.parsed){lastError=diagnostic.appearsTruncated?'INVALID_JSON_TRUNCATED':'TEACHING_SCHEMA_INVALID';telemetry('teaching_schema_failed',{attempt,errorCode:lastError,appearsTruncated:diagnostic.appearsTruncated});continue}const parsed=parseTeachingContent(diagnostic.parsed);if(parsed.success===true){telemetry('teaching_schema_validated',{attempt,responseLength:diagnostic.length,extraFields:[]});return factoryTeaching(parsed.value,session)}lastError=parsed.errorCode;telemetry('teaching_schema_failed',{attempt,errorCode:parsed.errorCode,validationErrors:parsed.validationErrors,extraFields:parsed.extraFields})}throw new Error(lastError)}
+- Mantén cada step conciso y evita redundancias innecesarias.`:`Repara exclusivamente la respuesta de enseñanza. ${lastError}. Devuelve solo sessionIntro, steps y closing. No generes preguntas ni bloques evaluativos. Usa exactamente TeachingContentSchema y termina inmediatamente después de closing. Sin markdown. Sin fences. JSON puro. Si el error anterior fue INVALID_JSON_TRUNCATED, conserva la estructura pedagógica pero acorta el texto de cada step drásticamente (máximo 300 caracteres por content) para garantizar que el JSON cierre completo. PRIORIDAD: JSON VÁLIDO > DETALLE.\n\n${teachingPrompt}`;let generated;try{generated=await alai({messages:[{role:'user',content}],temperature:0.2,maxTokens:lastError==='INVALID_JSON_TRUNCATED'?7200:6200,json:true,taskType:'session_content',stage:attempt===1?'teaching_generation':'targeted_repair',maxProviderAttempts:1})}catch(providerErr:any){const providerReason=providerErr?.providerError?classifyProviderFailure(providerErr.providerError):null;telemetry('teaching_generation_provider_error',{attempt,reason:providerReason,message:providerErr instanceof Error?providerErr.message:String(providerErr)});if(attempt<2&&(providerReason==='TEMPORARY_PROVIDER_FAILURE'||providerReason==='RATE_LIMITED')){lastError='TEACHING_SCHEMA_INVALID';continue}throw providerErr}const diagnostic=teachingResponseDiagnostics(generated.text);telemetry('teaching_generation_remote_succeeded',{stage:'teaching_generation',attempt,durationMs:Date.now()-startedAt,provider:generated.provider,model:generated.model,responseLength:diagnostic.length,first500:diagnostic.first500,last500:diagnostic.last500,detectedFence:diagnostic.detectedFence,appearsTruncated:diagnostic.appearsTruncated,lastValidToken:diagnostic.lastValidToken,extraFields:diagnostic.extraFields,containsForbiddenTeachingFields:/\"(?:evaluationBlocks|questions|correctAnswer)\"/.test(generated.text)});if(!diagnostic.parsed){lastError=diagnostic.appearsTruncated?'INVALID_JSON_TRUNCATED':'TEACHING_SCHEMA_INVALID';telemetry('teaching_schema_failed',{attempt,errorCode:lastError,appearsTruncated:diagnostic.appearsTruncated});continue}const parsed=parseTeachingContent(diagnostic.parsed);if(parsed.success===true){telemetry('teaching_schema_validated',{attempt,responseLength:diagnostic.length,extraFields:[]});return factoryTeaching(parsed.value,session)}lastError=parsed.errorCode;telemetry('teaching_schema_failed',{attempt,errorCode:parsed.errorCode,validationErrors:parsed.validationErrors,extraFields:parsed.extraFields})}throw new Error(lastError)}
   let state=await runSessionPreparationFactory({ sessionKind:session.kind,generationKey,evalPreference:setup.evalPreference||'mix_everything',load:async()=>body.preparationState||preparationStore.get(generationKey)||null,persist:async value=>{preparationStore.set(generationKey,structuredClone(value))},telemetry,
     generateTeaching:generateTeachingStrict,
     planEvaluations:async teaching=>{telemetry('evaluation_planning',{generationKey});const base=buildDeterministicEvaluationPlan(teaching,{evalPreference:setup.evalPreference||'mix_everything'});telemetry('deterministic_evaluation_plan_built',{blockCount:base.blocks.length,blocks:base.blocks.map(block=>({blockId:block.blockId,afterStepId:block.afterStepId,coveredStepIds:block.coveredStepIds}))});try{const raw=await remote('evaluation_plan_enrichment',`Enriquece únicamente cantidad, formatos y dificultad de estos bloques ya inmutables. Devuelve SOLO JSON {"blocks":[{"blockId":"...","recommendedQuestionCount":2,"recommendedFormats":["multiple_choice"],"difficulty":"medium"}]}. No devuelvas afterStepId, coveredStepIds, coveredKeyPointIds, coveredFactKeys ni targetObjectiveIds. Modo=${setup.evalPreference||'mix_everything'}.\nBLOQUES=${JSON.stringify(base.blocks.map(block=>({blockId:block.blockId,afterStepId:block.afterStepId,coveredStepIds:block.coveredStepIds,coveredKeyPointIds:block.coveredKeyPointIds,cognitiveTargets:block.cognitiveTargets,stepSummaries:compactTeachingForEvaluation(teaching).filter(step=>block.coveredStepIds.includes(step.stepId)).map(step=>({stepId:step.stepId,title:step.title,keyPoints:step.keyPoints}))})))}`,1200);const enrichments=Array.isArray(raw.blocks)?raw.blocks:[];const byId=new Map(enrichments.map((item:any)=>[String(item.blockId||''),item]));for(const item of enrichments){const forbidden=Object.keys(item||{}).filter(key=>!['blockId','recommendedQuestionCount','recommendedFormats','difficulty'].includes(key));if(forbidden.length)telemetry('EVALUATION_PLAN_FORBIDDEN_STRUCTURAL_OVERRIDE',{blockId:String(item?.blockId||''),fields:forbidden})}return{blocks:base.blocks.map(block=>mergeEvaluationPlanEnrichment(block,(byId.get(block.blockId)||{}) as Record<string,unknown>))}}catch(error){telemetry('evaluation_plan_enrichment_failed',{message:error instanceof Error?error.message:String(error),structuralPlanPreserved:true});return base}},
@@ -1931,7 +2013,7 @@ mix_everything: elige el formato que mejor demuestre la capacidad exigida por CA
 FORMATO DE OPTIONS POR VARIANT:
 - mcq_*: options=[{id:"a",text:"..."},{id:"b",text:"..."},{id:"c",text:"..."},{id:"d",text:"..."}], correctAnswer="a"
 - true_false_*: NO incluyas options, correctAnswer=true o false (boolean, no string)
-- matching_*: options=[{id:"pair_1",left:"concepto",right:"definición",rightId:"match_1"},...], correctAnswer={"pair_1":"match_1",...}, matchingSemantics="bijective", matchingOptionOrder=["match_1","match_2",...]. CADA "right" debe describir ÚNICAMENTE a su propio "left" — antes de responder, verifica cada par contra el contenido del paso; no reasignes descripciones entre pares.
+- matching_*: options=[{id:"pair_1",left:"concepto",right:"definición",rightId:"match_1"},...], correctAnswer={"pair_1":"match_1",...}, matchingSemantics="bijective". NO incluyas matchingOptionOrder — el sistema genera automáticamente un orden de presentación mezclado y válido; si lo incluyes, NUNCA uses el mismo orden que los rightId de arriba (eso se rechaza por trivial). CADA "right" debe describir ÚNICAMENTE a su propio "left" — antes de responder, verifica cada par contra el contenido del paso; no reasignes descripciones entre pares.
 - ordering_*: options=[{id:"a",text:"paso 1"},{id:"b",text:"paso 2"},...], correctAnswer=["a","b",...] en orden correcto
 - word_bank_*: prompt incluye ___ para cada hueco, options=[{id:"w1",text:"palabra"},...], correctAnswer=["w1","w2",...] en orden de aparición de los huecos
 - scenario_*: opciones de selección describiendo acciones o predicciones

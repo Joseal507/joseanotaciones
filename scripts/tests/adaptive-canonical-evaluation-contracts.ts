@@ -8,6 +8,7 @@ import {
   presentRecoveryVerificationQuestion,
   recordRecoveryCheck,
   recordRecoveryReteachContent,
+  MAX_RECOVERY_ROUNDS,
   REQUIRED_INDEPENDENT_RECOVERY_CHECKS,
 } from '../../lib/adaptive/evaluation/recoveryQueue'
 import type { CanonicalQuestion } from '../../lib/adaptive/evaluation/questionContract'
@@ -34,7 +35,13 @@ let item = createRecoveryQueue([{
   result: { outcome: 'incorrect', correct: false, errorType: 'conceptual' },
 }])[0]
 
-for (let round = 1; round <= 20; round += 1) {
+// Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, B3 CONFIRMADO
+// P1): este bucle corría 20 rondas sin límite — exactamente el "Ronda 5
+// para un error conceptual simple" reportado como bug real. beginRecoveryReteach
+// ahora topa en MAX_RECOVERY_ROUNDS (unresolved en vez de seguir
+// indefinidamente); el bucle se acota a esa misma constante y se añade una
+// aserción explícita del límite justo después.
+for (let round = 1; round <= MAX_RECOVERY_ROUNDS; round += 1) {
   item = beginRecoveryReteach(item, `strategy-${round}`)
   item = recordRecoveryReteachContent(item, `Reexplicación específica nueva ${round}`)
   item = beginRecoveryVerification(item)
@@ -52,8 +59,19 @@ for (let round = 1; round <= 20; round += 1) {
   assert.equal(item.status, 'pending_reteach', 'V2 incorrecta reinicia toda la ronda')
   assert.equal(item.successfulIndependentChecks, 1, 'el crédito parcial queda histórico, no resuelve')
 }
-assert.equal(item.totalStudentFailureRounds, 20)
+assert.equal(item.totalStudentFailureRounds, MAX_RECOVERY_ROUNDS)
 assert.equal(item.status, 'pending_reteach')
+
+// BUG DE ORIGEN SI FALLA: tras agotar MAX_RECOVERY_ROUNDS, un intento
+// adicional de reteach debe marcar 'unresolved' — nunca abrir una ronda
+// MAX_RECOVERY_ROUNDS+1 indefinidamente.
+const exhausted = beginRecoveryReteach(item, `strategy-${MAX_RECOVERY_ROUNDS + 1}`)
+assert.equal(exhausted.status, 'unresolved', 'BUG DE ORIGEN SI FALLA: agotadas las rondas, debe marcar unresolved en vez de abrir otra ronda')
+assert.equal(exhausted.reason, 'recovery_rounds_exhausted')
+// El guard downstream (beginRecoveryVerification) NUNCA debe deshacer este
+// límite auto-reparándose a pending_reteach — mismo patrón de fragilidad
+// que el guard de duplicados (Reteach 3.1).
+assert.equal(beginRecoveryVerification(exhausted).status, 'pending_reteach', 'beginRecoveryVerification debe rechazar un item que no está en reteaching (incluye unresolved)')
 
 const teach = readFileSync('app/api/adaptive/session-teach/route.ts', 'utf8')
 assert.doesNotMatch(teach, /NO incluyas evaluationBlocks ni preguntas/)

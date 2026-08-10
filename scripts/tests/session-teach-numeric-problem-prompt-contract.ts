@@ -74,4 +74,29 @@ assert.ok(
   'el contrato de options de matching_* debe advertir explícitamente contra reasignar descripciones entre pares — mitigación del hallazgo real de un matching con pares desplazados cíclicamente',
 )
 
-console.log('session-teach-numeric-problem-prompt-contract: 8 contracts PASS')
+// Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, D CONFIRMADO
+// P1): el prompt vivo SIEMPRE ofreció/exigió numeric_problem (arriba), pero
+// el canonicalizador LOCAL (CanonicalEvaluationFormat/
+// CANONICAL_EVALUATION_FORMATS/factoryQuestions) no lo reconocía — una
+// respuesta correcta del LLM con format="numeric_problem" caía en el
+// `default`, perdía correctAnswer, y quedaba inválida (disparando repair
+// evitable). Mismo patrón exacto que el bug de short_response de la
+// misión anterior — fijado aquí para que no vuelva a desincronizarse.
+assert.ok(
+  /\|\s*'numeric_problem'/.test(routeSource),
+  "BUG DE ORIGEN SI FALLA: 'numeric_problem' debe estar en el type CanonicalEvaluationFormat local",
+)
+assert.ok(
+  /CANONICAL_EVALUATION_FORMATS = new Set<CanonicalEvaluationFormat>\(\[[\s\S]*?'numeric_problem',?\s*\]\)/.test(routeSource),
+  "BUG DE ORIGEN SI FALLA: 'numeric_problem' debe estar en CANONICAL_EVALUATION_FORMATS — si no, canonicalizeEvaluationFormat() nunca lo reconoce como formato válido",
+)
+assert.ok(
+  /case 'numeric_problem': \{/.test(routeSource),
+  'BUG DE ORIGEN SI FALLA: factoryQuestions debe tener un case explícito para numeric_problem que preserve {value,tolerance,unit} — sin él, correctAnswer se pierde en el `default`',
+)
+assert.ok(
+  routeSource.includes('NO incluyas matchingOptionOrder'),
+  'D CONFIRMADO P1 (hallazgo #2): el ejemplo anterior del prompt (matchingOptionOrder=["match_1","match_2",...]) sugería literalmente el orden trivial que el validador rechaza — el prompt debe instruir explícitamente NO incluirlo o nunca usar el orden idéntico a los rightId',
+)
+
+console.log('session-teach-numeric-problem-prompt-contract: 12 contracts PASS')

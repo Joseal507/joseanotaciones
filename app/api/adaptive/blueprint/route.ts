@@ -1537,16 +1537,16 @@ export async function POST(req: NextRequest) {
         if (poorPages.length > 0) {
           console.log(`🖼️ ${poorPages.length} páginas con poco texto → enriqueciendo con visión: p.${poorPages.join(', ')}`);
 
-          // Limitar a máximo 4 páginas para no malgastar créditos/llamadas
-          const MAX_VISION_PAGES = 4;
-          const poorPagesCapped = poorPages.slice(0, MAX_VISION_PAGES);
-          if (poorPages.length > MAX_VISION_PAGES) {
-            console.log(`  ⚠️ Limitando visión a ${MAX_VISION_PAGES} páginas (de ${poorPages.length} candidatas)`);
-          }
-          // Secuencial para no disparar 429 innecesarios
-          const VISION_PARALLEL = 1;
-          for (let vi = 0; vi < poorPagesCapped.length; vi += VISION_PARALLEL) {
-            const viBatch = poorPagesCapped.slice(vi, vi + VISION_PARALLEL);
+          // Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, A1
+          // CONFIRMADO P1): antes se descartaban TOTALMENTE las candidatas
+          // más allá de MAX_VISION_PAGES=4 (13 candidatas → 9 nunca
+          // procesadas, sin que coverage/certificación supiera del
+          // descarte). El cap ahora limita CONCURRENCIA/BATCH, no
+          // cobertura total — se procesan TODAS las candidatas, en batches
+          // acotados para no disparar 429s.
+          const VISION_BATCH_SIZE = 2;
+          for (let vi = 0; vi < poorPages.length; vi += VISION_BATCH_SIZE) {
+            const viBatch = poorPages.slice(vi, vi + VISION_BATCH_SIZE);
             await Promise.all(viBatch.map(async (pageNum) => {
               const enriched = await enrichPageWithVision(
                 pageNum,
@@ -1563,6 +1563,17 @@ export async function POST(req: NextRequest) {
         }
       } else {
         console.log('⚠️ Sin buffer PDF — visión desactivada para este material');
+      }
+
+      // Auditoría adversarial (Codex, A1.2 CONFIRMADO P1): extractDocumentStructure
+      // recibía SIEMPRE `pageMap` (construido ANTES del enriquecimiento visual,
+      // y que nunca gana nuevas keys de página) — una página puramente visual
+      // (texto extraído ≤20 chars, nunca entra a pageMap) podía enriquecerse
+      // correctamente en fullPageMap y aun así quedar sin topic asignado, porque
+      // la detección de topics nunca veía ese contenido. Sincronizar las keys y
+      // el contenido enriquecido de vuelta a pageMap antes de detectar topics.
+      for (const [pageNum, text] of fullPageMap.entries()) {
+        if (text && text !== pageMap.get(pageNum)) pageMap.set(pageNum, text);
       }
 
       console.log(`🗺️  Extrayendo estructura...`);

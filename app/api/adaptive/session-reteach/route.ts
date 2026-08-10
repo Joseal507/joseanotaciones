@@ -26,6 +26,8 @@ import {
   createDeterministicRecoveryFallback,
   validateDeterministicRecoveryFallback,
 } from '../../../../lib/adaptive/evaluation/recoveryFallback'
+import { detectUnsupportedQuestionDimension } from '../../../../lib/adaptive/evaluation/questionDimensionGuard'
+import { detectAnswerLeak } from '../../../../lib/adaptive/evaluation/answerLeakGuard'
 
 export const maxDuration = 120
 export const dynamic = 'force-dynamic'
@@ -457,6 +459,44 @@ Devuelve SOLO JSON sin markdown ni fences:
               validationErrors.push(`question_${index + 1}:MATCHING_INVALID:${matchingResult.reason || 'unknown'}`)
               return false
             }
+          }
+          // Auditoría adversarial (Codex, B1/B4 CONFIRMADO P0, corregido tras
+          // revisión final P0): factKey/cognitiveTarget se preservaban
+          // correctamente en metadatos, pero nada validaba que la SEMÁNTICA
+          // visible de la pregunta siguiera atada a esos mismos hechos — una
+          // pregunta podía pivotar a una dimensión nunca enseñada
+          // (ranking/clasificación/jerarquía inventada) sin que ningún guard
+          // existente lo detectara. Grounding permitido: SOLO material
+          // inmutable de origen (keyPoints, pregunta/explicación original,
+          // contenido de enseñanza ya impartido) — la `explanation` recién
+          // generada en ESTA misma ronda por el mismo LLM que generó la
+          // pregunta se retiró deliberadamente del grounding (revisión final
+          // P0): el modelo podía inventar la misma dimensión no enseñada en
+          // AMBOS campos a la vez (p.ej. "complejidad estructural" tanto en
+          // explanation como en questionText), y entonces el guard veía la
+          // palabra en su propio allowedText y la aprobaba — autoautorizando
+          // exactamente el drift que debía rechazar.
+          const dimensionCheck = detectUnsupportedQuestionDimension({
+            questionText: question.questionText,
+            allowedText: [
+              sourceKeyPointTexts.join(' '),
+              String(sourceQuestion.questionText || ''),
+              String(sourceQuestion.explanation || ''),
+              teachingContent,
+            ],
+          })
+          if (dimensionCheck.unsupported) {
+            validationErrors.push(`question_${index + 1}:QUESTION_UNSUPPORTED_DIMENSION:${dimensionCheck.dimension || ''}`)
+            return false
+          }
+          // Auditoría adversarial (Codex, B2 CONFIRMADO P0): ninguna
+          // verification question de recovery puede regalar la respuesta —
+          // ni la ruta LLM ni (por separado, ver recoveryFallback.ts) el
+          // fallback determinista.
+          const leakCheck = detectAnswerLeak(question)
+          if (leakCheck.leaked) {
+            validationErrors.push(`question_${index + 1}:${leakCheck.reason}`)
+            return false
           }
           return validation.valid
         })

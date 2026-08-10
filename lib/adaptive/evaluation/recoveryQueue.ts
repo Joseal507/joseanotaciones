@@ -338,9 +338,24 @@ export function latestRecoveryFailure(item: RecoveryItem): RecoveryFailure | nul
   return null
 }
 
+// Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, B3 CONFIRMADO
+// P1): 'unresolved' existía como status declarado pero NUNCA se asignaba en
+// ningún punto del código — no había límite de rondas real, y un caso real
+// llegó a Ronda 5 para un error conceptual simple. isOpen()/la comprobación
+// de completion (línea ~799 de este archivo) ya tratan cualquier status
+// distinto de 'resolved' como no-demostrado — marcar 'unresolved' aquí NO
+// debilita ningún invariante de completion, solo detiene el loop de
+// reteach. Ver también buildReteachStrategyInstructions en
+// recoveryStrategyEngine.ts para la rotación real de estrategia por ronda
+// (B3, ya no oscila entre solo 2 estrategias).
+export const MAX_RECOVERY_ROUNDS = 4
+
 export function beginRecoveryReteach(item: RecoveryItem, strategy: string): RecoveryItem {
   if (item.status !== 'pending_reteach' && item.status !== 'unresolved') {
     return { ...item, status: 'pending_reteach', reason: 'recovery_transition_repaired' }
+  }
+  if (item.reteachAttempt >= MAX_RECOVERY_ROUNDS) {
+    return { ...item, status: 'unresolved', reason: 'recovery_rounds_exhausted' }
   }
   return {
     ...item,
@@ -791,8 +806,25 @@ export function normalizeRestoredRecoveryItem(item: RecoveryItem): RecoveryItem 
 }
 
 export const hasPendingRecovery = (queue: RecoveryItem[]): boolean => queue.some(isOpen)
+// Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, revisión
+// final, P1 CONFIRMADO — hallazgo #3, causa raíz): nextRecoveryItem()
+// gobierna qué recovery se presenta a continuación en TODA la app
+// (page.tsx la usa en ~8 sitios distintos para decidir el siguiente paso
+// del flujo). Antes usaba únicamente isOpen() (status !== 'resolved'), así
+// que un item 'unresolved' (rondas agotadas, MAX_RECOVERY_ROUNDS) seguía
+// devolviéndose como "el siguiente a intentar" — indefinidamente, porque
+// beginRecoveryReteach() nunca produce una ronda nueva para un item ya
+// agotado. Resultado real: la sesión reenviaba al estudiante a la MISMA
+// pantalla de reexplicación agotada en bucle, sin ruta de avance real. La
+// distinción correcta: isOpen() (no tocado) sigue bloqueando completion
+// para 'unresolved' igual que para cualquier otro status no-resuelto —
+// eso es correcto y no debe cambiar. Pero nextRecoveryItem() (qué mostrar
+// AHORA) debe dejar de re-ofrecer un item ya agotado como "próximo a
+// intentar" — permanece bloqueando completion vía isOpen()/
+// hasPendingRecovery()/canCompleteSessionWithRecovery(), pero deja de
+// generar un loop de UI sin salida.
 export const nextRecoveryItem = (queue: RecoveryItem[]): RecoveryItem | null =>
-  queue.find(item => isOpen(item) && !item.deferredUntilNormalBlockComplete) || null
+  queue.find(item => isOpen(item) && item.status !== 'unresolved' && !item.deferredUntilNormalBlockComplete) || null
 export const canCompleteSessionWithRecovery = (queue: RecoveryItem[]): boolean => !hasPendingRecovery(queue)
 export const canCompleteProgramWithRecovery = (queue: RecoveryItem[], requiredMicroIds: string[]): boolean => {
   const required = new Set(requiredMicroIds)

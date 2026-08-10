@@ -15,6 +15,18 @@ export interface DeterministicRecoveryFallbackInput {
   teachingContent?: string
 }
 
+// Hash de cadena determinista y estable (mismo input => mismo output
+// siempre, sin Math.random, para mantener el fallback 100% reproducible y
+// testeable) — usado únicamente para alternar de forma no fija qué
+// afirmación se muestra en la pregunta de tipo claim.
+function stableHashIsOdd(value: string): boolean {
+  let hash = 0
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0
+  }
+  return hash % 2 === 1
+}
+
 function uniqueLabels(values: string[]): string[] {
   return [...new Set(values.map(value => value.trim()).filter(Boolean))]
 }
@@ -95,25 +107,39 @@ export function createDeterministicRecoveryFallback(
       evidencesNeeded: 1,
       factKey: `${prefix}:selection`,
     },
-    {
-      id: `${prefix}:claim`,
-      conceptId: sourceQuestion.conceptId,
-      conceptLabel: sourceQuestion.conceptLabel,
-      teachingBlockId: sourceQuestion.teachingBlockId,
-      questionFamily: 'deterministic_recovery_claim',
-      variant: 'true_false_factual',
-      difficulty: 'easy',
-      targetDimension: 'recognition',
-      format: 'true_false',
-      questionText: `La explicación del concepto respalda esta respuesta: ${expected}`,
-      options: null,
-      correctAnswer: true,
-      explanation,
-      hint: 'Decide si la afirmación coincide con la respuesta esperada.',
-      estimatedSeconds: 20,
-      evidencesNeeded: 1,
-      factKey: `${prefix}:claim`,
-    },
+    // Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, B2
+    // CONFIRMADO P0): esta pregunta SIEMPRE mostraba la respuesta canónica
+    // completa en el enunciado y SIEMPRE tenía correctAnswer=true —
+    // adivinable con 0% de comprensión real (basta con responder
+    // "Verdadero" sin leer nada), produciendo evidencia basura y false
+    // mastery. Igual que cualquier true_false legítimo del resto del
+    // sistema, la afirmación mostrada debe alternar de forma determinista
+    // entre la respuesta esperada (verdadero) y un distractor real
+    // (falso) — nunca fijo, nunca 100% adivinable, y ya no repite
+    // literalmente la respuesta como si fuera un hecho dado.
+    (() => {
+      const claimUsesDistractor = distractors.length > 0 && stableHashIsOdd(`${prefix}:claim`)
+      const claimStatement = claimUsesDistractor ? distractors[0] : expected
+      return {
+        id: `${prefix}:claim`,
+        conceptId: sourceQuestion.conceptId,
+        conceptLabel: sourceQuestion.conceptLabel,
+        teachingBlockId: sourceQuestion.teachingBlockId,
+        questionFamily: 'deterministic_recovery_claim',
+        variant: 'true_false_factual',
+        difficulty: 'easy',
+        targetDimension: 'recognition',
+        format: 'true_false',
+        questionText: `Según lo que acabas de estudiar sobre ${sourceQuestion.conceptLabel}, esta afirmación es correcta: "${claimStatement}"`,
+        options: null,
+        correctAnswer: !claimUsesDistractor,
+        explanation,
+        hint: 'Contrasta la afirmación con la explicación que acabas de estudiar, no la des por cierta.',
+        estimatedSeconds: 20,
+        evidencesNeeded: 1,
+        factKey: `${prefix}:claim`,
+      }
+    })(),
   ]
   const validation = validateDeterministicRecoveryFallback(questions, input)
   if (!validation.valid) {

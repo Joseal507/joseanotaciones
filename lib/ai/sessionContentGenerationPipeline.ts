@@ -125,16 +125,38 @@ export function repairJsonLocally(rawText: string): unknown | null {
 // probarse sin red real ni mocks de fetch (el SDK de OpenAI usa
 // require('node-fetch') internamente, no globalThis.fetch \u2014 no interceptable
 // desde fuera sin tocar lib/alai.ts).
+// Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, A2.1
+// CONFIRMADO P1): `params.attempt(...)` se llamaba fuera de cualquier
+// try/catch — un throw del proveedor (timeout/429/5xx/network, clasificado
+// como TEMPORARY_PROVIDER_FAILURE o RATE_LIMITED por classifyProviderFailure,
+// nada que ver con OPENROUTER_CREDITS_EXHAUSTED) escapaba este loop en el
+// PRIMER intento, sin consumir el resto de maxAttempts, produciendo un 503
+// visible que un simple reload resolvía. `isTransientError` es opcional y
+// puramente inyectable — sin él, el comportamiento previo (rethrow
+// inmediato) se conserva exactamente igual. Reintenta el MISMO proveedor
+// con el MISMO contenido (isRetry ya distingue el aviso de sintaxis en
+// attempt()); nunca cambia de proveedor ni toca la política canónica.
 export async function withTechnicalJsonRetry<T>(params: {
   maxAttempts: number
   attempt: (attemptNumber: number, isRetry: boolean) => Promise<string>
   parse: (raw: string) => T
+  isTransientError?: (error: unknown) => boolean
   onAttemptFailed?: (attemptNumber: number, error: unknown) => void
   onRetryScheduled?: (attemptNumber: number, nextAttempt: number) => void
 }): Promise<T> {
   let lastError: unknown
   for (let attemptNumber = 1; attemptNumber <= params.maxAttempts; attemptNumber++) {
-    const raw = await params.attempt(attemptNumber, attemptNumber > 1)
+    let raw: string
+    try {
+      raw = await params.attempt(attemptNumber, attemptNumber > 1)
+    } catch (error) {
+      lastError = error
+      params.onAttemptFailed?.(attemptNumber, error)
+      const transient = params.isTransientError?.(error) === true
+      if (!transient || attemptNumber >= params.maxAttempts) throw error
+      params.onRetryScheduled?.(attemptNumber, attemptNumber + 1)
+      continue
+    }
     try {
       return params.parse(raw)
     } catch (error) {

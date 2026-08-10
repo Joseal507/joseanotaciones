@@ -140,16 +140,20 @@ async function callSessionCheck(question: CanonicalQuestion, answer: unknown) {
 }
 
 async function test11CorrectFeedbackReferencesActualAnswer() {
+  // Auditoría adversarial (Codex, C1 CONFIRMADO P1): whatWasRight/
+  // whatWasWrong y feedback se renderizan como bloques SEPARADOS en la UI
+  // (page.tsx) — la respuesta real del estudiante vive en whatWasRight/
+  // whatWasWrong, no duplicada dentro de feedback.
   const result = await callSessionCheck(mcqQuestion(), 'a')
   assert.equal(result.result.correct, true)
-  assert.ok(result.result.feedback.includes('Respuesta correcta'), `BUG DE ORIGEN SI FALLA: el feedback correcto debe referenciar la respuesta REAL elegida por el estudiante: "${result.result.feedback}"`)
+  assert.ok(result.result.whatWasRight.includes('Respuesta correcta'), `BUG DE ORIGEN SI FALLA: whatWasRight debe referenciar la respuesta REAL elegida por el estudiante: "${result.result.whatWasRight}"`)
 }
 
 async function test12IncorrectFeedbackShowsActualMismatch() {
   const result = await callSessionCheck(mcqQuestion(), 'b')
   assert.equal(result.result.correct, false)
-  assert.ok(result.result.feedback.includes('Respuesta incorrecta'), `BUG DE ORIGEN SI FALLA: debe mostrar lo que el estudiante realmente respondió: "${result.result.feedback}"`)
-  assert.ok(result.result.feedback.includes('Respuesta correcta'), `debe mostrar también la respuesta correcta: "${result.result.feedback}"`)
+  assert.ok(result.result.whatWasWrong.includes('Respuesta incorrecta'), `BUG DE ORIGEN SI FALLA: whatWasWrong debe mostrar lo que el estudiante realmente respondió: "${result.result.whatWasWrong}"`)
+  assert.ok(result.result.whatWasWrong.includes('Respuesta correcta'), `debe mostrar también la respuesta correcta: "${result.result.whatWasWrong}"`)
 }
 
 function test13PartialFeedbackSeparatesRightFromMissing() {
@@ -169,17 +173,32 @@ async function test14FeedbackCanonicalAnswerMatchesGraderCanonicalAnswer() {
   const question = mcqQuestion()
   const result = await callSessionCheck(question, 'b')
   assert.equal(result.result.correctAnswerDisplay, 'Respuesta correcta', 'correctAnswerDisplay debe derivar del mismo correctAnswer que usó scoreQuestion')
-  assert.ok(result.result.feedback.includes(result.result.correctAnswerDisplay), 'el feedback visible debe usar la MISMA respuesta canónica que correctAnswerDisplay')
+  assert.ok(result.result.whatWasWrong.includes(result.result.correctAnswerDisplay), 'whatWasWrong debe usar la MISMA respuesta canónica que correctAnswerDisplay')
 }
 
 async function test15FeedbackNeverContradictsVerdict() {
   const correctResult = await callSessionCheck(mcqQuestion(), 'a')
   assert.equal(correctResult.result.correct, true)
-  assert.ok(!/incorrecta\.|no coincide/i.test(correctResult.result.feedback), `feedback correcto no debe sonar a incorrecto: "${correctResult.result.feedback}"`)
+  assert.ok(!/incorrecta\.|no coincide/i.test(correctResult.result.whatWasRight), `whatWasRight correcto no debe sonar a incorrecto: "${correctResult.result.whatWasRight}"`)
+  assert.equal(correctResult.result.whatWasWrong, '', 'un resultado correcto no debe tener whatWasWrong')
 
   const incorrectResult = await callSessionCheck(mcqQuestion(), 'b')
   assert.equal(incorrectResult.result.correct, false)
-  assert.ok(!/^tu respuesta \(".*"\) es correcta/i.test(incorrectResult.result.feedback), `feedback incorrecto no debe abrir afirmando que es correcta: "${incorrectResult.result.feedback}"`)
+  assert.ok(!/^tu respuesta \(".*"\) es correcta/i.test(incorrectResult.result.whatWasWrong), `whatWasWrong incorrecto no debe abrir afirmando que es correcta: "${incorrectResult.result.whatWasWrong}"`)
+  assert.equal(incorrectResult.result.whatWasRight, '', 'un resultado incorrecto no debe tener whatWasRight')
+}
+
+async function test15bFeedbackNeverDuplicatesWhatWasRightOrWrong() {
+  // Auditoría adversarial (Codex, C1 CONFIRMADO P1, regresión directa del
+  // bug real reportado: "Tu respuesta (\"Carbono\") es correcta." aparecía
+  // dos veces seguidas en pantalla — una vez como whatWasRight, otra vez
+  // como frase inicial de feedback). feedback debe ser contenido NUEVO
+  // (la explicación), nunca repetir la oración de whatWasRight/whatWasWrong.
+  const correctResult = await callSessionCheck(mcqQuestion(), 'a')
+  assert.ok(!correctResult.result.feedback.includes(correctResult.result.whatWasRight), `BUG DE ORIGEN SI FALLA: feedback no debe repetir whatWasRight ("${correctResult.result.whatWasRight}") dentro de feedback ("${correctResult.result.feedback}")`)
+
+  const incorrectResult = await callSessionCheck(mcqQuestion(), 'b')
+  assert.ok(!incorrectResult.result.feedback.includes(incorrectResult.result.whatWasWrong), `BUG DE ORIGEN SI FALLA: feedback no debe repetir whatWasWrong ("${incorrectResult.result.whatWasWrong}") dentro de feedback ("${incorrectResult.result.feedback}")`)
 }
 
 // ═══ C. FORMAT SELECTION — 6 casos ═══
@@ -347,6 +366,7 @@ async function run() {
   test13PartialFeedbackSeparatesRightFromMissing()
   await test14FeedbackCanonicalAnswerMatchesGraderCanonicalAnswer()
   await test15FeedbackNeverContradictsVerdict()
+  await test15bFeedbackNeverDuplicatesWhatWasRightOrWrong()
   test16QuickOnlyNeverProducesWrittenResponse()
   test17WrittenOnlyProducesWrittenAssessment()
   test18MixedChoosesByObjectiveNotRandomQuota()
