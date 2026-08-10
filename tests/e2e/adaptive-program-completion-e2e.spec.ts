@@ -67,9 +67,15 @@ function chapter(chapterNumber: number, id: string) {
   return { id, chapterNumber, kind: 'learning' as const, status: 'available' as const, blockIds: [`block-${chapterNumber}`], unitIds: [`unit-${chapterNumber}`] }
 }
 
-function learningContent(opts: { chapterId: string; sessionNumber: number; stepId: string; title: string; keyPoints: string[]; questions: ReturnType<typeof question>[]; blockId: string }) {
+function learningContent(opts: { chapterId: string; sessionNumber: number; stepId: string; title: string; keyPoints: string[]; questions: ReturnType<typeof question>[]; blockId: string; factKeys?: string[] }) {
+  // factKeys del step deben coincidir literalmente con los que declararán las
+  // preguntas (stepId:questionId, ver question() arriba) — Demonstration
+  // Coverage exige que question.factKeys intersecte objective.factKeys, no
+  // solo que targetObjectiveIds coincida. Sin factKeys explícito, cae al
+  // fallback relatedBlockIds=[blockId] (un solo factKey compartido, no
+  // alineado con lo que cada pregunta declara individualmente).
   const assessment = buildAssessmentBlueprint(
-    [{ id: opts.stepId, title: opts.title, content: `Contenido persistido de ${opts.title}.`, keyPoints: opts.keyPoints, importance: 0.8 }],
+    [{ id: opts.stepId, title: opts.title, content: `Contenido persistido de ${opts.title}.`, keyPoints: opts.keyPoints, factKeys: opts.factKeys, importance: 0.8 }],
     opts.chapterId, opts.sessionNumber,
   )
   return {
@@ -91,7 +97,8 @@ function learningContent(opts: { chapterId: string; sessionNumber: number; stepI
 function withFullyDemonstratedAssessment<T extends { assessmentBlueprint: ReturnType<typeof buildAssessmentBlueprint>; objectiveIds: string[] }>(content: T): T {
   let assessment = content.assessmentBlueprint
   for (const objectiveId of content.objectiveIds) {
-    assessment = recordAssessmentEvidence(assessment, [objectiveId], { valid: true, correct: true, independent: true, evidenceId: `e2e-seed:${objectiveId}` })
+    const objective = assessment.objectives.find(candidate => candidate.objectiveId === objectiveId)
+    assessment = recordAssessmentEvidence(assessment, [objectiveId], objective?.factKeys || [], { valid: true, correct: true, independent: true, evidenceId: `e2e-seed:${objectiveId}` })
   }
   return { ...content, assessmentBlueprint: assessment }
 }
@@ -230,6 +237,7 @@ test.describe.serial('program completion — multi-session E2E', () => {
   const content2 = learningContent({
     chapterId: 'chapter-2', sessionNumber: 2, stepId: 'node-s2', title: 'Concepto de sesión 2',
     keyPoints: ['Concepto 2: punto único'], blockId: 'block-2',
+    factKeys: ['node-s2:s2-q-correct'],
     questions: [],
   })
   content2.evaluationBlocks[0].questions = [question('s2-q-correct', 'node-s2', content2.objectiveIds[0], 'Concepto 2: punto único')]
@@ -237,6 +245,7 @@ test.describe.serial('program completion — multi-session E2E', () => {
   const content3 = learningContent({
     chapterId: 'chapter-3', sessionNumber: 3, stepId: 'node-s3', title: 'Concepto de sesión 3 (última)',
     keyPoints: ['Concepto 3: punto A', 'Concepto 3: punto B'], blockId: 'block-3',
+    factKeys: ['node-s3:s3-q-correct', 'node-s3:s3-q-fail'],
     questions: [],
   })
   content3.evaluationBlocks[0].questions = [

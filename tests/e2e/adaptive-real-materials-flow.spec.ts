@@ -31,9 +31,13 @@ async function installMaterial(page: Page, material: typeof materials[number]) {
   const counters = { teach: 0, reteach: 0, persist: 0, checks: 0 }
   const stepId = `node-${material.slug}`
   const keyPoints = [`${material.title}: base`, `${material.title}: relación`]
+  // factKeys deben coincidir literalmente con los que declararán las preguntas
+  // (stepId:questionId, ver question() arriba) — Demonstration Coverage exige
+  // que question.factKeys intersecte objective.factKeys, no solo que
+  // targetObjectiveIds coincida.
   const assessment = buildAssessmentBlueprint([{
     id: stepId, title: material.title, content: `Contenido persistido de ${material.title}.`,
-    keyPoints, importance: 0.8,
+    keyPoints, factKeys: [`${stepId}:normal-correct`, `${stepId}:normal-failure`], importance: 0.8,
   }], sessionId, 1)
   const [objectiveA, objectiveB] = assessment.objectives.map(objective => objective.objectiveId)
   const learning = {

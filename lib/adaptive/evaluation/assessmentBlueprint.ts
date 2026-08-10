@@ -18,18 +18,98 @@ export interface AssessmentObjective {
   sessionId: string
   stepId: string
   microId: string
+  // factKeys = requiredFactKeys: todo lo que este objective necesita ver
+  // demostrado (Fase 1 — question coverage). Nunca se renombra el campo para
+  // no romper la persistencia existente; el nombre es histórico, el
+  // significado es "requerido".
   factKeys: string[]
+  // demonstratedFactKeys ⊆ factKeys — SOLO factKeys que una pregunta
+  // REALMENTE targeteó (question.targetFactKeys ∩ objective.factKeys) y que
+  // se respondieron correcta e independientemente. Nunca se agrega
+  // objective.factKeys completo por pertenecer al mismo objective — eso
+  // sería demostrar F5 solo porque comparte objective con F1 (false mastery
+  // por asociación amplia).
+  demonstratedFactKeys: string[]
   cognitiveTarget: CognitiveDimension
   importance: number
   taught: boolean
   practiced: boolean
   assessed: boolean
+  // independentlyCorrect ahora significa "completamente demostrado"
+  // (factKeys ⊆ demonstratedFactKeys) — antes significaba "al menos una vez
+  // correcto, alguna vez" (el bug de false mastery original). Se mantiene el
+  // nombre del campo por compatibilidad con los consumidores existentes
+  // (demonstratedObjectiveIds, UI); el significado es deliberadamente más
+  // estricto ahora.
   independentlyCorrect: boolean
   assistedCorrect: boolean
   failedAttempts: number
   evidenceIds: string[]
   status: AssessmentObjectiveStatus
   subsumedByObjectiveId?: string
+}
+
+// unresolvedFactKeys es SIEMPRE derivado, nunca almacenado — evita que un
+// tercer campo (redundante con factKeys/demonstratedFactKeys) pueda
+// desincronizarse.
+export const unresolvedFactKeys = (objective: AssessmentObjective): string[] =>
+  objective.factKeys.filter(factKey => !objective.demonstratedFactKeys.includes(factKey))
+
+export const isFullyDemonstrated = (objective: AssessmentObjective): boolean =>
+  objective.factKeys.length > 0 && unresolvedFactKeys(objective).length === 0
+
+// Migración conservadora de estado persistido con el shape anterior (sin
+// demonstratedFactKeys): nunca fabrica dominio a partir del booleano viejo
+// (independentlyCorrect === "alguna vez correcto", una garantía MÁS DÉBIL
+// que la nueva). Un objective restaurado sin evidencia por-factKey conocida
+// arranca con demonstratedFactKeys=[] — puede pedir evidencia otra vez para
+// factKeys que bajo la regla vieja ya "contaban", pero nunca al revés.
+export function normalizeAssessmentObjective(raw: unknown): AssessmentObjective | null {
+  if (!raw || typeof raw !== 'object') return null
+  const objective = raw as Partial<AssessmentObjective> & Record<string, unknown>
+  if (typeof objective.objectiveId !== 'string' || !Array.isArray(objective.factKeys)) return null
+  const factKeys = [...new Set(objective.factKeys.map(String).filter(Boolean))]
+  const demonstratedFactKeys = Array.isArray(objective.demonstratedFactKeys)
+    ? [...new Set(objective.demonstratedFactKeys.map(String).filter(factKey => factKeys.includes(factKey)))]
+    : []
+  const normalized: AssessmentObjective = {
+    objectiveId: objective.objectiveId,
+    sessionId: String(objective.sessionId ?? ''),
+    stepId: String(objective.stepId ?? ''),
+    microId: String(objective.microId ?? ''),
+    factKeys,
+    demonstratedFactKeys,
+    cognitiveTarget: (objective.cognitiveTarget as CognitiveDimension) ?? 'comprehension',
+    importance: Number.isFinite(objective.importance) ? Number(objective.importance) : 0.7,
+    taught: Boolean(objective.taught),
+    practiced: Boolean(objective.practiced),
+    assessed: Boolean(objective.assessed),
+    independentlyCorrect: false, // recalculado abajo — nunca se hereda el booleano viejo tal cual
+    assistedCorrect: Boolean(objective.assistedCorrect),
+    failedAttempts: Number.isFinite(objective.failedAttempts) ? Number(objective.failedAttempts) : 0,
+    evidenceIds: Array.isArray(objective.evidenceIds) ? objective.evidenceIds.map(String) : [],
+    status: (typeof objective.status === 'string' ? objective.status as AssessmentObjectiveStatus : 'not_assessed'),
+    subsumedByObjectiveId: typeof objective.subsumedByObjectiveId === 'string' ? objective.subsumedByObjectiveId : undefined,
+  }
+  normalized.independentlyCorrect = isFullyDemonstrated(normalized)
+  // Si el status persistido decía 'demonstrated' pero, bajo la regla nueva,
+  // ya no está completamente demostrado (factKeys sin cubrir), no debe
+  // seguir reportándose como resuelto — se reabre a un estado que sí exige
+  // más evidencia sin perder lo que sí quedó registrado.
+  if (normalized.status === 'demonstrated' && !normalized.independentlyCorrect) {
+    normalized.status = normalized.assessed ? 'in_progress' : 'not_assessed'
+  }
+  return normalized
+}
+
+export function normalizeAssessmentBlueprint(raw: unknown): AssessmentBlueprint | null {
+  if (!raw || typeof raw !== 'object') return null
+  const blueprint = raw as Partial<AssessmentBlueprint> & Record<string, unknown>
+  if (typeof blueprint.sessionId !== 'string' || !Array.isArray(blueprint.objectives)) return null
+  const objectives = blueprint.objectives
+    .map(normalizeAssessmentObjective)
+    .filter((objective): objective is AssessmentObjective => objective !== null)
+  return refreshBlueprint(blueprint.sessionId, Number(blueprint.version) || 1, objectives)
 }
 
 export interface AssessmentBlueprint {
@@ -85,12 +165,17 @@ function declaredDimension(step: AssessmentStepDeclaration): CognitiveDimension 
 function refreshBlueprint(sessionId: string, version: number, objectives: AssessmentObjective[]): AssessmentBlueprint {
   const taught = objectives.filter(objective => objective.taught)
   const assessed = taught.filter(objective => objective.assessed)
-  const demonstrated = taught.filter(objective => objective.independentlyCorrect)
-  const unresolved = taught.filter(objective =>
-    !objective.assessed ||
-    objective.status === 'failed' ||
-    objective.status === 'recovery_required',
-  )
+  // demonstrated/unresolved se derivan SIEMPRE de factKeys ⊆ demonstratedFactKeys
+  // — nunca del campo `status` (una cadena mutable que solo refleja la ÚLTIMA
+  // evidencia). Si un objective tiene 2 factKeys y F1 falla mientras F2
+  // después se responde bien, `status` pasaría a 'in_progress' (por la
+  // evidencia más reciente) aunque F1 siga sin demostrarse — leer eso como
+  // "resuelto" sería exactamente el false-mastery-por-status-obsoleto que
+  // esto existe para prevenir. isFullyDemonstrated() es monótono (
+  // demonstratedFactKeys nunca decrece) y no puede quedar enmascarado por
+  // evidencia posterior de OTRO factKey del mismo objective.
+  const demonstrated = taught.filter(isFullyDemonstrated)
+  const unresolved = taught.filter(objective => !isFullyDemonstrated(objective))
   return {
     sessionId,
     version,
@@ -119,16 +204,51 @@ export function buildAssessmentBlueprint(
     const declaredIds = step.objectiveIds?.length
       ? step.objectiveIds
       : declaredFacts.map(factKey => `${sessionId}:${step.id}:${factKey}`)
+    // declaredIds (un objectiveId por keyPoint, ver session-teach/route.ts) y
+    // declaredFacts (factKeys, un hecho atómico literal) son arrays
+    // INDEPENDIENTES sin garantía de igual longitud — un keyPoint puede
+    // resumir varios factKeys, o un step puede declarar más factKeys que
+    // keyPoints. Zipear por posición (factKeys[index]) dejaba factKeys fuera
+    // de rango del bucle (bounded por declaredIds.length) sin representación
+    // evaluable — nunca targeteables, y aun así la sesión podía declararse
+    // completa (issue #7).
+    //
+    // El fix original de #7 asignaba TODOS los factKeys del step a CADA
+    // objective — garantizaba representación, pero bajo Demonstration
+    // Coverage (Fase 2, regla 1: solo la intersección real entre lo que una
+    // pregunta targetea y lo que el objective requiere puede demostrarse) eso
+    // vuelve UN objective permanentemente irresoluble en cuanto
+    // factKeys.length > keyPoints.length: sus factKeys "prestados" de un
+    // keyPoint hermano solo los targetea la pregunta de ESE hermano (que
+    // aporta evidencia al objectiveId del hermano, nunca a este), así que la
+    // intersección para esos factKeys nunca se cumple. Reproducido en
+    // session-completion-edge-cases.spec.ts: coverage=100% pero
+    // unresolvedObjectiveIds nunca baja de 2/2 aunque ambas preguntas se
+    // respondan y la recovery se resuelva.
+    //
+    // Fix: distribuir declaredFacts EXCLUSIVAMENTE (round-robin) entre
+    // declaredIds — cada factKey pertenece a exactamente un objective. Sigue
+    // garantizando #7 (todo factKey enseñado pertenece a algún objective
+    // evaluable) sin inventar una unidad nueva, y ahora cada objective solo
+    // exige factKeys que una pregunta que lo targetea a ÉL podría
+    // realísticamente demostrar.
+    const factKeysPerObjective: string[][] = declaredIds.map(() => [])
+    declaredFacts.forEach((factKey, index) => {
+      const objectiveIndex = declaredIds.length > 0 ? index % declaredIds.length : 0
+      factKeysPerObjective[objectiveIndex]?.push(factKey)
+    })
     declaredIds.forEach((objectiveId, index) => {
       if (!objectiveId || seen.has(objectiveId)) return
       seen.add(objectiveId)
-      const factKey = declaredFacts[index] || declaredFacts[0] || step.id
+      const primaryFactKey = declaredFacts[index] || declaredFacts[0] || step.id
+      const ownFactKeys = factKeysPerObjective[index]
       objectives.push({
         objectiveId,
         sessionId,
         stepId: step.id,
-        microId: step.microId || factKey,
-        factKeys: [factKey],
+        microId: step.microId || primaryFactKey,
+        factKeys: ownFactKeys?.length ? ownFactKeys : [primaryFactKey],
+        demonstratedFactKeys: [],
         cognitiveTarget: declaredDimension(step),
         importance: Number.isFinite(step.importance) ? Math.max(0, Math.min(1, Number(step.importance))) : 0.7,
         taught: true,
@@ -157,28 +277,50 @@ export const calculateAssessmentCoverage = (blueprint: AssessmentBlueprint): num
 export function recordAssessmentEvidence(
   blueprint: AssessmentBlueprint,
   targetObjectiveIds: string[],
+  targetFactKeys: string[],
   result: { valid: boolean; correct: boolean; independent: boolean; evidenceId?: string },
 ): AssessmentBlueprint {
   const targets = new Set(targetObjectiveIds)
+  const answeredFacts = new Set(targetFactKeys)
   const objectives = blueprint.objectives.map(objective => {
     if (!targets.has(objective.objectiveId) || !result.valid) return objective
-    const independentlyCorrect = objective.independentlyCorrect || (result.correct && result.independent)
-    return {
+    // Retry/duplicado: si este evidenceId ya se procesó, no reprocesar — evita
+    // que un reintento de red vuelva a contar failedAttempts o reabra una
+    // ronda ya resuelta. Idempotente incluso sin este guard (el Set de abajo
+    // no duplicaría valores), pero esto además evita inflar failedAttempts.
+    if (result.evidenceId && objective.evidenceIds.includes(result.evidenceId)) return objective
+    // Regla 1/2: SOLO la intersección entre lo que esta pregunta realmente
+    // targeteó y lo que el objective requiere puede demostrarse — nunca
+    // objective.factKeys completo por pertenecer al mismo objective (eso
+    // sería demostrar F5 solo porque comparte objective con F1).
+    const demonstrableNow = objective.factKeys.filter(factKey => answeredFacts.has(factKey))
+    // Regla 3: una respuesta incorrecta nunca agrega a demonstratedFactKeys.
+    const demonstratedFactKeys = result.correct && result.independent
+      ? [...new Set([...objective.demonstratedFactKeys, ...demonstrableNow])]
+      : objective.demonstratedFactKeys
+    const updated: AssessmentObjective = {
       ...objective,
       practiced: true,
       assessed: true,
-      independentlyCorrect,
+      demonstratedFactKeys,
       assistedCorrect: objective.assistedCorrect || (result.correct && !result.independent),
       failedAttempts: objective.failedAttempts + (result.correct ? 0 : 1),
       evidenceIds: result.evidenceId && !objective.evidenceIds.includes(result.evidenceId)
         ? [...objective.evidenceIds, result.evidenceId]
         : objective.evidenceIds,
-      status: independentlyCorrect
-        ? 'demonstrated' as const
-        : result.correct
-          ? 'in_progress' as const
-          : 'recovery_required' as const,
+      independentlyCorrect: false, // recalculado abajo desde demonstratedFactKeys, nunca heredado
+      status: 'not_assessed', // idem
     }
+    updated.independentlyCorrect = isFullyDemonstrated(updated)
+    // status es informativo/UI (refleja la evidencia MÁS RECIENTE) — la
+    // decisión de bloqueo real (unresolved/completion) nunca lee este campo,
+    // lee isFullyDemonstrated() directamente (ver refreshBlueprint).
+    updated.status = updated.independentlyCorrect
+      ? 'demonstrated'
+      : result.correct
+        ? 'in_progress'
+        : 'recovery_required'
+    return updated
   })
   return refreshBlueprint(blueprint.sessionId, blueprint.version, objectives)
 }

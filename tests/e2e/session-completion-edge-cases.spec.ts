@@ -21,8 +21,15 @@ async function installSession(page: Page, opts: { slug: string; failingCount: 1 
   const stepId = `node-${opts.slug}`
   const title = 'Concepto de prueba'
   const keyPoints = Array.from({ length: opts.failingCount + 1 }, (_, index) => `${title}: punto ${index + 1}`)
+  const questionIds = ['q-correct', ...Array.from({ length: opts.failingCount }, (_, index) => `q-fail-${index + 1}`)]
+  // Los factKeys del step deben coincidir literalmente con los que declararán
+  // las preguntas (stepId:questionId) — Demonstration Coverage (Fase 2) exige
+  // que question.factKeys intersecte objective.factKeys, no solo que
+  // targetObjectiveIds coincida. Un objective por factKey (sin objectiveIds
+  // explícito), igual que produce buildAssessmentBlueprint en producción real.
+  const factKeys = questionIds.map(id => `${stepId}:${id}`)
   const assessment = buildAssessmentBlueprint([{
-    id: stepId, title, content: `Contenido persistido de ${title}.`, keyPoints, importance: 0.8,
+    id: stepId, title, content: `Contenido persistido de ${title}.`, keyPoints, factKeys, importance: 0.8,
   }], sessionId, 1)
   const objectiveIds = assessment.objectives.map(objective => objective.objectiveId)
   const questions = [

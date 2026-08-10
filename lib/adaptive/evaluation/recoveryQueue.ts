@@ -1,4 +1,4 @@
-import { questionSimilarity, type CanonicalQuestion, type CanonicalUserAnswer, type EvaluationOutcome } from './questionContract'
+import { questionSimilarity, realFactKeysOf, type CanonicalQuestion, type CanonicalUserAnswer, type EvaluationOutcome } from './questionContract'
 import type { AssistanceLevel } from '../v3/engine/helpContract'
 
 export const REQUIRED_INDEPENDENT_RECOVERY_CHECKS = 2
@@ -160,7 +160,7 @@ const questionTargets = (question: CanonicalQuestion): { stepIds: string[]; keyP
   return {
     stepIds: targeted.coveredStepIds?.length ? [...new Set(targeted.coveredStepIds)] : [question.teachingBlockId],
     keyPoints: targeted.coveredKeyPoints?.length ? [...new Set(targeted.coveredKeyPoints)] : [],
-    factKeys: question.factKeys?.length ? [...new Set(question.factKeys)] : [question.factKey],
+    factKeys: realFactKeysOf(question),
   }
 }
 
@@ -221,7 +221,9 @@ export function createRecoveryQueue(failures: RecoveryFailure[]): RecoveryItem[]
       existing.latestFactKeys = [evidence.factKey]
       existing.latestAssistanceLevel = evidence.assistanceLevel
       if (!existing.sourceQuestionIds.includes(failure.question.id)) existing.sourceQuestionIds.push(failure.question.id)
-      if (!existing.sourceFactKeys.includes(failure.question.factKey)) existing.sourceFactKeys.push(failure.question.factKey)
+      for (const realFactKey of questionTargets(failure.question).factKeys) {
+        if (!existing.sourceFactKeys.includes(realFactKey)) existing.sourceFactKeys.push(realFactKey)
+      }
       continue
     }
     const evidence = failureEvidence(failure, 1)
@@ -300,7 +302,7 @@ export function mergeRecoveryFailures(queue: RecoveryItem[], failures: RecoveryF
       current.latestFactKeys = [evidence.factKey]
       current.latestAssistanceLevel = evidence.assistanceLevel
       current.sourceQuestionIds = [...new Set([...current.sourceQuestionIds, failure.question.id])]
-      current.sourceFactKeys = [...new Set([...current.sourceFactKeys, failure.question.factKey])]
+      current.sourceFactKeys = [...new Set([...current.sourceFactKeys, ...questionTargets(failure.question).factKeys])]
     }
     current.status = 'pending_reteach'
     current.reason = 'new_failure_evidence'
@@ -711,7 +713,9 @@ export function normalizeRestoredRecoveryItem(item: RecoveryItem): RecoveryItem 
     targetObjectiveIds: Array.isArray(item.targetObjectiveIds)
       ? item.targetObjectiveIds
       : latestFailure?.question.targetObjectiveIds || [],
-    sourceFactKeys: Array.isArray(item.sourceFactKeys) ? item.sourceFactKeys : failures.map(failure => failure.question.factKey),
+    sourceFactKeys: Array.isArray(item.sourceFactKeys)
+      ? item.sourceFactKeys
+      : [...new Set(failures.flatMap(failure => questionTargets(failure.question).factKeys))],
     failureEvidenceIds: Array.isArray(item.failureEvidenceIds) ? item.failureEvidenceIds : history.map(evidence => evidence.evidenceId),
     failures,
     failureHistory: history,

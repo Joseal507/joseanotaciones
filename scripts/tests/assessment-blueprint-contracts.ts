@@ -31,7 +31,7 @@ assert.equal(calculateAssessmentCoverage(blueprint), 0)
 assert.equal(canCompleteSessionFromAssessment(blueprint), false)
 
 for (const objective of blueprint.objectives.slice(0, 3)) {
-  blueprint = recordAssessmentEvidence(blueprint, [objective.objectiveId], {
+  blueprint = recordAssessmentEvidence(blueprint, [objective.objectiveId], objective.factKeys, {
     valid: true, correct: true, independent: true, evidenceId: `evidence-${objective.objectiveId}`,
   })
 }
@@ -84,7 +84,7 @@ assert.deepEqual(validateExpectedItemCount(1, 1), { valid: true, errors: [] })
 assert.ok(!validateExpectedItemCount(0, 1).errors.some(error => error.includes('requires_1_questions')))
 
 for (const pending of getUnassessedObjectives(blueprint)) {
-  blueprint = recordAssessmentEvidence(blueprint, [pending.objectiveId], {
+  blueprint = recordAssessmentEvidence(blueprint, [pending.objectiveId], pending.factKeys, {
     valid: true, correct: true, independent: true,
   })
 }

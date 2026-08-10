@@ -41,10 +41,12 @@ const steps = [
 let blueprint = buildAssessmentBlueprint(steps, 'sess-1', 1)
 assert.equal(blueprint.objectives.length >= 2, true, 'debe haber al menos 2 objetivos enseñables para la prueba')
 const [objA, objB] = blueprint.objectives.map(o => o.objectiveId)
+const factKeysA = blueprint.objectives.find(o => o.objectiveId === objA)!.factKeys
+const factKeysB = blueprint.objectives.find(o => o.objectiveId === objB)!.factKeys
 
 // Caso "sesión sin errores": ambos objetivos correctos e independientes.
-let b1 = recordAssessmentEvidence(blueprint, [objA], { valid: true, correct: true, independent: true, evidenceId: 'ev-a' })
-b1 = recordAssessmentEvidence(b1, [objB], { valid: true, correct: true, independent: true, evidenceId: 'ev-b' })
+let b1 = recordAssessmentEvidence(blueprint, [objA], factKeysA, { valid: true, correct: true, independent: true, evidenceId: 'ev-a' })
+b1 = recordAssessmentEvidence(b1, [objB], factKeysB, { valid: true, correct: true, independent: true, evidenceId: 'ev-b' })
 assert.deepEqual(b1.unresolvedObjectiveIds, [], 'sin errores: unresolvedObjectiveIds vacío')
 assert.deepEqual(new Set(b1.demonstratedObjectiveIds), new Set([objA, objB]), 'sin errores: demonstratedObjectiveIds cubre TODO lo enseñado')
 assert.equal(canCompleteSessionFromAssessment(b1, []), true)
@@ -52,19 +54,19 @@ assert.equal(canCompleteSessionFromAssessment(b1, []), true)
 // Caso "error recuperado": B falla primero, luego se resuelve vía recovery
 // (recordAssessmentEvidence se llama de nuevo con correct:true, independent:true —
 // exactamente como hace page.tsx cuando una recovery se resuelve).
-let b2 = recordAssessmentEvidence(blueprint, [objA], { valid: true, correct: true, independent: true, evidenceId: 'ev-a' })
-b2 = recordAssessmentEvidence(b2, [objB], { valid: true, correct: false, independent: true, evidenceId: 'ev-b-fail' })
+let b2 = recordAssessmentEvidence(blueprint, [objA], factKeysA, { valid: true, correct: true, independent: true, evidenceId: 'ev-a' })
+b2 = recordAssessmentEvidence(b2, [objB], factKeysB, { valid: true, correct: false, independent: true, evidenceId: 'ev-b-fail' })
 assert.deepEqual(b2.unresolvedObjectiveIds, [objB], 'tras el fallo, B queda unresolved (recovery_required) antes de recuperarse')
 assert.equal(canCompleteSessionFromAssessment(b2, []), false, 'con B sin recuperar, la sesión NO puede completarse')
-b2 = recordAssessmentEvidence(b2, [objB], { valid: true, correct: true, independent: true, evidenceId: 'ev-b-recovered' })
+b2 = recordAssessmentEvidence(b2, [objB], factKeysB, { valid: true, correct: true, independent: true, evidenceId: 'ev-b-recovered' })
 assert.deepEqual(b2.unresolvedObjectiveIds, [], 'error recuperado: unresolvedObjectiveIds vuelve a vacío')
 assert.deepEqual(new Set(b2.demonstratedObjectiveIds), new Set([objA, objB]), 'error recuperado: demonstratedObjectiveIds cubre TODO — la recuperación cuenta como evidencia real')
 assert.equal(canCompleteSessionFromAssessment(b2, []), true)
 
 // Caso "error NO recuperado" / "recovery agotado": B sigue failed/recovery_required.
-let b3 = recordAssessmentEvidence(blueprint, [objA], { valid: true, correct: true, independent: true, evidenceId: 'ev-a' })
-b3 = recordAssessmentEvidence(b3, [objB], { valid: true, correct: false, independent: true, evidenceId: 'ev-b-fail-1' })
-b3 = recordAssessmentEvidence(b3, [objB], { valid: true, correct: false, independent: true, evidenceId: 'ev-b-fail-2' })
+let b3 = recordAssessmentEvidence(blueprint, [objA], factKeysA, { valid: true, correct: true, independent: true, evidenceId: 'ev-a' })
+b3 = recordAssessmentEvidence(b3, [objB], factKeysB, { valid: true, correct: false, independent: true, evidenceId: 'ev-b-fail-1' })
+b3 = recordAssessmentEvidence(b3, [objB], factKeysB, { valid: true, correct: false, independent: true, evidenceId: 'ev-b-fail-2' })
 assert.deepEqual(b3.unresolvedObjectiveIds, [objB], 'error no recuperado (fallos repetidos): B permanece unresolved indefinidamente')
 assert.equal(canCompleteSessionFromAssessment(b3, []), false, 'con un objetivo nunca recuperado, la sesión NUNCA puede completarse — no hay límite que lo perdone')
 
@@ -92,19 +94,26 @@ const independentTrueLiterals = (pageSource.match(/independent:\s*true,/g) || []
 assert.equal(independentTrueLiterals, 0, 'los call sites de recordAssessmentEvidence en page.tsx NO deben volver a hardcodear independent:true — deben derivarlo de si hubo asistencia real en este intento (hintShownRef); un literal aquí es el bug de Codex Finding 1 reapareciendo')
 assert.ok(pageSource.includes('hintShownRef'), 'page.tsx debe tener una fuente real de tracking de asistencia (hintShownRef) alimentando independent — si se elimina sin reemplazo equivalente, revisa que no se haya vuelto a un hardcode')
 
-// ═══ Demostración de la brecha LATENTE (no explotable hoy, mecanismo distinto) ═══
-// Si independent:false SÍ llegara a ocurrir (p.ej. un futuro hint/reveal), un
-// objetivo correcto-pero-asistido queda assessed=true, status='in_progress',
-// independentlyCorrect=false — NI en unresolvedObjectiveIds NI en
-// demonstratedObjectiveIds. Esto prueba que la garantía NO es un invariante interno
-// de assessmentBlueprint.ts por sí solo — depende del Hecho 2 (estático) de arriba.
-let bLatent = recordAssessmentEvidence(blueprint, [objA], { valid: true, correct: true, independent: true, evidenceId: 'ev-a' })
-bLatent = recordAssessmentEvidence(bLatent, [objB], { valid: true, correct: true, independent: false, evidenceId: 'ev-b-assisted' })
+// ═══ Brecha LATENTE (Fase 1) — CERRADA por Fase 2 (Demonstration Coverage) ═══
+// Bajo Fase 1, unresolved/demonstrated se derivaban de `status` (una cadena
+// mutable) — un objetivo correcto-pero-asistido (independent:false) quedaba
+// con status='in_progress' y NI en unresolvedObjectiveIds NI en
+// demonstratedObjectiveIds: un limbo que canCompleteSessionFromAssessment
+// aceptaría como completable si independent:false llegara a ocurrir alguna
+// vez (protegido solo por el Hecho 2 estático de arriba, no por esta función).
+// Fase 2 deriva unresolved/demonstrated SIEMPRE de
+// factKeys ⊆ demonstratedFactKeys (isFullyDemonstrated, nunca de `status`) —
+// y demonstratedFactKeys solo crece con correct && independent (regla 3). Un
+// objetivo asistido nunca entra en demonstratedFactKeys, así que ahora SÍ
+// aparece en unresolvedObjectiveIds y bloquea la sesión — la brecha ya no
+// depende únicamente del Hecho 2 estático, es estructural.
+let bLatent = recordAssessmentEvidence(blueprint, [objA], factKeysA, { valid: true, correct: true, independent: true, evidenceId: 'ev-a' })
+bLatent = recordAssessmentEvidence(bLatent, [objB], factKeysB, { valid: true, correct: true, independent: false, evidenceId: 'ev-b-assisted' })
 const assistedObjective = bLatent.objectives.find(o => o.objectiveId === objB)!
 assert.equal(assistedObjective.status, 'in_progress', 'correcto-pero-asistido produce status in_progress, no demonstrated ni failed')
-assert.equal(bLatent.unresolvedObjectiveIds.includes(objB), false, 'BRECHA LATENTE CONFIRMADA: un objetivo solo asistido NO aparece en unresolvedObjectiveIds')
-assert.equal(bLatent.demonstratedObjectiveIds.includes(objB), false, 'y tampoco aparece en demonstratedObjectiveIds — queda en un limbo que blueprintClean trataría como "resuelto" sin serlo')
-assert.equal(canCompleteSessionFromAssessment(bLatent, []), true, 'canCompleteSessionFromAssessment lo aceptaría como completable — la única razón por la que esto no ocurre hoy es el Hecho 2 (independent:true hardcoded), no una protección estructural de esta función')
+assert.equal(bLatent.unresolvedObjectiveIds.includes(objB), true, 'BRECHA CERRADA: un objetivo solo asistido ahora SÍ aparece en unresolvedObjectiveIds (ya no depende del status)')
+assert.equal(bLatent.demonstratedObjectiveIds.includes(objB), false, 'y sigue sin aparecer en demonstratedObjectiveIds — correcto, nunca fue demostrado independientemente')
+assert.equal(canCompleteSessionFromAssessment(bLatent, []), false, 'canCompleteSessionFromAssessment ahora rechaza esto estructuralmente, incluso si el Hecho 2 estático (independent:true hardcoded en page.tsx) algún día dejara de cumplirse')
 
 // ═══ E2E4 / Caso A vs B — ¿puede completedSessionNumbers avanzar con un objetivo
 // unresolved? (ver AGENTS.md) ═══
@@ -141,4 +150,4 @@ const stateFullyResolved = {
 }
 assert.equal(deriveNextSessionAction(stateFullyResolved).type, 'complete_session', 'control: con isSessionComplete=true y todo lo demás igual, la acción SÍ debe ser complete_session — aísla que el bloqueo anterior viene de isSessionComplete, no de otro campo del estado')
 
-console.log('adaptive-program-completion-invariant-contracts: 17 contracts PASS (invariante demostrado + brecha latente documentada + Caso A confirmado en deriveNextSessionAction)')
+console.log('adaptive-program-completion-invariant-contracts: 17 contracts PASS (invariante demostrado + brecha latente CERRADA por Fase 2 + Caso A confirmado en deriveNextSessionAction)')

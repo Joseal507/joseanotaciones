@@ -58,8 +58,13 @@ const rawSession = {
   sessionIntro:'Falcons', sessionClosing:'Continúa.',
   steps:[{ id:'step_1', type:'concept', title:'Identidad', content:'Los jugadores icónicos y la conexión con la afición sustentan el argumento.', keyPoints:['Criterios de grandeza','Jugadores y afición'], keyPointIds:['step_1:kp:1','step_1:kp:2'], importance:'important', relatedBlockIds:['falcons'], factKeys:['f1','f2'] }],
   evaluationBlocks:[{ id:'block_1', afterStepId:'step_1', coveredStepIds:['step_1'], coveredKeyPoints:['Criterios de grandeza','Jugadores y afición'], coveredKeyPointIds:['step_1:kp:1','step_1:kp:2'], questions:[
-    { questionId:'eval_1_1', format:'true_false', coveredStepIds:['step_1'], targetKeyPointIds:['step_1:kp:1'], coveredKeyPoints:['Criterios de grandeza'], cognitiveTarget:'comprehension', prompt:'La identidad del equipo forma parte del argumento central.', correctAnswer:true, feedback:'Correcto.' },
-    { questionId:'eval_1_2', format:'true_false', coveredStepIds:['step_1'], targetKeyPointIds:['step_1:kp:2'], coveredKeyPoints:['Jugadores y afición'], cognitiveTarget:'comprehension', prompt:'Los jugadores icónicos y la conexión con la afición son criterios clave para determinar la grandeza de un equipo deportivo.', correctAnswer:true, feedback:'Correcto.' },
+    // targetFactKeys es obligatorio en toda pregunta real generada por el
+    // pipeline (contrato de salida exigido en session-teach/route.ts) — el
+    // STRICT COVERAGE BLOCKER (sessionEvaluation.ts) exige que TODOS los
+    // factKeys declarados por el step (f1, f2) queden cubiertos por
+    // sourceFactKeys de preguntas aceptadas, o rechaza la sesión.
+    { questionId:'eval_1_1', format:'true_false', coveredStepIds:['step_1'], targetKeyPointIds:['step_1:kp:1'], targetFactKeys:['f1'], coveredKeyPoints:['Criterios de grandeza'], cognitiveTarget:'comprehension', prompt:'La identidad del equipo forma parte del argumento central.', correctAnswer:true, feedback:'Correcto.' },
+    { questionId:'eval_1_2', format:'true_false', coveredStepIds:['step_1'], targetKeyPointIds:['step_1:kp:2'], targetFactKeys:['f2'], coveredKeyPoints:['Jugadores y afición'], cognitiveTarget:'comprehension', prompt:'Los jugadores icónicos y la conexión con la afición son criterios clave para determinar la grandeza de un equipo deportivo.', correctAnswer:true, feedback:'Correcto.' },
   ] }],
 }
 const canonical = canonicalizeGeneratedSession(rawSession, { sessionId:'chapter_2', kind:'learning', evaluationMode:'quick_test' })

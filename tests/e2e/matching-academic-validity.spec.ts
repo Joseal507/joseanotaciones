@@ -32,14 +32,18 @@ const pairs = [
 const keyPoints = pairs.map(pair => `${pair.left}: ${pair.right}`)
 
 function buildMatchingQuestion(assessment: ReturnType<typeof buildAssessmentBlueprint>): CanonicalQuestion {
-  const objectiveId = assessment.objectives[0].objectiveId
+  // El matching cubre genuinamente los 3 keyPoints/factKeys a la vez (regla 2
+  // de Demonstration Coverage) — debe declarar targetObjectiveIds para los 3
+  // objectives correspondientes, no solo el primero, o los otros 2 quedarían
+  // permanentemente unresolved (nunca reciben evidencia).
+  const objectiveIds = assessment.objectives.map(objective => objective.objectiveId)
   return {
     id: 'matching-organelos', conceptId: stepId, conceptLabel: 'Organelos celulares', teachingBlockId: stepId,
     questionFamily: 'matching', variant: 'matching_concept_def', difficulty: 'medium',
     targetDimension: 'comprehension', questionText: 'Relaciona cada organelo con su función.',
     explanation: 'Mitocondria: produce energía celular. Núcleo: contiene el material genético. Ribosoma: sintetiza proteínas.',
     hint: '', estimatedSeconds: 45, evidencesNeeded: 1, factKey: keyPoints[0], factKeys: keyPoints,
-    targetObjectiveIds: [objectiveId], evidenceProduced: [objectiveId],
+    targetObjectiveIds: objectiveIds, evidenceProduced: objectiveIds,
     coveredStepIds: [stepId], coveredKeyPoints: keyPoints,
     format: 'matching', options: pairs, correctAnswer: { p1: 'm1', p2: 'm2', p3: 'm3' },
     matchingSemantics: 'bijective',
@@ -51,7 +55,7 @@ function buildMatchingQuestion(assessment: ReturnType<typeof buildAssessmentBlue
 
 async function installMatchingSession(page: Page) {
   const assessment = buildAssessmentBlueprint(
-    [{ id: stepId, title: 'Organelos celulares', content: 'Contenido de organelos.', keyPoints, importance: 0.8 }],
+    [{ id: stepId, title: 'Organelos celulares', content: 'Contenido de organelos.', keyPoints, factKeys: keyPoints, importance: 0.8 }],
     'chapter-2', 2,
   )
   const matchingQuestion = buildMatchingQuestion(assessment)

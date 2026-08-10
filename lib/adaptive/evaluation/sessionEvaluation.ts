@@ -1,4 +1,5 @@
 import {
+  missingRequiredFactKeys,
   normalizeGeneratedQuestion,
   questionSimilarity,
   validateQuestion,
@@ -38,6 +39,14 @@ export type SessionEvaluationQuestion = CanonicalQuestion & {
   coveredKeyPoints: string[]
   coveredKeyPointIds?: string[]
   coveredStepIds: string[]
+  // Los factKeys REALES declarados por la pregunta cruda (targetFactKeys en
+  // el dato de entrada), capturados ANTES de normalizeGeneratedQuestion —
+  // esa función sobreescribe CanonicalQuestion.targetFactKeys con
+  // context.factKeys, que aquí es texto de keyPoints, no factKeys (campo ya
+  // existente reusado con otro significado; no se toca para no romper #9 ni
+  // otros consumidores). sourceFactKeys es la única fuente confiable para
+  // exigir cobertura por factKey en el STRICT COVERAGE BLOCKER.
+  sourceFactKeys: string[]
 }
 
 export interface EvaluationBlock {
@@ -344,7 +353,7 @@ export function canonicalizeGeneratedSession(
       const safeKeyPoints = (typeof finalKeyPoints !== 'undefined' && finalKeyPoints.length > 0)
         ? finalKeyPoints
         : effectiveKeyPoints.length > 0 ? effectiveKeyPoints : blockKeyPoints.slice(0, 1)
-      questions.push({ ...canonical, coveredKeyPoints: safeKeyPoints, coveredKeyPointIds, coveredStepIds: effectiveStepIds })
+      questions.push({ ...canonical, coveredKeyPoints: safeKeyPoints, coveredKeyPointIds, coveredStepIds: effectiveStepIds, sourceFactKeys: textArray(question.targetFactKeys) })
     })
 
     evaluationBlocks.push({
@@ -400,7 +409,22 @@ export function canonicalizeGeneratedSession(
     const uncoveredKeyPointIds = allKeyPointIds.filter(point => !coveredKeyPointIds.has(point))
     const pointDetails=new Map(steps.flatMap(step=>(step.keyPointIds||step.keyPoints.map((_,index)=>`${step.id}:kp:${index+1}`)).map((id,index)=>[id,step.keyPoints[index]] as const)))
 
-    if (uncoveredSteps.length > 0 || uncoveredKeyPointIds.length > 0) {
+    // COBERTURA POR factKey (question coverage, B): requiredFactKeys sale del
+    // contenido enseñado real (steps[].factKeys), NUNCA del modelo de
+    // objectives del assessment blueprint — esa era justo la fuente que
+    // permitía que un factKey desapareciera sin dejar rastro (factKeys.length
+    // > keyPoints.length). coveredFactKeys sale de sourceFactKeys de
+    // preguntas ya aceptadas (pasaron todos los checks de validez/duplicado
+    // más arriba) — misma función missingRequiredFactKeys que usa
+    // diagnoseEvaluationBlock (sessionPreparationFactory.ts), una sola
+    // definición de "missing factKeys" para ambas capas.
+    const allFactKeys = [...new Set(steps.flatMap(step => step.factKeys || []))]
+    const uncoveredFactKeys = missingRequiredFactKeys(
+      allFactKeys,
+      evaluationBlocks.flatMap(block => block.questions.map(question => question.sourceFactKeys || [])),
+    )
+
+    if (uncoveredSteps.length > 0 || uncoveredKeyPointIds.length > 0 || uncoveredFactKeys.length > 0) {
       const strictErrors = [
         ...(uncoveredSteps.length > 0
           ? [
@@ -412,6 +436,12 @@ export function canonicalizeGeneratedSession(
           ? [
               'SESSION_EVALUATION_COVERAGE:important_key_points',
               `SESSION_EVALUATION_COVERAGE:important_key_point_ids:blockId=unassigned:missing=${uncoveredKeyPointIds.join('|')}:details=${uncoveredKeyPointIds.map(id=>`${id}=${pointDetails.get(id)||''}`).join('|')}`,
+            ]
+          : []),
+        ...(uncoveredFactKeys.length > 0
+          ? [
+              'SESSION_EVALUATION_COVERAGE:required_fact_keys',
+              `SESSION_EVALUATION_COVERAGE:required_fact_keys:blockId=unassigned:missing=${uncoveredFactKeys.join('|')}`,
             ]
           : []),
       ]

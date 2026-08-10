@@ -60,7 +60,7 @@ import {
   getStepsForCheckpoint,
   type CoverageMap,
 } from "../../../../../lib/adaptive/evaluation/coverageExtractor"
-import { matchingDisplayOptions, questionSimilarity, type CanonicalQuestion } from "../../../../../lib/adaptive/evaluation/questionContract"
+import { matchingDisplayOptions, questionSimilarity, realFactKeysOf, type CanonicalQuestion } from "../../../../../lib/adaptive/evaluation/questionContract"
 import { computeGenerationHistorySignals } from "../../../../../lib/adaptive/evaluation/generationHistorySignals"
 import { parsePreparedRecoveryRound, type PreparedRecoveryRound } from "../../../../../lib/adaptive/evaluation/preparedRecoveryRound"
 import {
@@ -1148,9 +1148,11 @@ export default function SessionPage() {
     let createdRecoveryId: string | undefined
 
     if (assessmentBlueprintRef.current && question.targetObjectiveIds?.length) {
+      const questionFactKeys = realFactKeysOf(question)
       persistAssessmentBlueprint(recordAssessmentEvidence(
         assessmentBlueprintRef.current,
         question.targetObjectiveIds,
+        questionFactKeys,
         {
           valid: true,
           correct: freshResult?.correct === true,
@@ -1813,6 +1815,7 @@ export default function SessionPage() {
         persistAssessmentBlueprint(recordAssessmentEvidence(
           assessmentBlueprintRef.current,
           recorded.item.targetObjectiveIds,
+          recorded.item.sourceFactKeys,
           {
             valid: true,
             correct: true,

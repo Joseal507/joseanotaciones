@@ -84,6 +84,26 @@ export type CanonicalUserAnswer =
   | string | boolean | string[] | Record<string, string>
   | { value: number | string; unit?: string }
 
+// Fuente única para "los factKeys reales de esta pregunta", usada por
+// Demonstration Coverage (assessmentBlueprint.ts) y por recoveryQueue.ts.
+// Prioridad:
+//   1) sourceFactKeys — SOLO presente en preguntas normales/iniciales
+//      entregadas vía sessionEvaluation.ts (SessionEvaluationQuestion),
+//      capturado ANTES de que normalizeGeneratedQuestion sobreescriba
+//      factKeys/targetFactKeys con texto de keyPoints (ver comentario en
+//      SessionEvaluationQuestion). Es la única fuente confiable para ESE caso.
+//   2) factKeys — confiable para preguntas que NO pasaron por esa corrupción:
+//      preguntas de recovery regeneradas por session-reteach (construyen
+//      factKeys directo desde target.sourceFactKeys) y fixtures/tests
+//      hand-authored (factKeys ya son los factKeys reales por construcción).
+//   3) factKey (singular) — último fallback, mismo razonamiento que (2).
+export function realFactKeysOf(question: CanonicalQuestion): string[] {
+  const withSource = question as CanonicalQuestion & { sourceFactKeys?: string[] }
+  if (withSource.sourceFactKeys?.length) return [...new Set(withSource.sourceFactKeys)]
+  if (question.factKeys?.length) return [...new Set(question.factKeys)]
+  return question.factKey ? [question.factKey] : []
+}
+
 export interface QuestionValidation {
   valid: boolean
   errors: string[]
@@ -235,6 +255,19 @@ export function buildStableMatchingOrder(questionId: string, rightIds: string[])
     return [...unique.slice(offset), ...unique.slice(0, offset)]
   }
   return shuffled
+}
+
+// Punto único donde se define "cobertura de factKeys" — reusado tanto por
+// diagnoseEvaluationBlock (sessionPreparationFactory.ts, preparación
+// incremental) como por el STRICT COVERAGE BLOCKER (sessionEvaluation.ts,
+// canonicalización final) para que ambas capas exijan EXACTAMENTE la misma
+// cobertura y nunca diverjan entre sí. requiredFactKeys debe venir del
+// contenido enseñado real (step/block), nunca del modelo de objectives —
+// ver el bug real que motivó esto: un factKey podía quedar sin ninguna
+// pregunta que lo targeteara aunque la sesión ya se declarara lista.
+export function missingRequiredFactKeys(requiredFactKeys: string[], coveredFactKeysPerQuestion: string[][]): string[] {
+  const covered = new Set(coveredFactKeysPerQuestion.flat().filter(Boolean))
+  return [...new Set(requiredFactKeys.filter(Boolean))].filter(factKey => !covered.has(factKey))
 }
 
 export function matchingDisplayOptions(
