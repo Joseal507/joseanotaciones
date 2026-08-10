@@ -28,7 +28,15 @@ async function installFalconsInlineRecoveryFixture(
         recoveryTargetId: body.recoveryTargetId,
         roundId: body.roundId,
         roundNumber: body.recoveryRound,
-        explanation: body.reteachAttempt > 1
+        // Auditoría adversarial (Codex, Reteach #3.1): `body.reteachAttempt`
+        // nunca lo envía el cliente real (envía `recoveryRound`, no
+        // `reteachAttempt`) — la condición anterior siempre evaluaba
+        // undefined > 1 === false, así que el mock devolvía SIEMPRE el mismo
+        // texto sin importar la ronda. recordRecoveryReteachContent ahora
+        // rechaza correctamente contenido duplicado entre rondas, exponiendo
+        // este mismatch preexistente del fixture. `round` (contador real de
+        // llamadas a este mock) sí distingue cada ronda genuinamente.
+        explanation: round > 1
           ? '**Segundo enfoque sobre liderazgo.** Contrasta una actuación aislada con una trayectoria que mantiene dirección y rendimiento a lo largo del tiempo.'
           : '**Reexplicación sobre liderazgo.** La estabilidad, el liderazgo y la consistencia describen aportes diferentes y complementarios.',
         questions: body.includeVerificationQuestions ? [1, 2].map(number => ({

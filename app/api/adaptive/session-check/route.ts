@@ -4,6 +4,7 @@ import { alaiJson } from '../../../../lib/alai'
 import type { CanonicalQuestion, CanonicalUserAnswer } from '../../../../lib/adaptive/evaluation/questionContract'
 import { presentAnswer, stripOptionSelfReferences } from '../../../../lib/adaptive/evaluation/answerPresentation'
 import { validateQuestion } from '../../../../lib/adaptive/evaluation/questionContract'
+import { deriveWrittenGradingVerdict, type WrittenGradingSignals } from '../../../../lib/adaptive/evaluation/writtenGrading'
 import {
   EVALUATION_MODE_VIOLATION,
   normalizeEvaluationMode,
@@ -22,6 +23,13 @@ interface SessionCheckRequest {
   materialTitle: string
 }
 
+// Auditoría adversarial (Codex, misión nocturna FASE 1): el veredicto ya NO
+// lo decide el LLM directamente (antes "correct"/"score" no tenían ninguna
+// relación auditable con requisitos CORE vs OPTIONAL, y nada obligaba a
+// rechazar contradicción, keyword stuffing, vaguedad o razonamiento
+// críticamente incorrecto). Ahora el LLM solo EXTRAE señales estructuradas;
+// deriveWrittenGradingVerdict (función pura, testeada sin LLM) es la única
+// fuente de verdad para el veredicto final.
 async function evaluateWithAI(
   question: CanonicalQuestion,
   answer: CanonicalUserAnswer,
@@ -36,13 +44,13 @@ async function evaluateWithAI(
   whatWasRight: string
   whatWasWrong: string
 }> {
-  const prompt = `Eres un evaluador pedagógico experto y justo.
+  const prompt = `Eres un evaluador pedagógico experto y justo. Tu trabajo NO es decidir si la respuesta es correcta — es EXTRAER señales estructuradas verificables. Otro sistema determinista decide el veredicto final a partir de esas señales.
 
 MATERIAL: "${materialTitle}"
 
 PREGUNTA: ${question.questionText}
 
-RESPUESTA CORRECTA ESPERADA: ${JSON.stringify(question.correctAnswer)}
+RESPUESTA MODELO / IDEA ESPERADA: ${JSON.stringify(question.correctAnswer)}
 
 RESPUESTA DEL ESTUDIANTE: ${JSON.stringify(answer)}
 
@@ -52,51 +60,84 @@ ${(teachingContent || '').slice(0, 800)}
 EXPLICACIÓN DE LA RESPUESTA CORRECTA:
 ${question.explanation || 'No disponible'}
 
-EVALÚA con estas reglas:
-1. Si la respuesta es correcta o equivalente semánticamente → correct: true, score: 85-100
-2. Si la respuesta tiene la idea correcta pero con errores menores (ortografía, sinónimos, frase incompleta) → correct: true, score: 70-84
-3. Si la respuesta tiene parte de la idea pero le falta algo importante → correct: false, score: 40-69
-4. Si la respuesta está relacionada pero incorrecta → correct: false, score: 15-39
-5. Si la respuesta no tiene relación o es vacía → correct: false, score: 0-14
+PASO 1 — Identifica los REQUISITOS CENTRALES (CORE) que esta pregunta específica exige demostrar para considerarse respondida correctamente. Un requisito central es algo que, si falta, la respuesta NO puede considerarse correcta. NO incluyas como CORE detalles secundarios, ejemplos adicionales, terminología exacta si el concepto está claro, o información que la pregunta no pidió explícitamente.
 
-Para CADA caso genera:
-- whatWasRight: qué parte de la respuesta estuvo bien (si algo)
-- whatWasWrong: qué falló exactamente (si algo)
-- feedback: explicación completa y educativa
+PASO 2 — Para CADA requisito central, decide si la respuesta del estudiante lo satisface. Evalúa el CONTENIDO/SIGNIFICADO, nunca la fluidez, longitud, confianza o calidad de redacción como sustituto de corrección real — una respuesta bien escrita pero conceptualmente equivocada NO satisface el requisito.
 
-IMPORTANTE:
-- No seas demasiado estricto con sinónimos o variaciones válidas
-- "rápido" y "veloz" son equivalentes
-- Una respuesta parcial que demuestre comprensión merece crédito parcial
-- El tono debe ser de tutor personal, segunda persona singular
+PASO 3 — Identifica detalles OPCIONALES/de enriquecimiento que la respuesta modelo podría mencionar pero que esta pregunta específica NO exige — anota cuáles omitió el estudiante, pero esto NUNCA debe hacer que un requisito CORE se marque como no cumplido.
+
+PASO 4 — Evalúa fail-closed, cada uno independiente de los requisitos CORE:
+- contradiction: ¿la respuesta se contradice a sí misma (afirma X y también no-X, o afirma algo y luego lo opuesto)?
+- keywordStuffingOnly: ¿la respuesta menciona términos correctos del tema pero SIN relacionarlos coherentemente entre sí ni con la pregunta (una lista de palabras sueltas, no una explicación)?
+- vague: ¿la respuesta es tan vaga que no demuestra ninguna comprensión real ("porque sí", "no sé pero creo que...", una afirmación sin contenido verificable)?
+- reasoningRequired: ¿esta pregunta exige explicar POR QUÉ o CÓMO, no solo dar una conclusión?
+- reasoningValid (solo si reasoningRequired=true): ¿el razonamiento que dio el estudiante es correcto, aunque haya llegado a la conclusión correcta? Una conclusión correcta con un razonamiento críticamente equivocado NO es reasoningValid=true.
+
+PASO 5 — Redacta whatWasRight/whatWasWrong/feedback usando SOLO lo que realmente escribió el estudiante — nunca inventes una confusión psicológica específica sin evidencia; si no puedes inferir la causa exacta con confianza, usa lenguaje como "tu respuesta no coincide con X porque..." en vez de afirmar una confusión concreta. Tono de tutor personal, segunda persona singular.
+
+Tolera errores ortográficos, gramática imperfecta, frases incompletas si el significado es claro, abreviaciones comunes, símbolos equivalentes, singular/plural, reformulaciones, español/inglés técnico mezclado cuando el concepto sea inequívoco — estos NUNCA deben marcar un requisito CORE como no cumplido.
 
 Devuelve SOLO JSON:
 {
-  "correct": true,
-  "score": 85,
-  "whatWasRight": "Identificaste correctamente que...",
-  "whatWasWrong": "",
-  "feedback": "Feedback completo y educativo",
-  "needsReteaching": false,
-  "errorType": null
+  "coreRequirements": ["requisito 1 en pocas palabras", "requisito 2"],
+  "coreResults": [{"requirement": "requisito 1 en pocas palabras", "met": true}, {"requirement": "requisito 2", "met": false}],
+  "optionalDetailsMissing": ["detalle opcional que omitió, si alguno"],
+  "contradiction": false,
+  "keywordStuffingOnly": false,
+  "vague": false,
+  "reasoningRequired": false,
+  "reasoningValid": true,
+  "whatWasRight": "qué parte de la respuesta estuvo bien, en base al contenido real del estudiante",
+  "whatWasWrong": "qué faltó o falló exactamente, si algo",
+  "feedback": "feedback completo y educativo, coherente con coreResults"
 }`
 
   try {
-    const result = await alaiJson({
+    const raw = await alaiJson({
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.1,
-      maxTokens: 500,
+      maxTokens: 700,
       json: true,
     })
 
+    const signals: WrittenGradingSignals = {
+      coreResults: Array.isArray(raw?.coreResults)
+        ? raw.coreResults
+          .filter((entry: any) => entry && typeof entry.requirement === 'string')
+          .map((entry: any) => ({ requirement: entry.requirement, met: entry.met === true }))
+        : [],
+      optionalDetailsMissing: Array.isArray(raw?.optionalDetailsMissing) ? raw.optionalDetailsMissing.filter((v: unknown) => typeof v === 'string') : [],
+      contradiction: raw?.contradiction === true,
+      keywordStuffingOnly: raw?.keywordStuffingOnly === true,
+      vague: raw?.vague === true,
+      reasoningRequired: raw?.reasoningRequired === true,
+      reasoningValid: raw?.reasoningValid !== false,
+      whatWasRight: typeof raw?.whatWasRight === 'string' ? raw.whatWasRight : '',
+      whatWasWrong: typeof raw?.whatWasWrong === 'string' ? raw.whatWasWrong : '',
+      feedback: typeof raw?.feedback === 'string' ? raw.feedback : '',
+    }
+
+    // Fail-closed: sin ningún requisito CORE extraído (extracción degradada
+    // o pregunta sin requisitos claros), nunca se asume "correct" por
+    // defecto — se trata como si ningún requisito se hubiera cumplido.
+    if (signals.coreResults.length === 0) {
+      signals.coreResults = [{ requirement: 'requisito central de la pregunta', met: false }]
+    }
+
+    const decision = deriveWrittenGradingVerdict(signals)
+
+    const missingOptionalNote = signals.optionalDetailsMissing.length > 0 && decision.verdict === 'correct'
+      ? ` Como precisión adicional, podrías mencionar: ${signals.optionalDetailsMissing.join(', ')}.`
+      : ''
+
     return {
-      correct: result?.correct === true,
-      score: typeof result?.score === 'number' ? Math.min(100, Math.max(0, result.score)) : (result?.correct ? 85 : 20),
-      feedback: result?.feedback || (result?.correct ? 'Correcto.' : 'Incorrecto.'),
-      needsReteaching: result?.needsReteaching !== false && !result?.correct,
-      errorType: result?.correct ? null : (result?.errorType || 'comprehension'),
-      whatWasRight: result?.whatWasRight || '',
-      whatWasWrong: result?.whatWasWrong || '',
+      correct: decision.correct,
+      score: decision.score,
+      feedback: (signals.feedback || (decision.verdict === 'correct' ? 'Correcto.' : decision.verdict === 'partial' ? 'Parcialmente correcto.' : 'Incorrecto.')) + missingOptionalNote,
+      needsReteaching: decision.verdict !== 'correct',
+      errorType: decision.verdict === 'correct' ? null : (signals.contradiction ? 'contradiction' : signals.vague ? 'vague' : signals.keywordStuffingOnly ? 'keyword_stuffing' : (signals.reasoningRequired && !signals.reasoningValid) ? 'invalid_reasoning' : 'comprehension'),
+      whatWasRight: signals.whatWasRight,
+      whatWasWrong: signals.whatWasWrong,
     }
   } catch {
     return {
@@ -206,15 +247,25 @@ export async function POST(req: NextRequest) {
       let whatWasWrong = ''
 
       const sanitizedExplanation = stripOptionSelfReferences(question.explanation)
+      // Auditoría adversarial (Codex, misión nocturna FASE 1): el feedback
+      // era completamente genérico ("Seleccionaste la respuesta correcta.")
+      // y NUNCA llamaba presentAnswer(question, answer) — la respuesta
+      // REAL del estudiante nunca aparecía en el texto visible, ni en el
+      // caso correcto ni en el incorrecto. studentDisplay ahora se usa en
+      // ambos casos, así que el feedback siempre puede mostrar qué
+      // respondió el estudiante, no solo la respuesta correcta.
+      const studentDisplay = presentAnswer(question, answer)
 
       if (scoreResult.correct) {
-        feedback = sanitizedExplanation || 'Correcto.'
-        whatWasRight = 'Seleccionaste la respuesta correcta.'
+        whatWasRight = `Tu respuesta ("${studentDisplay}") es correcta.`
+        feedback = sanitizedExplanation ? `${whatWasRight} ${sanitizedExplanation}` : whatWasRight
       } else {
         const correctDisplay = presentAnswer(question, question.correctAnswer)
 
-        feedback = sanitizedExplanation || `La respuesta correcta era: **${correctDisplay}**.`
-        whatWasWrong = `La respuesta correcta era: **${correctDisplay}**.`
+        whatWasWrong = `Respondiste "${studentDisplay}". La respuesta correcta era "${correctDisplay}".`
+        feedback = sanitizedExplanation
+          ? `${whatWasWrong} ${sanitizedExplanation}`
+          : `${whatWasWrong} Tu respuesta no coincide con "${correctDisplay}".`
       }
 
       result = {

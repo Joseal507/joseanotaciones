@@ -373,8 +373,15 @@ changedError = recordRecoveryCheck(
 assert.equal(selectRecoveryStrategy(changedError), 'concept_boundary')
 changedError = beginRecoveryReteach(changedError, 'concept_boundary')
 changedError = recordRecoveryReteachContent(changedError, 'Primera explicación de secuencia.')
-assert.equal(changedError.status, 'reteaching')
+// Auditoría adversarial (Codex, Reteach 3.1): un duplicado debe bloquear
+// semánticamente el avance a verificación — status vuelve a 'pending_reteach'
+// (no se queda en 'reteaching', que dejaba pasar beginRecoveryVerification) y
+// preparedReteachContent se limpia (nunca debe quedar contenido de una ronda
+// anterior disponible como si fuera nuevo).
+assert.equal(changedError.status, 'pending_reteach')
 assert.equal(changedError.reason, 'duplicate_reteach_requires_alternate_content')
+assert.equal(changedError.preparedReteachContent, null)
+assert.equal(beginRecoveryVerification(changedError).status, 'pending_reteach', 'beginRecoveryVerification debe rechazar un item que no está en reteaching')
 
 // La generación inválida agota solo el lote técnico y conserva la deuda pedagógica.
 let generationFuse = createRecoveryQueue([failure(question('generation-source'))])[0]

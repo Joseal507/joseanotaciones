@@ -950,7 +950,7 @@ const STRATEGY_MATRIX: Record<ErrorType, Record<ContentSignal, RecoveryStrategyD
 }
 
 // ─── Función auxiliar para búsqueda tolerante ────────────────
-function findStrategy(
+export function findStrategy(
   errorType: ErrorType,
   contentSignal: ContentSignal,
 ): RecoveryStrategyDecision {
@@ -1065,4 +1065,32 @@ PROHIBIDO EN ESTA REEXPLICACIÓN:
 - Hacer preguntas retóricas sin respuesta
 - Prometer que "ahora sí quedará claro" (no puedes garantizarlo)
 `
+}
+
+// Auditoría adversarial (Codex, Reteach #3.2): el contrato JSON del prompt
+// vivo (session-reteach/route.ts) fijaba "máximo 3 oraciones" para
+// `explanation` SIN IMPORTAR qué estrategia se hubiera decidido — una
+// estrategia 'detailed' (worked_example, decompose: "8-12 frases, no omitas
+// ningún paso") quedaba contradicha por su propio contrato de salida,
+// haciendo improbable un ejemplo resuelto o una descomposición completa.
+// Mismo cálculo de estrategia líder (findStrategy + alternancia por ronda)
+// que buildReteachStrategyInstructions, expuesto por separado para que el
+// caller pueda declarar un límite de extensión consistente con la
+// instrucción pedagógica real en vez de un número fijo.
+const EXPLANATION_LENGTH_HINT: Record<RecoveryStrategyDecision['estimatedLength'], string> = {
+  brief: 'máximo 3-4 oraciones',
+  medium: '5-8 oraciones',
+  detailed: '8-12 oraciones — no omitas ningún paso si la estrategia es un ejemplo resuelto o una descomposición',
+}
+export function estimatedExplanationLength(
+  errorType: ErrorType,
+  contentSignal: ContentSignal,
+): string {
+  // decision.estimatedLength no varía entre estrategia primaria/secundaria
+  // (es una propiedad de la entrada de la matriz por errorType+contentSignal,
+  // no de la estrategia elegida en esta ronda) — igual que
+  // buildReteachStrategyInstructions, que lo usa directamente sin
+  // condicionar por useSecondary.
+  const decision = findStrategy(errorType, contentSignal)
+  return EXPLANATION_LENGTH_HINT[decision.estimatedLength]
 }

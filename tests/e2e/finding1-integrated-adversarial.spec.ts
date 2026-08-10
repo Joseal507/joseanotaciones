@@ -4,10 +4,20 @@ import type { CanonicalQuestion } from '../../lib/adaptive/evaluation/questionCo
 
 // FASE C — escenario adversarial integrado (post-7a3c3f7, Findings 1/2/3/4).
 // Cadena completa en una sola sesión real:
-//   enseñanza → assessment (chat+refresh no cuenta como independiente,
-//   siguiente pregunta sin ayuda sí cuenta) → recovery (chat+refresh en la
-//   V1 no resuelve, V2 independiente sí resuelve) → finalización SOLO
+//   enseñanza → assessment (asistencia+refresh no cuenta como independiente,
+//   siguiente pregunta sin ayuda sí cuenta) → recovery (asistencia+refresh
+//   en la V1 no resuelve, V2 independiente sí resuelve) → finalización SOLO
 //   cuando el motor confirma isProgramComplete, nunca antes.
+//
+// OBJETIVO A (post-319a5bc): el chat ya no se renderiza durante evaluación
+// ni reevaluación independiente (isIndependentEvaluationActive en
+// page.tsx), así que dejó de ser alcanzable vía UI en las dos preguntas de
+// este escenario que están activas en esos estados (q-shared-assisted y la
+// V1 de recovery) — se usa la pista (Ver pista) en su lugar para disparar
+// "asistido", con aserciones explícitas de que el chat no existe en el DOM
+// en esos puntos. El chat solo se usa donde sigue siendo legítimo (fuera de
+// este escenario concreto; ver tests/e2e/alai-chat-visibility.spec.ts para
+// la cobertura dedicada de dónde el chat debe/no debe existir).
 
 const temaId = 'e2e-f1-integrated-tema'
 const sessionId = 'e2e-f1-integrated-session'
@@ -79,7 +89,7 @@ async function installIntegratedSession(page: Page) {
   const baseObjectiveId = assessment.objectives.find(o => o.factKeys.includes(baseFactKey))!.objectiveId
   const failObjectiveId = assessment.objectives.find(o => o.factKeys.includes(failFactKey))!.objectiveId
 
-  const qSharedAssisted = mcq('q-shared-assisted', sharedStepId, sharedFactKey, [sharedObjectiveId], sharedKeyPoint, 'a')
+  const qSharedAssisted = { ...mcq('q-shared-assisted', sharedStepId, sharedFactKey, [sharedObjectiveId], sharedKeyPoint, 'a'), hint: 'Pista visible para q-shared-assisted.' }
   const qSharedIndependent = mcq('q-shared-independent', sharedStepId, sharedFactKey, [sharedObjectiveId], sharedKeyPoint, 'a')
   const qBase = trueFalse('q-base', sharedStepId, baseFactKey, [baseObjectiveId], baseKeyPoint)
   const qFail = trueFalse('q-fail', sharedStepId, failFactKey, [failObjectiveId], failKeyPoint)
@@ -160,14 +170,13 @@ test('escenario integrado: enseñanza → assessment asistida+refresh → indepe
   await expect(page.getByText('Paso 1 de 1')).toBeVisible()
   await page.getByRole('button', { name: 'Siguiente pregunta →' }).click()
 
-  // ── ASSESSMENT: pregunta 1, ayuda académica por chat, refresh ANTES de responder ──
+  // ── ASSESSMENT: pregunta 1, ayuda vía pista (OBJETIVO A: el chat ya no
+  // existe en el DOM durante evaluación), refresh ANTES de responder ──
   await expect(page.getByText('Pregunta q-shared-assisted')).toBeVisible()
-  const chatDialog = page.getByRole('dialog', { name: 'Chat con ALAI' })
-  await page.getByRole('button', { name: 'Preguntar a ALAI' }).click()
-  await chatDialog.getByPlaceholder('Escribe tu pregunta...').fill('No entendí esta pregunta, ayúdame a razonarla')
-  await chatDialog.getByRole('button', { name: 'Enviar', exact: true }).click()
-  await expect(chatDialog.getByText('ALAI responde:')).toBeVisible()
-  await chatDialog.getByRole('button', { name: 'Cerrar chat' }).click()
+  await expect(page.getByRole('button', { name: 'Preguntar a ALAI' }), 'OBJETIVO A: el chat no debe existir durante evaluación').toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'Chat con ALAI' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Ver pista' }).click()
+  await expect(page.getByText('Pista visible para q-shared-assisted.')).toBeVisible()
 
   await page.reload()
   await page.getByRole('button', { name: 'Siguiente pregunta →' }).click()
@@ -178,7 +187,7 @@ test('escenario integrado: enseñanza → assessment asistida+refresh → indepe
 
   const afterAssisted = await readAssessmentBlueprint(page)
   const sharedObjectiveAfterAssisted = afterAssisted.objectives.find((o: any) => o.factKeys.includes(sharedFactKey))
-  expect(sharedObjectiveAfterAssisted.demonstratedFactKeys, 'chat+refresh en assessment NO debe contar como independiente').not.toContain(sharedFactKey)
+  expect(sharedObjectiveAfterAssisted.demonstratedFactKeys, 'asistencia (pista)+refresh en assessment NO debe contar como independiente').not.toContain(sharedFactKey)
 
   // ── ASSESSMENT: pregunta 2, MISMO factKey, SIN ayuda → debe demostrar independientemente ──
   await page.getByRole('button', { name: 'Siguiente pregunta →' }).click()
@@ -206,15 +215,15 @@ test('escenario integrado: enseñanza → assessment asistida+refresh → indepe
   await page.getByRole('button', { name: 'Revisar conceptos →' }).click()
   await expect(page.getByText('📖 Reexplicación')).toBeVisible()
 
-  // ── RECOVERY ronda 1 (V1): ayuda académica por chat, refresh ANTES de responder ──
+  // ── RECOVERY ronda 1 (V1): ayuda vía pista (OBJETIVO A: el chat ya no
+  // existe en el DOM durante una reevaluación independiente), refresh ANTES
+  // de responder ──
   await page.getByRole('button', { name: 'Verificar comprensión →' }).click()
   await expect(page.getByText('Ronda 1: verificación 1.')).toBeVisible()
-  await page.getByRole('button', { name: 'Preguntar a ALAI' }).click()
-  await expect(page.getByText('no contará como una demostración independiente')).toBeVisible()
-  await chatDialog.getByPlaceholder('Escribe tu pregunta...').fill('No entendí el error, ayúdame a razonarlo')
-  await chatDialog.getByRole('button', { name: 'Enviar', exact: true }).click()
-  await expect(chatDialog.getByText('ALAI responde: "No entendí el error')).toBeVisible()
-  await chatDialog.getByRole('button', { name: 'Cerrar chat' }).click()
+  await expect(page.getByRole('button', { name: 'Preguntar a ALAI' }), 'OBJETIVO A: el chat no debe existir durante una verificación de recovery').toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'Chat con ALAI' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Ver pista' }).click()
+  await expect(page.getByText('Pista.')).toBeVisible()
 
   const queueBeforeRefresh = await readRecoveryQueue(page)
   const successfulBeforeRefresh = queueBeforeRefresh?.[0]?.successfulIndependentChecks ?? 0
@@ -227,7 +236,7 @@ test('escenario integrado: enseñanza → assessment asistida+refresh → indepe
 
   const queueAfterAssistedRound = await readRecoveryQueue(page)
   const successfulAfterAssistedRound = queueAfterAssistedRound?.[0]?.successfulIndependentChecks ?? 0
-  expect(successfulAfterAssistedRound, 'chat+refresh en recovery NO debe incrementar successfulIndependentChecks').toBe(successfulBeforeRefresh)
+  expect(successfulAfterAssistedRound, 'asistencia (pista)+refresh en recovery NO debe incrementar successfulIndependentChecks').toBe(successfulBeforeRefresh)
   expect(queueAfterAssistedRound?.[0]?.status, 'la recovery no debe resolverse por una verificación assisted').not.toBe('resolved')
 
   // ── RECOVERY V2 (misma ronda, segunda verificación): sin ayuda → SÍ debe contar como independiente ──

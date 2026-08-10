@@ -408,10 +408,13 @@ Return ONLY valid JSON. Every page listed in [${pageList}] must appear in exactl
 }`;
   };
 
-  // Ejecutar análisis por chunks
-  const allRawTopics: any[] = [];
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
+  // Ejecutar análisis por chunks — chunks cubren páginas disjuntas y cada
+  // uno resuelve a su propio arreglo de topics (con su propio fallback ante
+  // error), así que son independientes entre sí. Perf audit (Codex,
+  // read-only): eran seriales (ΣLᵢ) pudiendo ser max(Lᵢ) con concurrencia,
+  // sin afectar cobertura de páginas ni el orden final (se aplana por índice
+  // de chunk, igual que antes).
+  const chunkResults = await Promise.all(chunks.map(async (chunk, i) => {
     console.log(`🔍 Analizando chunk ${i + 1}/${chunks.length} (páginas ${chunk[0][0]}–${chunk[chunk.length-1][0]})`);
     try {
       const chunkMaxTokens = estimateStructureMaxTokens(chunk, charsPerPage);
@@ -423,27 +426,27 @@ Return ONLY valid JSON. Every page listed in [${pageList}] must appear in exactl
       });
       const raw = result?.topics;
       if (Array.isArray(raw) && raw.length > 0) {
-        allRawTopics.push(...raw);
         console.log(`  ✅ ${raw.length} topics en chunk ${i + 1}`);
-      } else {
-        console.warn(`  ⚠️ Chunk ${i + 1} sin topics — usando fallback por página`);
-        chunk.forEach(([pageNum]) => allRawTopics.push({
-          title: `${materialName} — Page ${pageNum}`,
-          description: `Content from page ${pageNum}`,
-          pages: [pageNum],
-          role: 'mechanism',
-        }));
+        return raw;
       }
+      console.warn(`  ⚠️ Chunk ${i + 1} sin topics — usando fallback por página`);
+      return chunk.map(([pageNum]) => ({
+        title: `${materialName} — Page ${pageNum}`,
+        description: `Content from page ${pageNum}`,
+        pages: [pageNum],
+        role: 'mechanism',
+      }));
     } catch (e: any) {
       console.error(`  ❌ Chunk ${i + 1} failed: ${e?.message}`);
-      chunk.forEach(([pageNum]) => allRawTopics.push({
+      return chunk.map(([pageNum]) => ({
         title: `${materialName} — Page ${pageNum}`,
         description: `Content from page ${pageNum}`,
         pages: [pageNum],
         role: 'mechanism',
       }));
     }
-  }
+  }));
+  const allRawTopics: any[] = chunkResults.flat();
 
   // Construir topics finales
   const topics: DocumentTopic[] = allRawTopics.map((t: any, i: number) => ({
@@ -1415,8 +1418,15 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions);
     const userId = (session?.user as any)?.id;
 
+    // Perf audit (Codex, read-only): el buffer descargado aquí se usaba una
+    // sola vez para extractText y se descartaba — la fase de visión (más
+    // abajo) volvía a descargar el MISMO objeto de R2 para el mismo
+    // material. Se conserva en `buffer` (null si no hubo descarga, p.ej.
+    // cuando el texto ya vino en el request o desde la DB) para reutilizarlo
+    // sin una segunda descarga.
     const materialsWithText = await Promise.all(rawMaterials.map(async (m) => {
       let text = m.text || '';
+      let buffer: Buffer | null = null;
       if (!text && m.materialId) {
         try {
           const materialText = await getMaterialText(m.materialId);
@@ -1426,14 +1436,14 @@ export async function POST(req: NextRequest) {
           try {
             const material = await getMaterial(m.materialId, userId);
             if (material?.storage_key) {
-              const buffer = await downloadFromR2(material.storage_key);
+              buffer = await downloadFromR2(material.storage_key);
               const result = await extractText(buffer, material.kind as any, material.mime_type, m.materialName);
               text = result.text || '';
             }
           } catch (e) { console.warn(`R2 error for ${m.materialId}:`, e); }
         }
       }
-      return { ...m, text };
+      return { ...m, text, buffer };
     }));
 
     const validMaterials = materialsWithText.filter(m => m.text.trim().length > 30);
@@ -1474,12 +1484,14 @@ export async function POST(req: NextRequest) {
       const MIN_VISUAL_TEXT = 40;
       const MAX_VISUAL_TEXT = 260;
 
-      // Obtener el buffer del PDF para visión
-      let pdfBuf: Buffer | null = null;
+      // Obtener el buffer del PDF para visión — reutiliza el ya descargado
+      // en materialsWithText si existe (perf audit, Codex), evitando una
+      // segunda descarga R2 del mismo material.
+      let pdfBuf: Buffer | null = (m as any).buffer || null;
       try {
-        const { getMaterial } = await import('../../../../lib/materials/repository');
-        const { downloadFromR2 } = await import('../../../../lib/materials/storage');
-        if (userId && m.materialId) {
+        if (!pdfBuf && userId && m.materialId) {
+          const { getMaterial } = await import('../../../../lib/materials/repository');
+          const { downloadFromR2 } = await import('../../../../lib/materials/storage');
           const mat = await getMaterial(m.materialId, userId);
           if (mat?.storage_key) {
             pdfBuf = await downloadFromR2(mat.storage_key);
@@ -1559,7 +1571,12 @@ export async function POST(req: NextRequest) {
 
       // PASO 2: Analizar cada topic con texto COMPLETO (no la muestra)
       console.log(`🔬 Analizando ${topics.length} topics...`);
-      const PARALLEL = 2;
+      // Perf audit (Codex, read-only): topics no acumulan factKeys/accepted
+      // questions entre sí — cada uno se dedup/ordena después por globalOrder
+      // asignado en orden de resultado. 2 era innecesariamente estrecho; 3
+      // reduce olas de espera sin concurrencia ilimitada (evita presión
+      // excesiva sobre el proveedor).
+      const PARALLEL = 3;
 
       for (let i = 0; i < topics.length; i += PARALLEL) {
         const batch = topics.slice(i, i + PARALLEL);

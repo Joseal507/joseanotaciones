@@ -381,7 +381,18 @@ export function recordRecoveryReteachContent(item: RecoveryItem, content: string
   if (item.status !== 'reteaching') return { ...item, status: 'pending_reteach', reason: 'reteach_transition_repaired' }
   const fingerprint = contentFingerprint(content)
   if (!fingerprint || item.reteachContentHistory.includes(fingerprint)) {
-    return { ...item, reason: 'duplicate_reteach_requires_alternate_content' }
+    // Auditoría adversarial (Codex, Reteach 3.1): un duplicado NUNCA debe poder
+    // avanzar a verificación. Devolver status:'reteaching' aquí dejaba pasar
+    // beginRecoveryVerification (su guard solo exige status==='reteaching', que
+    // seguía siendo cierto) y persistRecoveryVerificationQuestions incluso
+    // "auto-repara" a pending_verification si no lo estaba — ambos guards
+    // downstream son permisivos por diseño, así que la única defensa real es
+    // que ESTA función deje explícitamente el item en un estado que NO es
+    // 'reteaching' (bloquea semánticamente el siguiente paso) y sin contenido
+    // preparado de una ronda anterior (evita mostrar una explicación vieja
+    // como si fuera nueva). El caller (page.tsx) además debe comprobar este
+    // reason explícitamente antes de encadenar los siguientes pasos.
+    return { ...item, status: 'pending_reteach', preparedReteachContent: null, reason: 'duplicate_reteach_requires_alternate_content' }
   }
   return {
     ...item,

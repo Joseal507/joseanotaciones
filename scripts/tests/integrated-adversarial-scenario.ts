@@ -139,9 +139,14 @@ async function main() {
   assert.ok(recoveryItem, 'una respuesta normal incorrecta debe crear un recovery item')
 
   // ═══ 6. recovery asistido correcto -> NO resuelve independientemente ═══
-  function beginRound(item: RecoveryItem): RecoveryItem {
+  // Auditoría adversarial (Codex, Reteach #3.1): recordRecoveryReteachContent
+  // ahora rechaza correctamente contenido duplicado entre rondas (antes lo
+  // dejaba avanzar a verificación con la MISMA explicación — el bug real que
+  // motivó ese fix). `explanation` distingue cada ronda, como en producción
+  // (cada ronda genera una explicación nueva vía LLM).
+  function beginRound(item: RecoveryItem, explanation: string): RecoveryItem {
     const reteaching = beginRecoveryReteach(item, 'contrastive_explanation')
-    const explained = recordRecoveryReteachContent(reteaching, 'Reexplicación del concepto.')
+    const explained = recordRecoveryReteachContent(reteaching, explanation)
     return recordVerificationGenerationAttempt(beginRecoveryVerification(explained), true)
   }
   function checkAgainst(item: RecoveryItem, id: string, assistanceLevel: 'independent' | 'minimal_hint') {
@@ -157,7 +162,7 @@ async function main() {
     assert(presented.question)
     return recordRecoveryCheck(presented.item, q, { outcome: 'correct', correct: true }, assistanceLevel, 'yes').item
   }
-  recoveryItem = beginRound(recoveryItem)
+  recoveryItem = beginRound(recoveryItem, 'Reexplicación del concepto — ronda 1.')
   recoveryItem = checkAgainst(recoveryItem, 'recovery-assisted', 'minimal_hint')
   assert.notEqual(recoveryItem.status, 'resolved', 'BUG SI FALLA: un check asistido-correcto no puede resolver la ronda de recovery')
 
@@ -175,7 +180,7 @@ async function main() {
     // deduplica por question.id contra TODAS las rondas anteriores (nunca se
     // resetea entre rondas), así que reutilizar un id ya usado no añade nada
     // a la ronda nueva.
-    recoveryItem = beginRound(recoveryItem)
+    recoveryItem = beginRound(recoveryItem, 'Reexplicación del concepto — ronda 2, ángulo distinto.')
     recoveryItem = checkAgainst(recoveryItem, 'recovery-independent-round2a', 'independent')
     recoveryItem = checkAgainst(recoveryItem, 'recovery-independent-round2b', 'independent')
   }

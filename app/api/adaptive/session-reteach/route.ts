@@ -16,9 +16,11 @@ import {
   detectContentSignal,
   detectErrorType,
   selectRecoveryFormat,
+  type ErrorType,
 } from '../../../../lib/adaptive/evaluation/pedagogicalFormatSelector'
 import {
   buildReteachStrategyInstructions,
+  estimatedExplanationLength,
 } from '../../../../lib/adaptive/evaluation/recoveryStrategyEngine'
 import {
   createDeterministicRecoveryFallback,
@@ -27,6 +29,51 @@ import {
 
 export const maxDuration = 120
 export const dynamic = 'force-dynamic'
+
+// Auditoría adversarial (Codex, Reteach #2.1, post-319a5bc): el vocabulario
+// de errorType de scoring.ts (session-check/route.ts, scoreQuestion) NO es
+// el mismo que el ErrorType de pedagogicalFormatSelector.ts — solo algunos
+// valores tienen una correspondencia semántica directa y confiable. Mapear
+// solo esos; para el resto (p.ej. 'selection', 'explanation', donde no hay
+// una causa específica inferible con confianza) se cae al heurístico
+// existente en vez de adivinar una confusión conceptual concreta.
+const CONFIDENT_ERROR_TYPE_MAP: Record<string, ErrorType> = {
+  procedure: 'procedure',
+  relation: 'relation',
+  false_confidence: 'false_confidence',
+  recall: 'memory',
+  calculation: 'procedure',
+  vocabulary: 'vocabulary',
+  application: 'application',
+  causal: 'causal',
+  classification: 'classification',
+  memory: 'memory',
+}
+export function normalizeLatestErrorType(value: unknown): ErrorType | null {
+  if (typeof value !== 'string') return null
+  return CONFIDENT_ERROR_TYPE_MAP[value] || null
+}
+
+// Auditoría adversarial (Codex, Reteach #1.1): construye el historial de
+// intentos previos con respuesta real + errorType por ronda (no solo el
+// enunciado) cuando el cliente envía priorFailuresSummary; cae al listado
+// de solo-enunciado (previousQuestions) si no está disponible (restore
+// legacy / distintos call sites).
+export function buildPriorAttemptsSummary(
+  priorFailuresSummary: unknown,
+  previousQuestions: Array<{ format?: string; questionText?: string }>,
+): string {
+  const list = Array.isArray(priorFailuresSummary) ? priorFailuresSummary : []
+  if (list.length > 0) {
+    return list.map((f: any, i: number) =>
+      `- Ronda ${i + 1}: "${f.questionText}" — el estudiante respondió "${f.studentAnswerDisplay}" (correcta: "${f.correctAnswerDisplay}")${f.errorType ? `, tipo de error: ${f.errorType}` : ''}`
+    ).join('\n')
+  }
+  if (previousQuestions.length > 0) {
+    return previousQuestions.map(q => `- [${q.format}] ${q.questionText}`).join('\n')
+  }
+  return 'Ninguna — esta es la primera ronda.'
+}
 
 // PROBLEMA PEDAGÓGICO 5 (prueba humana real): la reexplicación usaba
 // analogías genéricas ("bolsa de caramelos", "equipo de fútbol") como
@@ -96,6 +143,7 @@ export async function POST(req: NextRequest) {
       failedKeyPoints,
       recoveryRound,
       previousQuestions,
+      priorFailuresSummary,
       studentProfile,
     } = body
     requestRecoveryId = typeof recoveryId === 'string' ? recoveryId : undefined
@@ -139,7 +187,16 @@ export async function POST(req: NextRequest) {
 
       // ── Estrategia pedagógica para el recovery round ──────────
       const roundContentSignal = detectContentSignal(teachingContent)
-      const roundErrorType = detectErrorType({
+      // Auditoría adversarial (Codex, Reteach #2.1): antes se recalculaba
+      // SIEMPRE un errorType heurístico a partir de formato+señal de
+      // contenido+número de ronda — nunca de la respuesta real del
+      // estudiante. Dos estudiantes con distractores/confusiones distintas
+      // sobre la MISMA pregunta y ronda recibían idéntica estrategia. Ahora
+      // se prioriza latestErrorType (evidencia real de la evaluación que
+      // disparó este recovery) cuando tiene una correspondencia confiable;
+      // el heurístico queda como fallback, no como fuente primaria.
+      const evidenceErrorType = normalizeLatestErrorType(latestErrorType)
+      const roundErrorType = evidenceErrorType || detectErrorType({
         questionFormat: typeof sourceQuestion?.format === 'string' ? sourceQuestion.format : 'multiple_choice',
         contentSignal: roundContentSignal,
         cognitiveLevel: (sourceQuestion?.targetDimension || 'comprehension') as any,
@@ -153,9 +210,15 @@ export async function POST(req: NextRequest) {
         consecutiveFailures: Math.max(0, Number(recoveryRound || 1) - 1),
       })
 
-      const priorQuestionsSummary = prior.length > 0
-        ? prior.map(q => `- [${q.format}] ${q.questionText}`).join('\n')
-        : 'Ninguna — esta es la primera ronda.'
+      // Auditoría adversarial (Codex, Reteach #1.1): antes solo se listaba el
+      // ENUNCIADO de preguntas previas — el prompt no podía saber si el
+      // estudiante repitió el mismo distractor entre rondas o cambió de
+      // confusión (dos señales pedagógicamente muy distintas: persistencia
+      // de una idea errónea vs una nueva). priorFailuresSummary (si el
+      // cliente lo envía — RecoveryFailure completo por intento) incluye
+      // respuesta elegida, respuesta correcta y errorType de CADA fallo
+      // real de este target, no solo el enunciado.
+      const priorQuestionsSummary = buildPriorAttemptsSummary(priorFailuresSummary, prior)
 
       const originalFormat = String(sourceQuestion?.format || 'multiple_choice')
       // PROBLEMA PEDAGÓGICO 4 (prueba humana real): antes, format1/format2 se
@@ -318,7 +381,7 @@ PROHIBIDO:
 
 Devuelve SOLO JSON sin markdown ni fences:
 {
-  "explanation": "reexplicación directa del error en máximo 3 oraciones",
+  "explanation": "reexplicación directa del error — extensión: ${estimatedExplanationLength(roundErrorType, roundContentSignal)}",
   "questions": [ { pregunta 1 }, { pregunta 2 } ]
 }`
 

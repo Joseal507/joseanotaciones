@@ -317,6 +317,15 @@ export default function SessionPage() {
   // igual que hintShownRef — debe resetear con cada pregunta nueva para que
   // la asistencia de una pregunta NUNCA se filtre a la siguiente.
   useEffect(() => { chatAssistedRef.current = false }, [currentQuestion?.id])
+  // OBJETIVO A: si el estudiante dejó el panel abierto y la sesión entra en
+  // evaluación/reevaluación independiente (p.ej. al pulsar "Siguiente
+  // pregunta"), el componente deja de montarse (ver render) — cerrar
+  // chatOpen aquí evita que, al volver más tarde a un contexto donde el
+  // chat sí se monta (feedback/teaching/reteaching), reaparezca ya abierto
+  // por sorpresa en vez de arrancar cerrado como cualquier apertura nueva.
+  useEffect(() => {
+    if (sessionPhase === "evaluating" && currentQuestion) setChatOpen(false)
+  }, [sessionPhase, currentQuestion?.id])
   useEffect(() => {
     clearAllRecoveryMetrics()
     return () => {
@@ -580,6 +589,50 @@ export default function SessionPage() {
         }))
         .filter((s: any) => s.conceptsCovered.length > 0);
 
+      // Auditoría adversarial (Codex, Intro/Review #2): final_review no
+      // recibía NADA del recorrido real — ni contenido efectivamente
+      // enseñado (solo labels de bloques del blueprint), ni factKeys
+      // demostrados, ni errores/recuperaciones. Con blockIds:[] (capítulo
+      // final), buildTeachingOnlyPrompt caía en TODOS los bloques del
+      // blueprint como si fuera una sesión normal, generando un paso por
+      // bloque — regeneración lineal, nunca síntesis. finalReviewContext
+      // reúne, SOLO para este kind, el contenido REAL ya presentado
+      // (steps.title/content/keyPoints, no labels de blueprint),
+      // demonstratedFactKeys reales del assessmentBlueprint de cada sesión,
+      // y un resumen compacto de qué factKeys necesitaron recovery — nunca
+      // el material completo, para mantener el prompt acotado.
+      const finalReviewContext = resolvedKind === "final_review" ? (() => {
+        const priorSessionNumbers = allChapters
+          .filter((c: any) => c.chapterNumber < sessionNumber && c.kind !== "final_review")
+          .map((c: any) => c.chapterNumber)
+        const sessions = priorSessionNumbers.map((num: number) => {
+          const content = as_.sessionContent?.[String(num)] as ClassContent | undefined
+          if (!content) return null
+          const steps = (content.steps || []).map((step: any) => ({
+            title: String(step.title || ""),
+            content: String(step.content || "").slice(0, 400),
+            keyPoints: Array.isArray(step.keyPoints) ? step.keyPoints.slice(0, 6) : [],
+          }))
+          const blueprint = content.assessmentBlueprint
+          const demonstratedFactKeys = blueprint
+            ? [...new Set((blueprint.objectives || []).flatMap((o: any) => o.demonstratedFactKeys || []))]
+            : []
+          const recoveryQueue = (as_.recoveryQueues as any)?.[String(num)] || []
+          const recoverySummary = recoveryQueue.map((item: any) => ({
+            factKeys: item.latestFactKeys || [],
+            resolved: item.status === "resolved",
+          }))
+          return {
+            sessionNumber: num,
+            sessionTitle: content.sessionTitle || `Sesión ${num}`,
+            steps,
+            demonstratedFactKeys,
+            recoverySummary,
+          }
+        }).filter(Boolean)
+        return { sessions }
+      })() : undefined
+
       const requestBody = {
         session: { ...chapter, kind: resolvedKind },
         blueprint: { version: bp.version, topics: bp.topics, blocks: bp.blocks },
@@ -603,6 +656,7 @@ export default function SessionPage() {
         // journey — desempate de variedad y nivel cognitivo ya demostrado por
         // factKey (P3.2). Nunca criterio principal de selección.
         generationHistory: computeGenerationHistorySignals(as_.sessionContent, { excludeSessionNumber: sessionNumber }),
+        finalReviewContext,
       }
       if (!sessionPreparationPromiseRef.current) {
         const operation = fetch("/api/adaptive/session-teach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(requestBody) })
@@ -748,7 +802,11 @@ export default function SessionPage() {
   // persiste el historial resultante. Nunca marca asistencia por abrir el
   // panel — solo por un mensaje efectivamente enviado.
   async function handleSendChatMessage(text: string) {
-    const isQuestionActive = sessionPhase === "evaluating" && Boolean(currentQuestion)
+    // Defensa en profundidad: con el gate de OBJETIVO A, el componente ya no
+    // se monta mientras isIndependentEvaluationActive() es true, así que
+    // esta rama en teoría es inalcanzable — pero se mantiene por si algún
+    // mensaje quedó en vuelo justo en el instante de la transición.
+    const isQuestionActive = isIndependentEvaluationActive()
     if (isQuestionActive && !isAdministrativeQuery(text)) {
       chatAssistedRef.current = true
       // Finding 1: persistir de inmediato — si el estudiante refresca ANTES
@@ -1317,6 +1375,35 @@ export default function SessionPage() {
     return `normal:${currentQuestion.id}`
   }
 
+  // OBJETIVO A (auditoría adversarial post-319a5bc): "Preguntar a ALAI" NO
+  // debe EXISTIR en el DOM (nunca solo oculto/deshabilitado visualmente)
+  // durante ninguna actividad cuyo estado pedagógico sea evaluación o
+  // reevaluación independiente. Fuente ÚNICA de verdad: la MISMA condición
+  // que YA decide si un mensaje de chat cuenta como asistencia
+  // (handleSendChatMessage, Finding 1) — sessionPhase 'evaluating' con una
+  // pregunta activa. Cubre por igual assessment normal y verificación de
+  // recovery (reevaluación independiente): ambas presentan su pregunta con
+  // sessionPhase 'evaluating', y ambas exigen currentAssistanceLevel() ===
+  // 'independent' para producir evidencia (recordNormalAnswerOutcome /
+  // recordRecoveryVerificationOutcome) — no hay ninguna distinción entre
+  // "evaluación" y "reevaluación independiente" a nivel de este gate,
+  // porque el motor tampoco la hace: currentAttemptKey()/
+  // currentAssistanceLevel() ya tratan ambos casos de forma unificada.
+  // Nunca se basa en texto/título de la actividad, solo en este estado real
+  // del motor. Fuera de esa ventana exacta el chat sigue disponible:
+  // enseñanza (teaching), explicación de recovery (reteaching — "recovery
+  // con asistencia": el estudiante aún no está respondiendo nada, pedir
+  // ayuda ahí no puede contaminar ninguna evidencia), espera de generación
+  // de verificación sin pregunta aún presentada (verification_generation),
+  // y revisión de feedback tras responder (feedback: la evidencia de ESA
+  // pregunta ya quedó capturada de forma síncrona ANTES de esta fase, ver
+  // recordNormalAnswerOutcome/recordRecoveryVerificationOutcome llamados
+  // justo antes de setSessionPhase("feedback") — pedir ayuda revisando el
+  // resultado no puede alterar retroactivamente evidencia ya registrada).
+  function isIndependentEvaluationActive(): boolean {
+    return sessionPhase === "evaluating" && Boolean(currentQuestion)
+  }
+
   // Finding 1 — persiste/limpia el registro de asistencia del intento activo
   // con el MISMO mecanismo (state + classContent + sessionContent vía
   // updateSessionById) que persistChatHistory/persistAssessmentBlueprint ya
@@ -1545,6 +1632,28 @@ export default function SessionPage() {
   function persistPreparedRecoveryRound(item: RecoveryItem, data: any, strategy: string): RecoveryItem {
     let prepared = beginRecoveryReteach(item, strategy)
     prepared = recordRecoveryReteachContent(prepared, typeof data.explanation === "string" ? data.explanation : "")
+    // Auditoría adversarial (Codex, Reteach 3.1): un duplicado NUNCA debe
+    // encadenar a verificación. beginRecoveryVerification y
+    // persistRecoveryVerificationQuestions son "auto-reparadores" por diseño
+    // (útiles ante inconsistencias reales), así que encadenarlos aquí
+    // habría deshecho el bloqueo de recordRecoveryReteachContent — hay que
+    // cortar explícitamente en este caller antes de llamarlos. El item ya
+    // vuelve con status 'pending_reteach' y preparedReteachContent limpio;
+    // se persiste tal cual para que el siguiente intento parta de un estado
+    // realmente reintentable, nunca mostrando contenido de una ronda previa.
+    if (prepared.reason === "duplicate_reteach_requires_alternate_content") {
+      const latestQueue = recoveryQueueRef.current
+      const nextQueue = latestQueue.map(candidate =>
+        candidate.recoveryId === prepared.recoveryId ? prepared : candidate
+      )
+      persistRecoveryQueue(nextQueue)
+      console.warn("[adaptive-recovery]", JSON.stringify({
+        event: "recovery_reteach_content_duplicate_rejected",
+        recoveryId: prepared.recoveryId,
+        reteachAttempt: prepared.reteachAttempt,
+      }))
+      return prepared
+    }
     prepared = beginRecoveryVerification(prepared)
     prepared = persistRecoveryVerificationQuestions(prepared, data.questions)
     const latestQueue = recoveryQueueRef.current
@@ -1626,6 +1735,18 @@ export default function SessionPage() {
           questionText: sourceQuestion.questionText,
           feedback: sourceFailure.result.feedback,
           previousQuestions: [...item.failures.map(failure => failure.question), ...item.checks.map(check => check.question)],
+          // Auditoría adversarial (Codex, Reteach #1.1): previousQuestions
+          // solo llevaba el ENUNCIADO de intentos previos — nunca qué
+          // respondió el estudiante en cada uno, así que el servidor no
+          // podía distinguir "repitió el mismo distractor" de "cambió de
+          // confusión entre rondas". item.failures YA tiene la respuesta y
+          // el resultado completos de cada fallo real de este target.
+          priorFailuresSummary: item.failures.map(failure => ({
+            questionText: failure.question.questionText,
+            studentAnswerDisplay: presentAnswer(failure.question, failure.answer),
+            correctAnswerDisplay: presentAnswer(failure.question, failure.question.correctAnswer),
+            errorType: failure.result.errorType || null,
+          })),
           previousReteachFingerprints: item.reteachContentHistory,
           materialTitle: sessionData?.materialNames?.[0] || "Material",
           sessionTitle: classContent?.sessionTitle || "",
@@ -2530,8 +2651,19 @@ export default function SessionPage() {
       <div style={{ maxWidth: 560, width: "100%", textAlign: "center", background: "rgba(30,41,59,0.6)", padding: 40, borderRadius: 20, border: "1px solid rgba(74,222,128,0.3)" }}>
         <div style={{ fontSize: 72, marginBottom: 20 }}>🎉</div>
         <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 12, color: "#4ade80" }}>Sesión completada</h1>
-        {/* Dominio final */}
-        {(() => {
+        {/* Dominio final — SOLO para sesiones evaluativas (learning). Auditoría
+            adversarial: introduction/final_review nunca tienen assessmentBlueprint
+            (initCoverage hace setAssessmentBlueprint(null) para estos kinds), así
+            que total=0 caía en el fallback `total > 0 ? ... : 100`, mostrando
+            "Dominio alcanzado — 0 de 0 objetivos demostrados" con un 100% — un
+            dato de mastery académico FABRICADO para una sesión que por diseño
+            nunca produjo evidencia. Mostrar el aro de dominio solo cuando la
+            sesión realmente evalúa evita afirmar dominio no demostrado. */}
+        {!shouldEvaluateSession(sessionKind) ? (
+          <div style={{ fontSize: 14, opacity: 0.75, marginBottom: 16 }}>
+            {sessionKind === "introduction" ? "Familiarización completada" : "Repaso completado"}
+          </div>
+        ) : (() => {
           const demonstrated = assessmentBlueprint?.demonstratedObjectiveIds?.length ?? 0
           const total = assessmentBlueprint?.taughtObjectiveIds?.length ?? 0
           const mastery = total > 0 ? Math.round((demonstrated / total) * 100) : 100
@@ -2649,8 +2781,15 @@ export default function SessionPage() {
         {/* HEADER */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
           <button onClick={openPlan} style={{ background: "transparent", color: "#94a3b8", border: "1px solid rgba(148,163,184,0.2)", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>← Salir al plan</button>
-          {/* DOMINIO — indicador visual arriba a la derecha */}
-          {(() => {
+          {/* DOMINIO — indicador visual arriba a la derecha. SOLO para sesiones
+              evaluativas: introduction/final_review nunca tienen objectives
+              (taughtObjectiveIds queda vacío), así que mostrar este badge ahí
+              siempre decía "0/0 objetivos" con un aro fabricado — nunca dominio
+              real. Ver también el bloque equivalente en la pantalla de
+              completado, unas líneas más abajo. */}
+          {!shouldEvaluateSession(sessionKind) ? (
+            <div style={{ fontSize: 13, opacity: 0.7 }}>Sesión {classContent.sessionNumber}</div>
+          ) : (() => {
             const coverage = assessmentBlueprint?.coverageRatio ?? 0
             const demonstrated = assessmentBlueprint?.demonstratedObjectiveIds?.length ?? 0
             const total = assessmentBlueprint?.taughtObjectiveIds?.length ?? 0
@@ -3219,17 +3358,26 @@ export default function SessionPage() {
 
       </div>
 
-      <AlaiSessionChat
-        isOpen={chatOpen}
-        onOpen={() => setChatOpen(true)}
-        onClose={() => setChatOpen(false)}
-        messages={chatMessages}
-        onSendMessage={handleSendChatMessage}
-        isSending={chatSending}
-        disclaimerVisible={sessionPhase === "evaluating" && Boolean(currentQuestion)}
-        onReferenceClick={handleChatReferenceClick}
-        taughtStepIds={(classContent?.steps || []).slice(0, currentStepIndex + 1).map(step => step.id)}
-      />
+      {/* OBJETIVO A: ni el botón flotante ni el panel de diálogo existen en
+          el DOM mientras isIndependentEvaluationActive() es true — no es un
+          ocultamiento visual (CSS/disabled), el componente completo se deja
+          de montar. disclaimerVisible queda en false porque, con este gate,
+          el componente nunca se monta en el único momento en que antes
+          valía true (evaluando con pregunta activa) — dejarlo calculado
+          sería lógica muerta. */}
+      {!isIndependentEvaluationActive() && (
+        <AlaiSessionChat
+          isOpen={chatOpen}
+          onOpen={() => setChatOpen(true)}
+          onClose={() => setChatOpen(false)}
+          messages={chatMessages}
+          onSendMessage={handleSendChatMessage}
+          isSending={chatSending}
+          disclaimerVisible={false}
+          onReferenceClick={handleChatReferenceClick}
+          taughtStepIds={(classContent?.steps || []).slice(0, currentStepIndex + 1).map(step => step.id)}
+        />
+      )}
     </div>
   )
 }

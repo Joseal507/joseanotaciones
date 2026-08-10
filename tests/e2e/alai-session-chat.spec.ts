@@ -53,8 +53,13 @@ async function installAlaiChatSession(page: Page) {
   const questionAssisted: CanonicalQuestion = {
     id: 'q-alai-chat-assisted', conceptId: stepId, conceptLabel: 'Concepto compartido', teachingBlockId: stepId,
     questionFamily: 'mcq_best_answer', variant: 'mcq_best_answer', difficulty: 'medium',
-    targetDimension: 'comprehension', questionText: 'Primera pregunta — se responderá con ayuda del chat.',
-    explanation: 'Explicación 1.', hint: '',
+    targetDimension: 'comprehension', questionText: 'Primera pregunta — se responderá con ayuda de la pista.',
+    // OBJETIVO A (auditoría adversarial post-319a5bc): el chat ya NO se
+    // renderiza durante evaluación (ver isIndependentEvaluationActive en
+    // page.tsx) — la única vía de asistencia que sigue disponible en una
+    // pregunta activa es la pista. Necesita un hint no vacío para que el
+    // botón "Ver pista" exista.
+    explanation: 'Explicación 1.', hint: 'Pista visible para la primera pregunta.',
     estimatedSeconds: 30, evidencesNeeded: 1, factKey: sharedFactKey, factKeys: keyPoints,
     targetObjectiveIds: objectiveIds, evidenceProduced: objectiveIds, coveredStepIds: [stepId], coveredKeyPoints: keyPoints,
     format: 'multiple_choice', options: [{ id: 'a', text: 'Opción correcta uno' }, { id: 'b', text: 'Opción incorrecta uno' }], correctAnswer: 'a',
@@ -145,43 +150,34 @@ test('flujo completo: teaching con chat, assessment con ayuda asistida (no indep
 
   await page.getByRole('button', { name: 'Siguiente pregunta →' }).click()
 
-  // ── ASSESSMENT (Q1): abrir chat SIN preguntar, cerrar — no debe contaminar ──
+  // ── ASSESSMENT (Q1): OBJETIVO A — el chat NO debe existir en el DOM
+  // mientras esta pregunta está activa (evaluación). Se usa la pista como
+  // única vía de asistencia disponible para reproducir "asistido no
+  // demuestra" — el chat en sí ya se probó exhaustivamente para este mismo
+  // invariante durante teaching más arriba, y no puede probarse aquí porque
+  // ya no es alcanzable vía UI en este estado.
   await expect(page.getByText('Primera pregunta')).toBeVisible()
-  await page.getByRole('button', { name: 'Preguntar a ALAI' }).click()
-  await expect(chatDialog).toBeVisible()
-  await expect(page.getByText('no contará como una demostración independiente')).toBeVisible()
-  await chatDialog.getByRole('button', { name: 'Cerrar chat' }).click()
-  await expect(chatDialog).not.toBeVisible()
-  const historyAfterOpenOnly = await readChatHistory(page)
-  // 2 mensajes = el par (usuario+asistente) de la pregunta hecha durante
-  // teaching — abrir/cerrar sin escribir no debe agregar ningún mensaje más.
-  expect(historyAfterOpenOnly?.length || 0, 'abrir y cerrar sin escribir no debe agregar ningún mensaje').toBe(2)
+  await expect(page.getByRole('button', { name: 'Preguntar a ALAI' }), 'OBJETIVO A: el botón de chat no debe existir durante una pregunta de evaluación').toHaveCount(0)
+  await expect(chatDialog, 'OBJETIVO A: el diálogo de chat no debe existir en el DOM durante evaluación').toHaveCount(0)
 
-  // Contenido sigue visible/disponible con el chat abierto (no lo tapa).
-  await page.getByRole('button', { name: 'Preguntar a ALAI' }).click()
-  await expect(chatDialog).toBeVisible()
-  await expect(page.getByText('Primera pregunta — se responderá con ayuda del chat.')).toBeVisible()
+  await page.getByRole('button', { name: 'Ver pista' }).click()
+  await expect(page.getByText('Pista visible para la primera pregunta.')).toBeVisible()
 
-  // Ahora sí pedir ayuda académica relacionada con la pregunta activa.
-  await chatDialog.getByPlaceholder('Escribe tu pregunta...').fill('No entendí esta pregunta, ayúdame a razonarla')
-  await chatDialog.getByRole('button', { name: 'Enviar', exact: true }).click()
-  await expect(chatDialog.getByText('ALAI responde sobre: "No entendí esta pregunta, ayúdame a razonarla"')).toBeVisible()
-  await chatDialog.getByRole('button', { name: 'Cerrar chat' }).click()
-
-  // Responder correctamente CON ayuda ya pedida para esta pregunta.
+  // Responder correctamente CON ayuda ya pedida (pista) para esta pregunta.
   await page.getByRole('button', { name: 'Opción correcta uno' }).click()
   await page.getByRole('button', { name: 'Enviar respuesta' }).click()
   await expect(page.getByText('✅ ¡Correcto!')).toBeVisible()
 
   const afterAssistedAnswer = await readAssessmentBlueprint(page)
   const objectiveAfterAssisted = afterAssistedAnswer.objectives.find((o: any) => o.factKeys.includes(sharedFactKey))
-  expect(objectiveAfterAssisted.demonstratedFactKeys, 'BUG SI FALLA: una respuesta correcta con ayuda del chat NO debe demostrar el factKey').not.toContain(sharedFactKey)
+  expect(objectiveAfterAssisted.demonstratedFactKeys, 'BUG SI FALLA: una respuesta correcta con ayuda de la pista NO debe demostrar el factKey').not.toContain(sharedFactKey)
   expect(afterAssistedAnswer.demonstratedObjectiveIds).not.toContain(objectiveAfterAssisted.objectiveId)
 
-  // ── ASSESSMENT (Q2): sin ningún uso del chat — debe demostrar independientemente ──
+  // ── ASSESSMENT (Q2): sin ningún uso de chat/pista — debe demostrar independientemente ──
   await page.getByRole('button', { name: 'Siguiente pregunta →' }).click()
   await expect(page.getByText('Segunda pregunta')).toBeVisible()
-  await expect(chatDialog).not.toBeVisible()
+  await expect(page.getByRole('button', { name: 'Preguntar a ALAI' }), 'OBJETIVO A: sigue sin existir durante Q2 (también evaluación)').toHaveCount(0)
+  await expect(chatDialog).toHaveCount(0)
   await page.getByRole('button', { name: 'Opción correcta dos' }).click()
   await page.getByRole('button', { name: 'Enviar respuesta' }).click()
   await expect(page.getByText('✅ ¡Correcto!')).toBeVisible()
@@ -196,8 +192,9 @@ test('flujo completo: teaching con chat, assessment con ayuda asistida (no indep
   await expect(page.getByText('Sesión completada')).toBeVisible()
 
   // ── Persistencia: refresh conserva completion + historial de chat ──
+  // Q1/Q2 ya no usan chat (OBJETIVO A) — solo queda el par de teaching.
   const historyBeforeReload = await readChatHistory(page)
-  expect(historyBeforeReload?.length, 'antes de refrescar debe haber 4 mensajes: par de teaching + par de assessment asistido').toBe(4)
+  expect(historyBeforeReload?.length, 'antes de refrescar debe haber 2 mensajes: solo el par de teaching (assessment usó pista, no chat)').toBe(2)
 
   await page.reload()
   // La pantalla de "Sesión completada" es un render branch distinto (como

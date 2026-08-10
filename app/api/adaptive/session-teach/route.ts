@@ -101,6 +101,20 @@ interface TeachRequest {
   academicDomainSource?: string;
   academicDomainConfidence?: number;
   academicDomainVersion?: string;
+  // Auditoría adversarial (Codex, Intro/Review #2): contenido REAL ya
+  // presentado en sesiones previas (no labels de blueprint), factKeys
+  // efectivamente demostrados y recuperaciones — única fuente que permite a
+  // final_review sintetizar el recorrido real en vez de regenerar linealmente
+  // los bloques del blueprint como si fuera una sesión normal.
+  finalReviewContext?: {
+    sessions: Array<{
+      sessionNumber: number;
+      sessionTitle: string;
+      steps: Array<{ title: string; content: string; keyPoints: any[] }>;
+      demonstratedFactKeys: string[];
+      recoverySummary: Array<{ factKeys: string[]; resolved: boolean }>;
+    }>;
+  };
 }
 
 function buildTeachingPrompt(req: TeachRequest, materialType: string, langHint: 'es' | 'en'): string {
@@ -1059,19 +1073,80 @@ export function parseFactoryJson(value: string): Record<string, any> {
   return parsed as Record<string, any>
 }
 
-function buildTeachingOnlyPrompt(body: TeachRequest): string {
+export function buildTeachingOnlyPrompt(body: TeachRequest): string {
   const assignedIds=new Set(body.session.blockIds||[])
   const learningSource=(body.blueprint.blocks||[]).filter((block:any)=>!assignedIds.size||assignedIds.has(String(block.id))).map((block:any)=>({id:String(block.id||''),label:String(block.label||''),summary:String(block.summary||''),kind:String(block.kind||''),importance:Number(block.importance||0),sourceQuote:typeof block.sourceQuote==='string'?block.sourceQuote:undefined}))
-  const introSource=(body.blueprint.topics||[]).slice(0,5).map((topic:any,index:number)=>({id:`introduction_orientation_${index+1}`,label:String(topic.title||`Parte ${index+1}`),summary:String(topic.description||''),kind:index===0?'intro':index===1?'concept':'connection',importance:0}))
-  const source=body.session.kind==='introduction'?(introSource.length>=3?introSource:introSource.concat([{id:'introduction_vocabulary',label:'Vocabulario clave',summary:'Orientación mínima de términos sin desarrollo profundo.',kind:'concept',importance:0},{id:'introduction_journey_map',label:'Mapa del recorrido',summary:'Temas que se estudiarán después, sin explicarlos.',kind:'recap',importance:0}]).slice(0,Math.max(3,introSource.length))):learningSource
-  const stepCount=Math.max(1,assignedIds.size||source.length); const charLimitPerStep = stepCount > 10 ? 450 : stepCount > 6 ? 700 : 1000;
+  // Auditoría adversarial (Codex, Intro/Review #3): la versión anterior
+  // tomaba SIEMPRE los primeros 5 topics por posición y asignaba el type por
+  // índice (0='intro',1='concept',resto='connection'), ignorando el `role`
+  // real que extractDocumentStructure ya calculó por CONTENIDO (foundation/
+  // problem/mechanism/application/integration/context) — dos materiales con
+  // los mismos 3-5 primeros topics por posición producían el mismo armazón
+  // sin importar de qué trataran, y un topic genuinamente central que
+  // apareciera después de la posición 5 quedaba descartado sin más. Fix: el
+  // `type` de cada paso de introducción se deriva del role real del topic, y
+  // cuando hay más de 5 topics se prioriza foundation/mechanism (roles que
+  // típicamente cargan el núcleo conceptual) antes de completar con el
+  // resto en orden original — nunca las primeras 5 posiciones a ciegas.
+  const INTRO_TYPE_BY_ROLE: Record<string, string> = {
+    foundation: 'intro', problem: 'concept', mechanism: 'concept',
+    application: 'example', integration: 'connection', context: 'connection',
+  }
+  const allTopicsForIntro=(body.blueprint.topics||[]) as any[]
+  const priorityRoles=new Set(['foundation','mechanism'])
+  const introTopicPool=allTopicsForIntro.length<=5?allTopicsForIntro:[
+    ...allTopicsForIntro.filter(t=>priorityRoles.has(String(t.role))),
+    ...allTopicsForIntro.filter(t=>!priorityRoles.has(String(t.role))),
+  ]
+  const introSource=introTopicPool.slice(0,5).map((topic:any,index:number)=>({id:`introduction_orientation_${index+1}`,label:String(topic.title||`Parte ${index+1}`),summary:String(topic.description||''),kind:INTRO_TYPE_BY_ROLE[String(topic.role)]||(index===0?'intro':'concept'),importance:0}))
+  // Auditoría adversarial (Codex, Intro/Review #2): final_review tenía
+  // blockIds:[] (capítulo final), así que caía en learningSource filtrando
+  // TODOS los bloques del blueprint — un paso por bloque, regeneración
+  // lineal del material entero, nunca síntesis transversal del recorrido
+  // REAL del estudiante. Con finalReviewContext (contenido efectivamente
+  // enseñado + factKeys demostrados + recovery por sesión) disponible, se
+  // construye un pool de "slots" de síntesis GENÉRICOS — la cantidad se
+  // deriva del volumen real de contenido (no un número fijo), pero el TEMA
+  // de cada uno lo decide el LLM a partir del material agregado real más
+  // abajo (finalReviewMaterialBlock), nunca una plantilla de secciones fija.
+  const finalReviewSessions=(body.finalReviewContext?.sessions||[])
+  const finalReviewTotalKeyPoints=finalReviewSessions.reduce((sum,s)=>sum+(s.steps||[]).reduce((n,step)=>n+(step.keyPoints?.length||0),0),0)
+  const finalReviewStepCount=finalReviewSessions.length>0?Math.min(7,Math.max(4,Math.ceil(finalReviewTotalKeyPoints/10))):0
+  const finalReviewSource=Array.from({length:finalReviewStepCount},(_,index)=>({id:`final_review_synthesis_${index+1}`,label:'',summary:'',kind:'recap',importance:0}))
+  const usesFinalReviewSynthesis=body.session.kind==='final_review'&&finalReviewSessions.length>0
+  const source=body.session.kind==='introduction'?(introSource.length>=3?introSource:introSource.concat([{id:'introduction_vocabulary',label:'Vocabulario clave',summary:'Orientación mínima de términos sin desarrollo profundo.',kind:'concept',importance:0},{id:'introduction_journey_map',label:'Mapa del recorrido',summary:'Temas que se estudiarán después, sin explicarlos.',kind:'recap',importance:0}]).slice(0,Math.max(3,introSource.length))):usesFinalReviewSynthesis?finalReviewSource:learningSource
+  const stepCount=Math.max(1,usesFinalReviewSynthesis?finalReviewSource.length:(assignedIds.size||source.length)); const charLimitPerStep = stepCount > 10 ? 450 : stepCount > 6 ? 700 : 1000;
+  // Material real agregado del recorrido, SOLO para final_review con
+  // contexto disponible — steps efectivamente enseñados (título+extracto+
+  // keyPoints), factKeys demostrados y qué necesitó recuperación, por
+  // sesión. Esto es lo que el LLM debe sintetizar; nunca se le pide repetir
+  // cada sesión una por una.
+  const finalReviewMaterialBlock=usesFinalReviewSynthesis?`
+
+MATERIAL REAL DEL RECORRIDO COMPLETO (${finalReviewSessions.length} sesiones ya estudiadas — sintetiza, NO repitas cada una por separado):
+${JSON.stringify(finalReviewSessions)}`:''
+  // Auditoría adversarial (Codex, Teaching #4.2): antes solo distinguía
+  // fact→recognition vs cualquier otro kind→comprehension, así que una
+  // fórmula, un procedimiento (kind='formula'), un ejemplo trabajado
+  // (kind='example') o un error común (kind='common_mistake') — que exigen
+  // poder USAR/aplicar la idea, no solo reconocerla — quedaban marcados
+  // igual que una simple definición. La evaluación posterior puede pedir
+  // aplicación sobre contenido que el teaching solo etiquetó como
+  // comprensión. Taxonomía real de block.kind (ver blueprint/route.ts):
+  // concept | entity | definition | formula | example | fact |
+  // common_mistake | note.
+  const COGNITIVE_TARGET_BY_KIND: Record<string, string> = {
+    fact: 'recognition', entity: 'recognition',
+    formula: 'application', example: 'application', common_mistake: 'application',
+    definition: 'comprehension', concept: 'comprehension', note: 'comprehension',
+  }
   const fixedStepMetadata=source.map((block,index)=>({
     id:`step_${index+1}`,
     microId:block.id,
     type:['intro','concept','example','connection','formula','recap','closing'].includes(block.kind)?block.kind:'concept',
     importance:block.importance>=100?'critical':block.importance>=80?'important':'supporting',
-    cognitiveTarget:block.kind==='fact'?'recognition':'comprehension',
-    relatedBlockIds:body.session.kind==='introduction'?[]:[block.id],
+    cognitiveTarget:COGNITIVE_TARGET_BY_KIND[block.kind]||'comprehension',
+    relatedBlockIds:body.session.kind==='introduction'||usesFinalReviewSynthesis?[]:[block.id],
     factKeys:[`${block.id}:fact:1`],
   }))
   return `Genera únicamente la enseñanza de la sesión. No generes preguntas, evaluaciones, bloques evaluativos, respuestas correctas, opciones ni feedback. La evaluación se planificará en una operación posterior.
@@ -1079,8 +1154,8 @@ function buildTeachingOnlyPrompt(body: TeachRequest): string {
 MATERIAL: ${body.materialTitle}
 SESIÓN: ${body.session.title}
 OBJETIVO: ${body.session.objective}
-Genera exactamente ${stepCount} pasos docentes. PRESUPUESTO DE ESPACIO: Debido a que la sesión tiene ${stepCount} pasos, cada campo "content" DEBE tener menos de ${charLimitPerStep} caracteres para evitar truncamiento del JSON. Sé extremadamente directo y conciso.${body.session.kind==='introduction'?' (contrato de orientación: entre 3 y 5, vocabulario y mapa; cero desarrollo profundo)':' , uno por cada bloque asignado'}, manteniendo un orden pedagógico coherente y sin inventar información.
-CONTENIDO ASIGNADO: ${JSON.stringify(source)}
+Genera exactamente ${stepCount} pasos docentes. PRESUPUESTO DE ESPACIO: Debido a que la sesión tiene ${stepCount} pasos, cada campo "content" DEBE tener menos de ${charLimitPerStep} caracteres para evitar truncamiento del JSON. Sé extremadamente directo y conciso.${body.session.kind==='introduction'?' (contrato de orientación: entre 3 y 5, vocabulario y mapa; cero desarrollo profundo)':usesFinalReviewSynthesis?' (contrato de repaso global: cada paso es una unidad de SÍNTESIS que tú defines libremente — big picture, conexiones entre sesiones, fórmulas esenciales, comparaciones, procesos, errores típicos recurrentes, "si recuerdas solo X cosas", puntos de examen — elige dinámicamente lo que el material real haga útil, NUNCA una lista fija de secciones ni un resumen sesión-por-sesión)':' , uno por cada bloque asignado'}, manteniendo un orden pedagógico coherente y sin inventar información.${finalReviewMaterialBlock}
+${usesFinalReviewSynthesis?`INSTRUCCIÓN DE SÍNTESIS: usa demonstratedFactKeys para saber qué SÍ demostró dominar el estudiante (puedes ser breve ahí) y recoverySummary para saber qué le costó (dale más énfasis o una comparación que aclare la confusión). Compacta el recorrido completo — el resultado debe sentirse como "ahora tengo toda la materia organizada en la cabeza", no como releer cada sesión de nuevo.`:`CONTENIDO ASIGNADO: ${JSON.stringify(source)}`}
 METADATOS OBLIGATORIOS POR PASO: ${JSON.stringify(fixedStepMetadata)}
 
 Devuelve exclusivamente este TeachingContentSchema como JSON válido, sin markdown:
@@ -1109,6 +1184,13 @@ function factoryPlan(raw: Record<string, any>): EvaluationPlan {
 }
 
 
+// Auditoría adversarial (Codex, misión nocturna FASE 1, P0 CONFIRMADO):
+// short_response nunca estuvo en este canonicalizador — el flujo VIVO de
+// generación (generateEvaluationBlock más abajo) no podía producir una
+// evaluación escrita aunque el modo fuera write_explain, y cualquier
+// intento del LLM de devolver format="short_response" era descartado
+// silenciosamente por canonicalizeEvaluationFormat (retornaba null). Esto
+// hacía que write_explain no fuera realmente "written-only" en la práctica.
 type CanonicalEvaluationFormat =
   | 'multiple_choice'
   | 'multi_select'
@@ -1119,6 +1201,7 @@ type CanonicalEvaluationFormat =
   | 'classify'
   | 'scenario'
   | 'find_the_error'
+  | 'short_response'
 
 const CANONICAL_EVALUATION_FORMATS = new Set<CanonicalEvaluationFormat>([
   'multiple_choice',
@@ -1130,6 +1213,7 @@ const CANONICAL_EVALUATION_FORMATS = new Set<CanonicalEvaluationFormat>([
   'classify',
   'scenario',
   'find_the_error',
+  'short_response',
 ])
 
 const EVALUATION_FORMAT_ALIASES: Record<string, CanonicalEvaluationFormat> = {
@@ -1196,6 +1280,27 @@ const EVALUATION_FORMAT_ALIASES: Record<string, CanonicalEvaluationFormat> = {
   'classify_category': 'classify',
   'classify_valid_invalid': 'classify',
   'classify_affected_not': 'classify',
+
+  // written / open response (write_explain). Auditoría adversarial (Codex,
+  // revisión final FASE 5, P1 CONFIRMADO): las claves deben ser los
+  // ÚNICOS QuestionVariant realmente registrados en
+  // questionFormatRegistry.ts (QUESTION_VARIANT_FORMAT) — ese es el
+  // registro que normalizeGeneratedQuestion() consulta más adelante en
+  // canonicalizeGeneratedSession(); una variante inventada aquí (p.ej.
+  // 'explain_why' o 'justify' sueltos, sin sufijo) pasaba ESTE
+  // canonicalizador local pero luego normalizeGeneratedQuestion() la
+  // rechazaba silenciosamente por no estar en QUESTION_VARIANT_FORMAT,
+  // descartando la pregunta escrita que write_explain necesitaba.
+  'short_response': 'short_response',
+  'open_response': 'short_response',
+  'short_answer_define': 'short_response',
+  'short_answer_compare': 'short_response',
+  'short_answer_summarize': 'short_response',
+  'explain_why_cause': 'short_response',
+  'explain_why_consequence': 'short_response',
+  'justify_answer': 'short_response',
+  'teach_back': 'short_response',
+  'problem_setup': 'short_response',
 }
 
 const DEFAULT_VARIANT_BY_FORMAT: Record<CanonicalEvaluationFormat, string> = {
@@ -1208,6 +1313,7 @@ const DEFAULT_VARIANT_BY_FORMAT: Record<CanonicalEvaluationFormat, string> = {
   classify: 'classify_category',
   scenario: 'scenario_predict',
   find_the_error: 'find_error_reasoning',
+  short_response: 'explain_why_cause',
 }
 
 function normalizeEvalToken(value: unknown): string {
@@ -1593,6 +1699,15 @@ function factoryQuestions(raw: Record<string, any>, block: EvaluationPlanBlock):
         correctAnswer = normalizedClassify ? resolveClassifyAnswer(item.correctAnswer, normalizedClassify) : null
         break
       }
+      case 'short_response': {
+        // Auditoría adversarial (Codex, misión nocturna FASE 1): sin este
+        // case, el `default` de abajo ponía correctAnswer=null — la
+        // respuesta modelo que evaluateWithAI necesita para graduar
+        // (session-check/route.ts) se perdía por completo para write_explain.
+        options = null
+        correctAnswer = typeof item.correctAnswer === 'string' ? item.correctAnswer : optionText(item.correctAnswer)
+        break
+      }
       default: {
         options = item.options ?? null
         correctAnswer = null
@@ -1718,6 +1833,7 @@ VARIANTS DISPONIBLES Y SU FORMAT:
 - find_the_error → find_error_calculation, find_error_reasoning, find_error_definition
 - classify → classify_category, classify_valid_invalid
 - numeric_problem → problem_solve, numeric_missing_value (permitido en cualquier MODO incluido quick_test — respuesta corta cerrada, no escritura abierta; usa esta variant, no scenario_predict, cuando el paso trae una fórmula o un ejemplo numérico resuelto — el estudiante debe calcular, no reconocer)
+- short_response → explain_why_cause, explain_why_consequence, justify_answer, teach_back, short_answer_define, short_answer_compare, short_answer_summarize, problem_setup (respuesta ESCRITA abierta — el estudiante redacta, no selecciona nada. OBLIGATORIO en MODO=write_explain, ver regla de modo más abajo; PROHIBIDO en MODO=quick_test. Usa EXACTAMENTE uno de estos variants, nunca una variación libre como "explain_why" o "justify" sueltos)
 
 SELECCIÓN DE VARIANT POR TIPO DE PASO — GUÍA DETALLADA:
 
@@ -1809,6 +1925,8 @@ classify_category:
 
 MODO=${setup.evalPreference||'mix_everything'}
 quick_test: usa solo múltiple opción, V/F, matching, ordering, word_bank, scenario, find_the_error, numeric_problem — NUNCA short_response (respuesta abierta larga). numeric_problem SÍ está permitido en quick_test: es una respuesta corta y cerrada (un valor), no escritura abierta.
+write_explain: la evaluación inicial de este bloque DEBE usar short_response (variant explain_why_cause, explain_why_consequence, justify_answer, teach_back, short_answer_define, short_answer_compare o short_answer_summarize según lo que la pregunta exija — usa EXACTAMENTE uno de estos nombres) para TODAS las preguntas que evalúen comprensión/aplicación/transferencia de un concepto. Excepción única: si el paso es de tipo "formula" y el keyPoint exige un cálculo numérico concreto, usa numeric_problem para ESA pregunta específica (sigue siendo respuesta corta cerrada, no una elección entre opciones). NO generes multiple_choice, true_false, matching, word_bank, ordering, scenario, find_the_error ni classify en este modo — este modo existe precisamente para que el estudiante REDACTE su comprensión, no para que seleccione entre alternativas ya escritas.
+mix_everything: elige el formato que mejor demuestre la capacidad exigida por CADA objetivo — no repartas formatos por variedad ni por cuota. Guía mínima: objetivo numérico → numeric_problem; secuencia/proceso → ordering; relación término-definición → matching; categorización → classify; explicación causal que exige que el estudiante PRODUZCA el razonamiento (no solo reconocerlo entre opciones) → short_response o scenario; selección de varios componentes simultáneos genuinamente correctos → multi_select. La regla de variedad de más arriba sigue aplicando como desempate entre formatos igualmente apropiados, nunca como criterio principal.
 
 FORMATO DE OPTIONS POR VARIANT:
 - mcq_*: options=[{id:"a",text:"..."},{id:"b",text:"..."},{id:"c",text:"..."},{id:"d",text:"..."}], correctAnswer="a"
@@ -1820,6 +1938,7 @@ FORMATO DE OPTIONS POR VARIANT:
 - find_error_*: presenta un enunciado con error, opciones identifican el error
 - classify_*: options={categories:["Cat A","Cat B"],items:[{id:"i1",text:"...",category:"Cat A"},...]}
 - numeric_problem: NO incluyas options; correctAnswer={"value":numero,"tolerance":numero,"unit":"unidad exacta del material o cadena vacía"} — value y unit deben coincidir literalmente con el material; tolerance pequeña y razonable (ej. redondeo del último dígito calculado)
+- short_response: NO incluyas options; correctAnswer="respuesta modelo en texto, describiendo el requisito CENTRAL que la respuesta del estudiante debe cumplir para considerarse correcta — no exijas ahí detalles opcionales que la pregunta no pidió explícitamente"
 
 REGLA DE GROUNDEDNESS — OBLIGATORIA:
 Toda opción, valor, número, unidad, fórmula o dato DEBE estar tomado LITERALMENTE del contenido de los PASOS.
@@ -1839,7 +1958,20 @@ MÍNIMO SUFICIENTE: genera las preguntas necesarias para cubrir los keyPoints de
 Devuelve SOLO JSON {"questions":[...]} sin markdown ni fences.
 BLOQUE=${JSON.stringify(block)}
 PASOS=${JSON.stringify(scoped)}
-ACEPTADAS=${JSON.stringify(accepted.map(q=>({format:q.format,prompt:q.prompt,targetFactKeys:q.targetFactKeys})))}`,2600);return {...block,questions:factoryQuestions(raw,block)}},
+ACEPTADAS=${JSON.stringify(accepted.map(q=>({format:q.format,prompt:q.prompt,targetFactKeys:q.targetFactKeys})))}`,2600);const generatedQuestions=factoryQuestions(raw,block);
+      // Auditoría adversarial (Codex, misión nocturna FASE 1, P0): write_explain
+      // debe ser written-only para la evaluación inicial (excepto
+      // numeric_problem, respuesta corta cerrada legítima cuando el paso es
+      // numérico). Un fallback silencioso a formatos cerrados normales es
+      // exactamente lo que el hallazgo señaló — esto NO bloquea ni
+      // reintenta (evita riesgo de loop infinito), pero lo deja observable:
+      // un fallback genuino de infraestructura debe quedar telemetrado, no
+      // silencioso.
+      if ((setup.evalPreference||'mix_everything')==='write_explain') {
+        const nonWritten=generatedQuestions.filter(q=>q.format!=='short_response'&&q.format!=='numeric_problem')
+        if (nonWritten.length>0) telemetry('write_explain_produced_closed_format_fallback',{blockId:block.blockId,nonWrittenCount:nonWritten.length,totalCount:generatedQuestions.length,formats:nonWritten.map(q=>q.format)})
+      }
+      return {...block,questions:generatedQuestions}},
     repairEvaluationBlock:async(block,missing:EvaluationCoverageDiagnosis,accepted)=>{const requiredReplacementCount=Math.max(missing.invalidQuestionIds.length+missing.duplicateQuestionIds.length,missing.missingRequiredStepIds.length,missing.missingCriticalKeyPoints.length,missing.missingImportantKeyPoints.length,missing.missingFactKeys.length);const teaching=preparationStore.get(generationKey)!.teachingContent!;const scopedSteps=compactTeachingForEvaluation(teaching).filter(step=>block.coveredStepIds.includes(step.stepId));const repairPayload={blockId:block.blockId,requiredReplacementCount,missingKeyPointIds:[...missing.missingCriticalKeyPoints,...missing.missingImportantKeyPoints],missingFactKeys:missing.missingFactKeys,invalidQuestionIds:missing.invalidQuestionIds,coveredStepIds:block.coveredStepIds,allowedKeyPointIds:block.coveredKeyPointIds,allowedFactKeys:block.coveredFactKeys,allowedObjectiveIds:block.targetObjectiveIds,allowedCognitiveTargets:block.cognitiveTargets,targetTeaching:scopedSteps,acceptedQuestions:accepted.map(question=>({questionId:question.questionId,format:question.format,prompt:question.prompt,targetStepIds:question.targetStepIds,targetKeyPointIds:question.targetKeyPointIds,targetFactKeys:question.targetFactKeys}))};return factoryQuestions(await remote('incremental_evaluation_repair',`Genera exactamente ${requiredReplacementCount} preguntas nuevas alineadas con targetTeaching. GROUNDEDNESS: todos los valores, números y datos deben estar tomados literalmente de targetTeaching. Si la pregunta evalúa un ejemplo, incluye el contexto del ejemplo en el enunciado. CALIBRACIÓN: recognition=easy, comprehension=medium, application/analysis/transfer=hard. Cada pregunta debe incluir questionId,targetStepIds,targetKeyPointIds,targetFactKeys,targetObjectiveIds,cognitiveTarget,format,prompt,options,correctAnswer,feedback,difficulty. targetFactKeys debe contener al menos un valor literal de allowedFactKeys; targetObjectiveIds debe usar allowedObjectiveIds; cognitiveTarget debe usar allowedCognitiveTargets. Cada pregunta debe cubrir literalmente al menos uno de missingKeyPointIds y evaluar el texto asociado en targetTeaching, sin desviarse a otro dato. Si missingFactKeys no está vacío, el conjunto de preguntas nuevas debe cubrir TODOS esos factKeys literalmente en targetFactKeys (una sola pregunta puede cubrir varios factKeys si genuinamente aplica). Reemplaza funcionalmente invalidQuestionIds. No repitas acceptedQuestions. Usa exclusivamente los IDs suministrados. Devuelve SOLO JSON {"questions":[...]}, con exactamente ${requiredReplacementCount} elementos. No devuelvas un array vacío. Modo=${setup.evalPreference||'mix_everything'}; quick_test exige formatos cerrados.\nTAREA=${JSON.stringify(repairPayload)}`,3200),block)},
   })
   const academicDomainMetadata = {

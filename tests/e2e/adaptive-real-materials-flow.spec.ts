@@ -90,7 +90,14 @@ async function installMaterial(page: Page, material: typeof materials[number]) {
     return route.fulfill({ json: {
       success: true, recoveryId: body.recoveryId, recoveryTargetId: body.recoveryTargetId,
       roundId: body.roundId, roundNumber: round,
-      explanation: `**Reexplicación específica de ${material.title}.** Corrige solamente la relación que falló.`,
+      // Auditoría adversarial (Codex, Reteach #3.1): recordRecoveryReteachContent
+      // ahora rechaza correctamente contenido duplicado entre rondas — cada
+      // ronda real de producción genera una explicación distinta (nueva
+      // llamada al LLM). `round` distingue la explicación aquí igual que ya
+      // distinguía el texto de las preguntas, para no disparar el guard de
+      // duplicados en un fixture que antes reutilizaba el mismo texto en
+      // cada ronda.
+      explanation: `**Reexplicación específica de ${material.title} — ronda ${round}.** Corrige solamente la relación que falló.`,
       questions: [recoveryQuestion(1), recoveryQuestion(2)], target: body.target,
       provider: 'openrouter', model: 'google/gemini-2.5-flash', generationKey: body.generationKey, preparedAt: Date.now(),
     } })

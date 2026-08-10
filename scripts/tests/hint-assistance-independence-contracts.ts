@@ -85,15 +85,23 @@ function checkAgainst(item: RecoveryItem, questionId: string, assistanceLevel: '
   return recordRecoveryCheck(presented.item, q, { outcome: 'correct', correct: true }, assistanceLevel, 'yes').item
 }
 
-function beginRound(item: RecoveryItem): RecoveryItem {
+// Auditoría adversarial (Codex, Reteach #3.1): recordRecoveryReteachContent
+// ahora RECHAZA correctamente contenido duplicado entre rondas (antes lo
+// dejaba pasar, permitiendo avanzar a verificación con la MISMA explicación
+// — el bug real que motivó ese fix). Cada ronda real de producción genera
+// una explicación distinta (nueva llamada al LLM); `explanation` aquí
+// distingue las rondas de la misma forma, para no disparar por accidente el
+// guard de duplicados en un test cuyo propósito es otro (independencia por
+// assistanceLevel, no anti-repetición).
+function beginRound(item: RecoveryItem, explanation: string): RecoveryItem {
   const reteaching = beginRecoveryReteach(item, 'contrastive_explanation')
-  const explained = recordRecoveryReteachContent(reteaching, 'Reexplicación del concepto.')
+  const explained = recordRecoveryReteachContent(reteaching, explanation)
   return recordVerificationGenerationAttempt(beginRecoveryVerification(explained), true)
 }
 
 // ═══ A: independiente + asistido (correcto ambos) NO resuelve la ronda ═══
 let item = createRecoveryQueue([originalFailure()])[0]
-item = beginRound(item)
+item = beginRound(item, 'Reexplicación del concepto — ronda A.')
 item = checkAgainst(item, 'round1-independent', 'independent')
 assert.notEqual(item.status, 'resolved', 'tras 1 check independiente de 2 requeridos, la ronda no debe resolverse aún')
 item = checkAgainst(item, 'round1-hinted', 'minimal_hint')
@@ -102,7 +110,7 @@ assert.equal(item.status, 'pending_reteach', 'la ronda se agota (2/2 completados
 assert.equal(item.successfulIndependentChecks, 1, 'solo el check independiente debe contar como éxito independiente — el asistido no suma')
 
 // ═══ B: ronda posterior, 2 checks independientes-correctos SÍ resuelve ═══
-item = beginRound(item)
+item = beginRound(item, 'Reexplicación del concepto — ronda B, ángulo distinto.')
 item = checkAgainst(item, 'round2-independent-1', 'independent')
 assert.notEqual(item.status, 'resolved')
 item = checkAgainst(item, 'round2-independent-2', 'independent')

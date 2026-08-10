@@ -15,6 +15,17 @@ import type { CanonicalQuestion } from '../../lib/adaptive/evaluation/questionCo
 //   1. assessment chat -> academic help -> refresh -> correct => assisted, NO demonstrated factKey
 //   2. recovery chat -> academic help -> refresh -> correct => NO successfulIndependentCheck
 //   3. assistance no se filtra a la pregunta siguiente
+//
+// OBJETIVO A (post-319a5bc): el chat ya no se renderiza durante evaluación
+// ni reevaluación independiente (ver isIndependentEvaluationActive en
+// page.tsx) — dejó de ser alcanzable vía UI exactamente en los puntos donde
+// estos dos tests lo usaban para disparar "asistido". Se reemplaza por la
+// pista (Ver pista), la única vía de asistencia que SIGUE disponible ahí,
+// preservando exactamente las mismas aserciones sobre persistencia por
+// intento — el mecanismo probado (persistPendingAssistance/
+// restoredAssistanceRef) es el mismo para ambas fuentes de asistencia. Cada
+// test añade además una aserción explícita de que el chat no existe en el
+// DOM en ese punto, cubriendo así también el propio OBJETIVO A.
 
 const temaId = 'e2e-f1-refresh-tema'
 const sessionId = 'e2e-f1-refresh-session'
@@ -42,12 +53,12 @@ async function readRecoveryQueue(page: Page) {
   }, { sessionId })
 }
 
-function question(id: string, factKey: string, targetObjectiveIds: string[], correctId: string, format: 'multiple_choice' = 'multiple_choice'): CanonicalQuestion {
+function question(id: string, factKey: string, targetObjectiveIds: string[], correctId: string, format: 'multiple_choice' = 'multiple_choice', hint = ''): CanonicalQuestion {
   return {
     id, conceptId: stepId, conceptLabel: 'Concepto compartido', teachingBlockId: stepId,
     questionFamily: 'mcq_best_answer', variant: 'mcq_best_answer', difficulty: 'medium',
     targetDimension: 'comprehension', questionText: `Pregunta ${id}.`,
-    explanation: 'Explicación.', hint: '',
+    explanation: 'Explicación.', hint,
     estimatedSeconds: 30, evidencesNeeded: 1, factKey, factKeys: [factKey],
     targetObjectiveIds, evidenceProduced: targetObjectiveIds, coveredStepIds: [stepId], coveredKeyPoints: keyPoints,
     format, options: [{ id: correctId, text: 'Opción correcta' }, { id: correctId === 'a' ? 'b' : 'a', text: 'Opción incorrecta' }],
@@ -62,7 +73,10 @@ async function installAssessmentRefreshSession(page: Page) {
   )
   const objectiveIds = assessment.objectives.map(o => o.objectiveId)
 
-  const q1 = question('q-f1-assisted', sharedFactKey, objectiveIds, 'a')
+  // q1 necesita hint no vacío: OBJETIVO A quita el chat del DOM durante
+  // evaluación, así que la pista es la única vía de asistencia alcanzable
+  // vía UI para reproducir "asistido + refresh no cuenta como independiente".
+  const q1 = question('q-f1-assisted', sharedFactKey, objectiveIds, 'a', 'multiple_choice', 'Pista visible para q-f1-assisted.')
   const q2 = question('q-f1-independent', sharedFactKey, objectiveIds, 'a')
 
   const learning = {
@@ -111,15 +125,17 @@ test('item 1 y 3 — assessment: chat + refresh antes de responder no cuenta com
   await page.getByRole('button', { name: 'Siguiente pregunta →' }).click()
   await expect(page.getByText('Pregunta q-f1-assisted')).toBeVisible()
 
-  const chatDialog = page.getByRole('dialog', { name: 'Chat con ALAI' })
-  await page.getByRole('button', { name: 'Preguntar a ALAI' }).click()
-  await chatDialog.getByPlaceholder('Escribe tu pregunta...').fill('No entendí esta pregunta, ayúdame a razonarla')
-  await chatDialog.getByRole('button', { name: 'Enviar', exact: true }).click()
-  await expect(chatDialog.getByText('ALAI responde:')).toBeVisible()
-  await chatDialog.getByRole('button', { name: 'Cerrar chat' }).click()
+  // OBJETIVO A (post-319a5bc): el chat ya no existe en el DOM durante una
+  // pregunta de evaluación — se verifica explícitamente, y se usa la pista
+  // (única vía de asistencia alcanzable aquí) para reproducir el mismo
+  // invariante de persistencia por intento que antes se probaba con chat.
+  await expect(page.getByRole('button', { name: 'Preguntar a ALAI' }), 'OBJETIVO A: el chat no debe existir durante evaluación').toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'Chat con ALAI' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Ver pista' }).click()
+  await expect(page.getByText('Pista visible para q-f1-assisted.')).toBeVisible()
 
-  // REFRESH antes de responder — chatAssistedRef (en memoria) se pierde,
-  // pero el registro persistido debe sobrevivir y aplicarse al restaurar.
+  // REFRESH antes de responder — hintShownRef (en memoria) se pierde, pero
+  // el registro persistido debe sobrevivir y aplicarse al restaurar.
   await page.reload()
   await page.getByRole('button', { name: 'Siguiente pregunta →' }).click()
   await expect(page.getByText('Pregunta q-f1-assisted')).toBeVisible()
@@ -267,13 +283,14 @@ test('item 2 — recovery: chat + refresh antes de responder no resuelve la veri
   await page.getByRole('button', { name: 'Verificar comprensión →' }).click()
   await expect(page.getByText('Ronda 1: verificación 1.')).toBeVisible()
 
-  const chatDialog = page.getByRole('dialog', { name: 'Chat con ALAI' })
-  await page.getByRole('button', { name: 'Preguntar a ALAI' }).click()
-  await expect(page.getByText('no contará como una demostración independiente')).toBeVisible()
-  await chatDialog.getByPlaceholder('Escribe tu pregunta...').fill('No entendí el error, ayúdame a razonarlo')
-  await chatDialog.getByRole('button', { name: 'Enviar', exact: true }).click()
-  await expect(chatDialog.getByText('ALAI responde:')).toBeVisible()
-  await chatDialog.getByRole('button', { name: 'Cerrar chat' }).click()
+  // OBJETIVO A (post-319a5bc): el chat ya no existe en el DOM durante una
+  // verificación de recovery activa (reevaluación independiente) — se
+  // verifica explícitamente, y se usa la pista (ya declarada en el fixture,
+  // 'Pista.') como única vía de asistencia alcanzable aquí.
+  await expect(page.getByRole('button', { name: 'Preguntar a ALAI' }), 'OBJETIVO A: el chat no debe existir durante una verificación de recovery').toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'Chat con ALAI' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Ver pista' }).click()
+  await expect(page.getByText('Pista.')).toBeVisible()
 
   const queueBeforeRefresh = await readRecoveryQueue(page)
   const successfulBefore = queueBeforeRefresh?.[0]?.successfulIndependentChecks ?? 0
