@@ -17,6 +17,8 @@ import { useEffect, useState, useRef, useCallback } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { AcademicContent } from "../../../../../components/academic/AcademicContent"
 import { AcademicListbox } from "../../../../../components/academic/AcademicListbox"
+import { AlaiSessionChat, type AlaiChatMessage } from "../../../../../components/materias/AlaiSessionChat"
+import { isAdministrativeQuery } from "../../../../../lib/adaptive/evaluation/chatAssistanceClassifier"
 import { presentAnswer } from "../../../../../lib/adaptive/evaluation/answerPresentation"
 import {
   beginRecoveryReteach,
@@ -136,6 +138,7 @@ interface ClassContent {
   evaluationBlocks?: EvaluationBlock[]
   evaluationProgress?: Record<string, EvaluationBlockProgress>
   evaluationCoverage?: { coverageRatio: number }
+  chatHistory?: AlaiChatMessage[]
 }
 
 const SI = { intro: "🎯", concept: "💡", formula: "🔢", example: "📝", connection: "🔗", warning: "⚠️", recap: "📋", closing: "🏁" } as Record<string, string>
@@ -193,6 +196,17 @@ export default function SessionPage() {
   // estudiante genuinamente pide ayuda — la distinción vuelve a ser
   // pedagógicamente significativa en vez de un hardcode inverso.
   const [hintRevealed, setHintRevealed] = useState(false)
+  // PARTE B — chat ALAI. chatAssistedRef sigue el MISMO patrón que
+  // hintShownRef: fuente real de asistencia (ref, no state — no debe
+  // disparar un re-render por sí sola), se resetea en el mismo efecto que
+  // hintShownRef (por currentQuestion?.id), y solo se activa por una acción
+  // explícita del estudiante (enviar un mensaje académico), nunca por abrir
+  // el panel. chatOpen/chatMessages/chatSending son UI/estado de
+  // presentación puros, sin ningún efecto sobre evidence.
+  const chatAssistedRef = useRef(false)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatMessages, setChatMessages] = useState<AlaiChatMessage[]>([])
+  const [chatSending, setChatSending] = useState(false)
   const [evalResult, setEvalResult] = useState<any>(null)
   const [evalLoading, setEvalLoading] = useState(false)
   const [evalError, setEvalError] = useState<string | null>(null)
@@ -277,6 +291,10 @@ export default function SessionPage() {
   // pista (ver el botón "Ver pista" en el render) — no por su mera
   // disponibilidad. Se resetea con cada pregunta nueva.
   useEffect(() => { hintShownRef.current = false; setHintRevealed(false) }, [currentQuestion?.id])
+  // chatAssistedRef pertenece al INTENTO actual (misma pregunta/verificación),
+  // igual que hintShownRef — debe resetear con cada pregunta nueva para que
+  // la asistencia de una pregunta NUNCA se filtre a la siguiente.
+  useEffect(() => { chatAssistedRef.current = false }, [currentQuestion?.id])
   useEffect(() => {
     clearAllRecoveryMetrics()
     return () => {
@@ -459,6 +477,11 @@ export default function SessionPage() {
       }
 
       setClassContent(cached); setSessionData(as_)
+        // PARTE B — chat ALAI: historial session-scoped, restaurado del mismo
+        // objeto persistido que assessmentBlueprint/evaluationProgress —
+        // sobrevive a refresh por el mismo mecanismo (localStorage + sync
+        // servidor), sin infraestructura nueva.
+        setChatMessages(Array.isArray(cached.chatHistory) ? cached.chatHistory : [])
         evaluationProgressRef.current = cached.evaluationProgress || {}
         setEvaluationProgress(evaluationProgressRef.current)
         activeStudyMsRef.current = Number(as_.activeStudyMs || 0)
@@ -600,6 +623,7 @@ export default function SessionPage() {
       d.classContent.evaluationBlocks = normalizedEvalBlocks;
 
       setClassContent(d.classContent); setSessionData(as_)
+      setChatMessages(Array.isArray(d.classContent.chatHistory) ? d.classContent.chatHistory : [])
       evaluationProgressRef.current = d.classContent.evaluationProgress || {}
       setEvaluationProgress(evaluationProgressRef.current)
       activeStudyMsRef.current = Number(as_.activeStudyMs || 0)
@@ -662,6 +686,116 @@ export default function SessionPage() {
         },
       }
     })
+  }
+
+  // PARTE B — chat ALAI: mismo patrón exacto que persistAssessmentBlueprint
+  // (state + classContent + sessionContent[sessionNumber] vía
+  // updateSessionById) — reutiliza el mecanismo de persistencia existente
+  // sin infraestructura nueva.
+  function persistChatHistory(next: AlaiChatMessage[]) {
+    setChatMessages(next)
+    setClassContent(previous => previous ? { ...previous, chatHistory: next } : previous)
+    if (!sessionData?.id) return
+    updateSessionById(sessionData.id, current => {
+      const currentContent = current.sessionContent?.[String(sessionNumber)] as ClassContent | undefined
+      return {
+        ...current,
+        sessionContent: {
+          ...(current.sessionContent || {}),
+          [String(sessionNumber)]: {
+            ...(currentContent || classContent),
+            chatHistory: next,
+          },
+        },
+      }
+    })
+  }
+
+  // PARTE B — chat ALAI: envía el mensaje del estudiante, decide si cuenta
+  // como asistencia académica (SOLO si hay una pregunta/verificación activa
+  // Y el mensaje no es administrativo — heurística conservadora compartida,
+  // ver chatAssistanceClassifier.ts), construye el contexto real de la
+  // sesión (pasos YA enseñados, pregunta activa, recovery activo, perfil) y
+  // persiste el historial resultante. Nunca marca asistencia por abrir el
+  // panel — solo por un mensaje efectivamente enviado.
+  async function handleSendChatMessage(text: string) {
+    const isQuestionActive = sessionPhase === "evaluating" && Boolean(currentQuestion)
+    if (isQuestionActive && !isAdministrativeQuery(text)) {
+      chatAssistedRef.current = true
+    }
+    const userMessage: AlaiChatMessage = { id: `chat-u-${Date.now()}`, role: "user", content: text, timestamp: Date.now() }
+    const withUser = [...chatMessages, userMessage]
+    persistChatHistory(withUser)
+    setChatSending(true)
+    try {
+      const taughtSteps = (classContent?.steps || []).slice(0, currentStepIndex + 1).map(step => ({
+        id: step.id, title: step.title, content: step.content, keyPoint: step.keyPoint || undefined,
+      }))
+      const activeRecoveryItem = activeRecoveryId
+        ? recoveryQueueRef.current.find(item => item.recoveryId === activeRecoveryId) || null
+        : null
+      const sourceFailure = activeRecoveryItem ? latestRecoveryFailure(activeRecoveryItem) : null
+      const response = await fetch("/api/adaptive/session-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          chatHistory: withUser.slice(-8).map(message => ({ role: message.role, content: message.content })),
+          sessionTitle: classContent?.sessionTitle || "",
+          materialTitle: sessionData?.materialNames?.[0] || "Material",
+          studentProfile: sessionData?.adaptiveSetup ? {
+            knowledgeLevel: sessionData.adaptiveSetup.knowledgeLevel || null,
+            mainConcern: sessionData.adaptiveSetup.mainConcern || null,
+          } : null,
+          taughtSteps,
+          activeQuestion: isQuestionActive && currentQuestion ? {
+            questionText: currentQuestion.questionText,
+            format: currentQuestion.format,
+          } : null,
+          activeRecovery: activeRecoveryItem ? {
+            conceptLabel: activeRecoveryItem.conceptLabel,
+            originalQuestionText: sourceFailure?.question?.questionText || "",
+            studentAnswerDisplay: sourceFailure ? presentAnswer(sourceFailure.question, sourceFailure.answer) : "",
+            correctAnswerDisplay: sourceFailure ? presentAnswer(sourceFailure.question, sourceFailure.question.correctAnswer) : "",
+            errorType: activeRecoveryItem.latestErrorType || undefined,
+            reteachContent: reteachingContent || undefined,
+          } : null,
+        }),
+      })
+      const data = await response.json().catch(() => null)
+      const assistantMessage: AlaiChatMessage = {
+        id: `chat-a-${Date.now()}`,
+        role: "assistant",
+        content: typeof data?.reply === "string" && data.reply.trim() ? data.reply.trim() : "No pude responder en este momento. Intenta de nuevo en unos segundos.",
+        references: Array.isArray(data?.references) ? data.references : [],
+        usedExternalKnowledge: Boolean(data?.usedExternalKnowledge),
+        timestamp: Date.now(),
+      }
+      persistChatHistory([...withUser, assistantMessage])
+    } catch (error) {
+      console.error("[adaptive-chat] Error:", error)
+      persistChatHistory([...withUser, {
+        id: `chat-a-${Date.now()}`,
+        role: "assistant",
+        content: "No pude responder en este momento. Intenta de nuevo en unos segundos.",
+        timestamp: Date.now(),
+      }])
+    } finally {
+      setChatSending(false)
+    }
+  }
+
+  // Navega al step referenciado SOLO si ya fue enseñado (índice <= paso
+  // actual) y SOLO durante teaching — nunca interrumpe una evaluación o
+  // verificación de recovery activa, y nunca permite saltar a contenido
+  // todavía bloqueado (defensa en profundidad: el componente ya filtra por
+  // taughtStepIds, esto vuelve a comprobarlo del lado de la fuente real).
+  function handleChatReferenceClick(stepId: string) {
+    if (sessionPhase !== "teaching") return
+    const targetIndex = (classContent?.steps || []).findIndex(step => step.id === stepId)
+    if (targetIndex === -1 || targetIndex > currentStepIndex) return
+    setCurrentStepIndex(targetIndex)
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
   function persistRecoveryQueue(next: RecoveryItem[]) {
@@ -1134,6 +1268,20 @@ export default function SessionPage() {
     setEvalLoading(false)
   }
 
+  // Fuente ÚNICA de AssistanceLevel para el intento actual — combina
+  // hintShownRef (pista pedida) y chatAssistedRef (ayuda académica pedida al
+  // chat mientras esta pregunta/verificación estaba activa). El chat cuenta
+  // como asistencia MÁS fuerte que el hint (puede llegar a explicar más que
+  // una pista), así que tiene prioridad si ambos están activos — pero
+  // cualquiera de los dos basta para que el intento deje de ser
+  // 'independent'. Nunca se hardcodea independent:true en ningún call site;
+  // todos leen de aquí.
+  function currentAssistanceLevel(): "independent" | "minimal_hint" | "assisted" {
+    if (chatAssistedRef.current) return "assisted"
+    if (hintShownRef.current) return "minimal_hint"
+    return "independent"
+  }
+
   // Registra el resultado de una pregunta normal TAN PRONTO como se conoce (desde
   // submitAnswer, antes de mostrar el panel de feedback) — incluyendo el cierre del
   // bloque si esta era la última pregunta. Así el botón de feedback puede leer el
@@ -1155,10 +1303,12 @@ export default function SessionPage() {
         {
           valid: true,
           correct: freshResult?.correct === true,
-          // Codex Finding 1: una respuesta correcta obtenida viendo la pista
-          // NO es evidencia independiente — hintShownRef refleja si la pista
-          // realmente se renderizó para ESTA pregunta antes de responder.
-          independent: !hintShownRef.current,
+          // Codex Finding 1 + PARTE B (chat): una respuesta correcta obtenida
+          // viendo la pista O pidiendo ayuda académica al chat NO es
+          // evidencia independiente — currentAssistanceLevel() refleja si
+          // cualquiera de las dos vías de asistencia se usó para ESTA
+          // pregunta antes de responder.
+          independent: currentAssistanceLevel() === "independent",
           evidenceId: `normal:${question.id}:${Date.now()}`,
         },
       ))
@@ -1782,16 +1932,17 @@ export default function SessionPage() {
       : freshResult?.correct
         ? "correct"
         : "incorrect"
-    // Codex Finding 1: una verificación de recovery resuelta con ayuda de la
-    // pista no puede contar como independiente — recordRecoveryCheck ya exige
-    // assistanceLevel==='independent' para que successfulIndependentChecks
-    // incremente (ver recoveryQueue.ts), pero solo si aquí se le pasa el nivel
-    // real en vez del literal hardcodeado.
+    // Codex Finding 1 + PARTE B (chat): una verificación de recovery resuelta
+    // con ayuda de la pista O del chat no puede contar como independiente —
+    // recordRecoveryCheck ya exige assistanceLevel==='independent' para que
+    // successfulIndependentChecks incremente (ver recoveryQueue.ts), pero
+    // solo si aquí se le pasa el nivel real (currentAssistanceLevel(), nunca
+    // un literal hardcodeado) en vez de solo consultar hintShownRef.
     const recorded = recordRecoveryCheck(
       current,
       question,
       { outcome, correct: freshResult?.correct === true, errorType: freshResult?.errorType || null },
-      hintShownRef.current ? "minimal_hint" : "independent",
+      currentAssistanceLevel(),
       getCompositeAnswer(),
     )
     const nextQueue = recoveryQueueRef.current.map((item, itemIndex) => itemIndex === index ? recorded.item : item)
@@ -1826,9 +1977,10 @@ export default function SessionPage() {
             // llega al mínimo requerido, y ese contador SOLO crece con
             // assistanceLevel==='independent' (recoveryQueue.ts) — así que el
             // check que acaba de resolver esta ronda fue, por construcción,
-            // independiente. Se deriva explícitamente en vez de hardcodear
-            // para no depender silenciosamente de ese invariante.
-            independent: !hintShownRef.current,
+            // independiente. Se deriva explícitamente (currentAssistanceLevel(),
+            // que ya incluye chat + hint) en vez de hardcodear para no
+            // depender silenciosamente de ese invariante.
+            independent: currentAssistanceLevel() === "independent",
             evidenceId: `recovery:${recorded.item.recoveryId}:${recorded.item.verificationRound}`,
           },
         ))
@@ -2376,7 +2528,7 @@ export default function SessionPage() {
       data-unresolved-objectives={assessmentBlueprint?.unresolvedObjectiveIds.length ?? 0}
       style={{ minHeight: "100vh", background: "linear-gradient(180deg, #0f172a 0%, #1e293b 100%)", color: "#e2e8f0" }}
     >
-      <div style={{ maxWidth: 780, margin: "0 auto", padding: "32px 24px" }}>
+      <div className="alai-session-shell" data-chat-open={chatOpen} style={{ maxWidth: 780, margin: "0 auto", padding: "32px 24px", transition: "margin-right .25s ease" }}>
 
         {/* BREAK MODAL */}
         {showBreak && (
@@ -2942,6 +3094,18 @@ export default function SessionPage() {
         )}
 
       </div>
+
+      <AlaiSessionChat
+        isOpen={chatOpen}
+        onOpen={() => setChatOpen(true)}
+        onClose={() => setChatOpen(false)}
+        messages={chatMessages}
+        onSendMessage={handleSendChatMessage}
+        isSending={chatSending}
+        disclaimerVisible={sessionPhase === "evaluating" && Boolean(currentQuestion)}
+        onReferenceClick={handleChatReferenceClick}
+        taughtStepIds={(classContent?.steps || []).slice(0, currentStepIndex + 1).map(step => step.id)}
+      />
     </div>
   )
 }
