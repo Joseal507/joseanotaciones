@@ -341,21 +341,71 @@ export function latestRecoveryFailure(item: RecoveryItem): RecoveryFailure | nul
 // Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, B3 CONFIRMADO
 // P1): 'unresolved' existía como status declarado pero NUNCA se asignaba en
 // ningún punto del código — no había límite de rondas real, y un caso real
-// llegó a Ronda 5 para un error conceptual simple. isOpen()/la comprobación
-// de completion (línea ~799 de este archivo) ya tratan cualquier status
-// distinto de 'resolved' como no-demostrado — marcar 'unresolved' aquí NO
-// debilita ningún invariante de completion, solo detiene el loop de
-// reteach. Ver también buildReteachStrategyInstructions en
-// recoveryStrategyEngine.ts para la rotación real de estrategia por ronda
-// (B3, ya no oscila entre solo 2 estrategias).
-export const MAX_RECOVERY_ROUNDS = 4
+// llegó a Ronda 5 para un error conceptual simple. Ese fix original topaba
+// en un número FIJO de rondas (MAX_RECOVERY_ROUNDS=4) — corregía el loop
+// infinito, pero introducía un bug distinto y real (misión REAL-SESSION
+// QUALITY, ronda de reproducción en producción, BUG 1 CONFIRMADO):
+// conflaba "se agotó ESTA estrategia" con "hay que abandonar el micro".
+// Con 9+ estrategias pedagógicas genuinamente distintas disponibles
+// (candidateStrategiesFor), un estudiante activamente participando y
+// mejorando podía ver su micro declarado 'unresolved' tras solo 4 de esas
+// 9+, con 5+ enfoques nunca intentados. isOpen()/la comprobación de
+// completion (más abajo) siguen tratando cualquier status distinto de
+// 'resolved' como no-demostrado — este cambio NO afecta esa garantía, solo
+// CUÁNDO se permite seguir intentando antes de rendirse.
+//
+// STRATEGY EXHAUSTION (se agotó una estrategia concreta) ya NO equivale a
+// MICRO ABANDONMENT (declarar unresolved). Ahora solo se marca 'unresolved'
+// cuando genuinamente no queda ninguna estrategia pedagógica distinta sin
+// probar (hasUntriedRecoveryStrategy) — acotado por el tamaño FIJO del
+// catálogo (candidateStrategiesFor), nunca por un contador arbitrario. Se
+// conserva un techo técnico generoso como red de seguridad final ante un
+// bug de clasificación (nunca debería alcanzarse en operación normal).
+export const MAX_RECOVERY_TECHNICAL_SAFETY_ROUNDS = 30
+
+// Catálogo de estrategias pedagógicas candidatas para reenseñar este micro,
+// priorizado por el tipo de error real más reciente. Extraído como función
+// compartida por selectRecoveryStrategy (qué estrategia usar ahora) y
+// hasUntriedRecoveryStrategy (¿queda alguna sin probar?) — misma fuente de
+// verdad, nunca dos catálogos que puedan desincronizarse. Genérico para
+// cualquier materia/micro — no depende de ningún dominio académico
+// específico, solo del errorType ya clasificado.
+function candidateStrategiesFor(item: RecoveryItem): string[] {
+  const preferred = item.latestErrorType === 'procedure'
+    ? ['worked_example_new_context', 'step_diagnosis', 'backward_chaining']
+    : item.latestErrorType === 'ordering'
+      ? ['sequence_contrast', 'dependency_map', 'backward_chaining']
+      : item.latestErrorType === 'conceptual' || item.latestErrorType === 'comprehension'
+        ? ['concept_boundary', 'counterexample', 'analogy_transfer']
+        : ['contrastive_explanation', 'alternative_representation', 'new_context_application']
+  return [
+    ...preferred,
+    'direct_definition',
+    'concrete_example',
+    'causal_connection',
+    'textual_visualization',
+    'confused_concepts_comparison',
+    'micro_skill_decomposition',
+  ]
+}
+
+// BUG 1: ¿existe todavía una estrategia pedagógica genuinamente distinta,
+// nunca antes intentada para este micro? Mientras la respuesta sea sí,
+// agotar la ronda actual debe abrir un nuevo ciclo con esa estrategia, no
+// declarar el micro abandonado.
+export function hasUntriedRecoveryStrategy(item: RecoveryItem): boolean {
+  return candidateStrategiesFor(item).some(strategy => !item.strategyHistory.includes(strategy))
+}
 
 export function beginRecoveryReteach(item: RecoveryItem, strategy: string): RecoveryItem {
   if (item.status !== 'pending_reteach' && item.status !== 'unresolved') {
     return { ...item, status: 'pending_reteach', reason: 'recovery_transition_repaired' }
   }
-  if (item.reteachAttempt >= MAX_RECOVERY_ROUNDS) {
-    return { ...item, status: 'unresolved', reason: 'recovery_rounds_exhausted' }
+  if (item.reteachAttempt >= MAX_RECOVERY_TECHNICAL_SAFETY_ROUNDS) {
+    return { ...item, status: 'unresolved', reason: 'recovery_technical_safety_limit' }
+  }
+  if (!hasUntriedRecoveryStrategy(item)) {
+    return { ...item, status: 'unresolved', reason: 'recovery_strategies_exhausted' }
   }
   return {
     ...item,
@@ -369,22 +419,7 @@ export function beginRecoveryReteach(item: RecoveryItem, strategy: string): Reco
 }
 
 export function selectRecoveryStrategy(item: RecoveryItem): string | null {
-  const preferred = item.latestErrorType === 'procedure'
-    ? ['worked_example_new_context', 'step_diagnosis', 'backward_chaining']
-    : item.latestErrorType === 'ordering'
-      ? ['sequence_contrast', 'dependency_map', 'backward_chaining']
-      : item.latestErrorType === 'conceptual' || item.latestErrorType === 'comprehension'
-        ? ['concept_boundary', 'counterexample', 'analogy_transfer']
-        : ['contrastive_explanation', 'alternative_representation', 'new_context_application']
-  const extended = [
-    ...preferred,
-    'direct_definition',
-    'concrete_example',
-    'causal_connection',
-    'textual_visualization',
-    'confused_concepts_comparison',
-    'micro_skill_decomposition',
-  ]
+  const extended = candidateStrategiesFor(item)
   const unused = extended.find(strategy => !item.strategyHistory.includes(strategy))
   return unused || `${extended[item.reteachAttempt % extended.length]}_iteration_${item.reteachAttempt + 1}`
 }
@@ -799,9 +834,18 @@ export function normalizeRestoredRecoveryItem(item: RecoveryItem): RecoveryItem 
       ? { ...normalized, status: 'pending_verification', reason: 'restore_after_reteach' }
       : { ...normalized, status: 'pending_reteach', reason: 'restore_reteach_not_completed' }
   }
-  if (normalized.status === 'unresolved') {
-    return { ...normalized, status: 'pending_reteach', reason: 'legacy_unresolved_reopened', unresolvedReason: undefined }
-  }
+  // Auditoría de producto (reproducción real, test K CONFIRMADO): esta rama
+  // reabría INCONDICIONALMENTE cualquier item 'unresolved' a
+  // 'pending_reteach' en cada restore/reload — una reliquia de cuando
+  // 'unresolved' era un status muerto que nunca se asignaba (por eso
+  // "legacy"). Ahora que 'unresolved' es un estado terminal genuino
+  // (catálogo de estrategias realmente agotado, ver beginRecoveryReteach),
+  // reabrirlo en cada restore no permite MÁS estrategias (strategyHistory
+  // se preserva, así que hasUntriedRecoveryStrategy seguiría siendo false),
+  // pero SÍ hace que nextRecoveryItem() vuelva a tratarlo brevemente como
+  // "accionable" hasta el siguiente beginRecoveryReteach — desperdiciando
+  // un round-trip de red y produciendo un parpadeo de estado inconsistente
+  // justo después de cada reload. 'unresolved' se preserva tal cual.
   return normalized
 }
 

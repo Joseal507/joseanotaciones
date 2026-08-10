@@ -8,7 +8,8 @@ import {
   presentRecoveryVerificationQuestion,
   recordRecoveryCheck,
   recordRecoveryReteachContent,
-  MAX_RECOVERY_ROUNDS,
+  selectRecoveryStrategy,
+  hasUntriedRecoveryStrategy,
   REQUIRED_INDEPENDENT_RECOVERY_CHECKS,
 } from '../../lib/adaptive/evaluation/recoveryQueue'
 import type { CanonicalQuestion } from '../../lib/adaptive/evaluation/questionContract'
@@ -35,15 +36,28 @@ let item = createRecoveryQueue([{
   result: { outcome: 'incorrect', correct: false, errorType: 'conceptual' },
 }])[0]
 
-// Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, B3 CONFIRMADO
-// P1): este bucle corría 20 rondas sin límite — exactamente el "Ronda 5
-// para un error conceptual simple" reportado como bug real. beginRecoveryReteach
-// ahora topa en MAX_RECOVERY_ROUNDS (unresolved en vez de seguir
-// indefinidamente); el bucle se acota a esa misma constante y se añade una
-// aserción explícita del límite justo después.
-for (let round = 1; round <= MAX_RECOVERY_ROUNDS; round += 1) {
-  item = beginRecoveryReteach(item, `strategy-${round}`)
-  item = recordRecoveryReteachContent(item, `Reexplicación específica nueva ${round}`)
+// Auditoría de producto (reproducción real, BUG 1 CONFIRMADO): un límite
+// FIJO de rondas (el fix anterior de esta misma misión, MAX_RECOVERY_ROUNDS
+// =4) conflaba "se agotó ESTA estrategia" con "hay que abandonar el
+// micro" — un estudiante activamente participando veía su micro declarado
+// unresolved tras solo 4 intentos, con 5+ estrategias pedagógicas
+// genuinamente distintas nunca probadas. Este bucle ahora corre hasta que
+// hasUntriedRecoveryStrategy() sea genuinamente false (catálogo agotado,
+// acotado por su tamaño FIJO — nunca un contador arbitrario), usando
+// selectRecoveryStrategy() REAL en cada ronda, igual que el caller real
+// (page.tsx). errorType='conceptual' produce un catálogo de 9 estrategias
+// distintas (candidateStrategiesFor) antes de agotarse genuinamente.
+let round = 0
+let previousStrategy: string | null = null
+while (hasUntriedRecoveryStrategy(item)) {
+  round += 1
+  assert.ok(round <= 20, 'BUG DE ORIGEN SI FALLA: el catálogo de estrategias debe ser finito y pequeño — si esto no converge, algo está mal en candidateStrategiesFor')
+  const strategy = selectRecoveryStrategy(item)!
+  assert.notEqual(strategy, previousStrategy, `BUG DE ORIGEN SI FALLA: la ronda ${round} no debe repetir la estrategia inmediatamente anterior mientras queden estrategias sin probar`)
+  previousStrategy = strategy
+  item = beginRecoveryReteach(item, strategy)
+  assert.equal(item.status, 'reteaching', `BUG DE ORIGEN SI FALLA: con una estrategia genuinamente sin probar disponible, la ronda ${round} debe abrir un nuevo ciclo, nunca declarar unresolved prematuramente`)
+  item = recordRecoveryReteachContent(item, `Reexplicación específica nueva ${round} — estrategia ${strategy}`)
   item = beginRecoveryVerification(item)
   item = persistRecoveryVerificationQuestions(item, [
     question(`round-${round}-v1`, `deterministic_recovery_${round}-a`),
@@ -59,15 +73,16 @@ for (let round = 1; round <= MAX_RECOVERY_ROUNDS; round += 1) {
   assert.equal(item.status, 'pending_reteach', 'V2 incorrecta reinicia toda la ronda')
   assert.equal(item.successfulIndependentChecks, 1, 'el crédito parcial queda histórico, no resuelve')
 }
-assert.equal(item.totalStudentFailureRounds, MAX_RECOVERY_ROUNDS)
+assert.equal(item.totalStudentFailureRounds, round)
 assert.equal(item.status, 'pending_reteach')
+assert.ok(round >= 9, `BUG DE ORIGEN SI FALLA: con errorType='conceptual' deben existir al menos 9 estrategias distintas antes de agotarse genuinamente — se agotó en la ronda ${round}`)
 
-// BUG DE ORIGEN SI FALLA: tras agotar MAX_RECOVERY_ROUNDS, un intento
-// adicional de reteach debe marcar 'unresolved' — nunca abrir una ronda
-// MAX_RECOVERY_ROUNDS+1 indefinidamente.
-const exhausted = beginRecoveryReteach(item, `strategy-${MAX_RECOVERY_ROUNDS + 1}`)
-assert.equal(exhausted.status, 'unresolved', 'BUG DE ORIGEN SI FALLA: agotadas las rondas, debe marcar unresolved en vez de abrir otra ronda')
-assert.equal(exhausted.reason, 'recovery_rounds_exhausted')
+// BUG DE ORIGEN SI FALLA: SOLO tras agotar genuinamente el catálogo de
+// estrategias, un intento adicional de reteach debe marcar 'unresolved' —
+// nunca abrir una ronda más allá de eso, y nunca antes.
+const exhausted = beginRecoveryReteach(item, `strategy-${round + 1}`)
+assert.equal(exhausted.status, 'unresolved', 'BUG DE ORIGEN SI FALLA: agotado el catálogo de estrategias, debe marcar unresolved en vez de abrir otra ronda')
+assert.equal(exhausted.reason, 'recovery_strategies_exhausted')
 // El guard downstream (beginRecoveryVerification) NUNCA debe deshacer este
 // límite auto-reparándose a pending_reteach — mismo patrón de fragilidad
 // que el guard de duplicados (Reteach 3.1).

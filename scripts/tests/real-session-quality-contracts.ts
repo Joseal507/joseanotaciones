@@ -6,7 +6,8 @@ import {
   createRecoveryQueue,
   nextRecoveryItem,
   beginRecoveryReteach,
-  MAX_RECOVERY_ROUNDS,
+  selectRecoveryStrategy,
+  hasUntriedRecoveryStrategy,
 } from '../../lib/adaptive/evaluation/recoveryQueue'
 import type { CanonicalQuestion } from '../../lib/adaptive/evaluation/questionContract'
 
@@ -135,17 +136,23 @@ let queueItem = createRecoveryQueue([{
   question: question('source'), answer: 'b',
   result: { outcome: 'incorrect', correct: false, errorType: 'conceptual' },
 }])[0]
-for (let round = 1; round <= MAX_RECOVERY_ROUNDS; round++) {
-  queueItem = beginRecoveryReteach(queueItem, `strategy-${round}`)
+// BUG 1 (misión de reproducción real posterior): el fuse ya no topa en un
+// número fijo de rondas — agota el catálogo REAL de estrategias
+// (selectRecoveryStrategy/hasUntriedRecoveryStrategy), usando la misma
+// función que el caller real (page.tsx), nunca etiquetas sintéticas.
+while (hasUntriedRecoveryStrategy(queueItem)) {
+  const strategy = selectRecoveryStrategy(queueItem)!
+  queueItem = beginRecoveryReteach(queueItem, strategy)
   // beginRecoveryReteach deja status='reteaching'; simular el ciclo real
   // (recordRecoveryReteachContent → beginRecoveryVerification → check
   // fallido) sin ejecutar el flujo completo — solo se necesita volver a
   // 'pending_reteach' para poder iniciar la siguiente ronda.
   queueItem = { ...queueItem, status: 'pending_reteach' }
 }
-// Ronda MAX_RECOVERY_ROUNDS+1: debe agotarse.
+// Catálogo de estrategias genuinamente agotado: debe marcar unresolved.
 const exhausted = beginRecoveryReteach(queueItem, 'strategy-exhausted')
 assert.equal(exhausted.status, 'unresolved')
+assert.equal(exhausted.reason, 'recovery_strategies_exhausted')
 
 // Revisión final Codex, P1 hallazgo #3 (causa raíz): nextRecoveryItem()
 // gobierna TODO el flujo (page.tsx la usa en ~8 sitios) — antes seguía

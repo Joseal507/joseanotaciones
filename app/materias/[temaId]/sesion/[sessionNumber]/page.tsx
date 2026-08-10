@@ -2443,6 +2443,13 @@ export default function SessionPage() {
     // usuario — no debe contar como "pendingRecoveries" (eso saltaría a show_next_recovery
     // antes de que el bloque normal siquiera se marque cerrado). Solo cuenta una vez released.
     const unresolvedQueueCount = queue.filter(item=>item.status!=="resolved" && !item.deferredUntilNormalBlockComplete).length
+    // Auditoría de producto (reproducción real, BUG 2 CONFIRMADO): subconjunto
+    // de unresolvedQueueCount que SÍ puede enrutarse ahora mismo (excluye
+    // status==='unresolved', igual que nextRecoveryItem — la MISMA
+    // autoridad, nunca un criterio distinto que pudiera desincronizarse).
+    // pendingRecoveries (completion) sigue contando 'unresolved'; solo el
+    // routing usa este conteo más estrecho.
+    const actionableRecoveryCount = queue.filter(item=>item.status!=="resolved" && item.status!=="unresolved" && !item.deferredUntilNormalBlockComplete).length
     const pendingRecoveryIds = Array.isArray((blockProgress as any)?.pendingRecoveryIds)
       ? ((blockProgress as any).pendingRecoveryIds as unknown[]).map(String).filter(Boolean)
       : []
@@ -2474,6 +2481,7 @@ export default function SessionPage() {
       currentQuestionIndex:blockProgress?.currentQuestionIndex||0,
       unansweredNormalQuestions:remainingQuestionCount,
       pendingRecoveries:unresolvedQueueCount,
+      actionableRecoveries:actionableRecoveryCount,
       latentRecoveries,
       activeRecovery:overrides?.activeRecovery??Boolean(activeRecoveryId),
       completedEvaluationBlocks:completedBlockCount,
@@ -2621,7 +2629,11 @@ export default function SessionPage() {
             unresolvedObjectiveIds: assessmentBlueprintRef.current.unresolvedObjectiveIds,
           } : null,
         }))
-        setEvalError(action.reason==="objective_coverage_incomplete"?"Aún falta evidencia válida para completar los objetivos enseñados.":"Aún falta completar una evaluación de esta sesión.")
+        setEvalError(
+          action.reason==="objective_coverage_incomplete"?"Aún falta evidencia válida para completar los objetivos enseñados."
+          : action.reason==="unresolved_recovery_gap"?"No se pudo resolver uno o más puntos tras varios intentos con distintas estrategias. Tu progreso está guardado — puedes revisar el resto de la sesión, pero este punto necesitará otra sesión de repaso para completarse."
+          : "Aún falta completar una evaluación de esta sesión."
+        )
         return
       }
     }finally{
@@ -2891,7 +2903,15 @@ export default function SessionPage() {
         </div>
 
         <div style={{ marginBottom: 28 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, opacity: 0.7, marginBottom: 6 }}><span>Paso {currentStepIndex + 1} de {classContent.steps.length}</span><span>{Math.round(progress)}%</span></div>
+          {/* Auditoría de producto (reproducción real): "Paso 45 de 45 / 100%"
+              podía leerse como "sesión dominada/completada" mientras un
+              micro seguía unresolved y la recuperación activa — esto es
+              SOLO avance de CONTENIDO (qué paso de enseñanza se está
+              viendo), nunca mastery ni completion de la sesión (eso lo
+              decide exclusivamente deriveNextSessionAction/el motor). El
+              calificador "Contenido" hace esa distinción explícita en vez
+              de un "%" ambiguo. */}
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, opacity: 0.7, marginBottom: 6 }}><span>Paso {currentStepIndex + 1} de {classContent.steps.length}</span><span>Contenido {Math.round(progress)}%</span></div>
           <div style={{ height: 6, background: "rgba(148,163,184,0.15)", borderRadius: 3, overflow: "hidden" }}><div style={{ height: "100%", width: `${progress}%`, background: "linear-gradient(90deg, #3b82f6, #4ade80)", transition: "width 0.3s ease" }} /></div>
         </div>
 
@@ -3396,25 +3416,34 @@ export default function SessionPage() {
             {evalLoading && !reteachingContent && <div style={{ fontSize: 15, opacity: 0.8 }}>Preparando una nueva explicación...</div>}
             {!evalLoading && reteachingContent && <div style={{ fontSize: 16, color: "#e2e8f0", lineHeight: 1.7, marginBottom: 24 }}><AcademicContent content={reteachingContent} /></div>}
             {!evalLoading && !reteachingContent && evalError && <div style={{ fontSize: 14, opacity: 0.85, marginBottom: 18 }}>{evalError}</div>}
-            {/* Auditoría adversarial (Codex, misión REAL-SESSION QUALITY,
-                revisión final, P1 CONFIRMADO — hallazgo #3): cuando el
-                recovery activo está 'unresolved' (rondas agotadas), el
-                único botón disponible era "Reintentar explicación", que
-                vuelve a llamar startRecoveryReteach sobre un item que
-                beginRecoveryReteach() SIEMPRE devolverá agotado — un loop
-                sin salida real, pese a que el mensaje visible decía
-                "continúa con el resto de la sesión". nextRecoveryItem() ya
-                no vuelve a ofrecer este item agotado como bloqueante (ver
-                recoveryQueue.ts), así que advanceToNextTeachingStep() aquí
-                SÍ avanza de verdad — a la siguiente recovery pendiente si
-                la hay, o al siguiente paso de enseñanza si no. El item
+            {/* Auditoría de producto (reproducción real, BUG 2 CONFIRMADO):
+                cuando el recovery activo está 'unresolved' (catálogo de
+                estrategias agotado — ver BUG 1), el único botón disponible
+                era "Reintentar explicación", que vuelve a llamar
+                startRecoveryReteach sobre un item que beginRecoveryReteach()
+                SIEMPRE devolverá agotado — loop sin salida real. El fix
+                original de esta pantalla cambió a advanceToNextTeachingStep(),
+                pero ESA función solo sabe avanzar currentStepIndex — si el
+                micro agotado ocurre en el ÚLTIMO paso de enseñanza (el caso
+                real reportado, "Paso 45 de 45"), currentStepIndex ya es el
+                último y la función no hace NADA (mismo síntoma: botón
+                muerto). El fix correcto es ejecutar el MISMO motor de
+                transición que gobierna toda la sesión
+                (executeDerivedSessionAction → deriveNextSessionAction) en
+                vez de una función más estrecha — SIEMPRE deriva y ejecuta
+                una acción real: la siguiente recovery accionable si la hay,
+                el siguiente paso de enseñanza si lo hay, o un estado
+                'blocked' honesto (mensaje explícito, nunca un clic sin
+                efecto) si el micro agotado es lo último que queda. El item
                 permanece 'unresolved' en la cola y sigue bloqueando
-                completion vía isOpen()/hasPendingRecovery() sin cambios. */}
+                completion vía isOpen()/hasPendingRecovery()/pendingRecoveries
+                sin cambios — actionableRecoveries es lo único que cambia
+                para el routing. */}
             {!evalLoading && <div style={{ display: "flex", justifyContent: "flex-end" }}>
               {reteachingContent
                 ? <button onClick={handleReteachNext} style={{ padding: "14px 32px", background: "#f59e0b", color: "#451a03", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Verificar comprensión →</button>
                 : (recoveryQueue.find(item => item.recoveryId === activeRecoveryId)?.status === "unresolved"
-                  ? <button onClick={() => advanceToNextTeachingStep()} style={{ padding: "14px 32px", background: "#f59e0b", color: "#451a03", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Continuar sesión →</button>
+                  ? <button onClick={() => { void executeDerivedSessionAction() }} style={{ padding: "14px 32px", background: "#f59e0b", color: "#451a03", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Continuar sesión →</button>
                   : <button onClick={() => {
                       const active = recoveryQueue.find(item => item.recoveryId === activeRecoveryId)
                       if (active) void startRecoveryReteach(recoveryQueue, active.recoveryId)
