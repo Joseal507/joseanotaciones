@@ -57,6 +57,10 @@ interface QuestionBase {
   canonicalFormat?: QuestionFormat
   wasRecovery?: boolean
   roundNumber?: number
+  // Firma HMAC server-authoritative (Codex Finding 2) — ver questionIntegrity.ts.
+  // Presente solo en preguntas que salieron del servidor; el cliente la
+  // transporta sin poder recalcularla.
+  integrity?: string
 }
 
 export type CanonicalQuestion =

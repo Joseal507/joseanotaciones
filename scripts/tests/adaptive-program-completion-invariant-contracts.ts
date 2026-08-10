@@ -73,14 +73,24 @@ assert.equal(canCompleteSessionFromAssessment(b3, []), false, 'con un objetivo n
 // no queden recovery targets activos — un tercer eje independiente de protección.
 assert.equal(canCompleteSessionFromAssessment(b1, ['recovery:objA:pending']), false, 'recovery activa bloquea completion aunque unresolvedObjectiveIds esté vacío')
 
-// ═══ Hecho 2 (estático): el único caller vivo de recordAssessmentEvidence
-// (page.tsx) pasa SIEMPRE independent:true — literal, no variable. Sin este hecho,
-// el Hecho 1 no bastaría (ver demostración de la brecha latente más abajo). ═══
+// ═══ Hecho 2 (post auditoría adversarial Codex, Finding 1 — CONFIRMED y
+// corregido): el Hecho 2 ORIGINAL de esta prueba exigía que page.tsx pasara
+// SIEMPRE independent:true como LITERAL — eso codificaba el bug: el hint se
+// renderiza automáticamente sin interacción del estudiante (sin tracking de
+// uso), así que una respuesta correcta vista con pista se registraba como
+// independiente igual que una genuinamente sin ayuda. El comentario original
+// de este archivo ya avisaba: "si alguno pasa una variable, la garantía deja
+// de ser estática y este test debe fallar para forzar revisión" — este es
+// exactamente ese momento. El fix real vive en page.tsx (hintShownRef, dos
+// nuevos useEffect) y se prueba end-to-end en
+// scripts/tests/hint-assistance-independence-contracts.ts. Este archivo ahora
+// invierte el tripwire: vigila que NO se reintroduzca el hardcode. ═══
 const pageSource = readFileSync('app/materias/[temaId]/sesion/[sessionNumber]/page.tsx', 'utf8')
 const recordCallSites = pageSource.split('recordAssessmentEvidence(').length - 1
 assert.equal(recordCallSites, 2, 'deben existir exactamente 2 call sites de recordAssessmentEvidence en el producto vivo — si aparece uno nuevo, esta prueba debe revisarse')
 const independentTrueLiterals = (pageSource.match(/independent:\s*true,/g) || []).length
-assert.ok(independentTrueLiterals >= 2, 'los call sites de recordAssessmentEvidence en page.tsx deben pasar independent:true como literal — si alguno pasa una variable, la garantía deja de ser estática y este test debe fallar para forzar revisión')
+assert.equal(independentTrueLiterals, 0, 'los call sites de recordAssessmentEvidence en page.tsx NO deben volver a hardcodear independent:true — deben derivarlo de si hubo asistencia real en este intento (hintShownRef); un literal aquí es el bug de Codex Finding 1 reapareciendo')
+assert.ok(pageSource.includes('hintShownRef'), 'page.tsx debe tener una fuente real de tracking de asistencia (hintShownRef) alimentando independent — si se elimina sin reemplazo equivalente, revisa que no se haya vuelto a un hardcode')
 
 // ═══ Demostración de la brecha LATENTE (no explotable hoy, mecanismo distinto) ═══
 // Si independent:false SÍ llegara a ocurrir (p.ej. un futuro hint/reveal), un

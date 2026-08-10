@@ -71,6 +71,8 @@ import {
 import {
   buildAssessmentBlueprint,
   canCompleteSessionFromAssessment,
+  normalizeAssessmentBlueprint,
+  planAssessmentQuestions,
   recordAssessmentEvidence,
   type AssessmentBlueprint,
 } from "../../../../../lib/adaptive/evaluation/assessmentBlueprint"
@@ -166,6 +168,13 @@ export default function SessionPage() {
   const recoveryGenerationCoordinatorRef = useRef(new RecoveryGenerationCoordinator<any>(2))
   const verificationClickStartedAtRef = useRef<number | null>(null)
   const autoRecoveryRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Auditoría adversarial (Codex Finding 1): fuente REAL de assistance por
+  // intento — se activa únicamente cuando el bloque de pista realmente se
+  // renderizó para currentQuestion (misma condición que el JSX de abajo), no
+  // por la mera presencia de question.hint (algunos formatos, p.ej. ordering,
+  // nunca llegan a mostrarla porque isAnswerReady() ya es true desde el primer
+  // render). Se resetea a false en cada cambio de pregunta.
+  const hintShownRef = useRef(false)
 
   const [sessionPhase, setSessionPhase] = useState<SessionPhase>("teaching")
   const [coverageMap, setCoverageMap] = useState<CoverageMap | null>(null)
@@ -176,6 +185,15 @@ export default function SessionPage() {
   const [previousQuestions, setPreviousQuestions] = useState<CanonicalQuestion[]>([])
   const [currentQuestion, setCurrentQuestion] = useState<CanonicalQuestion | null>(null)
   const [userAnswer, setUserAnswer] = useState<any>(null)
+  // Codex Finding 1: la pista debe ser opt-in (el estudiante la pide
+  // explícitamente), no auto-visible — de lo contrario "assisted" pasaría a
+  // ser el estado por defecto de CUALQUIER pregunta con hint (la gran
+  // mayoría del contenido real generado), y ninguna respuesta normal podría
+  // volver a demostrar un factKey independientemente. Con reveal explícito,
+  // "sin ayuda" es el caso común real, "asistido" solo ocurre cuando el
+  // estudiante genuinamente pide ayuda — la distinción vuelve a ser
+  // pedagógicamente significativa en vez de un hardcode inverso.
+  const [hintRevealed, setHintRevealed] = useState(false)
   const [evalResult, setEvalResult] = useState<any>(null)
   const [evalLoading, setEvalLoading] = useState(false)
   const [evalError, setEvalError] = useState<string | null>(null)
@@ -256,6 +274,10 @@ export default function SessionPage() {
   useEffect(() => { evaluationProgressRef.current = evaluationProgress }, [evaluationProgress])
   useEffect(() => { classContentRef.current = classContent }, [classContent])
   useEffect(() => { assessmentBlueprintRef.current = assessmentBlueprint }, [assessmentBlueprint])
+  // hintShownRef se marca true SOLO por la acción explícita de pedir la
+  // pista (ver el botón "Ver pista" en el render) — no por su mera
+  // disponibilidad. Se resetea con cada pregunta nueva.
+  useEffect(() => { hintShownRef.current = false; setHintRevealed(false) }, [currentQuestion?.id])
   useEffect(() => {
     clearAllRecoveryMetrics()
     return () => {
@@ -420,6 +442,21 @@ export default function SessionPage() {
         );
       } else {
         cached.evaluationBlocks = [];
+      }
+      // Auditoría adversarial (Codex Finding 4): un assessmentBlueprint
+      // persistido de una versión anterior (objetivos sin demonstratedFactKeys)
+      // debe normalizarse ANTES de cualquier lectura — restore, coverage o
+      // registro de evidencia — o crashea con TypeError en cuanto algo lo lee
+      // (unresolvedFactKeys/recordAssessmentEvidence acceden
+      // .demonstratedFactKeys sin guard). Fail-closed: si no puede migrarse,
+      // se descarta (null) y cae al fallback buildAssessmentBlueprint de abajo
+      // — nunca inventa demonstration evidence, nunca conserva mastery falso.
+      // Se normaliza una sola vez, aquí, mutando `cached` in-place (mismo
+      // patrón que evaluationBlocks arriba) para que TODOS los sitios que
+      // leen cached.assessmentBlueprint más abajo —incluido initCoverage,
+      // que lo recibe como su 4º argumento— reciban la versión ya segura.
+      if (cached.assessmentBlueprint) {
+        cached.assessmentBlueprint = normalizeAssessmentBlueprint(cached.assessmentBlueprint)
       }
 
       setClassContent(cached); setSessionData(as_)
@@ -588,7 +625,14 @@ export default function SessionPage() {
       setCoverageMap({ sessionId: si?.id || "", sessionNumber, totalObjectives: 0, objectives: [], checkpoints: [] })
       return
     }
-    const restoredAssessment = cd?.assessmentBlueprint as AssessmentBlueprint | undefined
+    // Auditoría adversarial (Codex Finding 4), defensa en profundidad: este
+    // es el sitio que siembra assessmentBlueprintRef.current para el resto
+    // del ciclo de vida de la sesión — normaliza aquí también, sin importar
+    // si el caller ya normalizó, para que ningún camino futuro reintroduzca
+    // el crash por asumir que cd.assessmentBlueprint ya viene seguro.
+    const restoredAssessment = cd?.assessmentBlueprint
+      ? normalizeAssessmentBlueprint(cd.assessmentBlueprint) ?? undefined
+      : undefined
     const builtAssessment = restoredAssessment || buildAssessmentBlueprint(
       steps.map(step => ({
         ...step,
@@ -774,6 +818,30 @@ export default function SessionPage() {
         Math.min(4, Math.ceil((block.coveredKeyPoints?.length || 1) / 2))
       )
 
+      // Auditoría adversarial (Codex Finding 3): la hidratación lazy no
+      // enviaba assessmentQuestionPlan/assessmentBlueprint — normalizeBatch
+      // en session-eval/route.ts entonces filtraba targetObjectiveIds/
+      // factKeys contra un `planned` indefinido, colapsándolos a [] SIEMPRE,
+      // aunque el modelo declarara targets legítimos. La pregunta pasaba la
+      // validación (options bien formadas) pero recordNormalAnswerOutcome
+      // nunca podía registrar evidencia — el objective quedaba unresolved
+      // para siempre sin que la UI mostrara ningún error.
+      //
+      // Fix: derivar el plan AUTORITATIVO desde el assessmentBlueprint real
+      // ya presente en el cliente (planAssessmentQuestions, función pura ya
+      // existente y usada en el resto del pipeline, nunca antes conectada a
+      // este caller) — no se confía en targetObjectiveIds/factKeys que el
+      // modelo o el cliente pudieran inventar; solo se aceptan los que el
+      // plan derivado del blueprint real autoriza para estos steps.
+      const relevantObjectives = (assessmentBlueprintRef.current?.objectives || [])
+        .filter(objective => block.coveredStepIds.includes(objective.stepId))
+      const assessmentQuestionPlan = relevantObjectives.length
+        ? planAssessmentQuestions({
+            objectives: relevantObjectives,
+            evaluationPreference: sessionData?.adaptiveSetup?.evalPreference || "mix_everything",
+          })
+        : undefined
+
       const response = await fetch("/api/adaptive/session-eval", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -795,6 +863,8 @@ export default function SessionPage() {
             format: question.format,
           })),
           requiredQuestionCount,
+          assessmentBlueprint: assessmentBlueprintRef.current || undefined,
+          assessmentQuestionPlan,
         }),
       })
 
@@ -1084,7 +1154,10 @@ export default function SessionPage() {
         {
           valid: true,
           correct: freshResult?.correct === true,
-          independent: true,
+          // Codex Finding 1: una respuesta correcta obtenida viendo la pista
+          // NO es evidencia independiente — hintShownRef refleja si la pista
+          // realmente se renderizó para ESTA pregunta antes de responder.
+          independent: !hintShownRef.current,
           evidenceId: `normal:${question.id}:${Date.now()}`,
         },
       ))
@@ -1704,11 +1777,16 @@ export default function SessionPage() {
       : freshResult?.correct
         ? "correct"
         : "incorrect"
+    // Codex Finding 1: una verificación de recovery resuelta con ayuda de la
+    // pista no puede contar como independiente — recordRecoveryCheck ya exige
+    // assistanceLevel==='independent' para que successfulIndependentChecks
+    // incremente (ver recoveryQueue.ts), pero solo si aquí se le pasa el nivel
+    // real en vez del literal hardcodeado.
     const recorded = recordRecoveryCheck(
       current,
       question,
       { outcome, correct: freshResult?.correct === true, errorType: freshResult?.errorType || null },
-      "independent",
+      hintShownRef.current ? "minimal_hint" : "independent",
       getCompositeAnswer(),
     )
     const nextQueue = recoveryQueueRef.current.map((item, itemIndex) => itemIndex === index ? recorded.item : item)
@@ -1738,7 +1816,13 @@ export default function SessionPage() {
           {
             valid: true,
             correct: true,
-            independent: true,
+            // status==='resolved' solo puede alcanzarse cuando successfulIndependentChecks
+            // llega al mínimo requerido, y ese contador SOLO crece con
+            // assistanceLevel==='independent' (recoveryQueue.ts) — así que el
+            // check que acaba de resolver esta ronda fue, por construcción,
+            // independiente. Se deriva explícitamente en vez de hardcodear
+            // para no depender silenciosamente de ese invariante.
+            independent: !hintShownRef.current,
             evidenceId: `recovery:${recorded.item.recoveryId}:${recorded.item.verificationRound}`,
           },
         ))
@@ -2600,10 +2684,20 @@ export default function SessionPage() {
 
           <div style={{ marginTop: 22 }}>
             {currentQuestion.hint && !userAnswer && !isAnswerReady() && (
-              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12, fontStyle: "italic", display: "flex", gap: 6, alignItems: "center" }}>
-                <span>💡</span>
-                <span>Pista: <AcademicContent content={currentQuestion.hint} inline /></span>
-              </div>
+              hintRevealed ? (
+                <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12, fontStyle: "italic", display: "flex", gap: 6, alignItems: "center" }}>
+                  <span>💡</span>
+                  <span>Pista: <AcademicContent content={currentQuestion.hint} inline /></span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { hintShownRef.current = true; setHintRevealed(true) }}
+                  style={{ background: "none", border: "none", padding: 0, marginBottom: 12, color: "#64748b", fontSize: 13, fontStyle: "italic", cursor: "pointer", display: "flex", gap: 6, alignItems: "center" }}
+                >
+                  <span>💡</span><span>Ver pista</span>
+                </button>
+              )
             )}
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <button

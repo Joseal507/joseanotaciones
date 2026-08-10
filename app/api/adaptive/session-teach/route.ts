@@ -26,6 +26,7 @@ import {
   type SessionKind,
 } from '../../../../lib/adaptive/sessionKind';
 import { legacyMaterialType, resolveAcademicDomain, type AcademicDomain } from '../../../../lib/adaptive/academicDomain';
+import { signQuestionsInPlace } from '../../../../lib/adaptive/evaluation/questionIntegrity';
 
 export const maxDuration = 120;
 export const dynamic = 'force-dynamic';
@@ -1861,6 +1862,11 @@ ACEPTADAS=${JSON.stringify(accepted.map(q=>({format:q.format,prompt:q.prompt,tar
   }
   telemetry('evaluation_coverage_validated',{coveredKeyPointIds:canonical.session.evaluationBlocks.flatMap(block=>block.questions.flatMap(question=>question.coveredKeyPointIds||[]))})
   const classContent=sanitizeClassContent({sessionId:session.id,sessionTitle:session.title,sessionNumber:session.chapterNumber,sessionKind:session.kind,materialType,...academicDomainMetadata,sessionIntro:state.teachingContent.introduction,steps:canonical.session.steps,sessionClosing:state.teachingContent.closing,totalSteps:canonical.session.steps.length,contentVersion:state.teachingHash,assessmentPlanVersion:3,evaluationBlocks:canonical.session.evaluationBlocks,evaluationCoverage:state.missingCoverage,preparationStatus:state.preparationStatus,preparationState:state})
+  // Codex Finding 2 — server-authoritative question contract: firmar cada
+  // pregunta ANTES de enviarla al cliente, este es el único punto de salida
+  // real (el resto del archivo, debajo de esta función, es código
+  // inalcanzable — ver comentario en POST).
+  for(const block of classContent.evaluationBlocks) signQuestionsInPlace(block.questions)
   telemetry('session_assembly_validated',{blockCount:canonical.session.evaluationBlocks.length});const payload={success:true,classContent};teachCache.set(generationKey,{result:payload,timestamp:Date.now()});telemetry('session_preparation_ready',{generationKey});return NextResponse.json(payload)
 }
 

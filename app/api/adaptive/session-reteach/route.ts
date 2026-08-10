@@ -10,6 +10,7 @@ import {
   type GenerationContext,
 } from '../../../../lib/adaptive/evaluation/questionContract'
 import { parsePreparedRecoveryRound, type RecoveryQuestion, type RecoveryRoundTarget } from '../../../../lib/adaptive/evaluation/preparedRecoveryRound'
+import { signQuestionsInPlace } from '../../../../lib/adaptive/evaluation/questionIntegrity'
 import {
   detectContentSignal,
   detectErrorType,
@@ -436,6 +437,8 @@ Devuelve SOLO JSON sin markdown ni fences:
               recoveryId: requestRecoveryId, recoveryTargetId, roundId, roundNumber,
               questionCount: fallbackRecoveryQuestions.length,
             }))
+            // Codex Finding 2 — server-authoritative question contract.
+            signQuestionsInPlace(fallbackCanonical.value.questions)
             return NextResponse.json(fallbackCanonical.value)
           }
           const fallbackValidationErrors = fallbackCanonical.success === false ? fallbackCanonical.validationErrors : []
@@ -468,6 +471,8 @@ Devuelve SOLO JSON sin markdown ni fences:
         sourceQuestionId: target.sourceQuestionId, generationKey,
         questionCount: 2,
       }))
+      // Codex Finding 2 — server-authoritative question contract.
+      signQuestionsInPlace(canonical.value.questions)
       return NextResponse.json(canonical.value)
     }
 

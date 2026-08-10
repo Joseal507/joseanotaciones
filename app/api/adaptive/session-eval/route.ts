@@ -28,6 +28,7 @@ import {
   selectPedagogicalFormat,
   type FormatSelectionInput,
 } from '../../../../lib/adaptive/evaluation/pedagogicalFormatSelector'
+import { signQuestionsInPlace } from '../../../../lib/adaptive/evaluation/questionIntegrity'
 
 export const maxDuration = 120
 export const dynamic = 'force-dynamic'
@@ -819,6 +820,11 @@ export async function POST(req: NextRequest) {
           : { ...option, text: sanitizeLatex(option.text || "") })
         : q.options,
     }))
+    // Codex Finding 2 — server-authoritative question contract: firmar cada
+    // pregunta ANTES de enviarla al cliente (cubre tanto hidratación lazy
+    // normal como generación de verificación de recovery, mismo punto de
+    // salida único para ambos casos).
+    signQuestionsInPlace(sanitizedQuestions as unknown as CanonicalQuestion[])
     return NextResponse.json({
       success: true,
       questions: sanitizedQuestions,

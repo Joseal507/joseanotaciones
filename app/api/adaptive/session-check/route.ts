@@ -9,6 +9,7 @@ import {
   normalizeEvaluationMode,
   validateQuestionTypeForMode,
 } from '../../../../lib/adaptive/evaluation/evaluationModeContract'
+import { verifyQuestionIntegrity } from '../../../../lib/adaptive/evaluation/questionIntegrity'
 
 export const maxDuration = 60
 export const dynamic = 'force-dynamic'
@@ -118,6 +119,39 @@ export async function POST(req: NextRequest) {
 
     if (!question || answer === undefined || answer === null) {
       return NextResponse.json({ success: false, error: 'question y answer son requeridos' }, { status: 400 })
+    }
+
+    // Codex Finding 2 — server-authoritative question contract (P0,
+    // CONFIRMED por reproducción real: correctAnswer/targetObjectiveIds/
+    // factKeys forjados en el payload eran aceptados tal cual). `question`
+    // llega directo del cliente, sin ningún cotejo — antes de confiar en
+    // correctAnswer para calificar o en targetObjectiveIds/factKeys para que
+    // el cliente acredite evidencia, la firma HMAC puesta por el servidor al
+    // generar la pregunta (session-teach/session-eval/session-reteach) debe
+    // verificar. Sin firma válida, se trata exactamente igual que cualquier
+    // otro fallo de validación — fail-closed, mismo camino ya existente,
+    // ninguna superficie de error nueva.
+    if (!verifyQuestionIntegrity(question)) {
+      console.info('[adaptive-evaluation]', JSON.stringify({
+        event: 'evaluation_question_integrity_rejected',
+        questionId: question.id,
+        microId: question.conceptId,
+        recoveryStatus: 'answer_check',
+      }))
+      return NextResponse.json({
+        success: true,
+        result: {
+          outcome: 'invalid',
+          correct: false,
+          score: 0,
+          errorType: null,
+          needsReteaching: false,
+          feedback: 'No pudimos validar esta actividad. Tu progreso no se modificó.',
+          whatWasRight: '',
+          whatWasWrong: '',
+          invalidReason: 'QUESTION_INTEGRITY_INVALID',
+        },
+      })
     }
 
     const validation = validateQuestion(question, {

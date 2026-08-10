@@ -218,6 +218,13 @@ test('matching inválido: rechazado y reemplazado antes de llegar al cliente', a
     } catch { /* sin .env.local disponible — se prueba la rama fail-closed */ }
   }
   process.env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || 'test-key-for-mocked-fetch'
+  // Codex Finding 2 — session-teach ahora firma cada pregunta con
+  // NEXTAUTH_SECRET (server-authoritative question contract). Este spec
+  // corre en el proceso de Playwright, que no carga .env.local
+  // automáticamente — sin este fallback, signQuestionIntegrity lanza y un
+  // 503 esperado (fail-closed por generación) se convierte en un 500 no
+  // relacionado con lo que este test prueba.
+  process.env.NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET || 'test-secret-for-e2e'
   const originalFetch = globalThis.fetch
   let fetchCallCount = 0
   globalThis.fetch = (async (input: any, init?: any) => {
