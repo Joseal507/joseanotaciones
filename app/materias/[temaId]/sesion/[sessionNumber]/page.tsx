@@ -103,6 +103,9 @@ import {
   type SessionAction,
   type SessionTransitionState,
 } from "../../../../../lib/adaptive/sessionFinalTransition"
+import type { VisualEvidenceKind, VisualSpec } from "../../../../../lib/adaptive/visual/visualContract"
+import { VisualRenderer } from "../../../../../components/visual/VisualRenderer"
+import { computeSessionDependencyFingerprint, isPrefetchStillValid, shouldPrefetchSession, KeyedPromiseCache } from "../../../../../lib/adaptive/sessionPrefetch"
 
 type SessionPhase = "teaching" | "evaluating" | "feedback" | "reteaching" | "verification_generation"
 
@@ -119,6 +122,8 @@ interface ClassStep {
   cognitiveTarget?: CanonicalQuestion["targetDimension"]
   objectiveIds?: string[]
   importance?: "supporting" | "important" | "critical"
+  visualSpec?: VisualSpec
+  visualEvidenceKind?: VisualEvidenceKind
 }
 
 interface ClassContent {
@@ -179,6 +184,10 @@ export default function SessionPage() {
   const inFlightGenerationKeyRef = useRef<string | null>(null)
   const sessionPreparationPromiseRef = useRef<Promise<any> | null>(null)
   const recoveryPrefetchRef = useRef(new Map<string, Promise<any>>())
+  // Prefetch de sesión N+1 (FASE 8/9): mismo patrón de dedup por clave que
+  // recoveryPrefetchRef, extraído a KeyedPromiseCache (sessionPrefetch.ts) para ser
+  // testeable de forma determinista — race-safe dentro de este montaje/pestaña.
+  const sessionPrefetchRef = useRef(new KeyedPromiseCache<void>())
   const recoveryGenerationCoordinatorRef = useRef(new RecoveryGenerationCoordinator<any>(2))
   const verificationClickStartedAtRef = useRef<number | null>(null)
   const autoRecoveryRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -194,6 +203,10 @@ export default function SessionPage() {
   const [coverageMap, setCoverageMap] = useState<CoverageMap | null>(null)
   const [assessmentBlueprint, setAssessmentBlueprint] = useState<AssessmentBlueprint | null>(null)
   const assessmentBlueprintRef = useRef<AssessmentBlueprint | null>(null)
+  // Estado del checkpoint visual inline (FASE 4/5): por stepId, si el estudiante ya
+  // completó correctamente la interacción visual de ese step. Gatea "Continuar" SOLO
+  // cuando el step tiene visualEvidenceKind (requiredness=required_for_mastery).
+  const [visualCheckpointState, setVisualCheckpointState] = useState<Record<string, { status: "idle" | "loading" | "correct" | "incorrect"; feedback?: string }>>({})
   const [skipEvaluation, setSkipEvaluation] = useState(false)
   const [pendingQuestions, setPendingQuestions] = useState<CanonicalQuestion[]>([])
   const [previousQuestions, setPreviousQuestions] = useState<CanonicalQuestion[]>([])
@@ -438,7 +451,7 @@ export default function SessionPage() {
         event: "session_kind_resolved", sessionId: chapter.id, kind: resolvedKind,
         planId: jy.id || as_.id, materialId: as_.primaryMaterialId || as_.materialIds?.[0] || null,
       }))
-      const cached = as_.sessionContent?.[String(sessionNumber)] as ClassContent | undefined
+      const cached = as_.sessionContent?.[String(sessionNumber)] as (ClassContent & { _prefetchMeta?: { dependencyFingerprint: string } }) | undefined
       const pStep = Number(as_.currentSessionNumber) === sessionNumber ? Math.max(0, Number(as_.currentStep || 0)) : 0
       const cachedHasNoBlocks = resolvedKind === 'learning' && (!cached?.evaluationBlocks || cached.evaluationBlocks.length === 0)
 
@@ -446,7 +459,24 @@ export default function SessionPage() {
         console.warn("[session] caché ignorado: sesión learning sin evaluationBlocks")
       }
 
-      if (cached && !cachedHasNoBlocks) {
+      // FASE 10-H: un caché marcado como proveniente de un prefetch (_prefetchMeta)
+      // solo se sirve si su dependencyFingerprint sigue coincidiendo con el estado
+      // actual (blueprint/journey/setup/material). Contenido cold-loaded (sin
+      // _prefetchMeta) no pasa por este chequeo adicional — cero cambio de
+      // comportamiento para el camino existente.
+      const cachedPrefetchStale = Boolean(cached?._prefetchMeta) && !isPrefetchStillValid(
+        cached!._prefetchMeta as any,
+        computeSessionDependencyFingerprint({
+          chapterId: chapter.id, chapterBlockIds: chapter.blockIds || [], blueprintVersion: bp.version || 0,
+          journeyId: jy.id || 'current', journeyVersion: jy.version || jy.id || 'current',
+          setupSnapshot: as_.adaptiveSetup, materialHash: as_.masteryMaterialKey || as_.primaryMaterialId || as_.materialIds?.join(','),
+        }),
+      )
+      if (cachedPrefetchStale) {
+        console.warn("[session-prefetch] prefetch obsoleto descartado (dependencyFingerprint no coincide) — regenerando en frío")
+      }
+
+      if (cached && !cachedHasNoBlocks && !cachedPrefetchStale) {
         const cachedBlocks = cached.evaluationBlocks || []
         // Validar caché — pero con tolerancia para sesiones learning con lazy blocks
         const cachedHasQuestions = cachedBlocks.some((b: any) => Array.isArray(b.questions) && b.questions.length > 0)
@@ -533,6 +563,7 @@ export default function SessionPage() {
               cached.steps.map(step => ({
                 ...step,
                 importance: step.importance === "critical" ? 1 : step.importance === "important" ? 0.7 : 0.4,
+                requiredEvidenceKind: step.visualEvidenceKind,
               })),
               as_.id,
               Number(cached.assessmentPlanVersion || 1),
@@ -548,7 +579,9 @@ export default function SessionPage() {
           ))),
         )
         initCoverage(cached.steps, as_, resolvedKind, cached)
-        setLoading(false); return
+        setLoading(false)
+        void triggerNextSessionPrefetch(as_, bp, jy, sessionNumber)
+        return
       }
 
       // Calcular contexto de sesiones anteriores y futuras para anti-repetición
@@ -720,6 +753,7 @@ export default function SessionPage() {
       initCoverage(d.classContent.steps || [], as_, resolvedKind, d.classContent)
       updateSessionById(as_.id, (c: any) => ({ ...startAdaptiveSession(c, sessionNumber, Math.max(0, pStep)), sessionPreparation: { ...(c.sessionPreparation || {}), [String(sessionNumber)]: d.classContent.preparationState }, sessionContent: { ...(c.sessionContent || {}), [String(sessionNumber)]: d.classContent } }))
       setLoading(false)
+      void triggerNextSessionPrefetch(as_, bp, jy, sessionNumber)
     } catch { setError("No pudimos preparar esta sesión. Vuelve al plan e inténtalo de nuevo."); setLoading(false) }
   }
 
@@ -743,12 +777,111 @@ export default function SessionPage() {
       steps.map(step => ({
         ...step,
         importance: step.importance === "critical" ? 1 : step.importance === "important" ? 0.7 : 0.4,
+        requiredEvidenceKind: step.visualEvidenceKind,
       })),
       si?.id || "",
       Number(cd?.assessmentPlanVersion || 1),
     )
     setAssessmentBlueprint(builtAssessment)
     setCoverageMap(buildCoverageMap(steps, si?.id || "", sessionNumber, cd?.checkpoints))
+  }
+
+  // Prefetch de sesión N+1 en segundo plano (FASE 8/9), disparado justo después de
+  // que N terminó de cargar (cold o desde caché) — replica SOLO la construcción del
+  // requestBody de session-teach para N+1 (nunca toca el estado de la sesión N
+  // actualmente en pantalla). Nunca prefetchea final_review (shouldPrefetchSession) —
+  // esa sesión depende de la evidencia real de N (ver sessionPrefetch.ts). Un fallo
+  // aquí nunca se muestra al usuario ni bloquea la sesión activa (FASE 10-G): es
+  // best-effort, silencioso, reintentable en la próxima carga de N.
+  async function triggerNextSessionPrefetch(as_: any, bp: any, jy: any, fromSessionNumber: number) {
+    try {
+      const allChapters = jy.chapters || []
+      const nextChapter = allChapters.find((c: any) => c.chapterNumber === fromSessionNumber + 1)
+      if (!nextChapter) return
+      let nextKind: SessionKind
+      try { nextKind = resolveSessionKind(nextChapter).kind } catch { return }
+      if (!shouldPrefetchSession(nextKind)) return
+
+      const materialHash = as_.masteryMaterialKey || as_.primaryMaterialId || as_.materialIds?.join(',')
+      const dependencyFingerprint = computeSessionDependencyFingerprint({
+        chapterId: nextChapter.id, chapterBlockIds: nextChapter.blockIds || [], blueprintVersion: bp.version || 0,
+        journeyId: jy.id || 'current', journeyVersion: jy.version || jy.id || 'current',
+        setupSnapshot: as_.adaptiveSetup, materialHash,
+      })
+
+      // Ya existe CUALQUIER contenido para N+1 (de un prefetch previo, o porque ya se
+      // generó/restauró normalmente) — el prefetch nunca debe re-cuestionar o
+      // reemplazar contenido ya presente (esa es la autoridad exclusiva de la
+      // validación de loadContext, no de este disparador en segundo plano). Solo
+      // dispara cuando N+1 está genuinamente vacío, o cuando lo que hay es un
+      // prefetch propio ya detectado como obsoleto por fingerprint.
+      const existingNext = as_.sessionContent?.[String(fromSessionNumber + 1)] as (ClassContent & { _prefetchMeta?: { dependencyFingerprint: string } }) | undefined
+      if (existingNext && (!existingNext._prefetchMeta || isPrefetchStillValid(existingNext._prefetchMeta as any, dependencyFingerprint))) return
+
+      const dedupeKey = `${as_.id}:${fromSessionNumber + 1}:${dependencyFingerprint}`
+      await sessionPrefetchRef.current.run(dedupeKey, async () => {
+        const nextAllChapters = allChapters
+        const prevOfNext = nextAllChapters.find((c: any) => c.chapterNumber === fromSessionNumber) || null
+        const afterNext = nextAllChapters.find((c: any) => c.chapterNumber === fromSessionNumber + 2) || null
+        const prevBlockIdSet = new Set(nextAllChapters.filter((c: any) => c.chapterNumber < fromSessionNumber + 1).flatMap((c: any) => c.blockIds || []))
+        const previouslyTaughtBlocks = (bp.blocks || []).filter((b: any) => prevBlockIdSet.has(b.id)).map((b: any) => ({ id: b.id, label: b.label, summary: b.summary, kind: b.kind }))
+        const futureBlockIdSet = new Set(nextAllChapters.filter((c: any) => c.chapterNumber > fromSessionNumber + 1).flatMap((c: any) => c.blockIds || []))
+        const upcomingBlocks = (bp.blocks || []).filter((b: any) => futureBlockIdSet.has(b.id)).map((b: any) => ({ id: b.id, label: b.label, kind: b.kind }))
+        const previouslyTaught = nextAllChapters
+          .filter((c: any) => c.chapterNumber < fromSessionNumber + 1)
+          .map((c: any) => ({
+            sessionTitle: c.title || `Sesión ${c.chapterNumber}`,
+            conceptsCovered: (c.blockIds || []).map((bid: string) => (bp.blocks || []).find((b: any) => b.id === bid)).filter(Boolean).map((b: any) => b.label).slice(0, 10),
+          }))
+          .filter((s: any) => s.conceptsCovered.length > 0)
+
+        const requestBody = {
+          session: { ...nextChapter, kind: nextKind },
+          blueprint: { version: bp.version, topics: bp.topics, blocks: bp.blocks },
+          setup: as_.adaptiveSetup,
+          materialTitle: as_.materialNames?.[0] || "Material",
+          materialHash,
+          planVersion: jy.id || jy.version || "current",
+          totalSessions: jy.chapters?.length || 0,
+          userId: as_.userId,
+          previouslyTaughtBlocks, upcomingBlocks,
+          allBlocks: bp.blocks || [], allTopics: bp.topics || [],
+          previousSessionTitle: prevOfNext?.title || null,
+          nextSessionTitle: afterNext?.title || null,
+          previouslyTaught,
+          primaryBlockIds: nextChapter.blockIds || [],
+          preparationState: (as_.sessionPreparation as any)?.[String(fromSessionNumber + 1)] || undefined,
+          generationHistory: computeGenerationHistorySignals(as_.sessionContent, { excludeSessionNumber: fromSessionNumber + 1 }),
+          requestOrigin: 'prefetch',
+        }
+        const response = await fetch("/api/adaptive/session-teach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(requestBody) })
+        const d = await response.json()
+        if (!d?.success || !d?.classContent) return
+
+        const generatedStepIds = new Set((d.classContent.steps || []).map((s: any) => s.id))
+        const normalizedEvalBlocks = Array.isArray(d.classContent.evaluationBlocks)
+          ? d.classContent.evaluationBlocks.filter((b: any) => generatedStepIds.has(b.afterStepId))
+          : []
+        const orphanBlocks = Array.isArray(d.classContent.evaluationBlocks)
+          ? d.classContent.evaluationBlocks.filter((b: any) => !generatedStepIds.has(b.afterStepId))
+          : []
+        if (orphanBlocks.length) {
+          const learningSteps = (d.classContent.steps || []).filter((s: any) => !["intro", "closing"].includes(s.type))
+          const lastLearningStep = learningSteps[learningSteps.length - 1]
+          if (lastLearningStep) orphanBlocks.forEach((b: any) => { b.afterStepId = lastLearningStep.id; normalizedEvalBlocks.push(b) })
+        }
+        d.classContent.evaluationBlocks = normalizedEvalBlocks
+        d.classContent._prefetchMeta = { dependencyFingerprint, preparedAt: Date.now(), sourceBlueprintVersion: bp.version || 0, journeyVersion: jy.version || jy.id || 'current' }
+
+        updateSessionById(as_.id, (current: any) => ({
+          ...current,
+          sessionPreparation: { ...(current.sessionPreparation || {}), [String(fromSessionNumber + 1)]: d.classContent.preparationState },
+          sessionContent: { ...(current.sessionContent || {}), [String(fromSessionNumber + 1)]: d.classContent },
+        }))
+      }).catch(() => undefined)
+    } catch {
+      // best-effort — nunca debe romper la sesión activa (FASE 10-G)
+    }
   }
 
   function persistAssessmentBlueprint(next: AssessmentBlueprint) {
@@ -769,6 +902,68 @@ export default function SessionPage() {
         },
       }
     })
+  }
+
+  // Checkpoint visual inline: grading server-authoritative vía /api/adaptive/
+  // visual-check (determinista, sin LLM), luego evidencia real a través del MISMO
+  // recordAssessmentEvidence/persistAssessmentBlueprint que usa el flujo textual —
+  // nunca una autoridad de mastery paralela.
+  async function submitVisualCheckpoint(step: ClassStep, verb: import("../../../../../lib/adaptive/visual/visualContract").VisualInteractionVerb, response: unknown) {
+    if (!step.visualSpec) return
+    setVisualCheckpointState(prev => ({ ...prev, [step.id]: { status: "loading" } }))
+    try {
+      const res = await fetch("/api/adaptive/visual-check", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ visualSpec: step.visualSpec, submission: { visualSpecId: step.visualSpec.id, verb, response } }),
+      })
+      const json = await res.json()
+      if (!json?.success) {
+        setVisualCheckpointState(prev => ({ ...prev, [step.id]: { status: "incorrect", feedback: "No pudimos calificar la interacción. Intenta de nuevo." } }))
+        return
+      }
+      const result = json.result as { correct: boolean; score: number; evidenceKind: string; feedback: string }
+      if (assessmentBlueprintRef.current && step.microId) {
+        const matchedObjectives = assessmentBlueprintRef.current.objectives.filter(o => o.microId === step.microId)
+        if (matchedObjectives.length) {
+          // El checkpoint visual no tiene, en esta slice, ningún canal de asistencia
+          // (pista automática, chat) equivalente al de las preguntas textuales — el
+          // estudiante SIEMPRE interactúa directamente con el visual, así que
+          // independent es genuinamente true aquí (no es el hardcode de Codex
+          // Finding 1: ese bug era ignorar una pista YA mostrada; aquí no existe
+          // ninguna vía de asistencia que ignorar).
+          const visualCheckpointIndependent = true
+          persistAssessmentBlueprint(recordAssessmentEvidence(
+            assessmentBlueprintRef.current,
+            matchedObjectives.map(o => o.objectiveId),
+            step.factKeys || [],
+            {
+              valid: true,
+              correct: result.correct,
+              independent: visualCheckpointIndependent,
+              evidenceId: `visual:${step.visualSpec.id}:${Date.now()}`,
+              evidenceKind: result.evidenceKind as any,
+            },
+          ))
+        }
+      }
+      setVisualCheckpointState(prev => ({ ...prev, [step.id]: { status: result.correct ? "correct" : "incorrect", feedback: result.feedback } }))
+    } catch {
+      setVisualCheckpointState(prev => ({ ...prev, [step.id]: { status: "incorrect", feedback: "Error de red al calificar. Intenta de nuevo." } }))
+    }
+  }
+
+  // Un step con checkpoint visual gating queda satisfecho por CUALQUIERA de dos
+  // fuentes: el checkpoint local de este montaje (respuesta recién enviada), O el
+  // assessmentBlueprint persistido ya mostrando el objective demostrado — esto
+  // último es lo que evita que un refresh a mitad de sesión (tras ya haber pasado el
+  // checkpoint en un montaje anterior) vuelva a bloquear "Continuar": la evidencia
+  // real ya está grabada, solo el estado efímero de React se perdió.
+  function isVisualStepSatisfied(step: ClassStep): boolean {
+    if (!step.visualEvidenceKind) return true
+    if (visualCheckpointState[step.id]?.status === "correct") return true
+    const matched = (assessmentBlueprint?.objectives || []).filter(o => o.microId === step.microId)
+    return matched.length > 0 && matched.every(o => o.independentlyCorrect)
   }
 
   // PARTE B — chat ALAI: mismo patrón exacto que persistAssessmentBlueprint
@@ -2937,6 +3132,27 @@ export default function SessionPage() {
             <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16, lineHeight: 1.3 }}><AcademicContent content={step.title} /></h2>
             <div style={{ fontSize: 16, lineHeight: 1.7, color: "#cbd5e1" }}><AcademicContent content={step.content} /></div>
             {step.keyPoint && <div style={{ marginTop: 20, padding: 16, background: "rgba(250,204,21,0.08)", border: "1px solid rgba(250,204,21,0.25)", borderRadius: 10 }}><div style={{ fontSize: 11, fontWeight: 700, color: "#fbbf24", marginBottom: 6 }}>💡 Idea clave</div><div style={{ fontSize: 15, color: "#fde68a", fontWeight: 500 }}><AcademicContent content={step.keyPoint} /></div></div>}
+            {step.visualSpec && (() => {
+              const checkpoint = visualCheckpointState[step.id]
+              const gating = Boolean(step.visualEvidenceKind)
+              const passed = isVisualStepSatisfied(step)
+              return (
+                <div>
+                  <VisualRenderer
+                    spec={step.visualSpec}
+                    mode={gating && !passed ? "assess" : "teach"}
+                    disabled={checkpoint?.status === "loading" || passed}
+                    onSubmit={(verb, response) => void submitVisualCheckpoint(step, verb, response)}
+                  />
+                  {checkpoint && checkpoint.status !== "idle" && checkpoint.status !== "loading" && (
+                    <div style={{ fontSize: 13, marginTop: -4, marginBottom: 12, color: checkpoint.status === "correct" ? "#4ade80" : "#f87171" }}>{checkpoint.feedback}</div>
+                  )}
+                  {gating && !passed && (
+                    <div style={{ fontSize: 12, color: "#9ca3af", marginTop: -4, marginBottom: 12 }}>Completa la interacción visual para continuar.</div>
+                  )}
+                </div>
+              )
+            })()}
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ fontSize: 13, opacity: 0.6 }}>
@@ -2948,7 +3164,7 @@ export default function SessionPage() {
                 return "Después de este paso toca verificar comprensión."
               })()}
             </div>
-            <button data-testid="session-primary-action" onClick={proceedToNextStep} style={{ padding: "14px 32px", background: primarySessionAction.type==="complete_session" ? "linear-gradient(90deg, #4ade80, #22c55e)" : "linear-gradient(90deg, #3b82f6, #6366f1)", color: primarySessionAction.type==="complete_session" ? "#052e16" : "white", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>{primarySessionActionLabel}</button>
+            <button data-testid="session-primary-action" onClick={proceedToNextStep} disabled={!isVisualStepSatisfied(step)} style={{ padding: "14px 32px", background: primarySessionAction.type==="complete_session" ? "linear-gradient(90deg, #4ade80, #22c55e)" : "linear-gradient(90deg, #3b82f6, #6366f1)", color: primarySessionAction.type==="complete_session" ? "#052e16" : "white", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer", opacity: !isVisualStepSatisfied(step) ? 0.5 : 1 }}>{primarySessionActionLabel}</button>
           </div>
         </>)}
 

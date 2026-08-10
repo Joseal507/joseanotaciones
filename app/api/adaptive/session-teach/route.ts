@@ -27,6 +27,9 @@ import {
   type SessionKind,
 } from '../../../../lib/adaptive/sessionKind';
 import { legacyMaterialType, resolveAcademicDomain, type AcademicDomain } from '../../../../lib/adaptive/academicDomain';
+import { classifyVisualNeed } from '../../../../lib/adaptive/visual/visualNeedClassifier';
+import { buildVisualSpec } from '../../../../lib/adaptive/visual/visualSpecBuilder';
+import { signVisualSpec } from '../../../../lib/adaptive/visual/visualSpecIntegrity';
 import { signQuestionsInPlace } from '../../../../lib/adaptive/evaluation/questionIntegrity';
 
 export const maxDuration = 120;
@@ -80,6 +83,10 @@ interface TeachRequest {
   preparationState?: SessionPreparationState;
   materialHash?: string;
   planVersion?: string | number;
+  // FASE 11 (misión visual+prefetch): 'prefetch' cuando el cliente dispara esta
+  // preparación en segundo plano para N+1 mientras N sigue activa. Ausente/'cold'
+  // para todo el tráfico existente (comportamiento histórico intacto).
+  requestOrigin?: 'cold' | 'prefetch';
   session: {
     id: string;
     chapterNumber: number;
@@ -1225,7 +1232,24 @@ function factoryTeaching(source: TeachingContent, session: TeachRequest['session
     const keyPoints = Array.isArray(item.keyPoints) ? [...new Set<string>(item.keyPoints.map((point:any)=>String(point.text||'')).filter(Boolean))] : []
     const factKeys = Array.isArray(item.factKeys) && item.factKeys.length ? [...new Set<string>(item.factKeys.map(String).filter(Boolean))] : keyPoints.map((_: string, i: number) => `${stepId}:fact:${i + 1}`)
     const keyPointIds=Array.isArray(item.keyPoints)?item.keyPoints.map((point:any)=>String(point.id||'')):keyPoints.map((_:string,i:number)=>`${stepId}:kp:${i+1}`)
-    return { stepId, id:stepId, microId:String(item.microId || factKeys[0] || stepId), title:String(item.title || '').trim(), type:String(item.type || 'concept'), content:String(item.content || '').trim(), keyPoints, keyPointIds, factKeys, importance:item.importance === 'critical' || item.importance === 'supporting' ? item.importance : 'important', cognitiveTarget:String(item.cognitiveTarget || 'comprehension'), sourceReferences:Array.isArray(item.sourceReferences) ? item.sourceReferences : [], objectiveIds:Array.isArray(item.objectiveIds) ? item.objectiveIds.map(String) : keyPoints.map((_:string,i:number)=>`${session.id}:${stepId}:objective:${i+1}`), relatedBlockIds:Array.isArray(item.relatedBlockIds) ? item.relatedBlockIds.map(String) : [] }
+    const microId=String(item.microId || factKeys[0] || stepId)
+    const title=String(item.title || '').trim()
+    const content=String(item.content || '').trim()
+    const cognitiveTarget=String(item.cognitiveTarget || 'comprehension')
+    // Visual: SIEMPRE derivado de forma determinista del contenido enseñado real (nunca
+    // del JSON del LLM) — ver visualNeedClassifier.ts/visualSpecBuilder.ts. Si no hay
+    // señal cognitiva o el material no trae datos suficientes, ambos quedan undefined.
+    const visualRequirement=classifyVisualNeed({ microId, title, content, keyPoints, factKeys, cognitiveTarget, sourceStepId: stepId }) || undefined
+    const builtVisualSpec=visualRequirement ? buildVisualSpec(visualRequirement, `${title}\n${content}`, stepId) : null
+    const visualSpec=builtVisualSpec ? signVisualSpec(builtVisualSpec) : undefined
+    // Solo required_for_mastery gatea el objective (FASE 5) — supportive/
+    // required_for_understanding nunca bloquean mastery textual.
+    const visualEvidenceKind=visualSpec && visualRequirement?.requiredness === 'required_for_mastery'
+      ? (visualRequirement.evidenceRequirements?.construct ? 'visual_construction' as const
+        : visualRequirement.evidenceRequirements?.manipulate ? 'visual_manipulation' as const
+        : 'visual_interpretation' as const)
+      : undefined
+    return { stepId, id:stepId, microId, title, type:String(item.type || 'concept'), content, keyPoints, keyPointIds, factKeys, importance:item.importance === 'critical' || item.importance === 'supporting' ? item.importance : 'important', cognitiveTarget, sourceReferences:Array.isArray(item.sourceReferences) ? item.sourceReferences : [], objectiveIds:Array.isArray(item.objectiveIds) ? item.objectiveIds.map(String) : keyPoints.map((_:string,i:number)=>`${session.id}:${stepId}:objective:${i+1}`), relatedBlockIds:Array.isArray(item.relatedBlockIds) ? item.relatedBlockIds.map(String) : [], visualRequirement, visualSpec, visualEvidenceKind }
   })
   if (!steps.length || new Set(steps.map((step: any) => step.stepId)).size !== steps.length || steps.some((step: any) => !step.title || !step.content || !step.keyPoints.length || !step.factKeys.length)) throw new Error('TEACHING_CONTENT_INVALID')
   if (session.kind === 'introduction' && (steps.length < 3 || steps.length > 5 || steps.some(step => step.relatedBlockIds?.length))) throw new Error('INTRODUCTION_CONTRACT_INVALID')
@@ -1841,7 +1865,11 @@ function factoryQuestions(raw: Record<string, any>, block: EvaluationPlanBlock):
 async function prepareSessionByFactory(body: TeachRequest & { userId?: string }, teachingPrompt: string, generationKey: string, materialType: string): Promise<NextResponse> {
   const { session, setup } = body
   let remoteCallNumber = 0
-  const telemetry = (event:string,payload:Record<string,unknown>) => console.info('[session-preparation]',JSON.stringify({event,sessionId:session.id,planId:String(body.planVersion||''),materialId:body.materialHash||null,generationKey,provider:'openrouter',model:'google/gemini-2.5-flash',remoteCallNumber,...payload}))
+  // FASE 11 (misión visual+prefetch): requestOrigin permite medir cold vs prefetch
+  // por separado en la telemetría existente sin tocar cada call site — 'cold' es el
+  // default histórico (body.requestOrigin ausente en todo el tráfico ya existente).
+  const requestOrigin = body.requestOrigin === 'prefetch' ? 'prefetch' : 'cold'
+  const telemetry = (event:string,payload:Record<string,unknown>) => console.info('[session-preparation]',JSON.stringify({event,sessionId:session.id,planId:String(body.planVersion||''),materialId:body.materialHash||null,generationKey,provider:'openrouter',model:'google/gemini-2.5-flash',remoteCallNumber,requestOrigin,...payload}))
   if (body.preparationState?.evaluationPlan) telemetry('plan_regeneration_prevented',{generationKey})
   // Presupuesto de retry TÉCNICO (JSON malformado/truncado de UNA llamada
   // remota) — nunca pedagogical repair, que sigue viviendo exclusivamente en

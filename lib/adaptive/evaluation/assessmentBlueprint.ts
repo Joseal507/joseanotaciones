@@ -1,4 +1,5 @@
 import type { CognitiveDimension } from '../v3/engine/masteryContract'
+import type { VisualEvidenceKind } from '../visual/visualContract'
 
 export type AssessmentObjectiveStatus =
   | 'not_assessed'
@@ -47,6 +48,13 @@ export interface AssessmentObjective {
   evidenceIds: string[]
   status: AssessmentObjectiveStatus
   subsumedByObjectiveId?: string
+  // requiredEvidenceKind: cuando está presente, SOLO evidencia con result.evidenceKind
+  // === requiredEvidenceKind puede demostrar este objective (ver recordAssessmentEvidence).
+  // undefined preserva el comportamiento histórico (cualquier evidencia textual válida
+  // basta) — nunca se setea salvo que un VisualRequirement required_for_mastery lo pida
+  // explícitamente (FASE 5: una MCQ textual correcta no puede "false-master" un
+  // objective que exige construcción/manipulación visual).
+  requiredEvidenceKind?: VisualEvidenceKind
 }
 
 // unresolvedFactKeys es SIEMPRE derivado, nunca almacenado — evita que un
@@ -90,6 +98,7 @@ export function normalizeAssessmentObjective(raw: unknown): AssessmentObjective 
     evidenceIds: Array.isArray(objective.evidenceIds) ? objective.evidenceIds.map(String) : [],
     status: (typeof objective.status === 'string' ? objective.status as AssessmentObjectiveStatus : 'not_assessed'),
     subsumedByObjectiveId: typeof objective.subsumedByObjectiveId === 'string' ? objective.subsumedByObjectiveId : undefined,
+    requiredEvidenceKind: typeof objective.requiredEvidenceKind === 'string' ? objective.requiredEvidenceKind as VisualEvidenceKind : undefined,
   }
   normalized.independentlyCorrect = isFullyDemonstrated(normalized)
   // Si el status persistido decía 'demonstrated' pero, bajo la regla nueva,
@@ -132,6 +141,7 @@ export interface AssessmentStepDeclaration {
   objectiveIds?: string[]
   relatedBlockIds?: string[]
   importance?: number
+  requiredEvidenceKind?: VisualEvidenceKind
 }
 
 export interface AssessmentQuestionTarget {
@@ -259,6 +269,7 @@ export function buildAssessmentBlueprint(
         failedAttempts: 0,
         evidenceIds: [],
         status: 'not_assessed',
+        requiredEvidenceKind: step.requiredEvidenceKind,
       })
     })
   }
@@ -278,7 +289,7 @@ export function recordAssessmentEvidence(
   blueprint: AssessmentBlueprint,
   targetObjectiveIds: string[],
   targetFactKeys: string[],
-  result: { valid: boolean; correct: boolean; independent: boolean; evidenceId?: string },
+  result: { valid: boolean; correct: boolean; independent: boolean; evidenceId?: string; evidenceKind?: VisualEvidenceKind },
 ): AssessmentBlueprint {
   const targets = new Set(targetObjectiveIds)
   const answeredFacts = new Set(targetFactKeys)
@@ -289,13 +300,21 @@ export function recordAssessmentEvidence(
     // ronda ya resuelta. Idempotente incluso sin este guard (el Set de abajo
     // no duplicaría valores), pero esto además evita inflar failedAttempts.
     if (result.evidenceId && objective.evidenceIds.includes(result.evidenceId)) return objective
+    // FASE 5 (visual): si el objective exige un tipo de evidencia concreto
+    // (p.ej. visual_construction), evidencia de otro tipo (p.ej. una MCQ
+    // textual correcta, evidenceKind undefined/'textual') nunca puede
+    // demostrarlo — solo puede quedar registrada como intento (assessed/
+    // assistedCorrect/failedAttempts se actualizan igual), nunca como
+    // demonstratedFactKeys. Objectives sin requiredEvidenceKind (el caso de
+    // siempre) no cambian de comportamiento.
+    const evidenceKindSatisfied = !objective.requiredEvidenceKind || objective.requiredEvidenceKind === result.evidenceKind
     // Regla 1/2: SOLO la intersección entre lo que esta pregunta realmente
     // targeteó y lo que el objective requiere puede demostrarse — nunca
     // objective.factKeys completo por pertenecer al mismo objective (eso
     // sería demostrar F5 solo porque comparte objective con F1).
     const demonstrableNow = objective.factKeys.filter(factKey => answeredFacts.has(factKey))
     // Regla 3: una respuesta incorrecta nunca agrega a demonstratedFactKeys.
-    const demonstratedFactKeys = result.correct && result.independent
+    const demonstratedFactKeys = result.correct && result.independent && evidenceKindSatisfied
       ? [...new Set([...objective.demonstratedFactKeys, ...demonstrableNow])]
       : objective.demonstratedFactKeys
     const updated: AssessmentObjective = {

@@ -8,6 +8,7 @@ import {
   type GenerationContext,
 } from './questionContract'
 import { validateQuestionTypeForMode } from './evaluationModeContract'
+import type { VisualEvidenceKind, VisualSpec } from '../visual/visualContract'
 
 export type StepImportance = 'supporting' | 'important' | 'critical'
 export type SessionEvaluationKind = 'introduction' | 'learning' | 'final_review'
@@ -33,6 +34,11 @@ export interface SessionStep {
   factKeys?: string[]
   cognitiveTarget?: CanonicalQuestion['targetDimension']
   objectiveIds?: string[]
+  // Adjuntado deterministamente por factoryTeaching (session-teach/route.ts) — nunca
+  // proviene del JSON generado por el LLM. Preservado tal cual a través de la
+  // canonicalización final para llegar íntegro al cliente.
+  visualSpec?: VisualSpec
+  visualEvidenceKind?: VisualEvidenceKind
 }
 
 export type SessionEvaluationQuestion = CanonicalQuestion & {
@@ -176,6 +182,8 @@ export function canonicalizeGeneratedSession(
       factKeys: textArray(step.factKeys),
       cognitiveTarget: dimensionFor(step.cognitiveTarget),
       objectiveIds: textArray(step.objectiveIds),
+      visualSpec: isRecord(step.visualSpec) ? (step.visualSpec as unknown as VisualSpec) : undefined,
+      visualEvidenceKind: typeof step.visualEvidenceKind === 'string' ? step.visualEvidenceKind as VisualEvidenceKind : undefined,
     }})
     .filter(step => step.title && step.content)
 

@@ -117,10 +117,24 @@ test('final_review restaura, completa y vuelve al mismo plan sin generación ni 
 
 test('introduction → learning conserva el plan y solo reintenta session_content por acción explícita', async ({ page }) => {
   await installFixture(page)
+  // Misión visual+prefetch: la sesión 1 (introduction) dispara un prefetch en
+  // segundo plano de la sesión 2 en cuanto carga — antes de que el usuario haga
+  // ningún click. Ese intento (requestOrigin='prefetch') se cuenta aparte:
+  // también falla (misma generación rota), pero nunca debe ser el intento que
+  // este test vigila (el "único intento automático" es, por diseño, el de
+  // prefetch en segundo plano — el que importa aquí es que NINGÚN intento en
+  // primer plano ocurra sin una acción explícita del usuario).
   let sessionTeachRequests = 0
+  let coldSessionTeachRequests = 0
   await page.route('**/api/adaptive/session-teach', async route => {
     sessionTeachRequests += 1
-    if (sessionTeachRequests === 1) {
+    const body = route.request().postDataJSON()
+    if (body?.requestOrigin === 'prefetch') {
+      await route.fulfill({ status: 503, json: { success: false, error: 'SESSION_CONTENT_PREPARATION_FAILED', retryable: true } })
+      return
+    }
+    coldSessionTeachRequests += 1
+    if (coldSessionTeachRequests === 1) {
       await route.fulfill({ status: 503, json: { success: false, error: 'SESSION_CONTENT_PREPARATION_FAILED', retryable: true } })
       return
     }
@@ -159,12 +173,16 @@ test('introduction → learning conserva el plan y solo reintenta session_conten
   await page.getByRole('button', { name: 'Siguiente →' }).click()
   await expect(page.getByRole('button', { name: 'Reintentar preparar sesión' })).toBeVisible()
   await expect(page.getByText(/INVALID_JSON|SESSION_CONTENT|503/)).toHaveCount(0)
-  expect(sessionTeachRequests).toBe(1)
+  // El intento en PRIMER PLANO (el único que el usuario puede ver/reintentar) debe
+  // seguir siendo exactamente 1 sin ninguna acción explícita — el prefetch en
+  // segundo plano (sessionTeachRequests > coldSessionTeachRequests si ocurrió) nunca
+  // cuenta como ese intento ni es visible para el usuario.
+  expect(coldSessionTeachRequests).toBe(1)
 
   const retryStartedAt = Date.now()
   await page.getByRole('button', { name: 'Reintentar preparar sesión' }).click()
   await expect(page.getByTestId('adaptive-session-root')).toHaveAttribute('data-session-kind', 'learning')
   await expect(page.getByRole('heading', { name: 'Liderazgo sostenido' })).toBeVisible()
-  expect(sessionTeachRequests).toBe(2)
+  expect(coldSessionTeachRequests).toBe(2)
   console.log(`session_content explicit retry E2E latency: ${Date.now() - retryStartedAt}ms`)
 })
