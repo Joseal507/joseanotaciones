@@ -9,6 +9,7 @@ import {
   type CanonicalQuestion,
   type GenerationContext,
 } from '../../../../lib/adaptive/evaluation/questionContract'
+import { validateMatchingQuestion } from '../../../../lib/adaptive/evaluation/matchingValidator'
 import { parsePreparedRecoveryRound, type RecoveryQuestion, type RecoveryRoundTarget } from '../../../../lib/adaptive/evaluation/preparedRecoveryRound'
 import { signQuestionsInPlace } from '../../../../lib/adaptive/evaluation/questionIntegrity'
 import {
@@ -322,6 +323,20 @@ Devuelve SOLO JSON sin markdown ni fences:
         const questions = normalizedQuestions.filter((question, index) => {
           const validation = validateQuestion(question, context, prior)
           validationErrors.push(...validation.errors.map(error => `question_${index + 1}:${error}`))
+          // Misma autoridad que la generación normal (sessionPreparationFactory vía
+          // diagnoseEvaluationBlock): ninguna pregunta 'matching' — inicial o de
+          // recovery — puede llegar al usuario ni producir evidencia sin pasar por
+          // matchingValidator. Aquí correctAnswer se deriva de options[] (ver
+          // normalizeGeneratedQuestion en questionContract.ts), así que la capa
+          // estructural es tautológica, pero la capa de grounding de contenido no lo
+          // es — sigue pudiendo detectar un right desplazado al left equivocado.
+          if (question.format === 'matching') {
+            const matchingResult = validateMatchingQuestion(question)
+            if (!matchingResult.valid) {
+              validationErrors.push(`question_${index + 1}:MATCHING_INVALID:${matchingResult.reason || 'unknown'}`)
+              return false
+            }
+          }
           return validation.valid
         })
         if (questions.length !== 2) validationErrors.push(`MISSING_ITEMS:expected_2_received_${questions.length}`)

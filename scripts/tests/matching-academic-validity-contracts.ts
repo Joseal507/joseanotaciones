@@ -183,7 +183,15 @@ async function testRepairReplacesOnlyInvalidMatching() {
     questionId: 'q-repair-replacement', blockId: 'sess-1:evaluation:1', targetStepIds: ['step_1'],
     targetKeyPointIds: ['step_1:kp:2'], targetFactKeys: ['Concepto Beta relacionado con Descripción Dos especial.'],
     targetObjectiveIds: ['step_1:objective:comprehension'], cognitiveTarget: 'comprehension',
-    format: 'true_false', prompt: 'Concepto Beta se relaciona con Descripción Dos.', correctAnswer: true,
+    // Prompt deliberadamente NO templado igual que validQuestion ("X se
+    // relaciona con Y.") — con texto casi idéntico salvo por las entidades
+    // nombradas, isSemanticDuplicate() (sessionPreparationFactory.ts) lo
+    // marca correctamente como duplicado semántico (mismo detector que
+    // protege producción de preguntas de repair parafraseadas contra una ya
+    // aceptada). Ese es el comportamiento correcto del detector, no un bug —
+    // el fixture debe usar contenido genuinamente distinto, como haría un
+    // repair real.
+    format: 'true_false', prompt: '¿Es correcta la asociación entre el segundo concepto clave y su descripción correspondiente?', correctAnswer: true,
     feedback: 'Correcto.', difficulty: 'medium',
   }
 

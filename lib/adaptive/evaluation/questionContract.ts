@@ -279,6 +279,24 @@ export function matchingDisplayOptions(
     .filter(option => option.content)
 }
 
+// Fuente única de verdad para "cuál es la asociación correcta de cada pair" —
+// la MISMA que usa el grader (scoreQuestion compara answer[pairId] contra
+// question.correctAnswer[pairId]). Cualquier UI que muestre "la respuesta
+// correcta" para matching (feedback, resúmenes, recovery) debe consumir esto
+// en vez de leer pair.right directo del mismo entry de options[] — options[]
+// y correctAnswer son, en algunos caminos de generación, resueltos de forma
+// independiente y pueden divergir (ver matchingValidator.ts).
+export function matchingCorrectPairs(
+  question: Extract<CanonicalQuestion, { format: 'matching' }>,
+): Array<{ pairId: string; left: string; rightId: string; rightText: string }> {
+  const rightTextById = new Map(question.options.map(pair => [pair.rightId, pair.right]))
+  return question.options.map(pair => {
+    const correctRightId = question.correctAnswer[pair.id]
+    const rightText = (correctRightId && rightTextById.get(correctRightId)) || pair.right
+    return { pairId: pair.id, left: pair.left, rightId: correctRightId || pair.rightId, rightText }
+  })
+}
+
 function normalizeClassification(value: unknown): { categories: string[]; items: ClassificationItem[] } | null {
   if (!isRecord(value)) return null
   if (Array.isArray(value.categories) && Array.isArray(value.items)) {

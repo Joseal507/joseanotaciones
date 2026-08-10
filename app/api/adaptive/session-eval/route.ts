@@ -3,6 +3,7 @@ import { buildCheckpointAnalysis } from '../../../../lib/adaptive/evaluation/che
 import { NextRequest, NextResponse } from 'next/server'
 import { alai, safeParseJson } from '../../../../lib/alai'
 import { normalizeGeneratedQuestion, questionSimilarity, validateQuestion } from '../../../../lib/adaptive/evaluation/questionContract'
+import { validateMatchingQuestion } from '../../../../lib/adaptive/evaluation/matchingValidator'
 import type { EvaluationMode } from '../../../../lib/adaptive/evaluation/assessmentPlanner'
 import type { CanonicalQuestion } from '../../../../lib/adaptive/evaluation/questionContract'
 import {
@@ -695,6 +696,16 @@ export async function POST(req: NextRequest) {
             evaluationMode: mode,
           }, [])
           errors.push(...validation.errors)
+          // Misma autoridad que la generación normal (sessionPreparationFactory vía
+          // diagnoseEvaluationBlock): ninguna pregunta 'matching' generada aquí
+          // (evaluación inicial on-demand o reevaluación de recovery) puede llegar
+          // al usuario sin pasar por matchingValidator — correctAnswer se deriva de
+          // options[] en normalizeGeneratedQuestion, así que la capa estructural es
+          // tautológica aquí, pero la capa de grounding de contenido no lo es.
+          if (question.format === 'matching') {
+            const matchingResult = validateMatchingQuestion(question)
+            if (!matchingResult.valid) errors.push(`MATCHING_INVALID:${matchingResult.reason || 'unknown'}`)
+          }
         }
         if (context.generationMode !== 'individual_part') {
           for (let left = 0; left < batch.questions.length; left++) {

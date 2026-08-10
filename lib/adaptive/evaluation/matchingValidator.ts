@@ -158,6 +158,15 @@ const MIN_SIGNAL = 0.15
 // con un margen pequeño, factKeys cortos generan falsos positivos porque un
 // factKey que describe el par B menciona de pasada un término del par A.
 const PERMUTATION_MARGIN = 0.3
+// La capa 2 compara la asignación declarada contra TODAS las permutaciones de
+// los pares juzgables — factorial en su número. Preguntas reales auditadas
+// tienen 3-6 pares; por encima de esta cota el costo deja de ser instantáneo
+// (medido: 8 pares ~100ms, 10 pares ~13s) y puede colgar la petición sin límite
+// superior. Por encima de la cota, la capa 2 no rechaza por permutación (mismo
+// comportamiento que "sin señal suficiente para juzgar" en MIN_SIGNAL) — la
+// capa 1 estructural (bijectividad, IDs, duplicados) se sigue exigiendo siempre,
+// sin excepción, independientemente del tamaño.
+const MAX_PERMUTATION_PAIRS = 8
 
 function* permutations(indices: number[]): Generator<number[]> {
   if (indices.length <= 1) { yield indices; return }
@@ -199,6 +208,7 @@ export function validateMatchingGrounding(
   // problema de asignación entero, no solo de su propia fila/columna.
   const judgeable = tokenized.map((t, i) => i).filter(i => tokenized[i].leftWords.length && tokenized[i].rightWords.length)
   if (judgeable.length < 2) return { valid: true }
+  if (judgeable.length > MAX_PERMUTATION_PAIRS) return { valid: true }
 
   // Matriz left_i × right_j SOLO sobre índices juzgables — necesaria para
   // detectar incluso una rotación cíclica completa (TODOS los pares

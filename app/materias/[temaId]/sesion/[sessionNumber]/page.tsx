@@ -60,7 +60,7 @@ import {
   getStepsForCheckpoint,
   type CoverageMap,
 } from "../../../../../lib/adaptive/evaluation/coverageExtractor"
-import { matchingDisplayOptions, questionSimilarity, realFactKeysOf, type CanonicalQuestion } from "../../../../../lib/adaptive/evaluation/questionContract"
+import { matchingCorrectPairs, matchingDisplayOptions, questionSimilarity, realFactKeysOf, type CanonicalQuestion } from "../../../../../lib/adaptive/evaluation/questionContract"
 import { computeGenerationHistorySignals } from "../../../../../lib/adaptive/evaluation/generationHistorySignals"
 import { parsePreparedRecoveryRound, type PreparedRecoveryRound } from "../../../../../lib/adaptive/evaluation/preparedRecoveryRound"
 import {
@@ -2759,12 +2759,16 @@ export default function SessionPage() {
               return <span style={{ fontWeight: 700, color: "#34d399" }}>{labels.join(" → ")}</span>
             }
             if (q.format === "matching") {
-              const pairs = Array.isArray(q.options) ? q.options as any[] : []
+              // Fuente única de verdad: la MISMA correctAnswer que usa el grader
+              // (scoreQuestion). No reconstruir la solución leyendo pair.right directo
+              // del mismo entry de options[] — eso puede divergir de correctAnswer y
+              // mostrar como "correcta" una combinación distinta a la que realmente
+              // calificó el grader.
               return (
                 <ul style={{ margin: "6px 0", paddingLeft: 0, listStyle: "none" }}>
-                  {pairs.map((pair: any) => (
-                    <li key={pair.id} style={{ color: "#34d399", fontSize: 14, marginBottom: 4 }}>
-                      <AcademicContent content={pair.left} inline /> → <AcademicContent content={pair.right} inline />
+                  {matchingCorrectPairs(q as CanonicalQuestion & { format: "matching" }).map(pair => (
+                    <li key={pair.pairId} style={{ color: "#34d399", fontSize: 14, marginBottom: 4 }}>
+                      <AcademicContent content={pair.left} inline /> → <AcademicContent content={pair.rightText} inline />
                     </li>
                   ))}
                 </ul>
