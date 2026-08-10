@@ -8,6 +8,14 @@ import type { AcademicDocument, AcademicNode } from '../../lib/academic-content/
 import { academicNodeBoundary, quantityText } from '../../lib/academic-content/composition'
 
 type BlankRenderer = (node: Extract<AcademicNode, { type: 'blank' }>, index: number) => React.ReactNode
+// Resuelve, EN ORDEN, cada hueco ___ que quedó DENTRO de un span matemático
+// (parser.ts:buildMathValue lo dejó como \square en node.value) — a
+// diferencia de renderBlank (que devuelve un ReactNode independiente), esto
+// devuelve el texto LaTeX-seguro a insertar EN la posición matemática real
+// (exponente, fracción, raíz...), más un onClick opcional para limpiar el
+// hueco (aplicado al span matemático completo — no hay forma segura de
+// aislar el click a un glyph individual dentro del HTML que genera KaTeX).
+type MathBlankRenderer = () => { latex: string; onClick?: () => void }
 
 interface AcademicContentProps {
   content: string | AcademicDocument
@@ -22,9 +30,10 @@ interface AcademicContentProps {
   // vez, coherente, y el nodo 'blank' ya viene identificado por el tokenizer
   // (que además ya protege los delimitadores de math de tragarse un "___").
   renderBlank?: BlankRenderer
+  renderMathBlank?: MathBlankRenderer
 }
 
-function MathNode({ node }: { node: Extract<AcademicNode, { type: 'math' }> }) {
+function MathNode({ node, renderMathBlank }: { node: Extract<AcademicNode, { type: 'math' }>; renderMathBlank?: MathBlankRenderer }) {
   if (node.source === 'mathml') {
     return (
       <span
@@ -34,15 +43,36 @@ function MathNode({ node }: { node: Extract<AcademicNode, { type: 'math' }> }) {
       />
     )
   }
-  const html = katex.renderToString(node.value, {
-    displayMode: node.display,
-    throwOnError: true,
-    trust: false,
-    strict: 'error',
-    output: 'htmlAndMathml',
-  })
+  let latexSource = node.value
+  let onClick: (() => void) | undefined
+  if (node.blankCount && renderMathBlank) {
+    for (let i = 0; i < node.blankCount; i++) {
+      const resolved = renderMathBlank()
+      // String.replace con un string literal (no regex /g) reemplaza SOLO
+      // la primera ocurrencia — exactamente lo que hace falta al resolver
+      // huecos en orden, uno por vuelta de este for.
+      latexSource = latexSource.replace('\\square', resolved.latex)
+      if (resolved.onClick) onClick = resolved.onClick
+    }
+  }
+  let html: string
+  try {
+    html = katex.renderToString(latexSource, {
+      displayMode: node.display,
+      throwOnError: true,
+      trust: false,
+      strict: 'error',
+      output: 'htmlAndMathml',
+    })
+  } catch {
+    // Fail-closed: un hueco sustituido en una posición que rompe la sintaxis
+    // LaTeX (caso patológico no cubierto por generación/validación, o
+    // contenido legacy/restaurado) NUNCA debe mostrar delimitadores $/{/}
+    // literales ni crashear la página — se degrada a un aviso explícito.
+    return <span role="math" aria-label="Fórmula no disponible" style={{ opacity: 0.7, fontStyle: 'italic' }}>⚠️ Fórmula no disponible</span>
+  }
   const Component = node.display ? 'div' : 'span'
-  return <Component role="math" style={{ overflowX: 'auto' }} dangerouslySetInnerHTML={{ __html: html }} />
+  return <Component role="math" onClick={onClick} style={{ overflowX: 'auto', cursor: onClick ? 'pointer' : undefined }} dangerouslySetInnerHTML={{ __html: html }} />
 }
 
 function ChemistryNode({ node }: { node: Extract<AcademicNode, { type: 'chemistry' }> }) {
@@ -57,21 +87,21 @@ function ChemistryNode({ node }: { node: Extract<AcademicNode, { type: 'chemistr
   return <Component role="math" aria-label={node.value} style={{ overflowX: 'auto' }} dangerouslySetInnerHTML={{ __html: html }} />
 }
 
-function renderNode(node: AcademicNode, index: number, renderBlank?: BlankRenderer): React.ReactNode {
+function renderNode(node: AcademicNode, index: number, renderBlank?: BlankRenderer, renderMathBlank?: MathBlankRenderer): React.ReactNode {
   switch (node.type) {
     case 'text': return <span key={index} style={{ whiteSpace: 'pre-wrap' }}>{node.value}</span>
-    case 'strong': return <strong key={index}><NodeList nodes={node.children} renderBlank={renderBlank} /></strong>
-    case 'emphasis': return <em key={index}><NodeList nodes={node.children} renderBlank={renderBlank} /></em>
-    case 'strike': return <del key={index}><NodeList nodes={node.children} renderBlank={renderBlank} /></del>
-    case 'paragraph': return <span key={index} data-academic-paragraph><NodeList nodes={node.children} renderBlank={renderBlank} /></span>
+    case 'strong': return <strong key={index}><NodeList nodes={node.children} renderBlank={renderBlank} renderMathBlank={renderMathBlank} /></strong>
+    case 'emphasis': return <em key={index}><NodeList nodes={node.children} renderBlank={renderBlank} renderMathBlank={renderMathBlank} /></em>
+    case 'strike': return <del key={index}><NodeList nodes={node.children} renderBlank={renderBlank} renderMathBlank={renderMathBlank} /></del>
+    case 'paragraph': return <span key={index} data-academic-paragraph><NodeList nodes={node.children} renderBlank={renderBlank} renderMathBlank={renderMathBlank} /></span>
     case 'heading': {
       const Heading = `h${node.level}` as keyof JSX.IntrinsicElements
-      return <Heading key={index}><NodeList nodes={node.children} renderBlank={renderBlank} /></Heading>
+      return <Heading key={index}><NodeList nodes={node.children} renderBlank={renderBlank} renderMathBlank={renderMathBlank} /></Heading>
     }
     case 'link':
-      return <a key={index} href={node.href} target={node.href.startsWith('http') ? '_blank' : undefined} rel="noopener noreferrer"><NodeList nodes={node.children} renderBlank={renderBlank} /></a>
+      return <a key={index} href={node.href} target={node.href.startsWith('http') ? '_blank' : undefined} rel="noopener noreferrer"><NodeList nodes={node.children} renderBlank={renderBlank} renderMathBlank={renderMathBlank} /></a>
     case 'callout':
-      return <aside key={index} data-academic-callout={node.kind}><NodeList nodes={node.children} renderBlank={renderBlank} /></aside>
+      return <aside key={index} data-academic-callout={node.kind}><NodeList nodes={node.children} renderBlank={renderBlank} renderMathBlank={renderMathBlank} /></aside>
     case 'symbol':
       return <span key={index} aria-label={node.label}>{node.value}</span>
     case 'unit':
@@ -79,7 +109,7 @@ function renderNode(node: AcademicNode, index: number, renderBlank?: BlankRender
     case 'quantity':
       return <span key={index} className="academic-quantity" style={{ whiteSpace: 'nowrap' }}>{quantityText(node.value, node.unit)}</span>
     case 'math':
-      return <MathNode key={index} node={node} />
+      return <MathNode key={index} node={node} renderMathBlank={renderMathBlank} />
     case 'chemistry':
       return <ChemistryNode key={index} node={node} />
     case 'code':
@@ -94,14 +124,14 @@ function renderNode(node: AcademicNode, index: number, renderBlank?: BlankRender
       return <br key={index} />
     case 'list': {
       const List = node.ordered ? 'ol' : 'ul'
-      return <List key={index}>{node.items.map((item, itemIndex) => <li key={itemIndex}><DocumentNodes document={item} renderBlank={renderBlank} /></li>)}</List>
+      return <List key={index}>{node.items.map((item, itemIndex) => <li key={itemIndex}><DocumentNodes document={item} renderBlank={renderBlank} renderMathBlank={renderMathBlank} /></li>)}</List>
     }
     case 'table':
       return (
         <div key={index} style={{ overflowX: 'auto' }}>
           <table>
-            <thead><tr>{node.headers.map((header, cell) => <th key={cell}><DocumentNodes document={header} renderBlank={renderBlank} /></th>)}</tr></thead>
-            <tbody>{node.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}><DocumentNodes document={cell} renderBlank={renderBlank} /></td>)}</tr>)}</tbody>
+            <thead><tr>{node.headers.map((header, cell) => <th key={cell}><DocumentNodes document={header} renderBlank={renderBlank} renderMathBlank={renderMathBlank} /></th>)}</tr></thead>
+            <tbody>{node.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}><DocumentNodes document={cell} renderBlank={renderBlank} renderMathBlank={renderMathBlank} /></td>)}</tr>)}</tbody>
           </table>
         </div>
       )
@@ -110,17 +140,17 @@ function renderNode(node: AcademicNode, index: number, renderBlank?: BlankRender
   }
 }
 
-function NodeList({ nodes, renderBlank }: { nodes: AcademicNode[]; renderBlank?: BlankRenderer }) {
+function NodeList({ nodes, renderBlank, renderMathBlank }: { nodes: AcademicNode[]; renderBlank?: BlankRenderer; renderMathBlank?: MathBlankRenderer }) {
   return <>{nodes.map((node, index) => (
     <Fragment key={index}>
       {academicNodeBoundary(nodes[index - 1], node)}
-      {renderNode(node, index, renderBlank)}
+      {renderNode(node, index, renderBlank, renderMathBlank)}
     </Fragment>
   ))}</>
 }
 
-function DocumentNodes({ document, renderBlank }: { document: AcademicDocument; renderBlank?: BlankRenderer }) {
-  return <NodeList nodes={document.nodes} renderBlank={renderBlank} />
+function DocumentNodes({ document, renderBlank, renderMathBlank }: { document: AcademicDocument; renderBlank?: BlankRenderer; renderMathBlank?: MathBlankRenderer }) {
+  return <NodeList nodes={document.nodes} renderBlank={renderBlank} renderMathBlank={renderMathBlank} />
 }
 
 export function AcademicContent({
@@ -128,8 +158,9 @@ export function AcademicContent({
   inline = false,
   invalidFallback = 'Contenido académico no disponible.',
   renderBlank,
+  renderMathBlank,
 }: AcademicContentProps) {
   const prepared = prepareAcademicContentForDelivery(content)
   const Component = inline ? 'span' : 'div'
-  return <Component data-academic-content data-academic-degraded={prepared.degraded || undefined}><DocumentNodes document={prepared.document} renderBlank={renderBlank} /></Component>
+  return <Component data-academic-content data-academic-degraded={prepared.degraded || undefined}><DocumentNodes document={prepared.document} renderBlank={renderBlank} renderMathBlank={renderMathBlank} /></Component>
 }

@@ -1,7 +1,45 @@
+import katex from 'katex'
 import type { CognitiveDimension, QuestionVariant } from '../v3/engine/masteryContract'
 import { normalizeAcademicContent } from '../../academic-content/validation'
+import type { AcademicNode } from '../../academic-content/types'
 import { EVALUATION_MODE_VIOLATION, validateQuestionTypeForMode } from './evaluationModeContract'
 import { CANONICAL_QUESTION_FORMATS, QUESTION_VARIANT_FORMAT, type CanonicalQuestionFormat } from './questionFormatRegistry'
+
+// word_bank_formula (Finding 4, auditoría adversarial post-7a3c3f7): un hueco
+// ___ dentro de un span matemático (p.ej. "$10^{-___}$") ahora se sustituye
+// por \square al parsear (ver lib/academic-content/parser.ts) para poder
+// renderizarse EN su posición matemática real — pero esa sustitución solo es
+// segura si el resultado sigue siendo LaTeX válido. Esta función intenta
+// renderizar cada span matemático de la pregunta (con \square, el peor caso
+// razonable: sin responder) — si KaTeX lo rechaza, la estructura no puede
+// soportarse de forma segura y la pregunta debe rechazarse/regenerarse en
+// vez de llegar a un estudiante y mostrarse degradada o rota.
+function collectMathNodes(nodes: AcademicNode[], acc: Extract<AcademicNode, { type: 'math' }>[]): void {
+  for (const node of nodes) {
+    if (node.type === 'math') acc.push(node)
+    if ('children' in node) collectMathNodes(node.children, acc)
+  }
+}
+
+export function hasUnsupportedWordBankMathBlank(questionText: string): boolean {
+  let mathNodes: Extract<AcademicNode, { type: 'math' }>[] = []
+  try {
+    const { document } = normalizeAcademicContent(questionText)
+    mathNodes = []
+    collectMathNodes(document.nodes, mathNodes)
+  } catch {
+    return false
+  }
+  for (const node of mathNodes) {
+    if (!node.blankCount || node.source !== 'latex') continue
+    try {
+      katex.renderToString(node.value, { displayMode: node.display, throwOnError: true, trust: false, strict: 'error' })
+    } catch {
+      return true
+    }
+  }
+  return false
+}
 
 export const QUESTION_FORMATS = CANONICAL_QUESTION_FORMATS
 export type QuestionFormat = CanonicalQuestionFormat
@@ -589,6 +627,7 @@ export function validateQuestion(
       const bank = new Set(question.options.map(option => option.id))
       if (question.correctAnswer.some(answer => !bank.has(answer))) errors.push('word_bank_answer_missing')
     }
+    if (hasUnsupportedWordBankMathBlank(question.questionText)) errors.push('word_bank_math_blank_unsupported')
   }
   if (question.format === 'ordering') {
     if (!Array.isArray(question.options) || !Array.isArray(question.correctAnswer)) {

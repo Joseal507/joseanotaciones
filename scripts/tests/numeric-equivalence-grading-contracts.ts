@@ -111,10 +111,16 @@ function testRoundingToleranceIsTight() {
 }
 
 // ═══ E. unidades ═══
+// AUDITORÍA ADVERSARIAL (Finding 3 CONFIRMADO): la aserción anterior aquí
+// ("ausencia de unidad en un solo lado no debe forzar rechazo") era
+// exactamente la política que permitía que "5" se aceptara como equivalente
+// a "5 kg" — un distractor sin dimensión pasando por la respuesta correcta.
+// Corregido: si CUALQUIERA de los dos lados declara unidad, AMBOS deben
+// declararla y coincidir.
 function testUnitsMustMatchWhenBothDeclared() {
   assert.equal(numericallyEquivalent('4.2e-3 M', '4.2e-3 kg'), false, 'unidades declaradas y distintas nunca deben ser equivalentes')
   assert.equal(numericallyEquivalent('4.2e-3 M', '4.2e-3 M'), true, 'misma unidad, mismo valor -> equivalente')
-  assert.equal(numericallyEquivalent('4.2e-3', '4.2e-3 M'), true, 'ausencia de unidad en un solo lado no debe forzar rechazo (E, diseño conservador)')
+  assert.equal(numericallyEquivalent('4.2e-3', '4.2e-3 M'), false, 'BUG DE ORIGEN SI FALLA: ausencia de unidad en un solo lado NUNCA debe asumirse equivalente (Finding 3)')
 }
 
 // ═══ No cualquier cosa "vagamente parecida" pasa ═══
@@ -141,6 +147,65 @@ function testNumericProblemStillRejectsUnitMismatch() {
   assert.equal(scoreQuestion(question, { value: 4.2, unit: 'kg' } as any).correct, false, 'no debe regresionar el guard de unidades existente')
 }
 
+// ═══ AUDITORÍA ADVERSARIAL (post-7a3c3f7, Finding 3) — flujo REAL de scoreQuestion con MCQ ═══
+// La tolerancia relativa global del 1% (versión anterior) aceptaba "100.9"
+// como equivalente a "100" (diferencia real ~0.9%, menor que la tolerancia)
+// y "5" como equivalente a "5 kg" (unidad ausente en un lado) — ambos
+// distractores genuinamente distintos, generados como tales por el
+// generador, terminaban calificados correct:true.
+
+function mcqQuestion(id: string, correctText: string, distractorText: string): CanonicalQuestion {
+  return {
+    id, conceptId: 'c1', conceptLabel: 'Concepto', teachingBlockId: 'step_1',
+    questionFamily: 'mcq_best_answer', variant: 'mcq_best_answer', difficulty: 'medium',
+    targetDimension: 'comprehension', questionText: 'Pregunta con distractor numérico cercano.',
+    explanation: 'Explicación.', hint: '', estimatedSeconds: 30, evidencesNeeded: 1,
+    factKey: `fact-${id}`, factKeys: [`fact-${id}`], targetObjectiveIds: ['obj-1'],
+    format: 'multiple_choice',
+    options: [{ id: 'a', text: correctText }, { id: 'b', text: distractorText }],
+    correctAnswer: 'a',
+  } as CanonicalQuestion
+}
+
+function testRealMcqFlowRejects100Vs100Point9Distractor() {
+  const question = mcqQuestion('q-100', '100', '100.9')
+  const result = scoreQuestion(question, 'b')
+  assert.equal(result.correct, false, 'BUG DE ORIGEN SI FALLA: 100.9 es un distractor real, NUNCA debe calificarse correct:true frente a 100')
+}
+
+function testRealMcqFlowRejects5KgVs5Distractor() {
+  const question = mcqQuestion('q-5kg', '5 kg', '5')
+  const result = scoreQuestion(question, 'b')
+  assert.equal(result.correct, false, 'BUG DE ORIGEN SI FALLA: "5" sin unidad NUNCA debe calificarse equivalente a "5 kg"')
+}
+
+function testRealMcqFlowStillAcceptsTheRequiredEquivalentCase() {
+  const question = mcqQuestion('q-ph', '4.2 × 10^-3 M', '10^-2.38 M')
+  const result = scoreQuestion(question, 'b')
+  assert.equal(result.correct, true, 'el caso real requerido (10^-2.38 M ≈ 4.2×10^-3 M) debe seguir calificando correcto vía el flujo REAL de scoreQuestion')
+}
+
+// ═══ Valores malformados nunca deben lanzar excepción ═══
+function testMalformedNumericValuesNeverThrow() {
+  const malformed = ['NaN', 'Infinity', '-Infinity', 'undefined', 'null', '', '   ', '10^', '^-3', '4.2×', 'e-3', '4.2ee-3', '4..2', '--5', 'abc123', '100/0']
+  for (const value of malformed) {
+    assert.doesNotThrow(() => parseNumericExpression(value), `parseNumericExpression nunca debe lanzar para "${value}"`)
+    assert.doesNotThrow(() => numericallyEquivalent(value, '4.2e-3'), `numericallyEquivalent nunca debe lanzar para "${value}"`)
+    assert.doesNotThrow(() => {
+      const question = mcqQuestion(`q-malformed-${value.length}`, '4.2e-3', value)
+      scoreQuestion(question, 'b')
+    }, `scoreQuestion nunca debe lanzar con un distractor malformado: "${value}"`)
+  }
+}
+
+function testZeroAndNegativeValuesHandledSafely() {
+  assert.doesNotThrow(() => numericallyEquivalent('0', '0'))
+  assert.equal(numericallyEquivalent('0', '0'), true)
+  assert.doesNotThrow(() => numericallyEquivalent('-5', '-5.0'))
+  assert.equal(numericallyEquivalent('-5', '-5.0'), true)
+  assert.equal(numericallyEquivalent('-5', '5'), false, 'signo distinto nunca debe considerarse equivalente')
+}
+
 testLiteralIdMatchStillWorks()
 testRealCaseExponentialFormEquivalentToDecimalForm()
 testUnevaluatedExpressionAcceptedWhenPromptDoesNotDemandEvaluation()
@@ -155,5 +220,10 @@ testUnitsMustMatchWhenBothDeclared()
 testNonNumericTextNeverFalselyEquivalent()
 testNumericProblemAcceptsPowerOfTenTypedAnswer()
 testNumericProblemStillRejectsUnitMismatch()
+testRealMcqFlowRejects100Vs100Point9Distractor()
+testRealMcqFlowRejects5KgVs5Distractor()
+testRealMcqFlowStillAcceptsTheRequiredEquivalentCase()
+testMalformedNumericValuesNeverThrow()
+testZeroAndNegativeValuesHandledSafely()
 
-console.log('numeric-equivalence-grading-contracts: PASS (A-E + regresión obligatoria 10^-2.38 M ≈ 4.2×10^-3 M + numeric_problem parser compartido)')
+console.log('numeric-equivalence-grading-contracts: PASS (A-E + regresión obligatoria 10^-2.38 M ≈ 4.2×10^-3 M + numeric_problem parser compartido + política de precisión real vía scoreQuestion + valores malformados nunca lanzan)')

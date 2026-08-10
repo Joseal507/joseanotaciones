@@ -12,19 +12,19 @@ const SYMBOL_ONLY = /^[\p{Sm}\p{Sk}\p{So}]+$/u
 const CHEMISTRY_EXPLICIT = /^\\ce\{([\s\S]*)\}$/
 const CHEMISTRY_EQUATION = /(?:<=>|<->|->|←|→|⇌|↔|⟶|⟷)/
 const CHEMISTRY_TERM = /(?:^|[\s+])(?:\d+\s*)?(?:[A-Z][a-z]?\d*)+(?:\([a-z]{1,3}\))?(?:\^?[+-]\d*|\d*[+-])?(?=$|[\s+])/g
-// Los 4 delimitadores de math (\(...\), \[...\], $$...$$, $...$) NUNCA deben
+// Los 4 delimitadores de math (\(...\), \[...\], $$...$$, $...$) SÍ pueden
 // cruzar un ___ literal: ___ es el sentinel reservado de blank (word_bank),
 // y una pregunta word_bank_formula legítima puede escribir el hueco DENTRO
-// de una expresión matemática (p.ej. "$pH = -log[___]$"). Sin el guard
-// (?!___), el escaneo de math (no-greedy pero "cualquier carácter") se
-// tragaba el ___ como si fuera contenido LaTeX real — KaTeX lo rechaza
-// ("Expected group after '_'", el _ exige un grupo de subíndice) y la
-// pregunta, académicamente válida, se marcaba invalid_academic_content.
-// Con el guard, el intento de match de $...$ falla al llegar al ___ (no
-// puede saltarlo), así que ___ se tokeniza aparte como blank real y el
-// texto matemático alrededor queda como texto plano — nunca se rechaza una
-// pregunta válida por esto, aunque pierda el render matemático de esa parte.
-const INLINE_TOKEN = /(`[^`\n]+`|\\\((?:(?!___)[\s\S])*?\\\)|\\\[(?:(?!___)[\s\S])*?\\\]|\$\$(?:(?!___)[\s\S])*?\$\$|\$(?:(?!___)[^$\n])+?\$|<math(?:\s[^>]*)?>[\s\S]*?<\/math>|\\ce\{(?:[^{}]|\{[^{}]*\})*\}|___|\{\{(?:blank|slot|answer|internal):[^}]+\}\}|\[\[(?:blank|slot|answer):[^\]]+\]\]|\*\*(?=\S)[\s\S]*?\S\*\*|__(?=\S)[\s\S]*?\S__|~~(?=\S)[\s\S]*?\S~~|(?<![\p{L}\p{N}])\*(?=\S)[^*\n]*?\S\*(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])_(?=\S)[^_\n]*?\S_(?![\p{L}\p{N}])|\[[^\]\n]+\]\([^) \n]+\))/giu
+// de una expresión matemática (p.ej. "$10^{-___}$"). El span matemático se
+// captura COMPLETO (incluyendo el ___) y, al construir el nodo 'math' más
+// abajo, cada ___ se sustituye por \square (símbolo LaTeX válido de "casilla
+// vacía") ANTES de guardar `value` — así el hueco vive DENTRO de la posición
+// matemática real (exponente, fracción, raíz...) en vez de partir el string
+// antes de parsear, que rompía el agrupamiento LaTeX y mostraba los
+// delimitadores $/{/} literales. AcademicContent sustituye \square por el
+// valor seleccionado (o lo deja como casilla vacía si aún no se respondió)
+// justo antes de invocar KaTeX — ver renderMathBlank en AcademicContent.tsx.
+const INLINE_TOKEN = /(`[^`\n]+`|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$|\$[^$\n]+?\$|<math(?:\s[^>]*)?>[\s\S]*?<\/math>|\\ce\{(?:[^{}]|\{[^{}]*\})*\}|___|\{\{(?:blank|slot|answer|internal):[^}]+\}\}|\[\[(?:blank|slot|answer):[^\]]+\]\]|\*\*(?=\S)[\s\S]*?\S\*\*|__(?=\S)[\s\S]*?\S__|~~(?=\S)[\s\S]*?\S~~|(?<![\p{L}\p{N}])\*(?=\S)[^*\n]*?\S\*(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])_(?=\S)[^_\n]*?\S_(?![\p{L}\p{N}])|\[[^\]\n]+\]\([^) \n]+\))/giu
 
 function safeText(value: AcademicFragmentInput): string {
   if (value === null || value === undefined) return ''
@@ -87,6 +87,16 @@ function safeLink(href: string): boolean {
   return /^(?:https?:\/\/|mailto:|\/|#)/i.test(href.trim())
 }
 
+// Sustituye cada ___ dentro de un span matemático por \square (símbolo LaTeX
+// válido de casilla vacía) — nunca se guarda ___ literal en `value` porque
+// KaTeX lo rechaza ("Expected group after '_'"). blankCount le dice al
+// renderer cuántas sustituciones reales (renderMathBlank) debe pedir, en
+// orden, antes de invocar KaTeX.
+function buildMathValue(rawValue: string): { value: string; blankCount: number } {
+  const blankCount = (rawValue.match(/___/g) || []).length
+  return blankCount > 0 ? { value: rawValue.replace(/___/g, '\\square'), blankCount } : { value: rawValue, blankCount: 0 }
+}
+
 function parseInline(source: string, baseOffset = 0): AcademicNode[] {
   const nodes: AcademicNode[] = []
   let cursor = 0
@@ -112,17 +122,24 @@ function parseInline(source: string, baseOffset = 0): AcademicNode[] {
       } else if (raw.startsWith('\\ce{')) {
         nodes.push({ type: 'chemistry', value: raw.match(CHEMISTRY_EXPLICIT)?.[1] || '', display: false, sourceSpan })
       } else if (raw.startsWith('$$')) {
-        const value = raw.slice(2, -2).trim()
-        nodes.push(isChemistryExpression(value)
-          ? { type: 'chemistry', value, display: true, sourceSpan }
-          : { type: 'math', value, display: true, source: 'latex', sourceSpan })
+        const rawValue = raw.slice(2, -2).trim()
+        if (isChemistryExpression(rawValue)) {
+          nodes.push({ type: 'chemistry', value: rawValue, display: true, sourceSpan })
+        } else {
+          const { value, blankCount } = buildMathValue(rawValue)
+          nodes.push({ type: 'math', value, display: true, source: 'latex', sourceSpan, ...(blankCount ? { blankCount } : {}) })
+        }
       } else if (raw.startsWith('\\[')) {
-        nodes.push({ type: 'math', value: raw.slice(2, -2).trim(), display: true, source: 'latex', sourceSpan })
+        const { value, blankCount } = buildMathValue(raw.slice(2, -2).trim())
+        nodes.push({ type: 'math', value, display: true, source: 'latex', sourceSpan, ...(blankCount ? { blankCount } : {}) })
       } else if (raw.startsWith('$') || raw.startsWith('\\(')) {
-        const value = raw.startsWith('\\(') ? raw.slice(2, -2).trim() : raw.slice(1, -1).trim()
-        nodes.push(isChemistryExpression(value)
-          ? { type: 'chemistry', value, display: false, sourceSpan }
-          : { type: 'math', value, display: false, source: 'latex', sourceSpan })
+        const rawValue = raw.startsWith('\\(') ? raw.slice(2, -2).trim() : raw.slice(1, -1).trim()
+        if (isChemistryExpression(rawValue)) {
+          nodes.push({ type: 'chemistry', value: rawValue, display: false, sourceSpan })
+        } else {
+          const { value, blankCount } = buildMathValue(rawValue)
+          nodes.push({ type: 'math', value, display: false, source: 'latex', sourceSpan, ...(blankCount ? { blankCount } : {}) })
+        }
       } else if (raw.startsWith('**') || raw.startsWith('__')) {
         nodes.push({ type: 'strong', children: parseInline(raw.slice(2, -2), baseOffset + index + 2), sourceSpan })
       } else if (raw.startsWith('~~')) {

@@ -13,9 +13,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 ;(globalThis as unknown as { React: typeof React }).React = React
 
 import { AcademicContent } from '../../components/academic/AcademicContent'
-import { academicNodeBoundary } from '../../lib/academic-content/composition'
+import { academicNodeBoundary, toLatexSafeText } from '../../lib/academic-content/composition'
 import { prepareAcademicContentForDelivery } from '../../lib/academic-content/validation'
 import type { AcademicNode } from '../../lib/academic-content/types'
+import { hasUnsupportedWordBankMathBlank } from '../../lib/adaptive/evaluation/questionContract'
 
 // BUG 3 (prueba humana real): (1) "Completa la fórmula..." aparecía
 // duplicado en pantalla; (2) un hueco que representaba un exponente se
@@ -83,23 +84,95 @@ function testMathSpanWithoutBlankStaysIntactAlongsideAWordBankBlank() {
   assert.ok(markup.includes('role="math"'), `BUG DE ORIGEN SI FALLA: el span matemático sin hueco debe renderizar como math real, no como texto plano degradado: ${markup}`)
 }
 
-function testBlankInsideMathSpanNeverCrashesAndStaysRecoverable() {
-  // Reproducción del caso real: el hueco representa el exponente dentro de
-  // 10^(-pH). El tradeoff ya documentado en el parser (parser.ts) dice que
-  // esto degrada el span matemático a texto plano en vez de rechazar la
-  // pregunta — lo que este test exige es que NUNCA crashee y que el hueco
-  // siga siendo un nodo 'blank' real (renderBlank se invoca), no que se
-  // pierda silenciosamente dentro del texto degradado.
+// AUDITORÍA ADVERSARIAL (post-7a3c3f7, Finding 4 CONFIRMADO): un hueco dentro
+// de un span matemático mostraba los delimitadores $/{/} LITERALES en
+// pantalla — "[H3O+] = $10^{-2.38}$" tal cual, no matemática renderizada.
+// Fix real (no degradación aceptada): parser.ts ahora captura el span
+// matemático COMPLETO (incluyendo el ___) y sustituye cada ___ por \square
+// (símbolo LaTeX válido) al construir el nodo — el hueco ya NO es un nodo
+// 'blank' independiente cuando vive dentro de math, es parte del `value` del
+// nodo 'math' (ver node.blankCount). AcademicContent expone renderMathBlank
+// para sustituir \square por el valor real seleccionado (o dejarlo vacío)
+// justo antes de invocar KaTeX — el resultado es matemática REAL, con el
+// valor en su posición real (exponente/fracción/raíz/subíndice).
+function testBlankInsideMathSpanRendersAsRealMathWithValueInExponentPosition() {
   const content = '[H3O+] = $10^{-___}$'
-  let blankInvoked = false
-  assert.doesNotThrow(() => {
+  const markup = renderToStaticMarkup(createElement(AcademicContent, {
+    content,
+    renderMathBlank: () => ({ latex: toLatexSafeText('2.38') }),
+  }))
+  assert.ok(!markup.includes('$'), `BUG DE ORIGEN SI FALLA: no debe quedar ningún delimitador $ literal en el HTML: ${markup}`)
+  assert.ok(markup.includes('class="katex"'), 'debe ser un render KaTeX real, no texto degradado')
+  // <annotation> es la anotación TeX interna que KaTeX embebe para
+  // accesibilidad/copy-paste (dentro de <math>, no visible como texto plano
+  // en pantalla) — "10^{-2.38}" ahí es CORRECTO y esperado, no un fragmento
+  // de sintaxis roto. Lo que nunca debe aparecer es "$" (el delimitador que
+  // NUNCA forma parte de una anotación TeX interna real).
+  // La anotación TeX que KaTeX embebe confirma que "2.38" quedó DENTRO de la
+  // estructura del exponente (10^{-2.38}), no como texto suelto al lado.
+  assert.match(markup, /10\^\{-2\.38\}|10\^\{-2\.38}/, `2.38 debe aparecer dentro del exponente, no como fragmento fuera de la fórmula: ${markup}`)
+}
+
+function testBlankInsideMathSpanShowsEmptyPlaceholderWhenUnanswered() {
+  const content = '[H3O+] = $10^{-___}$'
+  const markup = renderToStaticMarkup(createElement(AcademicContent, {
+    content,
+    renderMathBlank: () => ({ latex: toLatexSafeText('') }),
+  }))
+  assert.ok(markup.includes('class="katex"'), 'sin responder, debe seguir siendo un render KaTeX real (casilla vacía \\square), no texto degradado')
+  assert.ok(!markup.includes('$'), 'sin responder tampoco debe haber delimitadores $ literales')
+}
+
+function testMathBlankSupportsFractionRootAndSubscript() {
+  const cases: Array<[string, string]> = [
+    ['fracción', String.raw`$\frac{___}{2}$`],
+    ['raíz', String.raw`$\sqrt{___}$`],
+    ['subíndice', String.raw`$x_{___}$`],
+  ]
+  for (const [label, content] of cases) {
     const markup = renderToStaticMarkup(createElement(AcademicContent, {
       content,
-      renderBlank: () => { blankInvoked = true; return createElement('span', null, 'CHIP') },
+      renderMathBlank: () => ({ latex: toLatexSafeText('5') }),
+    }))
+    assert.ok(markup.includes('class="katex"'), `${label}: debe renderizar como KaTeX real`)
+    assert.ok(!markup.includes('$'), `${label}: no debe quedar ningún $ literal`)
+  }
+}
+
+function testMathBlankClickClearsTheAnswer() {
+  const content = '$10^{-___}$'
+  let cleared = false
+  const markup = renderToStaticMarkup(createElement(AcademicContent, {
+    content,
+    renderMathBlank: () => ({ latex: toLatexSafeText('2.38'), onClick: () => { cleared = true } }),
+  }))
+  assert.ok(markup.includes('cursor:pointer') || markup.includes('cursor: pointer'), 'un hueco matemático respondido debe seguir siendo interactivo (limpiar al hacer click)')
+  assert.equal(cleared, false, 'renderizar no debe disparar el onClick por sí solo')
+}
+
+function testMalformedMathBlankNeverCrashesAndNeverShowsLiteralDelimiters() {
+  // Caso patologico: el hueco cae DENTRO de un nombre de comando LaTeX
+  // ("\\fr___ac" -> tras sustituir, "\\fr\\square ac"), imposible de renderizar
+  // de forma segura -- debe degradarse a un aviso explicito (fail-closed),
+  // NUNCA a texto con $/{/} literales ni una excepcion sin capturar.
+  const content = '$\\fr___ac{1}{2}$'
+  let markup = ''
+  assert.doesNotThrow(() => {
+    markup = renderToStaticMarkup(createElement(AcademicContent, {
+      content,
+      renderMathBlank: () => ({ latex: 'X' }),
     }))
     assert.ok(markup.length > 0)
-  }, 'un hueco dentro de un span matemático nunca debe hacer crashear el render (degradación controlada, nunca excepción)')
-  assert.ok(blankInvoked, 'el hueco dentro del span matemático debe seguir siendo reconocido como nodo blank real, no perderse en el texto degradado')
+  }, 'un span matematico malformado nunca debe crashear el render')
+  assert.doesNotMatch(markup, /\\fr|\\square/, `nunca debe mostrarse sintaxis LaTeX cruda: ${markup}`)
+}
+
+function testGenerationTimeRejectsUnsupportedMathBlankStructures() {
+  // Los casos SOPORTADOS (exponente, fracción, raíz, subíndice) nunca deben
+  // rechazarse en generación — solo lo verdaderamente irrenderizable.
+  assert.equal(hasUnsupportedWordBankMathBlank('[H3O+] = $10^{-___}$'), false, 'exponente soportado, no debe rechazarse en generación')
+  assert.equal(hasUnsupportedWordBankMathBlank(String.raw`$\frac{___}{2}$`), false, 'fracción soportada, no debe rechazarse en generación')
+  assert.equal(hasUnsupportedWordBankMathBlank('El valor de x es ___.'), false, 'un hueco fuera de math nunca debe pasar por esta validación')
 }
 
 function testDefaultBlankRenderingUnchangedWhenNoCallbackProvided() {
@@ -138,9 +211,14 @@ testPageDoesNotDuplicateQuestionTextForWordBank()
 testSessionEvalPromptDeclaresBlankOrderContract()
 testRenderBlankIsInvokedOncePerBlankInDocumentOrder()
 testMathSpanWithoutBlankStaysIntactAlongsideAWordBankBlank()
-testBlankInsideMathSpanNeverCrashesAndStaysRecoverable()
+testBlankInsideMathSpanRendersAsRealMathWithValueInExponentPosition()
+testBlankInsideMathSpanShowsEmptyPlaceholderWhenUnanswered()
+testMathBlankSupportsFractionRootAndSubscript()
+testMathBlankClickClearsTheAnswer()
+testMalformedMathBlankNeverCrashesAndNeverShowsLiteralDelimiters()
+testGenerationTimeRejectsUnsupportedMathBlankStructures()
 testDefaultBlankRenderingUnchangedWhenNoCallbackProvided()
 testBlankNodeGetsSpacingLikeAWordWhenPrecedingTextHasNoTrailingWhitespace()
 testBlankNodeDoesNotDoubleSpaceWhenPrecedingTextAlreadyEndsInWhitespace()
 
-console.log('word-bank-render-contracts: PASS (no duplicación, orden de correctAnswer declarado, parseo único coherente, math intacto junto a un blank, degradación controlada dentro de math, espaciado word-like)')
+console.log('word-bank-render-contracts: PASS (no duplicación, orden de correctAnswer declarado, parseo único coherente, math real con blank en exponente/fracción/raíz/subíndice, fallback fail-closed sin sintaxis cruda, rechazo en generación solo para estructuras no soportadas, espaciado word-like)')

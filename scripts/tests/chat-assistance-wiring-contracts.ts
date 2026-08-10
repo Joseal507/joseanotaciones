@@ -56,6 +56,36 @@ function testAcademicQueriesAreNotAdministrative() {
   }
 }
 
+// AUDITORÍA ADVERSARIAL (post-7a3c3f7, Finding 2 CONFIRMADO): la versión
+// anterior de isAdministrativeQuery usaba substring regex abiertos
+// (/cu[aá]nto\s+(falta|queda|tiempo)/i) que absorbían preguntas académicas
+// reales con la misma estructura interrogativa "cuánto X" — reproducido
+// exactamente aquí con la matriz adversarial completa del reporte.
+function testFinding2AdversarialMatrix() {
+  const administrative = [
+    '¿cuánto falta para terminar la sesión?',
+    '¿cuántas preguntas quedan?',
+    '¿en qué paso voy?',
+    '¿cuál es mi progreso?',
+  ]
+  const academic = [
+    '¿cuánto falta para llegar al equilibrio?',
+    '¿cuánto tiempo tarda esta reacción?',
+    '¿cuánto queda de reactivo?',
+    '¿qué paso sigue en este cálculo?',
+    '¿cuántos protones puede donar?',
+    '¿cuánto falta para alcanzar el punto de equivalencia?',
+    '¿Cuánto falta para que el ácido alcance el punto de equivalencia?',
+    '¿Cuánto tiempo tarda esta reacción y por qué?',
+  ]
+  for (const message of administrative) {
+    assert.equal(isAdministrativeQuery(message), true, `BUG DE ORIGEN SI FALLA: "${message}" es administrativa real, debe clasificarse como tal`)
+  }
+  for (const message of academic) {
+    assert.equal(isAdministrativeQuery(message), false, `BUG DE ORIGEN SI FALLA: "${message}" es académica real (Finding 2), NUNCA debe clasificarse como administrativa`)
+  }
+}
+
 function testClassifierIsGenericNotDomainSpecific() {
   const source = readFileSync('lib/adaptive/evaluation/chatAssistanceClassifier.ts', 'utf8')
   assert.doesNotMatch(source, /medicina|química|ácido|matemáticas|derecho|historia/i, 'la heurística administrativa NO debe mencionar ningún dominio/materia específico')
@@ -79,12 +109,26 @@ function testPageWiresChatAssistedRefIntoEvidenceCallSites() {
   assert.match(handleSendSource, /chatAssistedRef\.current = true/, 'debe existir un punto real donde chatAssistedRef se activa')
 
   // 11: los 3 call sites de evidencia deben leer de currentAssistanceLevel()
-  // (que combina chat + hint) — nunca un literal hardcodeado.
+  // (que combina chat + hint + asistencia restaurada tras refresh) — nunca
+  // un literal hardcodeado. Finding 1 (auditoría adversarial post-7a3c3f7)
+  // introdujo una variable capturada UNA vez por función
+  // (assistanceLevelForThisAttempt = currentAssistanceLevel()) para poder
+  // limpiar el registro persistido ANTES de usar el valor sin perderlo —
+  // el patrón aceptado es "asignado desde currentAssistanceLevel()" Y
+  // "comparado === 'independent'", en cualquiera de las dos formas
+  // (directo o vía la variable capturada).
   assert.doesNotMatch(source, /independent:\s*!hintShownRef\.current/, 'no debe quedar ningún call site leyendo solo hintShownRef — todos deben pasar por currentAssistanceLevel()')
   assert.doesNotMatch(source, /independent:\s*true\s*[,\n]/, 'NO debe hardcodearse independent:true en ningún punto (código real, no comentarios)')
-  const independentSites = [...source.matchAll(/independent:\s*currentAssistanceLevel\(\)\s*===\s*"independent"/g)]
+  assert.match(source, /const assistanceLevelForThisAttempt = currentAssistanceLevel\(\)/, 'debe existir una captura explícita de currentAssistanceLevel() antes de limpiar el registro persistido (Finding 1)')
+  const independentSites = [...source.matchAll(/independent:\s*(?:currentAssistanceLevel\(\)|assistanceLevelForThisAttempt)\s*===\s*"independent"/g)]
   assert.ok(independentSites.length >= 2, `debe haber al menos 2 call sites de evidencia normal/recovery derivando de currentAssistanceLevel(): encontrados ${independentSites.length}`)
-  assert.match(source, /recordRecoveryCheck\(\s*[\s\S]{0,300}currentAssistanceLevel\(\)/, 'recordRecoveryCheck debe recibir currentAssistanceLevel(), no un literal ni solo hintShownRef')
+  assert.match(source, /recordRecoveryCheck\(\s*[\s\S]{0,300}assistanceLevelForThisAttempt/, 'recordRecoveryCheck debe recibir el nivel real capturado (assistanceLevelForThisAttempt), no un literal ni solo hintShownRef')
+
+  // Finding 1: el registro de asistencia persistido debe limpiarse (consumirse)
+  // en ambos call sites de evidencia — nunca sobrevivir más allá del intento
+  // que lo generó.
+  const clearSites = [...source.matchAll(/persistPendingAssistance\(null\)/g)]
+  assert.ok(clearSites.length >= 2, `debe limpiarse el registro persistido en ambos call sites (normal y recovery): encontrados ${clearSites.length}`)
 
   // El reset de chatAssistedRef debe vivir en el MISMO efecto/disparador que
   // hintShownRef (por currentQuestion?.id) — la asistencia de una pregunta
@@ -156,6 +200,45 @@ function recordRecoveryCheckLikePage(
   return recordRecoveryCheckRaw(presented.item, recoveryQuestion, result, assistanceLevel, '')
 }
 
+// ═══ Finding 1 (auditoría adversarial post-7a3c3f7): asistencia persistida por INTENTO ═══
+// hintShownRef/chatAssistedRef son refs efímeros en memoria — un refresh a
+// mitad de una pregunta/verificación ya asistida los reseteaba a false SIN
+// resetear la pregunta en sí (el bloque persistido re-presenta la MISMA
+// pregunta), permitiendo que currentAssistanceLevel() devolviera
+// 'independent' incorrectamente tras la restauración. La reproducción
+// end-to-end real (navegador) está en tests/e2e/finding1-assistance-refresh.spec.ts
+// — aquí se verifica el WIRING fuente: persistencia por identidad de
+// intento, restauración condicionada a coincidencia exacta, limpieza al
+// consumir, nunca contaminación cruzada.
+function testFinding1PersistenceWiring() {
+  const source = readFileSync("app/materias/[temaId]/sesion/[sessionNumber]/page.tsx", 'utf8')
+
+  // La identidad del intento incluye recoveryId+ronda cuando aplica — dos
+  // rondas distintas de la MISMA recovery nunca deben compartir asistencia
+  // restaurada.
+  assert.match(source, /function currentAttemptKey\(\)/, 'debe existir una función que derive la identidad del intento activo')
+  assert.match(source, /recovery:\$\{activeRecoveryId\}:\$\{item\.verificationRound\}/, 'la identidad de un intento de recovery debe incluir recoveryId Y la ronda, no solo el recoveryId')
+
+  // Restauración: se hidrata en AMBOS puntos de carga (cache y generación
+  // fresca), pero solo se APLICA si currentAttemptKey() coincide.
+  assert.match(source, /restoredAssistanceRef\.current = cached\.pendingAssistance \|\| null/, 'debe hidratarse desde el contenido restaurado (cached)')
+  assert.match(source, /restoredAssistanceRef\.current = d\.classContent\.pendingAssistance \|\| null/, 'debe hidratarse también en la rama de generación fresca')
+  assert.match(source, /restoredAssistanceRef\.current\?\.attemptKey === attemptKey/, 'currentAssistanceLevel() solo debe aplicar el registro restaurado si el attemptKey coincide EXACTAMENTE')
+
+  // Escritura: tanto el hint como el chat persisten el intento inmediatamente
+  // (antes de que el estudiante responda, para sobrevivir un refresh previo al submit).
+  assert.match(source, /hintShownRef\.current = true[\s\S]{0,400}persistPendingAssistance\(\{ attemptKey, assistanceLevel: "minimal_hint" \}\)/, 'revelar el hint debe persistir el intento de inmediato')
+  assert.match(source, /chatAssistedRef\.current = true[\s\S]{0,400}persistPendingAssistance\(\{ attemptKey, assistanceLevel: "assisted" \}\)/, 'marcar asistencia por chat debe persistir el intento de inmediato')
+
+  // Nunca se contamina la siguiente pregunta: el reset de chatAssistedRef/
+  // hintShownRef por currentQuestion?.id NO debe tocar restoredAssistanceRef
+  // (limpiarlo ahí destruiría el valor recién restaurado, ver comentario en
+  // la fuente) — la protección real es la comparación exacta de attemptKey.
+  const resetEffectMatch = source.match(/useEffect\(\(\) => \{ chatAssistedRef\.current = false \}, \[currentQuestion\?\.id\]\)/)
+  assert.ok(resetEffectMatch, 'debe existir el efecto de reset de chatAssistedRef por currentQuestion?.id')
+  assert.doesNotMatch(resetEffectMatch![0], /restoredAssistanceRef/, 'el efecto de reset por cambio de pregunta NO debe tocar restoredAssistanceRef (lo invalidaría antes de poder aplicarse tras un refresh)')
+}
+
 function testChatAssistedRecoveryVerificationDoesNotResolve() {
   // Reproduce exactamente lo que page.tsx ahora hace cuando chatAssistedRef
   // está activo: pasa 'assisted' (vía currentAssistanceLevel()) en vez de
@@ -223,10 +306,12 @@ function testSessionChatRouteHasNoWriteAccessToEvidenceOrMastery() {
 
 testAdministrativeQueriesAreRecognized()
 testAcademicQueriesAreNotAdministrative()
+testFinding2AdversarialMatrix()
 testClassifierIsGenericNotDomainSpecific()
 testPageWiresChatAssistedRefIntoEvidenceCallSites()
+testFinding1PersistenceWiring()
 testChatAssistedRecoveryVerificationDoesNotResolve()
 testSubsequentIndependentVerificationCanResolve()
 testSessionChatRouteHasNoWriteAccessToEvidenceOrMastery()
 
-console.log('chat-assistance-wiring-contracts: PASS (clasificador administrativo, wiring real de currentAssistanceLevel, recovery assisted no resuelve, independiente posterior sí resuelve, session-chat sin acceso de escritura)')
+console.log('chat-assistance-wiring-contracts: PASS (clasificador administrativo + matriz adversarial Finding 2, wiring real de currentAssistanceLevel, recovery assisted no resuelve, independiente posterior sí resuelve, session-chat sin acceso de escritura)')

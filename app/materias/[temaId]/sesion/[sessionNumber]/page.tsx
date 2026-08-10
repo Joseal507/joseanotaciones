@@ -17,6 +17,7 @@ import { useEffect, useState, useRef, useCallback } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { AcademicContent } from "../../../../../components/academic/AcademicContent"
 import { AcademicListbox } from "../../../../../components/academic/AcademicListbox"
+import { toLatexSafeText } from "../../../../../lib/academic-content/composition"
 import { AlaiSessionChat, type AlaiChatMessage } from "../../../../../components/materias/AlaiSessionChat"
 import { isAdministrativeQuery } from "../../../../../lib/adaptive/evaluation/chatAssistanceClassifier"
 import { presentAnswer } from "../../../../../lib/adaptive/evaluation/answerPresentation"
@@ -139,6 +140,17 @@ interface ClassContent {
   evaluationProgress?: Record<string, EvaluationBlockProgress>
   evaluationCoverage?: { coverageRatio: number }
   chatHistory?: AlaiChatMessage[]
+  // AUDITORÍA ADVERSARIAL (post-7a3c3f7, Finding 1 CONFIRMADO): hintShownRef
+  // y chatAssistedRef eran refs efímeros en memoria, sin persistencia — un
+  // refresh a mitad de una pregunta/verificación ya asistida los reseteaba a
+  // false SIN resetear la pregunta en sí (el bloque persistido re-presenta
+  // la MISMA pregunta), permitiendo responder "de nuevo" y que
+  // currentAssistanceLevel() devolviera 'independent' incorrectamente. Fix:
+  // la asistencia pertenece al INTENTO (questionId + recoveryId/round si
+  // aplica), se persiste igual que chatHistory/assessmentBlueprint, y solo
+  // se restaura si coincide EXACTAMENTE con el intento activo — nunca se
+  // aplica a una pregunta distinta.
+  pendingAssistance?: { attemptKey: string; assistanceLevel: "minimal_hint" | "assisted" } | null
 }
 
 const SI = { intro: "🎯", concept: "💡", formula: "🔢", example: "📝", connection: "🔗", warning: "⚠️", recap: "📋", closing: "🏁" } as Record<string, string>
@@ -207,6 +219,16 @@ export default function SessionPage() {
   const [chatOpen, setChatOpen] = useState(false)
   const [chatMessages, setChatMessages] = useState<AlaiChatMessage[]>([])
   const [chatSending, setChatSending] = useState(false)
+  // Finding 1 (auditoría adversarial post-7a3c3f7): registro de asistencia
+  // restaurado tras un refresh/remount — SOLO se aplica si su attemptKey
+  // coincide exactamente con el intento actualmente activo (ver
+  // currentAssistanceLevel()/currentAttemptKey() más abajo). Nunca se limpia
+  // por el efecto de "nueva pregunta" (eso destruiría el valor que acaba de
+  // restaurarse cuando currentQuestion pasa de null a la pregunta
+  // reactivada) — se limpia únicamente cuando el intento se CONSUME
+  // (recordNormalAnswerOutcome/recordRecoveryVerificationOutcome), momento
+  // en el que además queda persistido null explícitamente.
+  const restoredAssistanceRef = useRef<{ attemptKey: string; assistanceLevel: "minimal_hint" | "assisted" } | null>(null)
   const [evalResult, setEvalResult] = useState<any>(null)
   const [evalLoading, setEvalLoading] = useState(false)
   const [evalError, setEvalError] = useState<string | null>(null)
@@ -482,6 +504,12 @@ export default function SessionPage() {
         // sobrevive a refresh por el mismo mecanismo (localStorage + sync
         // servidor), sin infraestructura nueva.
         setChatMessages(Array.isArray(cached.chatHistory) ? cached.chatHistory : [])
+        // Finding 1: hidrata el registro de asistencia persistido — solo se
+        // APLICARÁ más tarde (currentAssistanceLevel()) si su attemptKey
+        // termina coincidiendo con el intento realmente reactivado; nunca se
+        // asume aquí que la restauración de contenido implica que la MISMA
+        // pregunta ya está activa (currentQuestion sigue null en este punto).
+        restoredAssistanceRef.current = cached.pendingAssistance || null
         evaluationProgressRef.current = cached.evaluationProgress || {}
         setEvaluationProgress(evaluationProgressRef.current)
         activeStudyMsRef.current = Number(as_.activeStudyMs || 0)
@@ -624,6 +652,7 @@ export default function SessionPage() {
 
       setClassContent(d.classContent); setSessionData(as_)
       setChatMessages(Array.isArray(d.classContent.chatHistory) ? d.classContent.chatHistory : [])
+      restoredAssistanceRef.current = d.classContent.pendingAssistance || null
       evaluationProgressRef.current = d.classContent.evaluationProgress || {}
       setEvaluationProgress(evaluationProgressRef.current)
       activeStudyMsRef.current = Number(as_.activeStudyMs || 0)
@@ -722,6 +751,12 @@ export default function SessionPage() {
     const isQuestionActive = sessionPhase === "evaluating" && Boolean(currentQuestion)
     if (isQuestionActive && !isAdministrativeQuery(text)) {
       chatAssistedRef.current = true
+      // Finding 1: persistir de inmediato — si el estudiante refresca ANTES
+      // de responder, este intento debe seguir contando como asistido tras
+      // la restauración (chatAssistedRef, un ref en memoria, no sobrevive un
+      // remount por sí solo).
+      const attemptKey = currentAttemptKey()
+      if (attemptKey) persistPendingAssistance({ attemptKey, assistanceLevel: "assisted" })
     }
     const userMessage: AlaiChatMessage = { id: `chat-u-${Date.now()}`, role: "user", content: text, timestamp: Date.now() }
     const withUser = [...chatMessages, userMessage]
@@ -1268,17 +1303,63 @@ export default function SessionPage() {
     setEvalLoading(false)
   }
 
+  // Identidad del intento actualmente activo — questionId, y adicionalmente
+  // recoveryId+ronda cuando es una verificación de recovery (dos rondas
+  // distintas de la MISMA recovery nunca deben compartir asistencia
+  // restaurada, aunque la pregunta reutilizara un id). null si no hay
+  // pregunta activa (nada que registrar/restaurar).
+  function currentAttemptKey(): string | null {
+    if (!currentQuestion) return null
+    if (activeRecoveryId) {
+      const item = recoveryQueueRef.current.find(candidate => candidate.recoveryId === activeRecoveryId)
+      if (item) return `recovery:${activeRecoveryId}:${item.verificationRound}:${currentQuestion.id}`
+    }
+    return `normal:${currentQuestion.id}`
+  }
+
+  // Finding 1 — persiste/limpia el registro de asistencia del intento activo
+  // con el MISMO mecanismo (state + classContent + sessionContent vía
+  // updateSessionById) que persistChatHistory/persistAssessmentBlueprint ya
+  // usan — sobrevive a refresh sin infraestructura nueva. `null` limpia el
+  // campo (el intento se consumió o no hay nada que registrar).
+  function persistPendingAssistance(record: { attemptKey: string; assistanceLevel: "minimal_hint" | "assisted" } | null) {
+    restoredAssistanceRef.current = record
+    setClassContent(previous => previous ? { ...previous, pendingAssistance: record } : previous)
+    if (!sessionData?.id) return
+    updateSessionById(sessionData.id, current => {
+      const currentContent = current.sessionContent?.[String(sessionNumber)] as ClassContent | undefined
+      return {
+        ...current,
+        sessionContent: {
+          ...(current.sessionContent || {}),
+          [String(sessionNumber)]: {
+            ...(currentContent || classContent),
+            pendingAssistance: record,
+          },
+        },
+      }
+    })
+  }
+
   // Fuente ÚNICA de AssistanceLevel para el intento actual — combina
   // hintShownRef (pista pedida) y chatAssistedRef (ayuda académica pedida al
-  // chat mientras esta pregunta/verificación estaba activa). El chat cuenta
-  // como asistencia MÁS fuerte que el hint (puede llegar a explicar más que
-  // una pista), así que tiene prioridad si ambos están activos — pero
-  // cualquiera de los dos basta para que el intento deje de ser
-  // 'independent'. Nunca se hardcodea independent:true en ningún call site;
-  // todos leen de aquí.
+  // chat mientras esta pregunta/verificación estaba activa), Y (Finding 1)
+  // un registro de asistencia PERSISTIDO que sobrevivió a un refresh/remount
+  // — pero SOLO si su attemptKey coincide exactamente con el intento
+  // actualmente activo; un registro de una pregunta distinta se ignora
+  // siempre (nunca contamina la siguiente pregunta). El chat/la asistencia
+  // restaurada cuentan como asistencia MÁS fuerte que el hint (pueden llegar
+  // a explicar más que una pista), así que tienen prioridad si varias
+  // señales están activas — pero cualquiera basta para que el intento deje
+  // de ser 'independent'. Nunca se hardcodea independent:true en ningún call
+  // site; todos leen de aquí.
   function currentAssistanceLevel(): "independent" | "minimal_hint" | "assisted" {
     if (chatAssistedRef.current) return "assisted"
     if (hintShownRef.current) return "minimal_hint"
+    const attemptKey = currentAttemptKey()
+    if (attemptKey && restoredAssistanceRef.current?.attemptKey === attemptKey) {
+      return restoredAssistanceRef.current.assistanceLevel
+    }
     return "independent"
   }
 
@@ -1293,6 +1374,14 @@ export default function SessionPage() {
   ): { block: EvaluationBlock | null; nextProgress: EvaluationBlockProgress | null; queueAfterAnswer: RecoveryItem[] } {
     let queueAfterAnswer = recoveryQueueRef.current
     let createdRecoveryId: string | undefined
+    // Fijar el nivel UNA vez, antes de limpiar el registro persistido — el
+    // intento se está consumiendo AHORA (Finding 1: "debe eliminarse cuando
+    // el intento se consume").
+    const assistanceLevelForThisAttempt = currentAssistanceLevel()
+    const attemptKeyForThisAttempt = currentAttemptKey()
+    if (attemptKeyForThisAttempt && restoredAssistanceRef.current?.attemptKey === attemptKeyForThisAttempt) {
+      persistPendingAssistance(null)
+    }
 
     if (assessmentBlueprintRef.current && question.targetObjectiveIds?.length) {
       const questionFactKeys = realFactKeysOf(question)
@@ -1307,8 +1396,9 @@ export default function SessionPage() {
           // viendo la pista O pidiendo ayuda académica al chat NO es
           // evidencia independiente — currentAssistanceLevel() refleja si
           // cualquiera de las dos vías de asistencia se usó para ESTA
-          // pregunta antes de responder.
-          independent: currentAssistanceLevel() === "independent",
+          // pregunta antes de responder (incluida asistencia restaurada tras
+          // un refresh mid-pregunta).
+          independent: assistanceLevelForThisAttempt === "independent",
           evidenceId: `normal:${question.id}:${Date.now()}`,
         },
       ))
@@ -1932,17 +2022,26 @@ export default function SessionPage() {
       : freshResult?.correct
         ? "correct"
         : "incorrect"
+    // Fijar el nivel UNA vez, antes de limpiar el registro persistido — el
+    // intento (esta verificación de recovery) se está consumiendo AHORA
+    // (Finding 1: "debe eliminarse cuando el intento se consume").
+    const assistanceLevelForThisAttempt = currentAssistanceLevel()
+    const attemptKeyForThisAttempt = currentAttemptKey()
+    if (attemptKeyForThisAttempt && restoredAssistanceRef.current?.attemptKey === attemptKeyForThisAttempt) {
+      persistPendingAssistance(null)
+    }
     // Codex Finding 1 + PARTE B (chat): una verificación de recovery resuelta
     // con ayuda de la pista O del chat no puede contar como independiente —
     // recordRecoveryCheck ya exige assistanceLevel==='independent' para que
     // successfulIndependentChecks incremente (ver recoveryQueue.ts), pero
     // solo si aquí se le pasa el nivel real (currentAssistanceLevel(), nunca
-    // un literal hardcodeado) en vez de solo consultar hintShownRef.
+    // un literal hardcodeado) en vez de solo consultar hintShownRef. Incluye
+    // asistencia restaurada tras un refresh mid-verificación.
     const recorded = recordRecoveryCheck(
       current,
       question,
       { outcome, correct: freshResult?.correct === true, errorType: freshResult?.errorType || null },
-      currentAssistanceLevel(),
+      assistanceLevelForThisAttempt,
       getCompositeAnswer(),
     )
     const nextQueue = recoveryQueueRef.current.map((item, itemIndex) => itemIndex === index ? recorded.item : item)
@@ -1977,10 +2076,12 @@ export default function SessionPage() {
             // llega al mínimo requerido, y ese contador SOLO crece con
             // assistanceLevel==='independent' (recoveryQueue.ts) — así que el
             // check que acaba de resolver esta ronda fue, por construcción,
-            // independiente. Se deriva explícitamente (currentAssistanceLevel(),
-            // que ya incluye chat + hint) en vez de hardcodear para no
-            // depender silenciosamente de ese invariante.
-            independent: currentAssistanceLevel() === "independent",
+            // independiente. Se deriva del MISMO valor ya capturado arriba
+            // (assistanceLevelForThisAttempt, que ya incluye chat + hint +
+            // asistencia restaurada) en vez de volver a leer los refs (que
+            // para este punto ya podrían no reflejar el intento que
+            // realmente se está resolviendo) o hardcodear.
+            independent: assistanceLevelForThisAttempt === "independent",
             evidenceId: `recovery:${recorded.item.recoveryId}:${recorded.item.verificationRound}`,
           },
         ))
@@ -2711,30 +2812,46 @@ export default function SessionPage() {
           {currentQuestion.format === "true_false" && <div style={{ display: "grid", gap: 12 }}>{["true", "false"].map(v => <button key={v} onClick={() => setUserAnswer(v === "true")} style={{ textAlign: "left", padding: "14px 16px", background: userAnswer === (v === "true") ? "rgba(59,130,246,0.18)" : "rgba(15,23,42,0.6)", color: "#e2e8f0", border: userAnswer === (v === "true") ? "1px solid #60a5fa" : "1px solid rgba(148,163,184,0.2)", borderRadius: 10, cursor: "pointer", fontSize: 15 }}>{v === "true" ? "Verdadero" : "Falso"}</button>)}</div>}
 
           {/* WORD BANK — el questionText completo (con "___" en las posiciones de
-              hueco) se parsea UNA sola vez a través de AcademicContent, con
-              renderBlank sustituyendo cada nodo 'blank' por la ficha
-              interactiva. Antes se partía el texto con .split("___") ANTES de
-              parsear, lo que cortaba a la mitad cualquier span matemático que
-              contuviera el hueco (p.ej. "$10^{-___}$") y cada mitad se parseaba
-              aislada, perdiendo el agrupamiento LaTeX — con un parseo único y
-              coherente, un span matemático SIN hueco dentro se renderiza
-              íntegro, y uno CON hueco dentro sigue la misma degradación
-              controlada ya documentada en el parser (nunca rechaza la
-              pregunta, pierde solo el render matemático de esa porción). */}
+              hueco) se parsea UNA sola vez a través de AcademicContent. Dos
+              callbacks comparten el MISMO contador blankIndex (en orden real
+              de aparición, coherente con el contrato "correctAnswer sigue el
+              orden de los huecos"): renderBlank para huecos en texto plano
+              (ficha interactiva independiente), renderMathBlank para huecos
+              que quedaron DENTRO de un span matemático (p.ej. "$10^{-___}$")
+              — ahí el valor se sustituye EN la posición matemática real
+              (exponente/fracción/raíz) antes de invocar KaTeX, en vez de
+              partir el string antes de parsear (que rompía el agrupamiento
+              LaTeX y mostraba $/{/} literales — Finding 4, auditoría
+              adversarial post-7a3c3f7). Toda estructura que no pueda
+              sustituirse de forma segura ya se rechaza en generación
+              (questionContract.ts: hasUnsupportedWordBankMathBlank) y, como
+              red de seguridad adicional, AcademicContent nunca crashea ni
+              muestra sintaxis rota si algo inesperado llega igual (fail-closed). */}
           {currentQuestion.format === "word_bank" && Array.isArray(currentQuestion.options) && (() => {
             let blankIndex = -1
+            const nextBlankAnswer = () => {
+              blankIndex += 1
+              const i = blankIndex
+              const answerId = wordBankAnswers[i] || ""
+              const answerLabel = (currentQuestion.options as any[]).find((option: any) => option.id === answerId)?.text || ""
+              return { i, answerId, answerLabel }
+            }
             return <div>
               <div style={{ fontSize: 17, lineHeight: 2, marginBottom: 20, padding: 16, background: "rgba(15,23,42,0.5)", borderRadius: 12, border: "1px solid rgba(148,163,184,0.15)" }}>
                 <AcademicContent
                   content={currentQuestion.questionText}
                   renderBlank={() => {
-                    blankIndex += 1
-                    const i = blankIndex
-                    const answerId = wordBankAnswers[i] || ""
-                    const answerLabel = (currentQuestion.options as any[]).find((option: any) => option.id === answerId)?.text || ""
+                    const { i, answerId, answerLabel } = nextBlankAnswer()
                     return <span style={{ display: "inline-block", minWidth: 100, padding: "4px 12px", margin: "0 4px", background: answerId ? "rgba(59,130,246,0.2)" : "rgba(148,163,184,0.1)", border: answerId ? "2px solid #60a5fa" : "2px dashed rgba(148,163,184,0.3)", borderRadius: 8, textAlign: "center", color: answerId ? "#93c5fd" : "#64748b", fontWeight: 600, cursor: "pointer", fontSize: 15 }} onClick={() => { if (answerId) { const n = [...wordBankAnswers]; n[i] = ""; setWordBankAnswers(n) } }}>
                       {answerLabel ? <AcademicContent content={answerLabel} inline /> : "___"}
                     </span>
+                  }}
+                  renderMathBlank={() => {
+                    const { i, answerId, answerLabel } = nextBlankAnswer()
+                    return {
+                      latex: toLatexSafeText(answerLabel),
+                      onClick: answerId ? () => { const n = [...wordBankAnswers]; n[i] = ""; setWordBankAnswers(n) } : undefined,
+                    }
                   }}
                 />
               </div>
@@ -2860,7 +2977,14 @@ export default function SessionPage() {
               ) : (
                 <button
                   type="button"
-                  onClick={() => { hintShownRef.current = true; setHintRevealed(true) }}
+                  onClick={() => {
+                    hintShownRef.current = true; setHintRevealed(true)
+                    // Finding 1: persistir de inmediato — si el estudiante
+                    // refresca ANTES de responder, este intento debe seguir
+                    // contando como asistido tras la restauración.
+                    const attemptKey = currentAttemptKey()
+                    if (attemptKey) persistPendingAssistance({ attemptKey, assistanceLevel: "minimal_hint" })
+                  }}
                   style={{ background: "none", border: "none", padding: 0, marginBottom: 12, color: "#64748b", fontSize: 13, fontStyle: "italic", cursor: "pointer", display: "flex", gap: 6, alignItems: "center" }}
                 >
                   <span>💡</span><span>Ver pista</span>

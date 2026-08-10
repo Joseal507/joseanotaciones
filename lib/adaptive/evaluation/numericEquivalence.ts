@@ -10,19 +10,56 @@
 // (scoring.ts) como por numeric_problem (que antes solo entendía decimales
 // planos + notación científica "e", no "^"/"×10^").
 //
-// Deliberadamente estricto: parseNumericExpression exige que, tras recortar
-// una unidad final opcional, el texto entero sea SOLO una expresión numérica
-// reconocible — nunca intenta extraer un número de en medio de prosa. Esto
-// evita que un distractor textual cualquiera "parezca" numéricamente
-// equivalente por accidente; si no parsea limpio en ambos lados, no hay
-// fallback de equivalencia.
+// AUDITORÍA ADVERSARIAL (post-7a3c3f7, Finding 3 CONFIRMED): la versión
+// original usaba una tolerancia relativa GLOBAL del 1% aplicada a CUALQUIER
+// par de opciones MCQ que parsearan como número — esto aceptaba un
+// distractor genuinamente distinto ("100.9" vs "100", diferencia real
+// ~0.9%) como si fuera la respuesta correcta, y aceptaba "5" como
+// equivalente a "5 kg" (unidad ausente en un lado, nunca debe asumirse
+// equivalencia). Peor: el caso real que SÍ debe reconocerse (10^-2.38 vs
+// 4.2×10^-3, diferencia real ~0.745%) tiene una diferencia relativa MENOR
+// que el distractor inválido (~0.9%) — ningún porcentaje global fijo puede
+// distinguir ambos casos, por diseño.
+//
+// Fix: en vez de una tolerancia porcentual arbitraria, cada representación
+// numérica lleva su PROPIA precisión implícita (cifras significativas/
+// decimales realmente escritas) — dos representaciones son equivalentes
+// SOLO si los rangos de incertidumbre que esa precisión implica se solapan.
+// Esto es "redondeo consistente con un mismo valor verdadero", no cercanía
+// arbitraria: "100" (precisión ±0.5, ronda a la unidad) y "100.9"
+// (precisión ±0.05) NO se solapan -> correctamente distintos. "10^-2.38"
+// (±0.005 en el EXPONENTE, escala logarítmica) y "4.2×10^-3" (±0.05 en la
+// mantisa) SÍ se solapan -> correctamente equivalentes.
+//
+// Deliberadamente estricto en el parseo: parseNumericExpression exige que,
+// tras recortar una unidad final opcional, el texto entero sea SOLO una
+// expresión numérica reconocible — nunca intenta extraer un número de en
+// medio de prosa. Esto evita que un distractor textual cualquiera "parezca"
+// numéricamente equivalente por accidente; si no parsea limpio en ambos
+// lados, no hay fallback de equivalencia.
 
 export interface ParsedNumericExpression {
   value: number
   unit: string | null
+  // Rango de incertidumbre implícito por la precisión REALMENTE escrita en
+  // esta representación (cifras decimales de la mantisa, o del exponente en
+  // notación de potencia continua) — nunca un porcentaje arbitrario.
+  rangeLow: number
+  rangeHigh: number
 }
 
 const MULTIPLY_SIGNS = /[×xX·*]/g
+
+function decimalPlaces(digits: string): number {
+  const dot = digits.indexOf('.')
+  return dot === -1 ? 0 : digits.length - dot - 1
+}
+
+interface BareNumericExpression {
+  value: number
+  rangeLow: number
+  rangeHigh: number
+}
 
 // Formas soportadas (tras normalizar signos de multiplicación a "*"):
 //   4.2e-3            (decimal + notación científica "e")
@@ -30,31 +67,47 @@ const MULTIPLY_SIGNS = /[×xX·*]/g
 //   10^-2.38          (potencia de 10 en notación "^", con o sin paréntesis)
 //   4.2 * 10^-3        (mantisa * potencia de 10)
 //   -3.1               (negativos)
-function parseBareNumericExpression(text: string): number | null {
+function parseBareNumericExpression(text: string): BareNumericExpression | null {
   const trimmed = text.trim()
   if (!trimmed) return null
 
-  // mantisa opcional * 10^exponente, o 10^exponente solo.
+  // Forma "potencia de 10 CONTINUA": 10^exponente, exponente posiblemente
+  // decimal (p.ej. "10^-2.38", propio de escalas logarítmicas como pH). La
+  // precisión viene de las cifras decimales del EXPONENTE — su incertidumbre
+  // se traduce a un rango multiplicativo en el valor resultante, no aditivo.
   const powerOfTen = trimmed.match(
     /^(-?\d+(?:[.,]\d+)?\s*\*\s*)?10\s*\^\s*\(?(-?\d+(?:[.,]\d+)?)\)?$/i,
   )
   if (powerOfTen) {
     const mantissaRaw = powerOfTen[1]
     const mantissa = mantissaRaw ? Number(mantissaRaw.replace('*', '').replace(',', '.').trim()) : 1
-    const exponent = Number(powerOfTen[2].replace(',', '.'))
+    const exponentText = powerOfTen[2].replace(',', '.')
+    const exponent = Number(exponentText)
     if (!Number.isFinite(mantissa) || !Number.isFinite(exponent)) return null
-    return mantissa * Math.pow(10, exponent)
+    const exponentDecimals = decimalPlaces(exponentText.replace('-', ''))
+    const halfUlpExponent = exponentDecimals > 0 ? 0.5 * Math.pow(10, -exponentDecimals) : 0
+    const value = mantissa * Math.pow(10, exponent)
+    const low = mantissa * Math.pow(10, exponent - halfUlpExponent)
+    const high = mantissa * Math.pow(10, exponent + halfUlpExponent)
+    return { value, rangeLow: Math.min(low, high), rangeHigh: Math.max(low, high) }
   }
 
-  // decimal plano, opcionalmente con notación científica "e±N".
+  // Forma "mantisa × 10^entero" o decimal plano (con o sin notación
+  // científica "e"): la precisión viene de las cifras decimales de la
+  // MANTISA — el exponente entero, si existe, se trata como exacto (nunca se
+  // escribe con incertidumbre propia en esta notación).
   const plain = trimmed.match(/^(-?\d+(?:[.,]\d+)?)(?:e([+-]?\d+))?$/i)
   if (plain) {
-    const base = Number(plain[1].replace(',', '.'))
+    const mantissaText = plain[1].replace(',', '.')
+    const base = Number(mantissaText)
     if (!Number.isFinite(base)) return null
-    if (plain[2] === undefined) return base
-    const exponent = Number(plain[2])
+    const exponent = plain[2] !== undefined ? Number(plain[2]) : 0
     if (!Number.isFinite(exponent)) return null
-    return base * Math.pow(10, exponent)
+    const mantissaDecimals = decimalPlaces(mantissaText.replace('-', ''))
+    const halfUlp = 0.5 * Math.pow(10, -mantissaDecimals)
+    const scale = Math.pow(10, exponent)
+    const value = base * scale
+    return { value, rangeLow: (base - halfUlp) * scale, rangeHigh: (base + halfUlp) * scale }
   }
 
   return null
@@ -66,43 +119,42 @@ export function parseNumericExpression(text: string | null | undefined): ParsedN
   if (!normalized) return null
 
   // Intenta parsear el string completo como número puro primero (sin unidad).
-  const bareValue = parseBareNumericExpression(normalized)
-  if (bareValue !== null) return { value: bareValue, unit: null }
+  const bare = parseBareNumericExpression(normalized)
+  if (bare !== null) return { ...bare, unit: null }
 
   // Si no, separa un posible sufijo de unidad al final (p.ej. "4.2e-3 M",
   // "10^-2.38 mol/L") y reintenta con la parte numérica.
   const unitSplit = normalized.match(/^(.*?)\s+([a-zA-ZμÅ°%\/·²³⁻¹⁰-]+(?:\s*\/\s*[a-zA-Z]+)?)$/)
   if (unitSplit) {
-    const value = parseBareNumericExpression(unitSplit[1])
-    if (value !== null) return { value, unit: unitSplit[2].trim() }
+    const parsed = parseBareNumericExpression(unitSplit[1])
+    if (parsed !== null) return { ...parsed, unit: unitSplit[2].trim() }
   }
 
   return null
 }
 
-// Tolerancia relativa por defecto: suficientemente ajustada para que
-// expresiones "vagamente parecidas" nunca pasen (una expresión que no
-// parsea limpio simplemente no entra a esta función), pero suficientemente
-// laxa para absorber redondeo entre representaciones exactas de la misma
-// cantidad (10^-2.38 vs 4.2×10^-3 difieren en <0.5% por redondeo de 2.38).
-const DEFAULT_RELATIVE_TOLERANCE = 0.01
-
 export function numericallyEquivalent(
   a: string | null | undefined,
   b: string | null | undefined,
-  relativeTolerance: number = DEFAULT_RELATIVE_TOLERANCE,
 ): boolean {
   const parsedA = parseNumericExpression(a)
   const parsedB = parseNumericExpression(b)
   if (!parsedA || !parsedB) return false
-  // Unidades: solo rechaza si AMBOS lados declaran una unidad y difieren —
-  // ausencia de unidad en uno de los dos lados no es motivo de rechazo (E,
-  // por diseño conservador: no inventamos una unidad que la pregunta no
-  // pidió explícitamente).
-  if (parsedA.unit && parsedB.unit && normalizeUnit(parsedA.unit) !== normalizeUnit(parsedB.unit)) return false
-  const diff = Math.abs(parsedA.value - parsedB.value)
-  const scale = Math.max(Math.abs(parsedA.value), Math.abs(parsedB.value), Number.EPSILON)
-  return diff / scale <= relativeTolerance
+  // Unidades (E): si CUALQUIERA de los dos lados declara una unidad, AMBOS
+  // deben declararla y coincidir — nunca se asume equivalencia cuando la
+  // unidad está ausente en un solo lado (una "5" sin unidad frente a
+  // "5 kg" NO son la misma afirmación, aunque el número coincida).
+  if (parsedA.unit || parsedB.unit) {
+    if (!parsedA.unit || !parsedB.unit) return false
+    if (normalizeUnit(parsedA.unit) !== normalizeUnit(parsedB.unit)) return false
+  }
+  // Equivalentes si los rangos de incertidumbre implícitos por la precisión
+  // REALMENTE escrita en cada representación se solapan — nunca una
+  // tolerancia porcentual arbitraria desconectada de esa precisión. Un
+  // distractor genuinamente distinto (aunque numéricamente cercano) tiene
+  // rangos que no se tocan; dos representaciones de la MISMA cantidad,
+  // redondeadas de forma consistente, sí.
+  return parsedA.rangeLow <= parsedB.rangeHigh && parsedB.rangeLow <= parsedA.rangeHigh
 }
 
 function normalizeUnit(unit: string): string {
