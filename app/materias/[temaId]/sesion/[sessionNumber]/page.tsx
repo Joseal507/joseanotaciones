@@ -60,7 +60,7 @@ import {
   getStepsForCheckpoint,
   type CoverageMap,
 } from "../../../../../lib/adaptive/evaluation/coverageExtractor"
-import { matchingCorrectPairs, matchingDisplayOptions, questionSimilarity, realFactKeysOf, type CanonicalQuestion } from "../../../../../lib/adaptive/evaluation/questionContract"
+import { isRecord, matchingCorrectPairs, matchingDisplayOptions, questionSimilarity, realFactKeysOf, type CanonicalQuestion } from "../../../../../lib/adaptive/evaluation/questionContract"
 import { computeGenerationHistorySignals } from "../../../../../lib/adaptive/evaluation/generationHistorySignals"
 import { parsePreparedRecoveryRound, type PreparedRecoveryRound } from "../../../../../lib/adaptive/evaluation/preparedRecoveryRound"
 import {
@@ -2663,7 +2663,7 @@ export default function SessionPage() {
           })()}
 
           {/* CLASSIFICATION */}
-          {currentQuestion.format === "classify" && <div style={{ display: "grid", gap: 12 }}>{currentQuestion.options.items.map(item => {
+          {currentQuestion.format === "classify" && isRecord(currentQuestion.options) && Array.isArray(currentQuestion.options.items) && Array.isArray(currentQuestion.options.categories) && <div style={{ display: "grid", gap: 12 }}>{currentQuestion.options.items.map(item => {
             const assignments = typeof userAnswer === "object" && userAnswer !== null ? userAnswer as Record<string, string> : {}
             return <div key={item.id} style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
               <div style={{ flex: 1, minWidth: 220 }}><AcademicContent content={item.text} /></div>
@@ -2775,6 +2775,7 @@ export default function SessionPage() {
               )
             }
             if (q.format === "classify") {
+              if (!isRecord(q.options) || !Array.isArray(q.options.items)) return null
               const items = q.options.items
               return (
                 <ul style={{ margin: "6px 0", paddingLeft: 0, listStyle: "none" }}>

@@ -487,6 +487,20 @@ export function questionSimilarity(a: CanonicalQuestion, b: CanonicalQuestion): 
   return Math.max(wordScore, charScore)
 }
 
+// CONTRATO: choiceText nunca lanza excepción, sin importar la forma de
+// question.options — para NINGÚN formato, válido o inválido/malformado.
+// Bug real: una pregunta classify (options: {categories,items}, el único
+// formato cuya forma válida NO es un array) con options===null (producida
+// cuando la normalización del formato falla) llegaba aquí sin haber pasado
+// por el validador estructural — questionSimilarity/isSemanticDuplicate se
+// invocan también contra preguntas de bloques anteriores que
+// sessionPreparationFactory.ts trataba como "aceptadas" sin haber sido
+// realmente diagnosticadas (fix de raíz en sessionPreparationFactory.ts —
+// ver acceptedQuestionsAcrossBlocks). Esta función es la ÚLTIMA línea de
+// defensa: incluso con ese fix, cualquier otra fuente futura de datos no
+// validados no debe poder tumbar la preparación con un TypeError — debe
+// fallar cerrado (texto vacío / ítems omitidos), nunca explotar, dejando que
+// el validator estructural (diagnoseEvaluationBlock) sea quien la rechace.
 const choiceText = (question: CanonicalQuestion): string => {
   if (Array.isArray(question.options)) {
     return question.options.map(option => {
@@ -497,10 +511,12 @@ const choiceText = (question: CanonicalQuestion): string => {
       return normalizeOptionToString(option)
     }).join(' ')
   }
-  if (question.format === 'classify') {
+  if (question.format === 'classify' && isRecord(question.options)) {
+    const categories = Array.isArray(question.options.categories) ? question.options.categories : []
+    const items = Array.isArray(question.options.items) ? question.options.items : []
     return [
-      ...question.options.categories,
-      ...question.options.items.flatMap(item => [item.text, item.category]),
+      ...categories.filter((category): category is string => typeof category === 'string'),
+      ...items.flatMap(item => isRecord(item) ? [normalizeOptionToString(item.text), normalizeOptionToString(item.category)] : []),
     ].join(' ')
   }
   return ''
@@ -557,49 +573,72 @@ export function validateQuestion(
     if (labels.some(label => !label || label.includes('[object Object]'))) errors.push('invalid_option')
     if (new Set(labels).size !== labels.length) errors.push('duplicate_options')
   }
+  // Guard defensivo (todas las ramas de formato abajo): normalizeGeneratedQuestion
+  // garantiza options/correctAnswer no-nulos para cada formato en su propio
+  // pipeline (devuelve null antes si falla), pero validateQuestion también se
+  // llama con `question` proveniente DIRECTO del cliente sin pasar por esa
+  // normalización (session-check/route.ts recibe el payload crudo del POST) —
+  // una pregunta malformada ahí no debe crashear la ruta que califica la
+  // respuesta del estudiante, debe quedar marcada inválida de forma controlada.
   if (question.format === 'word_bank') {
-    const blanks = question.questionText.match(/___/g)?.length || 0
-    if (blanks !== question.correctAnswer.length) errors.push('word_bank_slot_mismatch')
-    const bank = new Set(question.options.map(option => option.id))
-    if (question.correctAnswer.some(answer => !bank.has(answer))) errors.push('word_bank_answer_missing')
+    if (!Array.isArray(question.options) || !Array.isArray(question.correctAnswer)) {
+      errors.push('word_bank_slot_mismatch')
+    } else {
+      const blanks = question.questionText.match(/___/g)?.length || 0
+      if (blanks !== question.correctAnswer.length) errors.push('word_bank_slot_mismatch')
+      const bank = new Set(question.options.map(option => option.id))
+      if (question.correctAnswer.some(answer => !bank.has(answer))) errors.push('word_bank_answer_missing')
+    }
   }
   if (question.format === 'ordering') {
-    if (new Set(question.correctAnswer).size !== question.correctAnswer.length) errors.push('duplicate_ordering_answer')
-    const ids = new Set(question.options.map(option => option.id))
-    if (question.correctAnswer.some(id => !ids.has(id))) errors.push('ordering_answer_missing')
+    if (!Array.isArray(question.options) || !Array.isArray(question.correctAnswer)) {
+      errors.push('ordering_answer_missing')
+    } else {
+      if (new Set(question.correctAnswer).size !== question.correctAnswer.length) errors.push('duplicate_ordering_answer')
+      const ids = new Set(question.options.map(option => option.id))
+      if (question.correctAnswer.some(id => !ids.has(id))) errors.push('ordering_answer_missing')
+    }
   }
   if (question.format === 'multi_select') {
-    const ids = new Set(question.options.map(option => option.id))
-    if (!question.correctAnswer.length || question.correctAnswer.some(id => !ids.has(id))) errors.push('invalid_multi_select_answer')
+    if (!Array.isArray(question.options) || !Array.isArray(question.correctAnswer)) {
+      errors.push('invalid_multi_select_answer')
+    } else {
+      const ids = new Set(question.options.map(option => option.id))
+      if (!question.correctAnswer.length || question.correctAnswer.some(id => !ids.has(id))) errors.push('invalid_multi_select_answer')
+    }
   }
   if (question.format === 'matching') {
-    if (question.options.length < 2) errors.push('invalid_matching_pairs')
-    const leftIds = new Set(question.options.map(pair => pair.id))
-    const rightIds = new Set(question.options.map(pair => pair.rightId))
-    const labelsByRightId = new Map<string, string>()
-    const conflictingSharedLabel = question.options.some(pair => {
-      const existing = labelsByRightId.get(pair.rightId)
-      labelsByRightId.set(pair.rightId, pair.right)
-      return existing !== undefined && existing !== pair.right
-    })
-    if (leftIds.size !== question.options.length ||
-        (question.matchingSemantics === 'bijective' && rightIds.size !== question.options.length) ||
-        Object.entries(question.correctAnswer).some(([leftId, rightId]) => !leftIds.has(leftId) || !rightIds.has(rightId))) {
-      errors.push('invalid_matching_answer')
-    }
-    if (conflictingSharedLabel) errors.push('conflicting_matching_label')
-    if (question.matchingOptionOrder.length !== rightIds.size ||
-        new Set(question.matchingOptionOrder).size !== rightIds.size ||
-        question.matchingOptionOrder.some(id => !rightIds.has(id))) errors.push('invalid_matching_order')
-    const sourceOrder = [...rightIds]
-    if (sourceOrder.length > 1 &&
-        question.matchingOptionOrder.every((id, index) => id === sourceOrder[index])) {
-      errors.push('trivial_matching_order')
+    if (!Array.isArray(question.options) || !isRecord(question.correctAnswer) || !Array.isArray(question.matchingOptionOrder)) {
+      errors.push('invalid_matching_pairs')
+    } else {
+      if (question.options.length < 2) errors.push('invalid_matching_pairs')
+      const leftIds = new Set(question.options.map(pair => pair.id))
+      const rightIds = new Set(question.options.map(pair => pair.rightId))
+      const labelsByRightId = new Map<string, string>()
+      const conflictingSharedLabel = question.options.some(pair => {
+        const existing = labelsByRightId.get(pair.rightId)
+        labelsByRightId.set(pair.rightId, pair.right)
+        return existing !== undefined && existing !== pair.right
+      })
+      if (leftIds.size !== question.options.length ||
+          (question.matchingSemantics === 'bijective' && rightIds.size !== question.options.length) ||
+          Object.entries(question.correctAnswer).some(([leftId, rightId]) => !leftIds.has(leftId) || !rightIds.has(rightId))) {
+        errors.push('invalid_matching_answer')
+      }
+      if (conflictingSharedLabel) errors.push('conflicting_matching_label')
+      if (question.matchingOptionOrder.length !== rightIds.size ||
+          new Set(question.matchingOptionOrder).size !== rightIds.size ||
+          question.matchingOptionOrder.some(id => !rightIds.has(id))) errors.push('invalid_matching_order')
+      const sourceOrder = [...rightIds]
+      if (sourceOrder.length > 1 &&
+          question.matchingOptionOrder.every((id, index) => id === sourceOrder[index])) {
+        errors.push('trivial_matching_order')
+      }
     }
   }
-  if (question.format === 'classify' && (question.options.categories.length < 2 || question.options.items.length < 2)) errors.push('invalid_classification')
+  if (question.format === 'classify' && (!isRecord(question.options) || !Array.isArray(question.options.categories) || !Array.isArray(question.options.items) || question.options.categories.length < 2 || question.options.items.length < 2)) errors.push('invalid_classification')
   if (question.format === 'numeric_problem' &&
-      (!Number.isFinite(question.correctAnswer.value) || question.correctAnswer.tolerance < 0)) errors.push('invalid_numeric_answer')
+      (!isRecord(question.correctAnswer) || !Number.isFinite(question.correctAnswer.value) || typeof question.correctAnswer.tolerance !== 'number' || question.correctAnswer.tolerance < 0)) errors.push('invalid_numeric_answer')
   if ((context.targetDimension === 'application' || context.targetDimension === 'transfer') &&
       question.format === 'true_false') errors.push('superficial_procedure_evidence')
   if (recent.some(previous => questionSimilarity(question, previous) >= 0.92)) errors.push('repeated_question')
