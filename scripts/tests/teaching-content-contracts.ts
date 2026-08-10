@@ -17,5 +17,10 @@ assert.match(prompt,/Genera únicamente la enseñanza de la sesión/)
 assert.match(prompt,/La evaluación se planificará en una operación posterior/)
 assert.match(prompt,/Tu respuesta debe terminar inmediatamente después del campo closing/)
 assert.doesNotMatch(prompt,/coveredStepIds|coveredKeyPoints|correctAnswer|quick_test/)
-assert.match(route,/prepareSessionByFactory\(body, teachingOnlyPrompt/)
+// El call site pasa {...body, ...academicDomain} (no `body` a secas) para que
+// la fábrica reciba el academicDomain ya resuelto (resolveAcademicDomain),
+// no solo lo que el cliente haya enviado — la propiedad que importa sigue
+// siendo verificable: se preserva body vía spread y se usa teachingOnlyPrompt
+// (no el prompt completo con instrucciones de evaluación bundleadas).
+assert.match(route,/prepareSessionByFactory\(\{\s*\.\.\.body,[^}]*\},\s*teachingOnlyPrompt/)
 console.log('teaching-content-contracts: PASS')
