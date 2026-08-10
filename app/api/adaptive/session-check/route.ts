@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { scoreQuestion } from '../../../../lib/adaptive/evaluation/scoring'
 import { alaiJson } from '../../../../lib/alai'
 import type { CanonicalQuestion, CanonicalUserAnswer } from '../../../../lib/adaptive/evaluation/questionContract'
-import { presentAnswer } from '../../../../lib/adaptive/evaluation/answerPresentation'
+import { presentAnswer, stripOptionSelfReferences } from '../../../../lib/adaptive/evaluation/answerPresentation'
 import { validateQuestion } from '../../../../lib/adaptive/evaluation/questionContract'
 import {
   EVALUATION_MODE_VIOLATION,
@@ -205,13 +205,15 @@ export async function POST(req: NextRequest) {
       let whatWasRight = ''
       let whatWasWrong = ''
 
+      const sanitizedExplanation = stripOptionSelfReferences(question.explanation)
+
       if (scoreResult.correct) {
-        feedback = question.explanation || 'Correcto.'
+        feedback = sanitizedExplanation || 'Correcto.'
         whatWasRight = 'Seleccionaste la respuesta correcta.'
       } else {
         const correctDisplay = presentAnswer(question, question.correctAnswer)
 
-        feedback = question.explanation || `La respuesta correcta era: **${correctDisplay}**.`
+        feedback = sanitizedExplanation || `La respuesta correcta era: **${correctDisplay}**.`
         whatWasWrong = `La respuesta correcta era: **${correctDisplay}**.`
       }
 

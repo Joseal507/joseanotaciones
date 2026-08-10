@@ -15,6 +15,7 @@ import { signQuestionsInPlace } from '../../../../lib/adaptive/evaluation/questi
 import {
   detectContentSignal,
   detectErrorType,
+  selectRecoveryFormat,
 } from '../../../../lib/adaptive/evaluation/pedagogicalFormatSelector'
 import {
   buildReteachStrategyInstructions,
@@ -26,6 +27,30 @@ import {
 
 export const maxDuration = 120
 export const dynamic = 'force-dynamic'
+
+// PROBLEMA PEDAGÓGICO 5 (prueba humana real): la reexplicación usaba
+// analogías genéricas ("bolsa de caramelos", "equipo de fútbol") como
+// registro por defecto, sin importar el perfil real del estudiante — aunque
+// StudyAL ya conoce ese perfil (AdaptiveSetup.knowledgeLevel/mainConcern,
+// disponibles en el cliente, nunca antes enviados a este endpoint). Fix
+// genérico y no hardcodeado: si el caller envía un perfil, se lo pasamos al
+// LLM como SEÑAL real para elegir el registro — nunca fijamos una regla del
+// tipo "universitario = X"; la decisión sigue siendo del modelo, informada
+// por el dato real en vez de un default implícito.
+export function buildRegisterInstruction(studentProfile: unknown): string {
+  if (!studentProfile || typeof studentProfile !== 'object') return ''
+  const profile = studentProfile as Record<string, unknown>
+  const knowledgeLevel = typeof profile.knowledgeLevel === 'string' ? profile.knowledgeLevel.trim() : ''
+  const mainConcern = typeof profile.mainConcern === 'string' ? profile.mainConcern.trim() : ''
+  if (!knowledgeLevel && !mainConcern) return ''
+  const lines = [
+    'PERFIL DEL ESTUDIANTE (señal real para elegir el REGISTRO de la explicación — nunca asumas un registro por defecto):',
+    knowledgeLevel ? `- Nivel declarado por el estudiante: ${knowledgeLevel}` : '',
+    mainConcern ? `- Contexto/preocupación que el estudiante indicó: ${mainConcern}` : '',
+    'Usa ESTE perfil real para decidir el registro: explicación académica con ecuaciones, relaciones causales y ejemplos del dominio cuando el perfil lo sugiera, o una analogía cotidiana SOLO si realmente ayuda a alguien con este perfil concreto — las analogías no son el registro por defecto para todo estudiante.',
+  ].filter(Boolean)
+  return lines.join('\n')
+}
 
 const reteachResponse = (
   reteachContent: string,
@@ -71,6 +96,7 @@ export async function POST(req: NextRequest) {
       failedKeyPoints,
       recoveryRound,
       previousQuestions,
+      studentProfile,
     } = body
     requestRecoveryId = typeof recoveryId === 'string' ? recoveryId : undefined
 
@@ -132,20 +158,50 @@ export async function POST(req: NextRequest) {
         : 'Ninguna — esta es la primera ronda.'
 
       const originalFormat = String(sourceQuestion?.format || 'multiple_choice')
-      const formatPriority: Record<string, string[]> = {
-        multiple_choice: ['true_false', 'matching', 'scenario'],
-        true_false: ['multiple_choice', 'matching', 'scenario'],
-        scenario: ['multiple_choice', 'true_false', 'matching'],
-        matching: ['multiple_choice', 'true_false', 'scenario'],
-        ordering: ['multiple_choice', 'true_false', 'matching'],
-        word_bank: ['multiple_choice', 'true_false', 'matching'],
-        multi_select: ['multiple_choice', 'true_false', 'scenario'],
-        find_the_error: ['multiple_choice', 'true_false', 'matching'],
-        classify: ['multiple_choice', 'true_false', 'ordering'],
-      }
-      const preferredFormats = (formatPriority[originalFormat] || ['true_false', 'matching'])
-      const format1 = preferredFormats[0] || 'true_false'
-      const format2 = preferredFormats[1] || 'multiple_choice'
+      // PROBLEMA PEDAGÓGICO 4 (prueba humana real): antes, format1/format2 se
+      // tomaban SIEMPRE de los índices [0] y [1] de una tabla ESTÁTICA keyed
+      // solo por originalFormat — sin importar la ronda, el número de fallos
+      // consecutivos, ni los formatos ya usados en rondas previas de este
+      // mismo recovery. Con originalFormat='multiple_choice' eso producía
+      // SIEMPRE true_false + matching, ronda tras ronda ("MCQ → matching →
+      // MCQ → matching..."), nunca escalando hacia aplicación/transferencia
+      // aunque 'scenario' (aplicación/transferencia) estuviera en la MISMA
+      // tabla, un índice más allá, inalcanzable. Fix: selectRecoveryFormat
+      // escala el nivel cognitivo objetivo con los fallos consecutivos reales
+      // (solo si el contenido lo admite) y penaliza por recencia usando el
+      // historial COMPLETO de formatos ya usados en esta secuencia (prior),
+      // no solo el inmediatamente anterior. allowedFormats se restringe a los
+      // formatos para los que este endpoint realmente tiene plantilla de
+      // generación (formatTemplates, abajo) — no es un techo cognitivo, es
+      // una limitación de implementación honesta en el call site.
+      const templatedFormats = ['multiple_choice', 'true_false', 'matching', 'scenario', 'ordering']
+      const recoveryConsecutiveFailures = Math.max(0, Number(recoveryRound || 1) - 1)
+      const recentRecoveryFormats = prior.map(q => q.format)
+      const recoverySelection1 = selectRecoveryFormat({
+        errorType: roundErrorType,
+        previousFormat: originalFormat,
+        cognitiveLevel: (sourceQuestion?.targetDimension || 'comprehension') as any,
+        contentSignal: roundContentSignal,
+        evaluationMode,
+        consecutiveFailures: recoveryConsecutiveFailures,
+        recentFormats: [...recentRecoveryFormats, originalFormat],
+        allowedFormats: templatedFormats,
+      })
+      const format1 = recoverySelection1.format
+      const recoverySelection2 = selectRecoveryFormat({
+        errorType: roundErrorType,
+        previousFormat: format1,
+        cognitiveLevel: (sourceQuestion?.targetDimension || 'comprehension') as any,
+        contentSignal: roundContentSignal,
+        evaluationMode,
+        consecutiveFailures: recoveryConsecutiveFailures,
+        recentFormats: [...recentRecoveryFormats, originalFormat, format1],
+        // format2 debe ser distinto de format1 dentro de la MISMA ronda —
+        // esto sí es una restricción dura legítima (2 preguntas idénticas en
+        // formato dentro de una misma ronda no aporta ángulos distintos).
+        allowedFormats: templatedFormats.filter(format => format !== format1),
+      })
+      const format2 = recoverySelection2.format
 
       const formatTemplates: Record<string, string> = {
         multiple_choice: `{
@@ -230,6 +286,8 @@ ${exactKeyPoints.map((point: string) => `- ${point}`).join('\n')}
 ${priorQuestionsSummary}
 
 ${roundStrategyInstructions}
+
+${buildRegisterInstruction(studentProfile)}
 
 ════ INSTRUCCIÓN ════
 Genera 2 preguntas que evalúen el concepto "${String(sourceQuestion.conceptLabel || '')}" desde ángulos distintos.
@@ -566,6 +624,7 @@ TIPO DEL FALLO MÁS RECIENTE: ${typeof latestErrorType === 'string' ? latestErro
 EVIDENCIA OBJETIVO MÁS RECIENTE: ${Array.isArray(latestFactKeys) ? latestFactKeys.join(', ') : 'no_especificada'}
 NIVEL DE AYUDA EN EL FALLO: ${typeof latestAssistanceLevel === 'string' ? latestAssistanceLevel : 'independent'}
 MODO DE EVALUACIÓN: ${typeof evaluationMode === 'string' ? evaluationMode : 'mix_everything'}
+${buildRegisterInstruction(studentProfile)}
 EVITA REPETIR ESTAS EXPLICACIONES PREVIAS:
 ${Array.isArray(previousReteachFingerprints) ? previousReteachFingerprints.join('\n---\n') : 'No hay explicaciones previas.'}
 

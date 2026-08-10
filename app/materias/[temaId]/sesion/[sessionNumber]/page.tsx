@@ -17,7 +17,6 @@ import { useEffect, useState, useRef, useCallback } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { AcademicContent } from "../../../../../components/academic/AcademicContent"
 import { AcademicListbox } from "../../../../../components/academic/AcademicListbox"
-import { semanticBlankSpacing } from "../../../../../lib/academic-content/blankSpacing"
 import { presentAnswer } from "../../../../../lib/adaptive/evaluation/answerPresentation"
 import {
   beginRecoveryReteach,
@@ -1390,6 +1389,10 @@ export default function SessionPage() {
           previousReteachFingerprints: item.reteachContentHistory,
           materialTitle: sessionData?.materialNames?.[0] || "Material",
           sessionTitle: classContent?.sessionTitle || "",
+          studentProfile: sessionData?.adaptiveSetup ? {
+            knowledgeLevel: sessionData.adaptiveSetup.knowledgeLevel || null,
+            mainConcern: sessionData.adaptiveSetup.mainConcern || null,
+          } : null,
         }),
       });rawBody=await response.text()}catch(error){rawBody="";console.error("[adaptive-recovery]",JSON.stringify({event:"recovery_round_generation_failed",errorCode:"RECOVERY_ROUND_NETWORK_FAILED",message:error instanceof Error?error.message:String(error),recoveryId:item.recoveryId,recoveryTargetId:item.recoveryTargetId,roundId:`${item.recoveryId}:round:${item.verificationRound+1}`,roundNumber:item.verificationRound+1,generationKey,durationMs:Date.now()-startedAt}))}
       let decoded:unknown=null;try{decoded=rawBody?JSON.parse(rawBody):null}catch(error){console.warn("[adaptive-recovery]",JSON.stringify({event:"recovery_round_response_invalid",errorCode:"RECOVERY_ROUND_INVALID_JSON",message:error instanceof Error?error.message:String(error),recoveryId:item.recoveryId,generationKey,raw:rawBody.slice(0,12000)}))}
@@ -2533,7 +2536,10 @@ export default function SessionPage() {
               }[currentQuestion.format] || currentQuestion.format}
             </div>
           </div>
-          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 20, lineHeight: 1.4 }}><AcademicContent content={currentQuestion.questionText} /></div>
+          {/* word_bank compone su propio render de questionText (con los huecos
+              rellenos) más abajo — mostrarlo aquí también duplicaba la oración
+              completa en pantalla (una vez cruda con "___", otra vez interactiva). */}
+          {currentQuestion.format !== "word_bank" && <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 20, lineHeight: 1.4 }}><AcademicContent content={currentQuestion.questionText} /></div>}
 
           {/* MCQ / SCENARIO / FIND ERROR */}
           {["multiple_choice", "scenario", "find_the_error"].includes(currentQuestion.format) && Array.isArray(currentQuestion.options) && <div style={{ display: "grid", gap: 12 }}>{(currentQuestion.options as any[]).map((o: any) => <button key={o.id} onClick={() => setUserAnswer(o.id)} style={{ textAlign: "left", padding: "14px 16px", background: userAnswer === o.id ? "rgba(59,130,246,0.18)" : "rgba(15,23,42,0.6)", color: "#e2e8f0", border: userAnswer === o.id ? "1px solid #60a5fa" : "1px solid rgba(148,163,184,0.2)", borderRadius: 10, cursor: "pointer", fontSize: 15 }}><AcademicContent content={o.text} inline /></button>)}</div>}
@@ -2552,26 +2558,33 @@ export default function SessionPage() {
           {/* TRUE/FALSE */}
           {currentQuestion.format === "true_false" && <div style={{ display: "grid", gap: 12 }}>{["true", "false"].map(v => <button key={v} onClick={() => setUserAnswer(v === "true")} style={{ textAlign: "left", padding: "14px 16px", background: userAnswer === (v === "true") ? "rgba(59,130,246,0.18)" : "rgba(15,23,42,0.6)", color: "#e2e8f0", border: userAnswer === (v === "true") ? "1px solid #60a5fa" : "1px solid rgba(148,163,184,0.2)", borderRadius: 10, cursor: "pointer", fontSize: 15 }}>{v === "true" ? "Verdadero" : "Falso"}</button>)}</div>}
 
-          {/* WORD BANK */}
+          {/* WORD BANK — el questionText completo (con "___" en las posiciones de
+              hueco) se parsea UNA sola vez a través de AcademicContent, con
+              renderBlank sustituyendo cada nodo 'blank' por la ficha
+              interactiva. Antes se partía el texto con .split("___") ANTES de
+              parsear, lo que cortaba a la mitad cualquier span matemático que
+              contuviera el hueco (p.ej. "$10^{-___}$") y cada mitad se parseaba
+              aislada, perdiendo el agrupamiento LaTeX — con un parseo único y
+              coherente, un span matemático SIN hueco dentro se renderiza
+              íntegro, y uno CON hueco dentro sigue la misma degradación
+              controlada ya documentada en el parser (nunca rechaza la
+              pregunta, pierde solo el render matemático de esa porción). */}
           {currentQuestion.format === "word_bank" && Array.isArray(currentQuestion.options) && (() => {
-            const blanks = currentQuestion.questionText.split("___")
+            let blankIndex = -1
             return <div>
               <div style={{ fontSize: 17, lineHeight: 2, marginBottom: 20, padding: 16, background: "rgba(15,23,42,0.5)", borderRadius: 12, border: "1px solid rgba(148,163,184,0.15)" }}>
-                {blanks.map((part, i) => {
-                  const answerId = wordBankAnswers[i] || ""
-                  const answerLabel = (currentQuestion.options as any[]).find((option: any) => option.id === answerId)?.text || ""
-                  const spacing = semanticBlankSpacing(part, answerLabel, blanks[i + 1] || "")
-                  return <span key={i}>
-                    <AcademicContent content={part} inline />
-                    {i < blanks.length - 1 && <>
-                      {spacing.before}
-                      <span style={{ display: "inline-block", minWidth: 100, padding: "4px 12px", margin: "0 4px", background: answerId ? "rgba(59,130,246,0.2)" : "rgba(148,163,184,0.1)", border: answerId ? "2px solid #60a5fa" : "2px dashed rgba(148,163,184,0.3)", borderRadius: 8, textAlign: "center", color: answerId ? "#93c5fd" : "#64748b", fontWeight: 600, cursor: "pointer", fontSize: 15 }} onClick={() => { if (answerId) { const n = [...wordBankAnswers]; n[i] = ""; setWordBankAnswers(n) } }}>
-                        {answerLabel ? <AcademicContent content={answerLabel} inline /> : "___"}
-                      </span>
-                      {spacing.after}
-                    </>}
-                  </span>
-                })}
+                <AcademicContent
+                  content={currentQuestion.questionText}
+                  renderBlank={() => {
+                    blankIndex += 1
+                    const i = blankIndex
+                    const answerId = wordBankAnswers[i] || ""
+                    const answerLabel = (currentQuestion.options as any[]).find((option: any) => option.id === answerId)?.text || ""
+                    return <span style={{ display: "inline-block", minWidth: 100, padding: "4px 12px", margin: "0 4px", background: answerId ? "rgba(59,130,246,0.2)" : "rgba(148,163,184,0.1)", border: answerId ? "2px solid #60a5fa" : "2px dashed rgba(148,163,184,0.3)", borderRadius: 8, textAlign: "center", color: answerId ? "#93c5fd" : "#64748b", fontWeight: 600, cursor: "pointer", fontSize: 15 }} onClick={() => { if (answerId) { const n = [...wordBankAnswers]; n[i] = ""; setWordBankAnswers(n) } }}>
+                      {answerLabel ? <AcademicContent content={answerLabel} inline /> : "___"}
+                    </span>
+                  }}
+                />
               </div>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", marginBottom: 10, textTransform: "uppercase" }}>Banco de palabras</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>

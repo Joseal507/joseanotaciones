@@ -20,7 +20,11 @@ const nodeEndsWordLike = (node: AcademicNode): boolean => {
   if (node.type === 'text' || node.type === 'unit' || node.type === 'symbol' || node.type === 'code') {
     return WORD_END.test(node.value.trimEnd())
   }
-  return node.type === 'quantity' || node.type === 'math' || node.type === 'chemistry'
+  // 'blank' representa un hueco de word_bank — visualmente ocupa el lugar de
+  // una palabra/valor, así que debe recibir el mismo tratamiento de espaciado
+  // que quantity/math/chemistry (sin esto, "de ___" nunca recibía el espacio
+  // antes del hueco, porque 'blank' no entraba en ninguna de las dos ramas).
+  return node.type === 'quantity' || node.type === 'math' || node.type === 'chemistry' || node.type === 'blank'
 }
 
 const nodeStartsWordLike = (node: AcademicNode): boolean => {
@@ -28,7 +32,7 @@ const nodeStartsWordLike = (node: AcademicNode): boolean => {
   if (node.type === 'text' || node.type === 'unit' || node.type === 'symbol' || node.type === 'code') {
     return WORD_START.test(node.value.trimStart())
   }
-  return node.type === 'quantity' || node.type === 'math' || node.type === 'chemistry'
+  return node.type === 'quantity' || node.type === 'math' || node.type === 'chemistry' || node.type === 'blank'
 }
 
 export function academicNodeBoundary(previous: AcademicNode | undefined, current: AcademicNode): string {

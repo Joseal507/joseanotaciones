@@ -391,6 +391,7 @@ Para word_bank:
   "estimatedSeconds": 30,
   "evidencesNeeded": 1
 }
+REGLA word_bank: correctAnswer DEBE estar en el mismo orden, de izquierda a derecha, en que los huecos ___ aparecen en questionText — el primer elemento de correctAnswer llena el primer ___, el segundo el segundo ___, y así sucesivamente. Nunca reordenes correctAnswer por relevancia ni por ningún otro criterio distinto a esa posición.
 
 Para ordering:
 {

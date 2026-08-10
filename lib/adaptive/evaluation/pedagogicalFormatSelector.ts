@@ -85,6 +85,17 @@ export interface RecoveryFormatInput {
   contentSignal: ContentSignal
   evaluationMode: CanonicalEvaluationMode
   consecutiveFailures: number
+  // Historial de formatos ya usados en ESTA secuencia de recovery (todas las
+  // rondas previas, no solo la inmediatamente anterior) — mismo mecanismo de
+  // penalización por recencia que scoreEntry ya usa para la selección inicial
+  // (más reciente = mayor penalización, nunca una exclusión dura). Si se
+  // omite, se usa solo [previousFormat] (comportamiento previo, retrocompatible).
+  recentFormats?: string[]
+  academicDomain?: AcademicDomain
+  // Restringe los candidatos a este subconjunto — para callers que solo
+  // tienen plantillas de generación para ciertos formatos (p.ej.
+  // session-reteach). Si se omite, no restringe.
+  allowedFormats?: string[]
 }
 
 // ─── Biblioteca de formatos canónicos ────────────────────────
@@ -570,43 +581,110 @@ export function selectPedagogicalFormat(
   }
 }
 
+const COGNITIVE_LADDER: CognitiveLevel[] = ['recognition', 'comprehension', 'application', 'transfer']
+
+// PROBLEMA PEDAGÓGICO 4 (prueba humana real): rondas sucesivas de recovery
+// sobre el MISMO concepto podían quedar atrapadas en MCQ → matching → MCQ →
+// matching → ... — comprobando reconocimiento indefinidamente, sin escalar
+// nunca hacia aplicación/transferencia, aunque el contenido lo admitiera.
+// Causa raíz (auditada antes de tocar nada): el selector original tomaba
+// preferredFormats[0] de una tabla ESTÁTICA por ErrorType — para los buckets
+// memory/false_confidence (a los que TODO fallo repetido termina cayendo,
+// ver detectErrorType) esa tabla nunca incluía ningún formato de
+// aplicación/transferencia, sin importar cuántas rondas pasaran.
+//
+// Fix: escalar el NIVEL COGNITIVO objetivo con los fallos consecutivos sobre
+// el mismo target (nunca más de un nivel por fallo — evita saltos bruscos),
+// y elegir el formato desde FORMAT_LIBRARY (la MISMA fuente de verdad que la
+// evaluación inicial content-driven, vía scoreEntry) filtrado por ese nivel —
+// nunca forzando un nivel para el que no exista ningún formato realmente
+// compatible con esta señal de contenido (retrocede hasta encontrar uno que
+// sí admita el fact, en vez de forzar transfer donde no aplica).
+function escalatedCognitiveLevel(
+  baseLevel: CognitiveLevel,
+  consecutiveFailures: number,
+  contentSignal: ContentSignal,
+  evaluationMode: CanonicalEvaluationMode,
+  allowedFormats: string[] | undefined,
+): CognitiveLevel {
+  const baseIndex = Math.max(0, COGNITIVE_LADDER.indexOf(baseLevel))
+  let targetIndex = Math.min(baseIndex + consecutiveFailures, COGNITIVE_LADDER.length - 1)
+  const admits = (level: CognitiveLevel) => FORMAT_LIBRARY.some(entry =>
+    entry.cognitiveMatch.includes(level)
+    && entry.contentMatch.includes(contentSignal)
+    && validateQuestionTypeForMode(evaluationMode, entry.format).valid
+    && (!allowedFormats || allowedFormats.includes(entry.format)),
+  )
+  while (targetIndex > baseIndex && !admits(COGNITIVE_LADDER[targetIndex])) targetIndex -= 1
+  return COGNITIVE_LADDER[targetIndex]
+}
+
 /**
  * Selecciona el formato óptimo para una re-evaluación post-reteach.
  *
- * Garantiza que el formato es diferente al que falló originalmente.
- * Selección basada en el tipo de error detectado.
+ * Escala el nivel cognitivo objetivo con los fallos consecutivos sobre el
+ * mismo concepto (cuando el contenido lo admite) en vez de repetir
+ * reconocimiento indefinidamente. Selección basada en el tipo de error
+ * detectado Y en la aptitud real del contenido para ese nivel.
  */
 export function selectRecoveryFormat(
   input: RecoveryFormatInput,
 ): FormatSelectionResult {
   const strategy = RECOVERY_STRATEGY[input.errorType] || RECOVERY_STRATEGY.memory
+  const targetCognitiveLevel = escalatedCognitiveLevel(
+    input.cognitiveLevel, input.consecutiveFailures, input.contentSignal, input.evaluationMode, input.allowedFormats,
+  )
 
-  // Filtrar por modo de evaluación
-  const validFormats = strategy.preferredFormats.filter(format => {
-    const validation = validateQuestionTypeForMode(input.evaluationMode, format)
-    return validation.valid && format !== input.previousFormat
-  })
+  const inAllowedSet = (format: string) => !input.allowedFormats || input.allowedFormats.includes(format)
+  let candidates = FORMAT_LIBRARY.filter(entry =>
+    entry.cognitiveMatch.includes(targetCognitiveLevel)
+    && validateQuestionTypeForMode(input.evaluationMode, entry.format).valid
+    && inAllowedSet(entry.format),
+  )
+  if (candidates.length === 0) {
+    // Nunca debe quedar sin candidatos: cae al nivel cognitivo base original
+    // (siempre admitido — es el nivel de la pregunta que ya se generó una vez).
+    candidates = FORMAT_LIBRARY.filter(entry =>
+      entry.cognitiveMatch.includes(input.cognitiveLevel)
+      && validateQuestionTypeForMode(input.evaluationMode, entry.format).valid
+      && inAllowedSet(entry.format),
+    )
+  }
 
-  // Si no hay formatos válidos distintos al anterior, permitir el mismo formato
-  const targetFormats = validFormats.length > 0
-    ? validFormats
-    : strategy.preferredFormats.filter(format => {
-        const validation = validateQuestionTypeForMode(input.evaluationMode, format)
-        return validation.valid
-      })
+  const recentFormats = input.recentFormats && input.recentFormats.length > 0
+    ? input.recentFormats
+    : [input.previousFormat]
+  const selectionInput: FormatSelectionInput = {
+    cognitiveLevel: targetCognitiveLevel,
+    contentSignal: input.contentSignal,
+    academicDomain: input.academicDomain || 'general_conceptual',
+    evaluationMode: input.evaluationMode,
+    recentFormats,
+    consecutiveFailures: input.consecutiveFailures,
+    isRecovery: true,
+    questionIndex: 0,
+    totalQuestionsInBlock: 1,
+  }
 
-  const format = targetFormats[0] || 'multiple_choice'
+  // La preferencia pedagógica curada por tipo de error (RECOVERY_STRATEGY)
+  // se conserva como señal de DESEMPATE suave, no como techo duro — antes
+  // limitaba la selección a solo 3 formatos fijos para siempre.
+  const preferredSet = new Set(strategy.preferredFormats)
+  const scored = candidates.map(entry => ({
+    entry,
+    score: scoreEntry(entry, selectionInput) + (preferredSet.has(entry.format) ? 6 : 0),
+  })).sort((a, b) => b.score - a.score)
 
-  // Encontrar variante correspondiente
-  const variantIndex = strategy.preferredFormats.indexOf(format)
-  const variant = strategy.variants[variantIndex] || strategy.variants[0] || 'mcq_best_answer'
+  const best = scored[0]?.entry
+    || FORMAT_LIBRARY.find(entry => entry.format === 'multiple_choice')!
+  const variant = selectVariant(best, selectionInput)
 
   return {
-    format,
+    format: best.format,
     variant,
-    reasoning: `Recovery para error tipo "${input.errorType}": ${strategy.pedagogicalApproach}`,
-    cognitiveObjective: buildCognitiveObjective(format, input.cognitiveLevel, 'definition'),
-    estimatedSeconds: 40,
+    reasoning: `Recovery para error tipo "${input.errorType}" (nivel objetivo: ${targetCognitiveLevel}, fallos consecutivos: ${input.consecutiveFailures}): ${strategy.pedagogicalApproach}`,
+    cognitiveObjective: buildCognitiveObjective(best.format, targetCognitiveLevel, input.contentSignal),
+    estimatedSeconds: best.estimatedSeconds,
     difficulty: input.consecutiveFailures >= 2 ? 'easy' : 'medium',
   }
 }

@@ -52,3 +52,30 @@ export function presentAnswer(
   }
   return ''
 }
+
+// El LLM genera `explanation` en la misma llamada que la pregunta, sin ningún
+// vínculo estructural con `correctAnswer` — la letra/número de opción que
+// narra ahí puede no corresponder a la opción realmente marcada correcta (la
+// UI, además, nunca muestra letras/números junto a las opciones, así que esa
+// autorreferencia es siempre no verificable para el usuario). No podemos
+// resolver A que letra del LLM se refiere en cada caso (podría estar hablando
+// de una opción incorrecta a propósito, "la opción X es incorrecta porque…"),
+// así que la única corrección segura y genérica es eliminar la autorreferencia
+// en vez de intentar reescribirla — evita que el feedback afirme algo que
+// contradice la respuesta canónica, sin arriesgar introducir una afirmación
+// nueva y distinta igual de falsa.
+const OPTION_TOKEN = "(?:[a-jA-J]|[0-9]{1,2})"
+const OPTION_TOKEN_LIST = `${OPTION_TOKEN}(?:\\s*(?:,|y|and|or|o)\\s*${OPTION_TOKEN})*`
+const OPTION_SELF_REFERENCE = new RegExp(
+  `\\b(?:la|las|el|los)?\\s*(?:opci[oó]n(?:es)?|alternativa(?:s)?|choice|option)s?\\s*['"“”]?\\(?\\s*${OPTION_TOKEN_LIST}\\s*['"”]?\\)?`,
+  'gi',
+)
+
+export function stripOptionSelfReferences(explanation: string | undefined | null): string {
+  if (!explanation) return ''
+  return explanation
+    .replace(OPTION_SELF_REFERENCE, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\s+([.,;:])/g, '$1')
+    .trim()
+}
