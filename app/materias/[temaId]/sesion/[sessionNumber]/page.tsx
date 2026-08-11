@@ -108,6 +108,9 @@ import { VisualRenderer } from "../../../../../components/visual/VisualRenderer"
 import { computeSessionDependencyFingerprint, isPrefetchStillValid, shouldPrefetchSession, KeyedPromiseCache } from "../../../../../lib/adaptive/sessionPrefetch"
 import { deriveSessionLifecycleStatus, deriveSessionLifecycleInput } from "../../../../../lib/adaptive/sessionLifecycle"
 import { validatePlanSessionConsistency } from "../../../../../lib/adaptive/planSessionConsistency"
+import { isDevToolsEnabled } from "../../../../../lib/dev/devTools"
+import { buildDevCanonicalAnswer, buildDevCanonicalVisualResponse } from "../../../../../lib/adaptive/dev/devCanonicalAnswer"
+import type { CanonicalUserAnswer } from "../../../../../lib/adaptive/evaluation/questionContract"
 
 type SessionPhase = "teaching" | "evaluating" | "feedback" | "reteaching" | "verification_generation"
 
@@ -1034,6 +1037,19 @@ export default function SessionPage() {
     }
   }
 
+  // HERRAMIENTA DEV-ONLY (recorrido rápido — ver devSkipCurrentQuestion arriba,
+  // nunca visible en producción real). Construye la solución estructurada
+  // canónica del VisualSpec (misma fuente de verdad que gradeVisualInteraction
+  // usa server-side) y la envía por el MISMO submitVisualCheckpoint real —
+  // idéntico POST a /api/adaptive/visual-check, idéntico grading determinista,
+  // idéntico registro de evidencia. Nunca marca el checkpoint como aprobado sin
+  // pasar por ese endpoint.
+  function devResolveVisualCheckpoint(step: ClassStep) {
+    if (!step.visualSpec) return
+    const { verb, response } = buildDevCanonicalVisualResponse(step.visualSpec)
+    void submitVisualCheckpoint(step, verb, response)
+  }
+
   // Un step con checkpoint visual gating queda satisfecho por CUALQUIERA de dos
   // fuentes: el checkpoint local de este montaje (respuesta recién enviada), O el
   // assessmentBlueprint persistido ya mostrando el objective demostrado — esto
@@ -1607,15 +1623,25 @@ export default function SessionPage() {
     setSessionPhase("teaching")
   }
 
-  async function submitAnswer() {
+  // devAnswerOverride: SOLO usado por la herramienta DEV-ONLY de recorrido rápido
+  // (ver devSkipCurrentQuestion más abajo) — cuando se pasa, evita depender del
+  // timing de setState (React puede no haber re-renderizado aún el estado de UI
+  // que getCompositeAnswer() leería) para garantizar que se envía exactamente la
+  // respuesta canónica construida, no una lectura obsoleta. Fuera de esa
+  // herramienta, submitAnswer() se sigue llamando SIEMPRE sin argumento (el botón
+  // real de "Confirmar respuesta" no cambia) y el comportamiento es idéntico al de
+  // siempre — misma llamada a /api/adaptive/session-check, mismo registro de
+  // evidencia, mismo grading server-authoritative.
+  async function submitAnswer(devAnswerOverride?: CanonicalUserAnswer) {
     // Defensa en profundidad contra doble-submit (doble click, doble Enter) más allá
     // del disabled={evalLoading} del botón — cierra la ventana entre el click y el
     // re-render donde dos invocaciones síncronas podrían escapar ambas al chequeo de
     // disabled (auditoría de ciclo de vida/concurrencia).
     if (evalLoading) return
-    if (!currentQuestion || !isAnswerReady()) return
+    if (!currentQuestion) return
+    if (devAnswerOverride === undefined && !isAnswerReady()) return
     setEvalLoading(true)
-    const answer = getCompositeAnswer()
+    const answer = devAnswerOverride !== undefined ? devAnswerOverride : getCompositeAnswer()
     try {
       const target = currentQuestion as CanonicalQuestion & { coveredStepIds?: string[] }
       const sourceStepIds = target.coveredStepIds?.length ? target.coveredStepIds : [currentQuestion.teachingBlockId]
@@ -1640,6 +1666,25 @@ export default function SessionPage() {
       }
     } catch (e) { console.error(e) }
     setEvalLoading(false)
+  }
+
+  // HERRAMIENTA DEV-ONLY (recorrido rápido de sesiones para QA/UX — nunca visible
+  // en producción real, ver lib/dev/devTools.ts, gateada en el JSX de más abajo).
+  // Construye la respuesta CANÓNICA correcta para currentQuestion (mismo shape que
+  // produciría la interacción real, ver buildDevCanonicalAnswer), actualiza el
+  // estado de UI del formato correspondiente para que la pantalla se vea
+  // coherente con lo enviado, y llama a submitAnswer con esa misma respuesta como
+  // override — el MISMO submitAnswer real, mismo POST a session-check, mismo
+  // registro de evidence/mastery/recovery. Nunca fija correct=true a mano, nunca
+  // toca assessmentBlueprint directo, nunca avanza currentStep por su cuenta.
+  function devSkipCurrentQuestion() {
+    if (!currentQuestion || evalLoading) return
+    const canonical = buildDevCanonicalAnswer(currentQuestion)
+    if (currentQuestion.format === "word_bank") setWordBankAnswers(canonical as string[])
+    else if (currentQuestion.format === "ordering") setOrderingAnswers(canonical as string[])
+    else if (currentQuestion.format === "matching") setMatchingAnswers(canonical as Record<string, string>)
+    else setUserAnswer(canonical)
+    void submitAnswer(canonical)
   }
 
   // Identidad del intento actualmente activo — questionId, y adicionalmente
@@ -3236,6 +3281,18 @@ export default function SessionPage() {
                   {gating && !passed && (
                     <div style={{ fontSize: 12, color: "#9ca3af", marginTop: -4, marginBottom: 12 }}>Completa la interacción visual para continuar.</div>
                   )}
+                  {isDevToolsEnabled() && !passed && (
+                    <button
+                      type="button"
+                      data-testid="dev-resolve-visual"
+                      onClick={() => devResolveVisualCheckpoint(step)}
+                      disabled={checkpoint?.status === "loading"}
+                      title="Envía la solución estructurada canónica de este visual usando el grader real (/api/adaptive/visual-check)."
+                      style={{ background: "rgba(167,139,250,0.12)", border: "1px dashed rgba(167,139,250,0.5)", borderRadius: 8, padding: "6px 12px", marginBottom: 12, color: "#c4b5fd", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      ⏭ Resolver visual (dev)
+                    </button>
+                  )}
                 </div>
               )
             })()}
@@ -3250,7 +3307,21 @@ export default function SessionPage() {
                 return "Después de este paso toca verificar comprensión."
               })()}
             </div>
-            <button data-testid="session-primary-action" onClick={proceedToNextStep} disabled={!isVisualStepSatisfied(step)} style={{ padding: "14px 32px", background: primarySessionAction.type==="complete_session" ? "linear-gradient(90deg, #4ade80, #22c55e)" : "linear-gradient(90deg, #3b82f6, #6366f1)", color: primarySessionAction.type==="complete_session" ? "#052e16" : "white", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer", opacity: !isVisualStepSatisfied(step) ? 0.5 : 1 }}>{primarySessionActionLabel}</button>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              {isDevToolsEnabled() && (
+                <button
+                  type="button"
+                  data-testid="dev-skip-teaching-step"
+                  onClick={proceedToNextStep}
+                  disabled={!isVisualStepSatisfied(step)}
+                  title="Avanza al siguiente paso usando la misma transición real que el botón de continuar."
+                  style={{ background: "rgba(167,139,250,0.12)", border: "1px dashed rgba(167,139,250,0.5)", borderRadius: 8, padding: "10px 16px", color: "#c4b5fd", fontSize: 13, fontWeight: 600, cursor: isVisualStepSatisfied(step) ? "pointer" : "not-allowed", opacity: isVisualStepSatisfied(step) ? 1 : 0.5 }}
+                >
+                  ⏭ Siguiente (dev)
+                </button>
+              )}
+              <button data-testid="session-primary-action" onClick={proceedToNextStep} disabled={!isVisualStepSatisfied(step)} style={{ padding: "14px 32px", background: primarySessionAction.type==="complete_session" ? "linear-gradient(90deg, #4ade80, #22c55e)" : "linear-gradient(90deg, #3b82f6, #6366f1)", color: primarySessionAction.type==="complete_session" ? "#052e16" : "white", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer", opacity: !isVisualStepSatisfied(step) ? 0.5 : 1 }}>{primarySessionActionLabel}</button>
+            </div>
           </div>
         </>)}
 
@@ -3503,9 +3574,21 @@ export default function SessionPage() {
                 </button>
               )
             )}
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, alignItems: "center" }}>
+              {isDevToolsEnabled() && (
+                <button
+                  type="button"
+                  data-testid="dev-resolve-question"
+                  onClick={devSkipCurrentQuestion}
+                  disabled={evalLoading}
+                  title="Responde correctamente esta actividad usando el grader real."
+                  style={{ background: "rgba(167,139,250,0.12)", border: "1px dashed rgba(167,139,250,0.5)", borderRadius: 8, padding: "12px 18px", color: "#c4b5fd", fontSize: 13, fontWeight: 600, cursor: evalLoading ? "not-allowed" : "pointer", opacity: evalLoading ? 0.5 : 1 }}
+                >
+                  ⏭ Resolver correctamente (dev)
+                </button>
+              )}
               <button
-                onClick={submitAnswer}
+                onClick={() => submitAnswer()}
                 aria-label="Enviar respuesta"
                 disabled={evalLoading || !isAnswerReady()}
                 style={{
