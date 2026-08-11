@@ -106,6 +106,8 @@ import {
 import type { VisualEvidenceKind, VisualSpec } from "../../../../../lib/adaptive/visual/visualContract"
 import { VisualRenderer } from "../../../../../components/visual/VisualRenderer"
 import { computeSessionDependencyFingerprint, isPrefetchStillValid, shouldPrefetchSession, KeyedPromiseCache } from "../../../../../lib/adaptive/sessionPrefetch"
+import { deriveSessionLifecycleStatus, deriveSessionLifecycleInput } from "../../../../../lib/adaptive/sessionLifecycle"
+import { validatePlanSessionConsistency } from "../../../../../lib/adaptive/planSessionConsistency"
 
 type SessionPhase = "teaching" | "evaluating" | "feedback" | "reteaching" | "verification_generation"
 
@@ -430,11 +432,29 @@ export default function SessionPage() {
               as_ = { ...as_, sessionContent: srv.sessionContent || srv.session_content }
             }
           }
-        } catch {}
+        } catch (backfillError) {
+          // AUDITORÍA DE CICLO DE VIDA (verificación focalizada, punto 4): este catch
+          // tragaba por completo un fallo de sync con el servidor — si esta llamada
+          // fallaba (red, 500, JSON inválido), el usuario veía directamente "Falta
+          // blueprint/plan" sin ningún rastro de que la causa real fue un fallo de
+          // persistencia server-side, no la ausencia genuina de datos.
+          console.error("[adaptive-session-restore] server_backfill_failed", JSON.stringify({
+            sessionId: adaptiveSessionId, temaId,
+            message: backfillError instanceof Error ? backfillError.message : String(backfillError),
+          }))
+        }
       }
 
       const bp = as_.blueprint, jy = as_.journey
       if (!bp || !jy) { setError("Falta blueprint/plan — intenta volver al plan y abrirlo de nuevo"); setLoading(false); return }
+      // Invariantes plan<->session (misión persistencia, sección 12): solo
+      // observabilidad — nunca bloquea la carga, solo deja rastro diagnosticable si
+      // "el plan dice que existe" pero el contenido persistido está huérfano/
+      // desincronizado, en vez de fallar silenciosamente más adelante.
+      const planConsistency = validatePlanSessionConsistency({ journey: jy, sessionContent: as_.sessionContent })
+      if (!planConsistency.valid) {
+        console.warn("[adaptive-plan-consistency] inconsistencias detectadas", JSON.stringify({ sessionId: as_.id, temaId, issues: planConsistency.issues }))
+      }
       const chapter = (jy.chapters || []).find((c: any) => c.chapterNumber === sessionNumber)
       setHasNextSession((jy.chapters || []).some((c: any) => c.chapterNumber === sessionNumber + 1))
       if (!chapter) { setError(`Sesión ${sessionNumber} no encontrada`); setLoading(false); return }
@@ -476,6 +496,18 @@ export default function SessionPage() {
         console.warn("[session-prefetch] prefetch obsoleto descartado (dependencyFingerprint no coincide) — regenerando en frío")
       }
 
+      // Observabilidad de ciclo de vida (misión persistencia/sesión): estado
+      // explícito derivado de las mismas señales canónicas que gobiernan las
+      // ramas de abajo — permite diagnosticar en logs reales exactamente en qué
+      // estado estaba la sesión al momento de cargar, sin adivinar por el código.
+      console.info("[adaptive-session-lifecycle]", JSON.stringify({
+        sessionId: as_.id, sessionNumber, temaId,
+        status: deriveSessionLifecycleStatus(deriveSessionLifecycleInput({
+          session: as_, sessionNumber, requiresEvaluation: shouldEvaluateSession(resolvedKind),
+          requestInFlight: Boolean(sessionPreparationPromiseRef.current),
+        })),
+      }))
+
       if (cached && !cachedHasNoBlocks && !cachedPrefetchStale) {
         const cachedBlocks = cached.evaluationBlocks || []
         // Validar caché — pero con tolerancia para sesiones learning con lazy blocks
@@ -512,76 +544,114 @@ export default function SessionPage() {
         if (!cachedValidation.valid && cachedIsAcceptable) {
           console.warn("[adaptive-session-kind] caché con validación parcial aceptada:", cachedValidation.errors.slice(0, 2))
         }
-        // Normalizar evaluationBlocks del cache también
-      const cachedStepIds = new Set((cached.steps || []).map((s: any) => s.id));
-      if (Array.isArray(cached.evaluationBlocks)) {
-        cached.evaluationBlocks = cached.evaluationBlocks.filter(
-          (b: any) => cachedStepIds.has(b.afterStepId)
-        );
-      } else {
-        cached.evaluationBlocks = [];
-      }
-      // Auditoría adversarial (Codex Finding 4): un assessmentBlueprint
-      // persistido de una versión anterior (objetivos sin demonstratedFactKeys)
-      // debe normalizarse ANTES de cualquier lectura — restore, coverage o
-      // registro de evidencia — o crashea con TypeError en cuanto algo lo lee
-      // (unresolvedFactKeys/recordAssessmentEvidence acceden
-      // .demonstratedFactKeys sin guard). Fail-closed: si no puede migrarse,
-      // se descarta (null) y cae al fallback buildAssessmentBlueprint de abajo
-      // — nunca inventa demonstration evidence, nunca conserva mastery falso.
-      // Se normaliza una sola vez, aquí, mutando `cached` in-place (mismo
-      // patrón que evaluationBlocks arriba) para que TODOS los sitios que
-      // leen cached.assessmentBlueprint más abajo —incluido initCoverage,
-      // que lo recibe como su 4º argumento— reciban la versión ya segura.
-      if (cached.assessmentBlueprint) {
-        cached.assessmentBlueprint = normalizeAssessmentBlueprint(cached.assessmentBlueprint)
-      }
+        // AUDITORÍA DE CICLO DE VIDA: esta rama de RESTORE no tenía try/catch propio —
+        // cualquier excepción aquí (assessmentBlueprint legacy corrupto,
+        // buildAssessmentBlueprint, initCoverage) escapaba al catch genérico de
+        // loadContext y mostraba "No pudimos preparar esta sesión" — un mensaje
+        // FALSO para lo que en realidad es un problema de restauración de datos ya
+        // persistidos, no de preparación. Sección 7 de la misión: "intentar
+        // reconciliación determinista antes de mostrar error" — si el restore falla,
+        // se descarta SOLO el sessionContent corrupto de esta sesión (nunca
+        // evidencia/mastery de otras sesiones) y se cae al camino de generación en
+        // frío de abajo en vez de mostrar un error irrecuperable.
+        try {
+          // Normalizar evaluationBlocks del cache también
+          const cachedStepIds = new Set((cached.steps || []).map((s: any) => s.id));
+          if (Array.isArray(cached.evaluationBlocks)) {
+            cached.evaluationBlocks = cached.evaluationBlocks.filter(
+              (b: any) => cachedStepIds.has(b.afterStepId)
+            );
+          } else {
+            cached.evaluationBlocks = [];
+          }
+          // Auditoría adversarial (Codex Finding 4): un assessmentBlueprint
+          // persistido de una versión anterior (objetivos sin demonstratedFactKeys)
+          // debe normalizarse ANTES de cualquier lectura — restore, coverage o
+          // registro de evidencia — o crashea con TypeError en cuanto algo lo lee
+          // (unresolvedFactKeys/recordAssessmentEvidence acceden
+          // .demonstratedFactKeys sin guard). Fail-closed: si no puede migrarse,
+          // se descarta (null) y cae al fallback buildAssessmentBlueprint de abajo
+          // — nunca inventa demonstration evidence, nunca conserva mastery falso.
+          // Se normaliza una sola vez, aquí, mutando `cached` in-place (mismo
+          // patrón que evaluationBlocks arriba) para que TODOS los sitios que
+          // leen cached.assessmentBlueprint más abajo —incluido initCoverage,
+          // que lo recibe como su 4º argumento— reciban la versión ya segura.
+          if (cached.assessmentBlueprint) {
+            cached.assessmentBlueprint = normalizeAssessmentBlueprint(cached.assessmentBlueprint)
+          }
 
-      setClassContent(cached); setSessionData(as_)
-        // PARTE B — chat ALAI: historial session-scoped, restaurado del mismo
-        // objeto persistido que assessmentBlueprint/evaluationProgress —
-        // sobrevive a refresh por el mismo mecanismo (localStorage + sync
-        // servidor), sin infraestructura nueva.
-        setChatMessages(Array.isArray(cached.chatHistory) ? cached.chatHistory : [])
-        // Finding 1: hidrata el registro de asistencia persistido — solo se
-        // APLICARÁ más tarde (currentAssistanceLevel()) si su attemptKey
-        // termina coincidiendo con el intento realmente reactivado; nunca se
-        // asume aquí que la restauración de contenido implica que la MISMA
-        // pregunta ya está activa (currentQuestion sigue null en este punto).
-        restoredAssistanceRef.current = cached.pendingAssistance || null
-        evaluationProgressRef.current = cached.evaluationProgress || {}
-        setEvaluationProgress(evaluationProgressRef.current)
-        activeStudyMsRef.current = Number(as_.activeStudyMs || 0)
-        breakHoursAcknowledgedRef.current = Number(as_.breakHoursAcknowledged || 0)
-        const restoredQueue = Array.isArray(as_.recoveryQueues?.[String(sessionNumber)])
-          ? as_.recoveryQueues?.[String(sessionNumber)] as RecoveryItem[]
-          : Array.isArray(cached.recoveryQueue) ? cached.recoveryQueue : []
-        setRecoveryQueue(restoredQueue)
-        setCurrentStepIndex(Math.min(pStep, Math.max(0, cached.steps.length - 1)))
-        const restoredAssessment = shouldEvaluateSession(resolvedKind)
-          ? cached.assessmentBlueprint || buildAssessmentBlueprint(
-              cached.steps.map(step => ({
-                ...step,
-                importance: step.importance === "critical" ? 1 : step.importance === "important" ? 0.7 : 0.4,
-                requiredEvidenceKind: step.visualEvidenceKind,
-              })),
-              as_.id,
-              Number(cached.assessmentPlanVersion || 1),
-            )
-          : null
-        const assessmentRequired = shouldEvaluateSession(resolvedKind)
-        setCompleted(
-          as_.completedSessionNumbers?.includes(sessionNumber) &&
-          as_.replaySessionNumber !== sessionNumber &&
-          (!assessmentRequired || (restoredAssessment !== null && canCompleteSessionFromAssessment(
-            restoredAssessment,
-            restoredQueue.filter(item => item.status !== "resolved").map(item => item.recoveryId),
-          ))),
-        )
-        initCoverage(cached.steps, as_, resolvedKind, cached)
-        setLoading(false)
-        void triggerNextSessionPrefetch(as_, bp, jy, sessionNumber)
-        return
+          setClassContent(cached); setSessionData(as_)
+          // PARTE B — chat ALAI: historial session-scoped, restaurado del mismo
+          // objeto persistido que assessmentBlueprint/evaluationProgress —
+          // sobrevive a refresh por el mismo mecanismo (localStorage + sync
+          // servidor), sin infraestructura nueva.
+          setChatMessages(Array.isArray(cached.chatHistory) ? cached.chatHistory : [])
+          // Finding 1: hidrata el registro de asistencia persistido — solo se
+          // APLICARÁ más tarde (currentAssistanceLevel()) si su attemptKey
+          // termina coincidiendo con el intento realmente reactivado; nunca se
+          // asume aquí que la restauración de contenido implica que la MISMA
+          // pregunta ya está activa (currentQuestion sigue null en este punto).
+          restoredAssistanceRef.current = cached.pendingAssistance || null
+          evaluationProgressRef.current = cached.evaluationProgress || {}
+          setEvaluationProgress(evaluationProgressRef.current)
+          activeStudyMsRef.current = Number(as_.activeStudyMs || 0)
+          breakHoursAcknowledgedRef.current = Number(as_.breakHoursAcknowledged || 0)
+          const restoredQueue = Array.isArray(as_.recoveryQueues?.[String(sessionNumber)])
+            ? as_.recoveryQueues?.[String(sessionNumber)] as RecoveryItem[]
+            : Array.isArray(cached.recoveryQueue) ? cached.recoveryQueue : []
+          setRecoveryQueue(restoredQueue)
+          setCurrentStepIndex(Math.min(pStep, Math.max(0, cached.steps.length - 1)))
+          const restoredAssessment = shouldEvaluateSession(resolvedKind)
+            ? cached.assessmentBlueprint || buildAssessmentBlueprint(
+                cached.steps.map(step => ({
+                  ...step,
+                  importance: step.importance === "critical" ? 1 : step.importance === "important" ? 0.7 : 0.4,
+                  requiredEvidenceKind: step.visualEvidenceKind,
+                })),
+                as_.id,
+                Number(cached.assessmentPlanVersion || 1),
+              )
+            : null
+          const assessmentRequired = shouldEvaluateSession(resolvedKind)
+          setCompleted(
+            as_.completedSessionNumbers?.includes(sessionNumber) &&
+            as_.replaySessionNumber !== sessionNumber &&
+            (!assessmentRequired || (restoredAssessment !== null && canCompleteSessionFromAssessment(
+              restoredAssessment,
+              restoredQueue.filter(item => item.status !== "resolved").map(item => item.recoveryId),
+            ))),
+          )
+          initCoverage(cached.steps, as_, resolvedKind, cached)
+          setLoading(false)
+          void triggerNextSessionPrefetch(as_, bp, jy, sessionNumber)
+          return
+        } catch (restoreError) {
+          console.error("[adaptive-session-restore] restore_failed_reconciling", JSON.stringify({
+            sessionId: as_.id, sessionNumber, temaId,
+            message: restoreError instanceof Error ? restoreError.message : String(restoreError),
+            stack: restoreError instanceof Error ? restoreError.stack?.split("\n").slice(0, 6).join("\n") : undefined,
+          }))
+          // GUARDA CRÍTICA: una sesión ya COMPLETED nunca debe regenerarse, ni
+          // siquiera como reconciliación de un restore roto — regenerar reconstruiría
+          // assessmentBlueprint desde cero (demonstratedFactKeys=[]), perdiendo
+          // evidencia/mastery ya demostrada. Para este caso se prefiere un error
+          // honesto (el usuario ya completó esta sesión; el detalle no se puede
+          // volver a mostrar) antes que arriesgar mastery falsa o evidencia perdida.
+          const isAlreadyCompleted = Boolean(as_.completedSessionNumbers?.includes(sessionNumber) && as_.replaySessionNumber !== sessionNumber)
+          if (isAlreadyCompleted) {
+            setError("Esta sesión ya está completada, pero no pudimos restaurar su detalle. Tu progreso está a salvo — vuelve al plan para continuar.")
+            setLoading(false)
+            return
+          }
+          // Descarta SOLO el sessionContent corrupto de ESTA sesión — nunca toca
+          // evidencia/mastery/recovery de otras sesiones — y deja que el código de
+          // abajo (generación en frío) reconstruya esta sesión desde cero.
+          updateSessionById(as_.id, (current: any) => ({
+            ...current,
+            sessionContent: { ...(current.sessionContent || {}), [String(sessionNumber)]: undefined },
+          }))
+          // No retorna: cae al camino de generación en frío más abajo.
+        }
       }
 
       // Calcular contexto de sesiones anteriores y futuras para anti-repetición
@@ -754,7 +824,18 @@ export default function SessionPage() {
       updateSessionById(as_.id, (c: any) => ({ ...startAdaptiveSession(c, sessionNumber, Math.max(0, pStep)), sessionPreparation: { ...(c.sessionPreparation || {}), [String(sessionNumber)]: d.classContent.preparationState }, sessionContent: { ...(c.sessionContent || {}), [String(sessionNumber)]: d.classContent } }))
       setLoading(false)
       void triggerNextSessionPrefetch(as_, bp, jy, sessionNumber)
-    } catch { setError("No pudimos preparar esta sesión. Vuelve al plan e inténtalo de nuevo."); setLoading(false) }
+    } catch (loadContextError) {
+      // AUDITORÍA DE CICLO DE VIDA: este catch tragaba la excepción real por completo
+      // (ni console.error) — imposible diagnosticar por qué falló un caso concreto.
+      // Ahora siempre se loguea con contexto real antes de mostrar el mensaje simple.
+      console.error("[adaptive-session] load_context_failed", JSON.stringify({
+        sessionId: adaptiveSessionId, sessionNumber, temaId,
+        message: loadContextError instanceof Error ? loadContextError.message : String(loadContextError),
+        stack: loadContextError instanceof Error ? loadContextError.stack?.split("\n").slice(0, 6).join("\n") : undefined,
+      }))
+      setError("No pudimos preparar esta sesión. Vuelve al plan e inténtalo de nuevo.")
+      setLoading(false)
+    }
   }
 
   function initCoverage(steps: ClassStep[], si: any, kind: SessionKind, cd?: any) {
@@ -1527,6 +1608,11 @@ export default function SessionPage() {
   }
 
   async function submitAnswer() {
+    // Defensa en profundidad contra doble-submit (doble click, doble Enter) más allá
+    // del disabled={evalLoading} del botón — cierra la ventana entre el click y el
+    // re-render donde dos invocaciones síncronas podrían escapar ambas al chequeo de
+    // disabled (auditoría de ciclo de vida/concurrencia).
+    if (evalLoading) return
     if (!currentQuestion || !isAnswerReady()) return
     setEvalLoading(true)
     const answer = getCompositeAnswer()

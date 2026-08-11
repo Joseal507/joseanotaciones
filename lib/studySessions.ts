@@ -232,7 +232,15 @@ function loadAll(): Record<string, StudySession> {
     try {
       const artifactRaw = localStorage.getItem(ADAPTIVE_ARTIFACTS_KEY);
       if (artifactRaw) artifacts = JSON.parse(artifactRaw) || {};
-    } catch {}
+    } catch (artifactError) {
+      // AUDITORÍA DE CICLO DE VIDA (verificación focalizada, punto 4): degradar a
+      // artifacts={} sigue siendo lo correcto (blueprint/journey/sessionContent
+      // corruptos localmente se recuperan vía server backfill en loadContext),
+      // pero antes no dejaba ningún rastro de que la degradación ocurrió.
+      console.error('[study-sessions] adaptive_artifacts_parse_failed', JSON.stringify({
+        message: artifactError instanceof Error ? artifactError.message : String(artifactError),
+      }))
+    }
     const normalized: Record<string, StudySession> = {};
     for (const [key, value] of Object.entries(parsed || {})) {
       const artifact = artifacts[key];
@@ -251,7 +259,14 @@ function loadAll(): Record<string, StudySession> {
       if (sess.id) normalized[key] = sess;
     }
     return normalized;
-  } catch {
+  } catch (loadAllError) {
+    // AUDITORÍA DE CICLO DE VIDA (verificación focalizada, punto 4): perder TODAS
+    // las sesiones locales es el fallo más severo de esta función — antes no
+    // dejaba ningún diagnóstico, indistinguible de "el usuario nunca tuvo
+    // sesiones".
+    console.error('[study-sessions] loadAll_failed', JSON.stringify({
+      message: loadAllError instanceof Error ? loadAllError.message : String(loadAllError),
+    }))
     return {};
   }
 }
@@ -283,7 +298,15 @@ function saveAll(sessions: Record<string, StudySession>) {
           }]),
       );
       localStorage.setItem(ADAPTIVE_ARTIFACTS_KEY, JSON.stringify(adaptiveArtifacts));
-  } catch {}
+  } catch (saveAllError) {
+    // AUDITORÍA DE CICLO DE VIDA (verificación focalizada, punto 4): un fallo aquí
+    // (p.ej. localStorage lleno) descarta silenciosamente la escritura local —
+    // el próximo syncToServer seguirá intentando persistir al servidor igual,
+    // pero antes no había ningún rastro de que la copia local se perdió.
+    console.error('[study-sessions] saveAll_failed', JSON.stringify({
+      message: saveAllError instanceof Error ? saveAllError.message : String(saveAllError),
+    }))
+  }
 }
 
 export function persistableSnapshot(session: StudySession): Record<string, unknown> {
@@ -637,7 +660,21 @@ export function syncToServer(session: StudySession): void {
       lastPersistedHash.set(session.id, latestHash);
     };
     const previous = singleWriteInFlight.get(session.id) || Promise.resolve();
-    const current = previous.catch(() => undefined).then(write).catch(() => undefined);
+    // AUDITORÍA DE CICLO DE VIDA (verificación focalizada, punto 4): el primer
+    // .catch(() => undefined) es encadenamiento intencional (un write previo
+    // fallido nunca debe bloquear el siguiente intento) — pero el segundo
+    // tragaba el fallo del PROPIO write() (fetch real a /api/study-sessions) sin
+    // ningún rastro: la actualización quedaba perdida en silencio, sin log, sin
+    // reintento, sin aviso. Loguear aquí no cambia el comportamiento de
+    // degradación (sigue sin bloquear la UI ni reintentar indefinidamente), solo
+    // lo hace diagnosticable.
+    const current = previous.catch(() => undefined).then(write).catch((writeError) => {
+      console.error('[study-sessions] syncToServer_write_failed', JSON.stringify({
+        sessionId: session.id,
+        message: writeError instanceof Error ? writeError.message : String(writeError),
+      }))
+      return undefined
+    });
     singleWriteInFlight.set(session.id, current);
     void current.finally(() => {
       if (singleWriteInFlight.get(session.id) === current) singleWriteInFlight.delete(session.id);
@@ -692,7 +729,16 @@ export async function syncSessionsFromServer(temaId?: string): Promise<StudySess
 
     saveAll(all);
     return temaId ? getSessionsByTema(temaId) : Object.values(loadAll());
-  } catch {
+  } catch (syncError) {
+    // AUDITORÍA DE CICLO DE VIDA (verificación focalizada, punto 4): degradar a
+    // datos locales sigue siendo correcto (nunca bloquear la sesión activa por
+    // un fallo de red), pero antes esto era indistinguible de un sync exitoso
+    // que simplemente no encontró cambios — sin rastro de que el servidor no
+    // respondió.
+    console.error('[study-sessions] syncSessionsFromServer_failed', JSON.stringify({
+      temaId: temaId || null,
+      message: syncError instanceof Error ? syncError.message : String(syncError),
+    }))
     return temaId ? getSessionsByTema(temaId) : Object.values(loadAll());
   }
 }

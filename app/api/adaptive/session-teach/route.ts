@@ -1239,16 +1239,34 @@ function factoryTeaching(source: TeachingContent, session: TeachRequest['session
     // Visual: SIEMPRE derivado de forma determinista del contenido enseñado real (nunca
     // del JSON del LLM) — ver visualNeedClassifier.ts/visualSpecBuilder.ts. Si no hay
     // señal cognitiva o el material no trae datos suficientes, ambos quedan undefined.
-    const visualRequirement=classifyVisualNeed({ microId, title, content, keyPoints, factKeys, cognitiveTarget, sourceStepId: stepId }) || undefined
-    const builtVisualSpec=visualRequirement ? buildVisualSpec(visualRequirement, `${title}\n${content}`, stepId) : null
-    const visualSpec=builtVisualSpec ? signVisualSpec(builtVisualSpec) : undefined
-    // Solo required_for_mastery gatea el objective (FASE 5) — supportive/
-    // required_for_understanding nunca bloquean mastery textual.
-    const visualEvidenceKind=visualSpec && visualRequirement?.requiredness === 'required_for_mastery'
-      ? (visualRequirement.evidenceRequirements?.construct ? 'visual_construction' as const
-        : visualRequirement.evidenceRequirements?.manipulate ? 'visual_manipulation' as const
-        : 'visual_interpretation' as const)
-      : undefined
+    //
+    // AUDITORÍA DE CICLO DE VIDA: esta sección corría SIN try/catch propio — un fallo
+    // aquí (p.ej. signVisualSpec sin NEXTAUTH_SECRET, o un caso límite no cubierto por
+    // el classifier/builder) tiraba TODO el intento de generación de teaching a
+    // technical_retry_required innecesariamente, aunque el contenido docente en sí ya
+    // era válido. Un visual roto/no generable (aunque sea required_for_understanding o
+    // required_for_mastery) NUNCA debe impedir que el resto de la sesión se prepare —
+    // se degrada a "sin visual para este step" y se registra, nunca se propaga.
+    let visualRequirement: ReturnType<typeof classifyVisualNeed> | undefined
+    let visualSpec: ReturnType<typeof signVisualSpec> | undefined
+    let visualEvidenceKind: 'visual_construction' | 'visual_manipulation' | 'visual_interpretation' | undefined
+    try {
+      visualRequirement = classifyVisualNeed({ microId, title, content, keyPoints, factKeys, cognitiveTarget, sourceStepId: stepId }) || undefined
+      const builtVisualSpec = visualRequirement ? buildVisualSpec(visualRequirement, `${title}\n${content}`, stepId) : null
+      visualSpec = builtVisualSpec ? signVisualSpec(builtVisualSpec) : undefined
+      // Solo required_for_mastery gatea el objective (FASE 5) — supportive/
+      // required_for_understanding nunca bloquean mastery textual.
+      visualEvidenceKind = visualSpec && visualRequirement?.requiredness === 'required_for_mastery'
+        ? (visualRequirement.evidenceRequirements?.construct ? 'visual_construction' as const
+          : visualRequirement.evidenceRequirements?.manipulate ? 'visual_manipulation' as const
+          : 'visual_interpretation' as const)
+        : undefined
+    } catch (visualError: unknown) {
+      console.warn('[session-teach] visual_attachment_failed_degraded_gracefully', JSON.stringify({
+        stepId, microId, message: visualError instanceof Error ? visualError.message : String(visualError),
+      }))
+      visualRequirement = undefined; visualSpec = undefined; visualEvidenceKind = undefined
+    }
     return { stepId, id:stepId, microId, title, type:String(item.type || 'concept'), content, keyPoints, keyPointIds, factKeys, importance:item.importance === 'critical' || item.importance === 'supporting' ? item.importance : 'important', cognitiveTarget, sourceReferences:Array.isArray(item.sourceReferences) ? item.sourceReferences : [], objectiveIds:Array.isArray(item.objectiveIds) ? item.objectiveIds.map(String) : keyPoints.map((_:string,i:number)=>`${session.id}:${stepId}:objective:${i+1}`), relatedBlockIds:Array.isArray(item.relatedBlockIds) ? item.relatedBlockIds.map(String) : [], visualRequirement, visualSpec, visualEvidenceKind }
   })
   if (!steps.length || new Set(steps.map((step: any) => step.stepId)).size !== steps.length || steps.some((step: any) => !step.title || !step.content || !step.keyPoints.length || !step.factKeys.length)) throw new Error('TEACHING_CONTENT_INVALID')
@@ -2151,16 +2169,49 @@ ACEPTADAS=${JSON.stringify(accepted.map(q=>({format:q.format,prompt:q.prompt,tar
     }
   }
   telemetry('evaluation_coverage_validated',{coveredKeyPointIds:canonical.session.evaluationBlocks.flatMap(block=>block.questions.flatMap(question=>question.coveredKeyPointIds||[]))})
-  const classContent=sanitizeClassContent({sessionId:session.id,sessionTitle:session.title,sessionNumber:session.chapterNumber,sessionKind:session.kind,materialType,...academicDomainMetadata,sessionIntro:state.teachingContent.introduction,steps:canonical.session.steps,sessionClosing:state.teachingContent.closing,totalSteps:canonical.session.steps.length,contentVersion:state.teachingHash,assessmentPlanVersion:3,evaluationBlocks:canonical.session.evaluationBlocks,evaluationCoverage:state.missingCoverage,preparationStatus:state.preparationStatus,preparationState:state})
-  // Codex Finding 2 — server-authoritative question contract: firmar cada
-  // pregunta ANTES de enviarla al cliente, este es el único punto de salida
-  // real (el resto del archivo, debajo de esta función, es código
-  // inalcanzable — ver comentario en POST).
-  for(const block of classContent.evaluationBlocks) signQuestionsInPlace(block.questions)
-  telemetry('session_assembly_validated',{blockCount:canonical.session.evaluationBlocks.length});const payload={success:true,classContent};teachCache.set(generationKey,{result:payload,timestamp:Date.now()});telemetry('session_preparation_ready',{generationKey});return NextResponse.json(payload)
+  // AUDITORÍA DE CICLO DE VIDA (misión persistencia/session lifecycle): esta era la
+  // única sección de prepareSessionByFactory sin ningún try/catch — un throw aquí
+  // (sanitizeClassContent rechaza LaTeX/markup inválido con
+  // INVALID_ACADEMIC_FRAGMENT; signQuestionsInPlace exige NEXTAUTH_SECRET) escapaba
+  // directo al catch genérico de POST (líneas ~2595), perdiendo el errorCode, el
+  // preparationState y el mensaje real — y como `state` ya se había persistido como
+  // 'ready' en la línea de arriba, un retry ingenuo repetía exactamente la misma
+  // canonicalización/sanitización sobre el MISMO teachingContent ya roto,
+  // fallando idénticamente para siempre (bucle infinito de "No pudimos preparar
+  // esta sesión"). Fix: capturar aquí, invalidar el teachingContent defectuoso
+  // (fuerza regeneración real en el próximo intento, no un replay del mismo bug) y
+  // devolver un 503 diagnosticable con preparationState reconciliado.
+  try {
+    const classContent=sanitizeClassContent({sessionId:session.id,sessionTitle:session.title,sessionNumber:session.chapterNumber,sessionKind:session.kind,materialType,...academicDomainMetadata,sessionIntro:state.teachingContent.introduction,steps:canonical.session.steps,sessionClosing:state.teachingContent.closing,totalSteps:canonical.session.steps.length,contentVersion:state.teachingHash,assessmentPlanVersion:3,evaluationBlocks:canonical.session.evaluationBlocks,evaluationCoverage:state.missingCoverage,preparationStatus:state.preparationStatus,preparationState:state})
+    // Codex Finding 2 — server-authoritative question contract: firmar cada
+    // pregunta ANTES de enviarla al cliente, este es el único punto de salida
+    // real (el resto del archivo, debajo de esta función, es código
+    // inalcanzable — ver comentario en POST).
+    for(const block of classContent.evaluationBlocks) signQuestionsInPlace(block.questions)
+    telemetry('session_assembly_validated',{blockCount:canonical.session.evaluationBlocks.length});const payload={success:true,classContent};teachCache.set(generationKey,{result:payload,timestamp:Date.now()});telemetry('session_preparation_ready',{generationKey});return NextResponse.json(payload)
+  } catch (assemblyError: unknown) {
+    const message = assemblyError instanceof Error ? assemblyError.message : String(assemblyError)
+    const stack = assemblyError instanceof Error ? assemblyError.stack?.split('\n').slice(0, 8).join('\n') : undefined
+    const errorCode = message.startsWith('INVALID_ACADEMIC_FRAGMENT') ? 'CONTENT_SANITIZATION_FAILED'
+      : message.includes('NEXTAUTH_SECRET') ? 'QUESTION_SIGNING_FAILED'
+      : 'SESSION_ASSEMBLY_FAILED'
+    // El contenido docente que llegó hasta aquí no pasó el ensamblaje final —
+    // preservarlo como 'ready' garantizaría el MISMO fallo en cada retry.
+    // Se invalida para forzar una regeneración real de teaching/evaluación.
+    state={...state,preparationStatus:'teaching_generation',currentGenerationStage:'session_assembly_failed',teachingContent:undefined,teachingHash:undefined,evaluationPlan:undefined,evaluationPlanHash:undefined,generatedEvaluationBlocks:[],acceptedQuestions:[],lastTechnicalError:message,lastDiagnostic:{errorCode,validationErrors:[message],unknownStepIds:[],unknownKeyPoints:[],missingStepIds:[],stack}}
+    preparationStore.set(generationKey,structuredClone(state))
+    console.error('[session-preparation]',JSON.stringify({event:'session_teach_503',sessionId:session.id,generationKey,stage:'session_assembly_failed',errorCode,message,stack,preparationStatus:state.preparationStatus,teachingInvalidatedForRetry:true}))
+    telemetry('session_assembly_failed',{errorCode,message})
+    return NextResponse.json({ok:false,success:false,stage:'session_assembly_failed',errorCode,message,preparationStatus:state.preparationStatus,teachingPreserved:false,retryFromStage:'teaching_generation',retryable:true,preparationState:state},{status:503})
+  }
 }
 
 export async function POST(req: NextRequest) {
+  // Hoisted fuera del try para que el catch genérico de abajo pueda loguear con
+  // contexto real (sessionId/generationKey) en vez de un mensaje ciego —
+  // auditoría de ciclo de vida: antes este catch perdía TODO diagnóstico.
+  let diagnosticSessionId: string | undefined
+  let diagnosticGenerationKey: string | undefined
   try {
     const body = await req.json() as TeachRequest & { userId?: string };
     const {
@@ -2186,6 +2237,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    diagnosticSessionId = session.id
 
     // Cache
     const cacheKey = hashKey(
@@ -2243,6 +2295,7 @@ export async function POST(req: NextRequest) {
     const teachingOnlyPrompt = buildTeachingOnlyPrompt(body)
 
     const generationKey = cacheKey;
+    diagnosticGenerationKey = generationKey
     // El flujo visible usa exclusivamente la fábrica persistente por fases.
     // El bloque monolítico inferior queda temporalmente conservado como código de
     // compatibilidad histórica, pero es inalcanzable y no gobierna ninguna petición.
@@ -2593,9 +2646,28 @@ Conserva Unicode válido. Usa delimitadores explícitos para matemáticas, \\ce{
     return NextResponse.json(responsePayload);
 
   } catch (e: unknown) {
-    console.error('[session-teach] Error:', e instanceof Error ? e.message : 'unknown');
+    // AUDITORÍA DE CICLO DE VIDA: este era el catch genérico que perdía TODO
+    // diagnóstico (solo e.message, sin stack, sin sessionId/generationKey) y nunca
+    // devolvía preparationState — un retry no tenía NADA que reconciliar. Si el
+    // fallo ocurrió después de que prepareSessionByFactory ya progresó, su último
+    // `state` sigue en preparationStore (persistido incrementalmente por
+    // runSessionPreparationFactory) y se recupera aquí para que el retry sea real.
+    const message = e instanceof Error ? e.message : String(e)
+    const stack = e instanceof Error ? e.stack?.split('\n').slice(0, 8).join('\n') : undefined
+    const recoveredState = diagnosticGenerationKey ? preparationStore.get(diagnosticGenerationKey) : undefined
+    console.error('[session-teach] session_teach_500', JSON.stringify({
+      sessionId: diagnosticSessionId, generationKey: diagnosticGenerationKey, message, stack,
+      hadRecoverableState: Boolean(recoveredState),
+    }));
     return NextResponse.json(
-      { success: false, error: 'No pudimos preparar esta sesión. Vuelve al plan e inténtalo de nuevo.' },
+      {
+        success: false,
+        error: 'No pudimos preparar esta sesión. Vuelve al plan e inténtalo de nuevo.',
+        errorCode: 'UNKNOWN_PREPARATION_ERROR',
+        message,
+        retryable: true,
+        preparationState: recoveredState,
+      },
       { status: 500 }
     );
   }

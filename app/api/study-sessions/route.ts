@@ -60,6 +60,7 @@ export async function GET(req: NextRequest) {
           replaySessionNumber: s.replaySessionNumber || s.replay_session_number || resumeState.replaySessionNumber || null,
           replayAttempt: s.replayAttempt || s.replay_attempt || resumeState.replayAttempt || 0,
           sessionContent: s.sessionContent || s.session_content || resumeState.sessionContent || null,
+          sessionPreparation: s.sessionPreparation || s.session_preparation || resumeState.sessionPreparation || null,
           recoveryQueues: s.recoveryQueues || s.recovery_queues || resumeState.recoveryQueues || {},
           isProgramComplete: s.isProgramComplete === true || s.is_program_complete === true || resumeState.isProgramComplete === true,
           unresolvedMicroIds: s.unresolvedMicroIds || s.unresolved_micro_ids || resumeState.unresolvedMicroIds || [],
@@ -72,6 +73,14 @@ export async function GET(req: NextRequest) {
       }),
     });
   } catch (err: any) {
+    // AUDITORÍA DE CICLO DE VIDA (verificación focalizada, punto 4): este catch
+    // devolvía el error al cliente pero nunca dejaba rastro server-side — un
+    // fallo real de persistencia (Worker externo caído, red) era indistinguible
+    // en logs de cualquier otro 500 genérico.
+    console.error('[study-sessions] GET_failed', JSON.stringify({
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack?.split('\n').slice(0, 6).join('\n') : undefined,
+    }));
     return NextResponse.json(
       { success: false, error: err?.message || 'Error interno' },
       { status: 500 }
@@ -140,6 +149,13 @@ export async function POST(req: NextRequest) {
     if (body.replaySessionNumber) payload.replay_session_number = body.replaySessionNumber;
     if (body.replayAttempt) payload.replay_attempt = body.replayAttempt;
     if (body.sessionContent) payload.session_content = body.sessionContent;
+    // AUDITORÍA DE CICLO DE VIDA: sessionPreparation (estado incremental de
+    // preparación, usado para reanudar tras un fallo parcial) nunca se enviaba al
+    // backend externo — solo sessionContent (el artefacto FINAL) lo hacía. Esto
+    // rompía "el servidor sigue siendo la fuente canónica" para cualquier retry
+    // cross-device/cross-cold-start: la reanudación solo sobrevivía en el
+    // localStorage del mismo navegador que generó el fallo.
+    if (body.sessionPreparation) payload.session_preparation = body.sessionPreparation;
     // EL CLIENTE NO PUEDE DECLARAR PROGRAM COMPLETION — el servidor deriva
     // isProgramComplete de forma independiente a partir de datos verificables (todas las
     // sesiones del journey realmente en completedSessionNumbers + unresolvedMicroIds
@@ -197,6 +213,14 @@ export async function POST(req: NextRequest) {
       session: json.session || body,
     });
   } catch (err: any) {
+    // AUDITORÍA DE CICLO DE VIDA (verificación focalizada, punto 4): mismo gap
+    // que el catch de GET arriba — un fallo real de persistencia server-side
+    // (Worker externo caído, red, payload rechazado) no dejaba ningún rastro
+    // diagnosticable en logs del servidor.
+    console.error('[study-sessions] POST_failed', JSON.stringify({
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack?.split('\n').slice(0, 6).join('\n') : undefined,
+    }));
     return NextResponse.json(
       { success: false, error: err?.message || 'Error interno' },
       { status: 500 }
