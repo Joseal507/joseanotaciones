@@ -106,7 +106,7 @@ import {
 import type { VisualCompositionPlan, VisualEvidenceKind, VisualRequiredness, VisualSpec } from "../../../../../lib/adaptive/visual/visualContract"
 import type { TeachingLayoutBlock } from "../../../../../lib/adaptive/visual/teachingLayout"
 import { VisualRenderer } from "../../../../../components/visual/VisualRenderer"
-import { computeSessionDependencyFingerprint, isPrefetchStillValid, shouldPrefetchSession, KeyedPromiseCache } from "../../../../../lib/adaptive/sessionPrefetch"
+import { computeSessionDependencyFingerprint, isPrefetchStillValid, shouldPrefetchSession, KeyedPromiseCache, sharedSessionPreparationRequests } from "../../../../../lib/adaptive/sessionPrefetch"
 import { continueRecoverablePreparation } from "../../../../../lib/adaptive/sessionReliability"
 import { deriveSessionLifecycleStatus, deriveSessionLifecycleInput } from "../../../../../lib/adaptive/sessionLifecycle"
 import { validatePlanSessionConsistency } from "../../../../../lib/adaptive/planSessionConsistency"
@@ -209,6 +209,7 @@ export default function SessionPage() {
   const completionRenderedRef = useRef(false)
   const inFlightGenerationKeyRef = useRef<string | null>(null)
   const sessionPreparationPromiseRef = useRef<Promise<any> | null>(null)
+  const loadContextVersionRef = useRef(0)
   const recoveryPrefetchRef = useRef(new Map<string, Promise<any>>())
   // Prefetch de sesión N+1 (FASE 8/9): mismo patrón de dedup por clave que
   // recoveryPrefetchRef, extraído a KeyedPromiseCache (sessionPrefetch.ts) para ser
@@ -330,7 +331,12 @@ export default function SessionPage() {
     return () => clearInterval(interval)
   }, [showBreak, sessionData?.id])
 
-  useEffect(() => { if (temaId && sessionNumber) void loadContext() }, [temaId, sessionNumber, adaptiveSessionId])
+  useEffect(() => {
+    if (!temaId || !sessionNumber) return
+    const version=++loadContextVersionRef.current
+    void loadContext(version)
+    return()=>{if(loadContextVersionRef.current===version)loadContextVersionRef.current+=1}
+  }, [temaId, sessionNumber, adaptiveSessionId])
   useEffect(() => { recoveryQueueRef.current = recoveryQueue }, [recoveryQueue])
   useEffect(() => { failedQuestionsRef.current = failedQuestions }, [failedQuestions])
 
@@ -430,7 +436,8 @@ export default function SessionPage() {
     }
   }, [loading, classContent, recoveryQueue, sessionPhase, sessionKind])
 
-  async function loadContext() {
+  async function loadContext(loadVersion=loadContextVersionRef.current) {
+    const stillCurrent=()=>loadContextVersionRef.current===loadVersion
     setLoading(true)
     setError(null)
     try {
@@ -671,10 +678,10 @@ export default function SessionPage() {
           // Descarta SOLO el sessionContent corrupto de ESTA sesión — nunca toca
           // evidencia/mastery/recovery de otras sesiones — y deja que el código de
           // abajo (generación en frío) reconstruya esta sesión desde cero.
-          updateSessionById(as_.id, (current: any) => ({
-            ...current,
-            sessionContent: { ...(current.sessionContent || {}), [String(sessionNumber)]: undefined },
-          }))
+          if(!stillCurrent())return
+          // No borres el checkpoint antes de regenerar: una reconciliación
+          // anterior puede terminar tarde y eliminar el contenido nuevo. La
+          // escritura exitosa de abajo reemplaza atómicamente esta misma clave.
           // No retorna: cae al camino de generación en frío más abajo.
         }
       }
@@ -786,15 +793,22 @@ export default function SessionPage() {
         generationHistory: computeGenerationHistorySignals(as_.sessionContent, { excludeSessionNumber: sessionNumber }),
         finalReviewContext,
       }
+      const preparationDedupeKey = `${as_.id}:${sessionNumber}:${computeSessionDependencyFingerprint({
+        chapterId: chapter.id, chapterBlockIds: chapter.blockIds || [], blueprintVersion: bp.version || 0,
+        journeyId: jy.id || 'current', journeyVersion: jy.version || jy.id || 'current',
+        setupSnapshot: as_.adaptiveSetup, materialHash: as_.masteryMaterialKey || as_.primaryMaterialId || as_.materialIds?.join(','),
+      })}`
       if (!sessionPreparationPromiseRef.current) {
         const operation = continueRecoverablePreparation({
           initialState: requestBody.preparationState,
           maxAttempts: 3,
           request: async (preparationState) => {
-            const response = await fetch("/api/adaptive/session-teach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...requestBody, preparationState }) })
-            return response.json()
+            return sharedSessionPreparationRequests.run(preparationDedupeKey, async signal => {
+              const response = await fetch("/api/adaptive/session-teach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...requestBody, preparationState, requestOrigin:'cold' }), signal })
+              return response.json()
+            })
           },
-          onCheckpoint: preparationState => updateSessionById(as_.id, (current: any) => ({ ...current, sessionPreparation: { ...(current.sessionPreparation || {}), [String(sessionNumber)]: preparationState } })),
+          onCheckpoint: preparationState => stillCurrent()?updateSessionById(as_.id, (current: any) => ({ ...current, sessionPreparation: { ...(current.sessionPreparation || {}), [String(sessionNumber)]: preparationState } })):null,
           wait: attempt => new Promise(resolve => setTimeout(resolve, attempt * 250)),
         })
         sessionPreparationPromiseRef.current = operation
@@ -854,6 +868,7 @@ export default function SessionPage() {
       )
       setCurrentStepIndex(Math.max(0, Math.min(pStep, (d.classContent.steps || []).length - 1)))
       initCoverage(d.classContent.steps || [], as_, resolvedKind, d.classContent)
+      if(!stillCurrent())return
       updateSessionById(as_.id, (c: any) => ({ ...startAdaptiveSession(c, sessionNumber, Math.max(0, pStep)), sessionPreparation: { ...(c.sessionPreparation || {}), [String(sessionNumber)]: d.classContent.preparationState }, sessionContent: { ...(c.sessionContent || {}), [String(sessionNumber)]: d.classContent } }))
       setLoading(false)
       void triggerNextSessionPrefetch(as_, bp, jy, sessionNumber)
@@ -866,6 +881,7 @@ export default function SessionPage() {
         message: loadContextError instanceof Error ? loadContextError.message : String(loadContextError),
         stack: loadContextError instanceof Error ? loadContextError.stack?.split("\n").slice(0, 6).join("\n") : undefined,
       }))
+      if(!stillCurrent())return
       setError("No pudimos preparar esta sesión. Vuelve al plan e inténtalo de nuevo.")
       setLoading(false)
     }
@@ -968,8 +984,10 @@ export default function SessionPage() {
           generationHistory: computeGenerationHistorySignals(as_.sessionContent, { excludeSessionNumber: fromSessionNumber + 1 }),
           requestOrigin: 'prefetch',
         }
-        const response = await fetch("/api/adaptive/session-teach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(requestBody), signal })
-        const d = await response.json()
+        const d = await sharedSessionPreparationRequests.run(dedupeKey, async sharedSignal => {
+          const response = await fetch("/api/adaptive/session-teach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(requestBody), signal: sharedSignal })
+          return response.json()
+        })
         if (!d?.success || !d?.classContent) return
 
         const generatedStepIds = new Set((d.classContent.steps || []).map((s: any) => s.id))

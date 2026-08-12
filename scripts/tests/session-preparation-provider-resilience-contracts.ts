@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { withTechnicalJsonRetry } from '../../lib/ai/sessionContentGenerationPipeline'
 import { classifyProviderFailure, shouldFallbackToGroq } from '../../lib/ai/providerPolicy'
-import { parseFactoryJson, isTransientProviderError } from '../../app/api/adaptive/session-teach/route'
+import { parseFactoryJson, isTransientProviderError, buildGroundedTeachingFallback } from '../../app/api/adaptive/session-teach/route'
 import {
   runSessionPreparationFactory,
   type PreparedTeachingContent,
@@ -130,6 +130,13 @@ function test7_GroqFallbackWiredIntoBothGenerationPaths() {
   assert.match(source, /generated=await callWithGroqFallbackOnCreditsExhausted\(/, 'BUG DE ORIGEN SI FALLA: generateTeachingStrict debe usar el fallback de Groq, no alai() directo')
 }
 
+function test7b_TruncatedTeachingHasGroundedLargeSessionFallback() {
+  const blocks=Array.from({length:25},(_,index)=>({id:`b${index+1}`,label:`Concepto ${index+1}`,summary:`Explicación grounded ${index+1}`,kind:index%4===0?'formula':'concept',importance:index%5===0?100:80}))
+  const teaching=buildGroundedTeachingFallback({session:{id:'chapter_3',title:'Sesión extensa',objective:'Aprender',kind:'learning',blockIds:blocks.map(block=>block.id)},blueprint:{blocks,topics:[]},setup:{evalPreference:'quick_test'},materialTitle:'Fixture grounded'} as any)
+  assert.equal(teaching.steps.length,25,'un JSON truncado no debe perder los 25 bloques grounded de una sesión extensa')
+  assert.ok(teaching.steps.every(step=>step.content&&step.factKeys.length&&step.keyPoints.length),'cada paso fallback debe seguir siendo teaching canónico y evaluable')
+}
+
 // ═══ 8. Orquestación real: fallo de proveedor transitorio en un bloque no
 // regenera teaching, no duplica bloques ya aceptados, y el estado final
 // contiene TODO el contenido válido — mismo patrón que testDEF_
@@ -205,6 +212,7 @@ async function run() {
   await test5_CreditsExhaustedNeverBypassesPolicyInsideThisRetry()
   test6_GroqFallbackOnlyOnConfirmedCreditsExhausted()
   test7_GroqFallbackWiredIntoBothGenerationPaths()
+  test7b_TruncatedTeachingHasGroundedLargeSessionFallback()
   await test8_ProviderTransientFailureInOneBlockDoesNotAffectOthers()
   console.log('session-preparation-provider-resilience-contracts: PASS (clasificación real de transitoriedad incluyendo ALAI_EMPTY_RESPONSE, retry acotado sobre throws de proveedor, no-transitorios nunca reintentan, fallo persistente acotado antes de error final, credits-exhausted nunca reintenta el mismo proveedor, Groq fallback solo con evidencia confirmada y wireado en ambos paths de generación, orquestación real sin duplicar/perder estado)')
 }

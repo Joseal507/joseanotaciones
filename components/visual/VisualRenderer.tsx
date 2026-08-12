@@ -1,6 +1,6 @@
 "use client"
 
-import { Component, useState, type ReactNode } from "react"
+import React, { Component, useState, type ReactNode } from "react"
 import type {
   Chemistry2DDataSpec,
   CodeExecutionDataSpec,
@@ -299,28 +299,36 @@ function StructuredGridView({ data, mode, onSubmit, disabled }: { data: Structur
 
 // ---------------------------------------------------------------------------
 function SpatialVectorView({ data, mode, onSubmit, disabled }: { data: SpatialVectorDataSpec; mode: VisualInteractionMode; onSubmit?: (verb: VisualInteractionVerb, response: unknown) => void; disabled?: boolean }) {
-  const [attempt, setAttempt] = useState<Record<string, { angleDeg: string; magnitude: string }>>({})
+  const [attempt, setAttempt] = useState<Record<string, { angleDeg?: number; magnitude?: number }>>({})
   const [selectedForce, setSelectedForce] = useState(data.forces[0]?.id || "")
   const interactive = mode === "practice" || mode === "assess"
-  const size = 220, cx = size / 2, cy = size / 2
-  const scale = 1.6
+  const width = 520, height = 360, cx = width / 2, cy = height / 2
+  const magnitudes = data.forces.map(force=>force.magnitude).filter((value):value is number=>typeof value==='number'&&value>0)
+  const maxMagnitude = Math.max(1,...magnitudes)
+  const angleChoices = [...new Set([...data.forces.map(force=>force.angleDeg),0,30,90,180,270])].sort((a,b)=>a-b)
   return (
     <div style={wrap}>
       <div style={label}>Diagrama de cuerpo libre — {data.body}</div>
-      <svg width={size} height={size} style={{ background: "#0c0c12", borderRadius: 8 }}>
-        <circle cx={cx} cy={cy} r={4} fill="#e5e7eb" />
+      <svg data-testid="spatial-vector-system" viewBox={`0 0 ${width} ${height}`} style={{ width:"100%",height:"auto",maxHeight:420,background: "#0c0c12", borderRadius: 8 }} role="img" aria-label={`Diagrama con ${data.forces.length} fuerzas sobre ${data.body}`}>
+        <line x1={36} y1={cy} x2={width-36} y2={cy} stroke="#334155" strokeDasharray="5 6"/><line x1={cx} y1={28} x2={cx} y2={height-28} stroke="#334155" strokeDasharray="5 6"/>
+        <text x={width-48} y={cy-9} fill="#64748b" fontSize={13}>x</text><text x={cx+10} y={38} fill="#64748b" fontSize={13}>y</text>
+        <rect x={cx-38} y={cy-28} width={76} height={56} rx={8} fill="#1e293b" stroke="#cbd5e1" strokeWidth={2}/><text x={cx} y={cy+5} textAnchor="middle" fill="#f8fafc" fontSize={14}>{data.body}</text>
         {data.forces.map((force, i) => {
           const rad = (force.angleDeg * Math.PI) / 180
-          const len = Math.min(90, (force.magnitude || 20) * scale)
+          const len = force.magnitude===null?105:Math.max(82,Math.min(142,82+(force.magnitude/maxMagnitude)*60))
           const x2 = cx + len * Math.cos(rad)
           const y2 = cy - len * Math.sin(rad)
+          const selected=selectedForce===force.id
+          const labelX=x2+(Math.cos(rad)>=0?12:-12),labelY=y2+(Math.sin(rad)>=0?-10:20)
           return (
-            <g key={force.id}>
-              <line x1={cx} y1={cy} x2={x2} y2={y2} stroke={["#4ade80", "#60a5fa", "#f472b6", "#facc15"][i % 4]} strokeWidth={2} markerEnd="url(#arrow)" />
-              <text x={x2} y={y2} fill="#9ca3af" fontSize={11}>{force.label}</text>
+            <g key={force.id} tabIndex={0} role="button" aria-label={`${force.label}, ${force.magnitude??'magnitud no indicada'} ${force.unit||''}, ${force.angleDeg} grados`} onClick={()=>setSelectedForce(force.id)} onFocus={()=>setSelectedForce(force.id)} style={{cursor:'pointer',opacity:selected||!selectedForce?1:.42}}>
+              <line x1={cx} y1={cy} x2={x2} y2={y2} stroke={["#4ade80", "#60a5fa", "#f472b6", "#facc15"][i % 4]} strokeWidth={selected?5:3} markerEnd="url(#arrow)" />
+              <circle cx={x2} cy={y2} r={selected?5:3} fill="#f8fafc"/>
+              <text x={labelX} y={labelY} textAnchor={Math.cos(rad)>=0?'start':'end'} fill={selected?'#f8fafc':'#cbd5e1'} fontSize={15} fontWeight={selected?700:500}>{force.label}</text>
             </g>
           )
         })}
+        {data.decomposition&&(()=>{const force=data.forces.find(item=>item.id===data.decomposition!.forceId);if(!force)return null;const rad=force.angleDeg*Math.PI/180;const len=force.magnitude===null?105:Math.max(82,Math.min(142,82+(force.magnitude/maxMagnitude)*60));const x2=cx+len*Math.cos(rad),y2=cy-len*Math.sin(rad);return <g data-testid="vector-decomposition"><line x1={cx} y1={cy} x2={x2} y2={cy} stroke="#38bdf8" strokeWidth={3} markerEnd="url(#arrow)"/><line x1={x2} y1={cy} x2={x2} y2={y2} stroke="#fbbf24" strokeWidth={3} markerEnd="url(#arrow)"/><line x1={cx} y1={y2} x2={x2} y2={y2} stroke="#64748b" strokeDasharray="5 5"/><path d={`M ${cx+30} ${cy} A 30 30 0 0 0 ${cx+30*Math.cos(rad)} ${cy-30*Math.sin(rad)}`} fill="none" stroke="#f8fafc"/><text x={cx+38} y={cy-8} fill="#38bdf8" fontSize={14}>Fx ≈ {data.decomposition.xMagnitude} {data.decomposition.unit||''}</text><text x={x2+10} y={(cy+y2)/2} fill="#fbbf24" fontSize={14}>Fy = {data.decomposition.yMagnitude} {data.decomposition.unit||''}</text><text x={cx+34} y={cy-22} fill="#f8fafc" fontSize={13}>θ={data.decomposition.angleDeg}°</text></g>})()}
         <defs>
           <marker id="arrow" markerWidth={8} markerHeight={8} refX={6} refY={3} orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#e5e7eb" /></marker>
         </defs>
@@ -330,16 +338,14 @@ function SpatialVectorView({ data, mode, onSubmit, disabled }: { data: SpatialVe
         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
           <InteractionConsequenceNote mode={mode} />
           {data.forces.map(force => (
-            <div key={force.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={{ color: "#9ca3af", minWidth: 90 }}>{force.label}</span>
-              <input style={input} placeholder="° ángulo" value={attempt[force.id]?.angleDeg || ""} disabled={disabled}
-                onChange={e => setAttempt(v => ({ ...v, [force.id]: { ...v[force.id], angleDeg: e.target.value } }))} />
-              <input style={input} placeholder="magnitud" value={attempt[force.id]?.magnitude || ""} disabled={disabled}
-                onChange={e => setAttempt(v => ({ ...v, [force.id]: { ...v[force.id], magnitude: e.target.value } }))} />
+            <div key={force.id} style={{ display: "flex", gap: 8, alignItems: "center",flexWrap:'wrap' }}>
+              <button type="button" style={{...submitBtn,margin:0,minWidth:110,background:selectedForce===force.id?'#2563eb':'#273449'}} onClick={()=>setSelectedForce(force.id)}>{force.label}</button>
+              <span style={{color:'#94a3b8'}}>Dirección:</span>{angleChoices.map(angle=><button type="button" key={angle} disabled={disabled} style={{...submitBtn,margin:0,padding:'5px 9px',background:attempt[force.id]?.angleDeg===angle?'#2563eb':'#273449'}} onClick={()=>setAttempt(v=>({...v,[force.id]:{...v[force.id],angleDeg:angle}}))}>{angle}°</button>)}
+              {force.magnitude!==null&&<><span style={{color:'#94a3b8'}}>Magnitud:</span>{[...new Set([force.magnitude,...magnitudes])].slice(0,4).map(magnitude=><button type="button" key={magnitude} disabled={disabled} style={{...submitBtn,margin:0,padding:'5px 9px',background:attempt[force.id]?.magnitude===magnitude?'#2563eb':'#273449'}} onClick={()=>setAttempt(v=>({...v,[force.id]:{...v[force.id],magnitude}}))}>{magnitude} {force.unit||''}</button>)}</>}
             </div>
           ))}
           <button style={submitBtn} onClick={() => onSubmit?.("place_vector", Object.fromEntries(
-            Object.entries(attempt).map(([id, v]) => [id, { angleDeg: Number(v.angleDeg), magnitude: Number(v.magnitude) }]),
+            Object.entries(attempt).map(([id, v]) => [id, v]),
           ))} disabled={disabled}>Comprobar</button>
         </div>
       )}

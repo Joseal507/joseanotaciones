@@ -274,6 +274,8 @@ function loadAll(): Record<string, StudySession> {
 function saveAll(sessions: Record<string, StudySession>) {
   if (typeof window === 'undefined') return;
   try {
+    let previousArtifacts:Record<string,{sessionContent?:Record<string,any>}>= {}
+    try{previousArtifacts=JSON.parse(localStorage.getItem(ADAPTIVE_ARTIFACTS_KEY)||'{}')||{}}catch{previousArtifacts={}}
     // Guardar versión liviana en localStorage (sin payload pesado)
       const lightSessions: Record<string, any> = {};
       for (const [key, session] of Object.entries(sessions)) {
@@ -294,7 +296,14 @@ function saveAll(sessions: Record<string, StudySession>) {
           .map(([key, session]) => [key, {
             blueprint: session.blueprint,
             journey: session.journey,
-            sessionContent: session.sessionContent,
+            // Un callback async puede terminar con un snapshot anterior al de
+            // otra navegación/prefetch. Merge por número de sesión evita que
+            // guardar N+1 borre un checkpoint N ya válido. Un valor `undefined`
+            // explícito sigue pudiendo invalidar solo su propia clave.
+            sessionContent: {
+              ...(previousArtifacts[key]?.sessionContent || {}),
+              ...Object.fromEntries(Object.entries(session.sessionContent || {}).filter(([, value]) => value !== undefined)),
+            },
           }]),
       );
       localStorage.setItem(ADAPTIVE_ARTIFACTS_KEY, JSON.stringify(adaptiveArtifacts));

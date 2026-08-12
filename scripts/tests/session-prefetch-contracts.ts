@@ -3,6 +3,7 @@ import {
   computeSessionDependencyFingerprint,
   isPrefetchStillValid,
   shouldPrefetchSession,
+  sharedSessionPreparationRequests,
   type PrefetchDependencyInput,
 } from '../../lib/adaptive/sessionPrefetch'
 
@@ -53,3 +54,18 @@ const base: PrefetchDependencyInput = {
 }
 
 console.log('session-prefetch-contracts: ALL PASS')
+
+async function testSharedPrefetchColdAuthority(){
+  let remoteCalls=0
+  const key='journey:chapter_2:stable-fingerprint'
+  const prepare=()=>sharedSessionPreparationRequests.run(key,async()=>{
+    remoteCalls+=1
+    await new Promise(resolve=>setTimeout(resolve,20))
+    return {success:true,classContent:{sessionId:'chapter_2'}}
+  })
+  const [prefetch,cold]=await Promise.all([prepare(),prepare()])
+  assert.equal(remoteCalls,1,'prefetch+cold concurrentes deben compartir una única petición remota')
+  assert.equal(prefetch,cold,'ambos consumidores deben recibir el mismo resultado coherente')
+  console.log('session-prefetch: prefetch+cold shared request authority PASS')
+}
+testSharedPrefetchColdAuthority().catch(error=>{console.error(error);process.exitCode=1})

@@ -125,6 +125,7 @@ export interface SpatialVectorDataSpec {
   body: string
   forces: Array<{ id: string; label: string; magnitude: number | null; angleDeg: number; unit?: string }>
   axes: { x: string; y: string }
+  decomposition?: { forceId: string; xMagnitude: number; yMagnitude: number; unit?: string; angleDeg: number }
 }
 
 export interface Chemistry2DDataSpec {

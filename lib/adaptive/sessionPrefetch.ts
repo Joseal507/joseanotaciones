@@ -142,3 +142,10 @@ export class KeyedPromiseCache<T> {
     for (const key of this.controllers.keys()) this.cancel(key)
   }
 }
+
+// Autoridad de request compartida por el camino cold y el prefetch dentro del
+// mismo runtime del navegador. El valor es el payload ya decodificado: quien
+// llegue segundo se une a la misma petición HTTP, no solamente al mismo efecto
+// de persistencia. Se conserva a nivel de módulo para sobrevivir remounts de la
+// página durante navegación/refresh del router.
+export const sharedSessionPreparationRequests = new KeyedPromiseCache<any>()

@@ -32,6 +32,23 @@ process.env.NODE_ENV = originalNodeEnv
 if (originalDevFlag === undefined) delete process.env.NEXT_PUBLIC_STUDYAL_DEV_TOOLS
 else process.env.NEXT_PUBLIC_STUDYAL_DEV_TOOLS = originalDevFlag
 
+// Las rutas auxiliares del browser E2E se compilan junto con la app, pero todos
+// sus handlers públicos deben cerrar inequívocamente con 404 en producción.
+// Este contrato cubre cada método exportado para evitar que un método nuevo o un
+// contador de diagnóstico quede accesible por omisión.
+const reliabilityRouteSource = fs.readFileSync(new URL('../../app/api/e2e-session-reliability/route.ts', import.meta.url), 'utf8')
+const showcaseRouteSource = fs.readFileSync(new URL('../../app/api/e2e-visual-showcase/route.ts', import.meta.url), 'utf8')
+for (const [routeName, source, methods] of [
+  ['e2e-session-reliability', reliabilityRouteSource, ['GET', 'POST']],
+  ['e2e-visual-showcase', showcaseRouteSource, ['GET']],
+] as const) {
+  for (const method of methods) {
+    const handler = source.match(new RegExp(`export\\s+async\\s+function\\s+${method}\\s*\\([^]*?(?=export\\s+async\\s+function|$)`))?.[0] || ''
+    assert.match(handler, /process\.env\.NODE_ENV\s*===\s*['"]production['"]/, `${routeName} ${method}: debe tener gate explícito de production`)
+    assert.match(handler, /status\s*:\s*404/, `${routeName} ${method}: production debe responder 404`)
+  }
+}
+
 // ===========================================================================
 // 10 — no bypass de mastery: prueba ESTRUCTURAL de que el módulo que construye
 // las respuestas canónicas nunca importa ni referencia ninguna API de

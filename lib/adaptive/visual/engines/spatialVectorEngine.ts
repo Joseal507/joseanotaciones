@@ -116,8 +116,21 @@ export function extractSpatialVectorSpec(sourceText: string, factKeys: string[],
     || sourceText.match(/Sobre (?:el|la)\s+([^\s]+(?:\s[^\s]+)?)\s+act[uú]an/i)
   const body = (bodyMatch?.[1] || bodyMatch?.[0] || 'cuerpo').trim()
 
+  // Descomposición solo cuando ambas componentes aparecen literalmente en la
+  // fuente. El ángulo y la fuerza original siguen viniendo de una fuerza ya
+  // validada; nunca calculamos ni inventamos una componente ausente.
+  const xMatch=sourceText.match(/\bF[_ ]?x\s*(?:=|≈|aprox(?:\.|imadamente)?)\s*(\d+(?:[.,]\d+)?)\s*(N\b|newtons?\b)/i)
+  const yMatch=sourceText.match(/\bF[_ ]?y\s*(?:=|≈|aprox(?:\.|imadamente)?)\s*(\d+(?:[.,]\d+)?)\s*(N\b|newtons?\b)/i)
+  const decomposedForce=forces.find(force=>/aplicada|^fuerza$/i.test(force.label))
+  const decomposition=xMatch&&yMatch&&decomposedForce?{
+    forceId:decomposedForce.id,
+    xMagnitude:Number(xMatch[1].replace(',','.')),
+    yMagnitude:Number(yMatch[1].replace(',','.')),
+    unit:'N',angleDeg:decomposedForce.angleDeg,
+  }:undefined
+
   return {
-    data: { body, forces, axes: { x: 'horizontal', y: 'vertical' } },
+    data: { body, forces, axes: { x: 'horizontal', y: 'vertical' }, decomposition },
     sourceSpans: factKeys.map(factKey => ({ stepId: sourceStepId, factKey, quote: quotes[0] })),
   }
 }
