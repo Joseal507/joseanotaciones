@@ -5,6 +5,7 @@ import { gradeSpatialVectorInteraction } from './engines/spatialVectorEngine'
 import { gradeChemistry2DInteraction } from './engines/chemistry2DEngine'
 import { gradeCodeExecutionInteraction } from './engines/codeExecutionEngine'
 import { gradeTimelineInteraction } from './engines/timelineEngine'
+import { gradeUniversalPrimitive } from './engines/universalPrimitiveEngines'
 
 // Grading determinista server-side: recibe el VisualSpec (autoridad del servidor,
 // nunca confiado del cliente) y la interacción del estudiante, y despacha al engine
@@ -18,5 +19,6 @@ export function gradeVisualInteraction(spec: VisualSpec, submission: VisualInter
   if (spec.engine === 'spatial_vector') return gradeSpatialVectorInteraction(spec.data, submission.verb as 'place_vector', submission.response)
   if (spec.engine === 'chemistry_2d') return gradeChemistry2DInteraction(spec.data, submission.verb as 'label_structure', submission.response)
   if (spec.engine === 'code_execution') return gradeCodeExecutionInteraction(spec.data, submission.verb as 'predict_output', submission.response)
-  return gradeTimelineInteraction(spec.data, submission.verb as 'order_sequence', submission.response)
+  if (spec.engine === 'timeline') return gradeTimelineInteraction(spec.data, submission.verb as 'order_sequence', submission.response)
+  return gradeUniversalPrimitive(spec.data, submission.verb, submission.response)
 }

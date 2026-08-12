@@ -50,7 +50,16 @@ assert.deepEqual(diag.invalidQuestionIds, ['q-bad-transfer'], 'transfer + true_f
 assert.equal(diag.acceptedQuestionIds.includes('q-bad-transfer'), false)
 
 const goodTransferQuestion: PreparedEvaluationQuestion = {
-  ...badTransferQuestion, questionId: 'q-good-transfer', format: 'scenario', variant: 'scenario_transfer',
+  ...badTransferQuestion,
+  questionId: 'q-good-transfer',
+  format: 'scenario',
+  variant: 'scenario_transfer',
+  prompt: 'Ante una situación nueva donde X cambia, ¿qué aplicación conserva el principio?',
+  options: [
+    { id: 'a', text: 'Aplicar el principio ajustando X al nuevo contexto' },
+    { id: 'b', text: 'Ignorar el cambio de contexto' },
+  ],
+  correctAnswer: 'a',
 }
 const diagGood = diagnoseEvaluationBlock(block, [goodTransferQuestion], teaching, 'mix_everything')
 assert.deepEqual(diagGood.invalidQuestionIds, [], 'transfer + scenario_transfer debe aceptarse')

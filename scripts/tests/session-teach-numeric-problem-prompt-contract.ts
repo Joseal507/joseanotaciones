@@ -33,21 +33,20 @@ assert.ok(
   'la guía por tipo de paso "formula" debe preferir numeric_problem para aplicación, no solo scenario_predict — el material trae ejemplos numéricos resueltos que deben ejercitarse, no solo reconocerse',
 )
 // P3.2: evaluationModeContract.ts es la autoridad real de qué formatos admite
-// quick_test — numeric_problem está en CLOSED_FORMATS ahí (respuesta corta
-// cerrada, no escritura abierta). El prompt vivo prohibía numeric_problem en
-// quick_test sin base en ese contrato; ya no debe hacerlo.
+// quick_test. En producto quick_test significa SIN TECLADO: numeric_problem
+// requiere introducir un valor y por tanto pertenece a WRITING_FORMATS.
 const evaluationModeContractSource = readFileSync('lib/adaptive/evaluation/evaluationModeContract.ts', 'utf8')
 assert.ok(
-  /CLOSED_FORMATS = \[[\s\S]*?'numeric_problem'[\s\S]*?\]/.test(evaluationModeContractSource),
-  'evaluationModeContract.ts debe seguir tratando numeric_problem como CLOSED_FORMATS — si esto cambia, el prompt vivo debe revisarse en consecuencia',
+  /WRITING_FORMATS = \[[\s\S]*?'numeric_problem'[\s\S]*?\]/.test(evaluationModeContractSource),
+  'evaluationModeContract.ts debe tratar numeric_problem como formato con input escrito',
 )
 assert.ok(
-  !/quick_test:.*NUNCA short_response ni numeric_problem/.test(routeSource),
-  'el prompt vivo ya no debe prohibir numeric_problem en quick_test — evaluationModeContract.ts (la autoridad real) sí lo permite',
+  /quick_test:.*SIN TECLADO.*NUNCA short_response ni numeric_problem/.test(routeSource),
+  'el prompt vivo debe prohibir explícitamente short_response y numeric_problem en quick_test',
 )
 assert.ok(
-  routeSource.includes('numeric_problem SÍ está permitido en quick_test'),
-  'el prompt vivo debe declarar explícitamente que numeric_problem SÍ está permitido en quick_test, alineado con evaluationModeContract.ts',
+  routeSource.includes('PROHIBIDO en quick_test'),
+  'el catálogo del prompt debe marcar numeric_problem como prohibido en quick_test',
 )
 
 // El contrato de scoring real que justifica el shape exigido en el prompt.

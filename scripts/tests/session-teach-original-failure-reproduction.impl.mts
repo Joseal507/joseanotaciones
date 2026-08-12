@@ -6,7 +6,7 @@
 import { test, mock } from 'node:test'
 import assert from 'node:assert/strict'
 
-test('A/B: sanitizeClassContent y signQuestionsInPlace lanzan -> 503 recuperable -> retry regenera -> READY', async () => {
+test('A/B: sanitizeClassContent y signQuestionsInPlace lanzan -> 202 recuperable -> retry regenera/reensambla -> READY', async () => {
   process.env.NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET || 'test-secret-for-pretest'
   let teachingCallCount = 0
   // Primera llamada real: teaching con un step cuyo content trae un comando LaTeX
@@ -60,7 +60,7 @@ test('A/B: sanitizeClassContent y signQuestionsInPlace lanzan -> 503 recuperable
   // --- Primer intento: contenido roto -> debe fallar RECUPERABLE, no genérico. ---
   const first = await call()
   const firstJson = await first.json()
-  assert.equal(first.status, 503, 'A: sanitizeClassContent roto debe responder 503 (recuperable), nunca 500 genérico')
+  assert.equal(first.status, 202, 'A: sanitizeClassContent roto debe responder 202 recuperable, nunca pantalla fatal')
   assert.equal(firstJson.success, false)
   assert.equal(firstJson.errorCode, 'CONTENT_SANITIZATION_FAILED', 'A: errorCode específico, no genérico')
   assert.equal(firstJson.retryable, true)

@@ -79,6 +79,16 @@ export function buildDevCanonicalVisualResponse(spec: VisualSpec): { verb: Visua
         verb: 'order_sequence',
         response: [...spec.data.events].sort((a, b) => a.order - b.order).map(event => event.id),
       }
+    case 'geometry_canvas':
+      return { verb: 'select_point', response: spec.data.points[0]?.id }
+    case 'structure_graph':
+      return { verb: 'select_node', response: spec.data.nodes[0]?.id }
+    case 'flow_state':
+      return { verb: 'select_stage', response: spec.data.stages[0]?.id }
+    case 'equation_expression':
+      return { verb: 'transform_expression', response: spec.data.steps.at(-1)?.expression }
+    case 'source_image':
+      return { verb: 'select_hotspot', response: spec.data.hotspots[0]?.id }
     default: {
       const exhaustive: never = spec
       throw new Error(`DEV_CANONICAL_VISUAL_RESPONSE_UNSUPPORTED_ENGINE:${(exhaustive as VisualSpec).engine}`)

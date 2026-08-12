@@ -106,15 +106,22 @@ export const CROSS_TAB_DEDUP = 'NOT GUARANTEED' as const
 
 export class KeyedPromiseCache<T> {
   private readonly inFlight = new Map<string, Promise<T>>()
+  private readonly controllers = new Map<string, AbortController>()
+  readonly metrics = { duplicateSuppressed: 0, aborted: 0, staleIgnored: 0 }
 
   // Si ya hay una operación en curso para `key`, devuelve ESA MISMA promesa
   // (nunca invoca `factory` de nuevo) — garantiza que dos triggers concurrentes con
   // la misma clave produzcan exactamente un request subyacente.
-  run(key: string, factory: () => Promise<T>): Promise<T> {
+  run(key: string, factory: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const existing = this.inFlight.get(key)
-    if (existing) return existing
-    const promise = factory().finally(() => {
-      if (this.inFlight.get(key) === promise) this.inFlight.delete(key)
+    if (existing) { this.metrics.duplicateSuppressed += 1; return existing }
+    const controller = new AbortController()
+    this.controllers.set(key, controller)
+    const promise = factory(controller.signal).finally(() => {
+      if (this.inFlight.get(key) === promise) {
+        this.inFlight.delete(key)
+        this.controllers.delete(key)
+      }
     })
     this.inFlight.set(key, promise)
     return promise
@@ -122,5 +129,16 @@ export class KeyedPromiseCache<T> {
 
   has(key: string): boolean {
     return this.inFlight.has(key)
+  }
+
+  cancel(key: string): void {
+    const controller = this.controllers.get(key)
+    if (!controller || controller.signal.aborted) return
+    controller.abort()
+    this.metrics.aborted += 1
+  }
+
+  cancelAll(): void {
+    for (const key of this.controllers.keys()) this.cancel(key)
   }
 }

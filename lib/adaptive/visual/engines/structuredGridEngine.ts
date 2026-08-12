@@ -3,16 +3,25 @@ import { normalizeToken } from './shared'
 
 export interface StructuredGridExtraction { data: StructuredGridDataSpec; sourceSpans: VisualSourceSpan[] }
 
-function extractBracketAssignments(segment: string): Record<string, string> {
-  const result: Record<string, string> = {}
-  for (const match of segment.matchAll(/\[(\w+)\]\s*=\s*([^,\n]+)/g)) {
-    result[match[1]] = match[2].trim()
-  }
-  return result
+// Anclas puramente estructurales del propio concepto ICE (Inicial/Cambio/
+// Equilibrio) — NUNCA una frase ni una asignatura concreta. Antes se exigía un
+// encabezado literal completo ("Concentraciones iniciales:") pegado
+// exactamente delante del primer corchete — una paráfrasis pedagógicamente
+// equivalente ("las concentraciones iniciales son [H2]=1.00...") con los
+// MISMOS datos grounded no coincidía. Generalización: cada asignación
+// "[especie] = valor" se asigna a la fase cuya palabra-ancla (inicial/cambio/
+// equilibrio) aparece más cerca y ANTES de ella en el texto — la fase se
+// localiza por posición relativa, no por un encabezado fijo.
+const PHASES = ['initial', 'change', 'equilibrium'] as const
+type Phase = (typeof PHASES)[number]
+const ANCHOR_PATTERNS: Record<Phase, RegExp> = {
+  initial: /inicial(?:es|mente)?/gi,
+  change: /\bcambio\b/gi,
+  equilibrium: /equilibrio/gi,
 }
 
 // Extrae reacción/especies/concentraciones EXPLÍCITAMENTE escritas en el material
-// (formato ICE). Si falta cualquier segmento requerido, devuelve null en vez de
+// (formato ICE). Si falta cualquier fase requerida, devuelve null en vez de
 // fabricar una tabla ICE con números inventados (FASE 6).
 // Frontera de segmento: hasta un punto seguido de espacio/fin de texto — NO hasta
 // cualquier punto, porque los valores decimales ("1.00") contienen puntos que no
@@ -31,14 +40,40 @@ export function extractStructuredGridSpec(sourceText: string, factKeys: string[]
   )]
   if (!species.length) return null
 
-  const initialSegment = sourceText.match(new RegExp(String.raw`[Cc]oncentraciones? inicial(?:es)?:\s*(${SEGMENT_END})`))?.[1]
-  const changeSegment = sourceText.match(new RegExp(String.raw`[Cc]ambio:\s*(${SEGMENT_END})`))?.[1]
-  const equilibriumSegment = sourceText.match(new RegExp(String.raw`[Ee]n el equilibrio:\s*(${SEGMENT_END})`))?.[1]
-  if (!initialSegment || !changeSegment || !equilibriumSegment) return null
+  const anchorPositions: Array<{ phase: Phase; index: number }> = []
+  for (const phase of PHASES) {
+    for (const match of sourceText.matchAll(ANCHOR_PATTERNS[phase])) {
+      anchorPositions.push({ phase, index: match.index ?? 0 })
+    }
+  }
+  anchorPositions.sort((a, b) => a.index - b.index)
 
-  const initial = extractBracketAssignments(initialSegment)
-  const change = extractBracketAssignments(changeSegment)
-  const equilibrium = extractBracketAssignments(equilibriumSegment)
+  // El valor de una celda ICE es siempre una expresión numérico-algebraica
+  // (dígitos, signo, punto decimal, la variable x) — nunca contiene palabras.
+  // Restringir la clase de caracteres del valor (en vez de "todo hasta la
+  // siguiente coma") evita depender de que el material separe los corchetes
+  // con comas — una paráfrasis en prosa puede unirlos con "y"/"con" sin
+  // ninguna coma de por medio, y aun así el valor se extrae correctamente
+  // porque nunca contiene esas letras.
+  const byPhase: Record<Phase, Record<string, string>> = { initial: {}, change: {}, equilibrium: {} }
+  for (const match of sourceText.matchAll(/\[(\w+)\]\s*=\s*([0-9xX.+\-\s]+)/g)) {
+    const assignIndex = match.index ?? 0
+    let phase: Phase | null = null
+    for (const anchor of anchorPositions) {
+      if (anchor.index <= assignIndex) phase = anchor.phase
+      else break
+    }
+    if (!phase) continue
+    // Un punto al final del valor capturado es SIEMPRE el punto final de la
+    // oración, nunca un decimal — un decimal legítimo ("1.00") siempre trae
+    // dígitos después del punto, y esos dígitos ya habrían quedado dentro de
+    // la captura (misma clase de caracteres).
+    byPhase[phase][match[1]] = match[2].trim().replace(/\.$/, '')
+  }
+
+  const initial = byPhase.initial
+  const change = byPhase.change
+  const equilibrium = byPhase.equilibrium
   if (!species.every(id => id in initial && id in change && id in equilibrium)) return null
 
   return {

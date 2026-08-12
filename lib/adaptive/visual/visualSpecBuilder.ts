@@ -5,6 +5,12 @@ import { extractSpatialVectorSpec } from './engines/spatialVectorEngine'
 import { extractChemistry2DSpec } from './engines/chemistry2DEngine'
 import { extractCodeExecutionSpec } from './engines/codeExecutionEngine'
 import { extractTimelineSpec } from './engines/timelineEngine'
+import {
+  extractEquationExpressionSpec,
+  extractFlowStateSpec,
+  extractGeometryCanvasSpec,
+  extractStructureGraphSpec,
+} from './engines/universalPrimitiveEngines'
 
 let specCounter = 0
 
@@ -44,7 +50,20 @@ export function buildVisualSpec(requirement: VisualRequirement, sourceText: stri
     if (!extraction) return null
     return { ...base, engine: 'code_execution', data: extraction.data, sourceGrounding: { sourceSpans: extraction.sourceSpans, factKeys } }
   }
-  const extraction = extractTimelineSpec(sourceText, factKeys, sourceStepId)
-  if (!extraction) return null
-  return { ...base, engine: 'timeline', data: extraction.data, sourceGrounding: { sourceSpans: extraction.sourceSpans, factKeys } }
+  if (requirement.engine === 'timeline') {
+    const extraction = extractTimelineSpec(sourceText, factKeys, sourceStepId)
+    if (!extraction) return null
+    return { ...base, engine: 'timeline', data: extraction.data, sourceGrounding: { sourceSpans: extraction.sourceSpans, factKeys } }
+  }
+  const extraction = requirement.engine === 'geometry_canvas'
+    ? extractGeometryCanvasSpec(sourceText, factKeys, sourceStepId)
+    : requirement.engine === 'structure_graph'
+      ? extractStructureGraphSpec(sourceText, factKeys, sourceStepId)
+      : requirement.engine === 'flow_state'
+        ? extractFlowStateSpec(sourceText, factKeys, sourceStepId)
+        : requirement.engine === 'equation_expression'
+          ? extractEquationExpressionSpec(sourceText, factKeys, sourceStepId)
+          : null
+  if (!extraction || requirement.engine === 'source_image') return null
+  return { ...base, engine: requirement.engine, data: extraction.data, sourceGrounding: { sourceSpans: extraction.sourceSpans, factKeys }, provenance: { kind: 'STRUCTURED' } } as VisualSpec
 }

@@ -279,32 +279,7 @@ export default {
 
         const rows = await env.DB.prepare(query).bind(...binds).all()
 
-        const sessions = (rows.results || []).map((row: any) => {
-          const mode = row.process_mode || row.study_mode || 'free'
-          return {
-            id: row.id,
-            temaId: row.tema_id,
-            enfoque: row.enfoque,
-            processMode: mode,
-            studyMode: mode,
-            materialIds: safeJson(row.material_ids, []),
-            selectedPages: safeJson(row.selected_pages, undefined),
-            flashcards: safeJson(row.flashcards, undefined),
-            notes: safeJson(row.notes, undefined),
-            materialText: row.material_text || undefined,
-            currentPhase: row.current_phase || undefined,
-            // ── Estado adaptive completo ──
-            adaptiveProgram: safeJson(row.adaptive_program, undefined),
-            processStyle: row.process_style || undefined,
-            targetScore: row.target_score != null ? Number(row.target_score) : undefined,
-            examDate: row.exam_date || undefined,
-            examDateCustom: row.exam_date_custom || undefined,
-            materialBlueprint: safeJson(row.material_blueprint, undefined),
-            masterySnapshot: safeJson(row.mastery_snapshot, undefined),
-            createdAt: Number(row.created_at || Date.now()),
-            lastOpenedAt: Number(row.last_opened_at || Date.now()),
-          }
-        })
+        const sessions = (rows.results || []).map(mapStudySessionRow)
 
         return json({ ok: true, sessions })
       }
@@ -333,6 +308,37 @@ export default {
           ["mastery_snapshot", "TEXT"],
           ["adaptive_setup", "TEXT"],
           ["setup_hash", "TEXT"],
+          // AUDITORÍA (StudyAL_Visual_System_Stress_Test, Layer B GAP
+          // persistence): route.ts ya construye y envía estos 3 campos en
+          // cada upsert dando por hecho que sobreviven un restore
+          // server-authoritative — antes de esta ronda no existía ninguna
+          // columna para ellos, así que se descartaban en silencio.
+          ["current_session_number", "INTEGER"],
+          ["status", "TEXT"],
+          ["adaptive_state", "TEXT"],
+          // AUDITORÍA (misma misión, hallazgo posterior al de arriba: al
+          // construir persistence-cross-device-round-trip-contracts.ts con
+          // el mapeo REAL del Worker en vez de un fake permisivo, current_step
+          // y el resto de este bloque resultaron ser el MISMO patrón de
+          // pérdida silenciosa — route.ts los construye y envía en cada
+          // upsert, pero ninguno tenía columna. "sesión actual" sobrevivía
+          // pero "progreso dentro de la sesión" y "evidencia de recovery/
+          // preparación" NO, exactamente lo que un restore cross-device real
+          // necesita para no regenerar ni perder trabajo.
+          ["primary_material_id", "TEXT"],
+          ["mastery_material_key", "TEXT"],
+          ["current_step", "INTEGER"],
+          ["completed_session_numbers", "TEXT"],
+          ["replay_session_number", "INTEGER"],
+          ["replay_attempt", "INTEGER"],
+          ["session_content", "TEXT"],
+          ["session_preparation", "TEXT"],
+          ["is_program_complete", "INTEGER"],
+          ["unresolved_micro_ids", "TEXT"],
+          ["active_study_ms", "INTEGER"],
+          ["break_hours_acknowledged", "INTEGER"],
+          ["material_names", "TEXT"],
+          ["recovery_queues", "TEXT"],
         ]
         for (const [col, def] of newCols) {
           try {
@@ -347,9 +353,14 @@ export default {
             flashcards, notes, material_text, current_phase,
             adaptive_program, process_style, target_score, exam_date, exam_date_custom,
             material_blueprint, mastery_snapshot, adaptive_setup, setup_hash,
+            current_session_number, status, adaptive_state,
+            primary_material_id, mastery_material_key, current_step, completed_session_numbers,
+            replay_session_number, replay_attempt, session_content, session_preparation,
+            is_program_complete, unresolved_micro_ids, active_study_ms, break_hours_acknowledged,
+            material_names, recovery_queues,
             created_at, last_opened_at, updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
           ON CONFLICT(id) DO UPDATE SET
             tema_id = excluded.tema_id,
             enfoque = excluded.enfoque,
@@ -370,6 +381,23 @@ export default {
             mastery_snapshot = COALESCE(excluded.mastery_snapshot, study_sessions.mastery_snapshot),
             adaptive_setup = COALESCE(excluded.adaptive_setup, study_sessions.adaptive_setup),
             setup_hash = COALESCE(excluded.setup_hash, study_sessions.setup_hash),
+            current_session_number = COALESCE(excluded.current_session_number, study_sessions.current_session_number),
+            status = COALESCE(excluded.status, study_sessions.status),
+            adaptive_state = COALESCE(excluded.adaptive_state, study_sessions.adaptive_state),
+            primary_material_id = COALESCE(excluded.primary_material_id, study_sessions.primary_material_id),
+            mastery_material_key = COALESCE(excluded.mastery_material_key, study_sessions.mastery_material_key),
+            current_step = COALESCE(excluded.current_step, study_sessions.current_step),
+            completed_session_numbers = COALESCE(excluded.completed_session_numbers, study_sessions.completed_session_numbers),
+            replay_session_number = COALESCE(excluded.replay_session_number, study_sessions.replay_session_number),
+            replay_attempt = COALESCE(excluded.replay_attempt, study_sessions.replay_attempt),
+            session_content = COALESCE(excluded.session_content, study_sessions.session_content),
+            session_preparation = COALESCE(excluded.session_preparation, study_sessions.session_preparation),
+            is_program_complete = COALESCE(excluded.is_program_complete, study_sessions.is_program_complete),
+            unresolved_micro_ids = COALESCE(excluded.unresolved_micro_ids, study_sessions.unresolved_micro_ids),
+            active_study_ms = COALESCE(excluded.active_study_ms, study_sessions.active_study_ms),
+            break_hours_acknowledged = COALESCE(excluded.break_hours_acknowledged, study_sessions.break_hours_acknowledged),
+            material_names = COALESCE(excluded.material_names, study_sessions.material_names),
+            recovery_queues = COALESCE(excluded.recovery_queues, study_sessions.recovery_queues),
             last_opened_at = excluded.last_opened_at,
             updated_at = datetime('now')
         `).bind(
@@ -394,6 +422,23 @@ export default {
           body.mastery_snapshot ? JSON.stringify(body.mastery_snapshot) : null,
           body.adaptive_setup ? JSON.stringify(body.adaptive_setup) : null,
           body.setup_hash || null,
+          body.current_session_number ?? null,
+          body.status || null,
+          body.adaptive_state || null,
+          body.primary_material_id || null,
+          body.mastery_material_key || null,
+          body.current_step ?? null,
+          body.completed_session_numbers ? JSON.stringify(body.completed_session_numbers) : null,
+          body.replay_session_number ?? null,
+          body.replay_attempt ?? null,
+          body.session_content ? JSON.stringify(body.session_content) : null,
+          body.session_preparation ? JSON.stringify(body.session_preparation) : null,
+          body.is_program_complete === true ? 1 : (body.is_program_complete === false ? 0 : null),
+          body.unresolved_micro_ids ? JSON.stringify(body.unresolved_micro_ids) : null,
+          body.active_study_ms ?? null,
+          body.break_hours_acknowledged ?? null,
+          body.material_names ? JSON.stringify(body.material_names) : null,
+          body.recovery_queues ? JSON.stringify(body.recovery_queues) : null,
           createdAt,
           now
         ).run()
@@ -1512,6 +1557,85 @@ function safeJson(value: unknown, fallback: any) {
     return JSON.parse(value)
   } catch {
     return fallback
+  }
+}
+
+// export: extraído del mapeo inline de GET /study-sessions/by-user para
+// poder probarse directamente con un objeto plano que simula una fila D1
+// (sin necesitar wrangler/miniflare/D1 real) — ver
+// scripts/tests/study-sessions-worker-row-mapping-contracts.ts (StudyAL_
+// Visual_System_Stress_Test, Layer B GAP "persistence — una prueba final").
+//
+// AUDITORÍA (misma misión, hallazgo posterior a adaptive_setup/setup_hash):
+// route.ts (el proxy Next.js) construye y envía current_session_number,
+// status y adaptive_state en CADA POST a /study-sessions/upsert (ver
+// app/api/study-sessions/route.ts) dando por hecho que se persisten — pero
+// ni el INSERT/bind() de /study-sessions/upsert ni este mapeo de GET los
+// mencionaban en absoluto. El cliente cree que "sesión actual" sobrevive un
+// restore server-authoritative real (dispositivo distinto, caché borrada),
+// pero silenciosamente NUNCA se guardaba. Corregido igual que adaptive_setup
+// (ALTER TABLE dinámico + columna en INSERT/bind + COALESCE en UPDATE +
+// campo en este mapeo).
+export function mapStudySessionRow(row: any): Record<string, unknown> {
+  const mode = row.process_mode || row.study_mode || 'free'
+  return {
+    id: row.id,
+    temaId: row.tema_id,
+    enfoque: row.enfoque,
+    processMode: mode,
+    studyMode: mode,
+    materialIds: safeJson(row.material_ids, []),
+    selectedPages: safeJson(row.selected_pages, undefined),
+    flashcards: safeJson(row.flashcards, undefined),
+    notes: safeJson(row.notes, undefined),
+    materialText: row.material_text || undefined,
+    currentPhase: row.current_phase || undefined,
+    // ── Estado adaptive completo ──
+    adaptiveProgram: safeJson(row.adaptive_program, undefined),
+    processStyle: row.process_style || undefined,
+    targetScore: row.target_score != null ? Number(row.target_score) : undefined,
+    examDate: row.exam_date || undefined,
+    examDateCustom: row.exam_date_custom || undefined,
+    materialBlueprint: safeJson(row.material_blueprint, undefined),
+    masterySnapshot: safeJson(row.mastery_snapshot, undefined),
+    // AUDITORÍA (StudyAL_Visual_System_Stress_Test, Bug 1): adaptive_setup
+    // y setup_hash ya se insertan/actualizan (ver /study-sessions/upsert
+    // más abajo) pero nunca se devolvían en el GET — el cliente restauraba
+    // blueprint/journey pero perdía el setup asociado, degradando el
+    // estado de restauración de forma silenciosa.
+    adaptiveSetup: safeJson(row.adaptive_setup, undefined),
+    setupHash: row.setup_hash || undefined,
+    // AUDITORÍA (misma misión, hallazgo GAP persistence): idéntico patrón de
+    // pérdida silenciosa que adaptive_setup/setup_hash, para los campos que
+    // determinan "sesión actual" tras un restore server-authoritative real.
+    currentSessionNumber: row.current_session_number != null ? Number(row.current_session_number) : undefined,
+    status: row.status || undefined,
+    adaptiveState: row.adaptive_state || undefined,
+    // AUDITORÍA (misma misión, hallazgo posterior: construir
+    // persistence-cross-device-round-trip-contracts.ts con el mapeo REAL
+    // del Worker, en vez del fake permisivo de la prueba pre-existente,
+    // reveló que route.ts ya construía y enviaba TODOS estos campos en cada
+    // upsert dando por hecho que sobrevivían — ninguno tenía columna.
+    // "sesión actual" sobrevivía (adaptiveState/currentSessionNumber, fix
+    // anterior) pero el PROGRESO dentro de la sesión y la evidencia de
+    // recovery/preparación no, exactamente lo que un restore cross-device
+    // real necesita para no regenerar ni perder trabajo del estudiante.
+    primaryMaterialId: row.primary_material_id || undefined,
+    masteryMaterialKey: row.mastery_material_key || undefined,
+    currentStep: row.current_step != null ? Number(row.current_step) : undefined,
+    completedSessionNumbers: safeJson(row.completed_session_numbers, undefined),
+    replaySessionNumber: row.replay_session_number != null ? Number(row.replay_session_number) : undefined,
+    replayAttempt: row.replay_attempt != null ? Number(row.replay_attempt) : undefined,
+    sessionContent: safeJson(row.session_content, undefined),
+    sessionPreparation: safeJson(row.session_preparation, undefined),
+    isProgramComplete: row.is_program_complete === 1 || row.is_program_complete === true,
+    unresolvedMicroIds: safeJson(row.unresolved_micro_ids, undefined),
+    activeStudyMs: row.active_study_ms != null ? Number(row.active_study_ms) : undefined,
+    breakHoursAcknowledged: row.break_hours_acknowledged != null ? Number(row.break_hours_acknowledged) : undefined,
+    materialNames: safeJson(row.material_names, undefined),
+    recoveryQueues: safeJson(row.recovery_queues, undefined),
+    createdAt: Number(row.created_at || Date.now()),
+    lastOpenedAt: Number(row.last_opened_at || Date.now()),
   }
 }
 

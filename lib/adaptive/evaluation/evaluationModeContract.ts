@@ -31,14 +31,13 @@ const CLOSED_FORMATS = [
   'true_false', 'word_bank', 'fill_blank_bank', 'fill_blank_select',
   'matching', 'ordering', 'classify', 'classification', 'classify_groups',
   'scenario', 'find_the_error', 'choose_best_procedure', 'hotspot',
-  'numeric_problem',
 ] as const
 
 const WRITING_FORMATS = [
   'short_response', 'short_answer_text', 'open_response', 'essay',
   'explain', 'explain_why', 'justify', 'teach_back', 'compare_contrast',
   'fill_blank', 'fill_blank_text', 'numeric_short',
-  'numeric_text_input', 'calculator_check', 'step_by_step_solver',
+  'numeric_problem', 'numeric_text_input', 'calculator_check', 'step_by_step_solver',
   'practical_case', 'prediction', 'quick_check', 'complete_procedure',
   'complete_reaction_or_formula', 'formula_builder', 'concept_map',
 ] as const

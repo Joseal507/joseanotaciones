@@ -321,6 +321,20 @@ export function syncVisualEnrichmentToPageMap(pageMap: Map<number, string>, full
   }
 }
 
+export interface BlueprintSourceFigure { materialId:string; page:number; src:string; alt:string; bounds?:{x:number;y:number;width:number;height:number}; provenance:{kind:'SOURCE';operation:'pdf_page_render'} }
+export function buildPageSourceFigure(materialId:string,page:number,groundedDescription:string):BlueprintSourceFigure|null{
+  const alt=groundedDescription.trim().slice(0,500)
+  if(!materialId||!Number.isInteger(page)||page<1||!alt)return null
+  return{materialId,page,src:`/api/materials/${encodeURIComponent(materialId)}/page-image?page=${page}`,alt,provenance:{kind:'SOURCE',operation:'pdf_page_render'}}
+}
+export function attachSourceFiguresToBlocks<T extends {materialId?:string;pages?:number[];sourceSpans?:Array<{page?:number}>}>(blocks:T[],figures:BlueprintSourceFigure[]):Array<T&{sourceFigures?:BlueprintSourceFigure[]}>{
+  return blocks.map(block=>{
+    const pages=new Set([...(block.pages||[]),...(block.sourceSpans||[]).map(span=>span.page).filter((page):page is number=>Number.isInteger(page))])
+    const matched=figures.filter(figure=>figure.materialId===block.materialId&&pages.has(figure.page))
+    return matched.length?{...block,sourceFigures:matched}:{...block}
+  })
+}
+
 async function singleVisionAttempt(
   pageNum: number,
   pdfBuffer: Buffer,
@@ -1476,17 +1490,32 @@ export function certifyBlueprint(
     for (const r of quality.reasons || []) reasons.push(`Calidad: ${r}`);
   }
 
-  // Condición 1b: topics con 0 bloques son inaceptables si tienen más de 1 página
+  // Condición 1b: topics con 0 bloques son inaceptables.
+  // AUDITORÍA (StudyAL_Visual_System_Stress_Test, Bug 3, hallazgo Codex C):
+  // antes solo se bloqueaba un topic vacío si abarcaba MÁS de 1 página
+  // (isMultiPage). Un documento con muchos topics distintos y densos (como un
+  // stress test con 8 categorías) puede tener perfectamente un topic real
+  // confinado a UNA sola página — la extracción de bloques puede fallar para
+  // esa página igual que para cualquier otra, y quedaba sin ninguna señal de
+  // certificación: el topic sobrevivía en `blueprint.topics` (visible como
+  // metadata/preview) pero nunca producía un `unit`/`arc`/sesión de
+  // aprendizaje real (buildLearningPath agrupa por `blueprint.blocks`, nunca
+  // itera `blueprint.topics` directamente — ver buildLearningPath.ts). El
+  // umbral de 30% en blueprintQuality.ts tampoco lo atrapa si el documento
+  // tiene muchos topics y solo 1-2 quedan vacíos. Se exige ahora que TODO
+  // topic con al menos 1 página asignada tenga al menos un bloque — un topic
+  // con 0 páginas (nunca asignado a contenido real) sigue sin bloquear, ya
+  // que ese caso no representa micro perdido.
   const blueprintTopics = blueprint.topics || [];
   const blueprintBlocks = blueprint.blocks || [];
   const emptyImportantTopics = blueprintTopics.filter((t: any) => {
     const hasBlocks = blueprintBlocks.some((b: any) => b.topicId === t.id);
-    const isMultiPage = (t.pages || []).length > 1;
-    return !hasBlocks && isMultiPage;
+    const hasAssignedPages = (t.pages || []).length >= 1;
+    return !hasBlocks && hasAssignedPages;
   });
   if (emptyImportantTopics.length > 0) {
     const titles = emptyImportantTopics.map((t: any) => `"${t.title}"`).join(', ');
-    reasons.push(`Topics sin bloques con múltiples páginas: ${titles}`);
+    reasons.push(`Topics sin bloques con páginas asignadas (contenido detectado pero nunca convertido en bloque de enseñanza): ${titles}`);
   }
 
   // Condición 2: auditoría de IA — BLOQUEANTE si falla o no se ejecutó
@@ -1533,6 +1562,15 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions);
     const userId = (session?.user as any)?.id;
 
+    // AUDITORÍA (StudyAL_Visual_System_Stress_Test, Bug 2): checkpoint barato
+    // antes de toda la extracción/descarga/visión/topics — si el cliente ya
+    // canceló esta request (navegó fuera antes de que el servidor llegara
+    // aquí), evita todo el trabajo remoto caro que sigue. No promete cancelar
+    // nada ya despachado; solo evita EMPEZAR cuando ya no hay consumidor.
+    if (req.signal?.aborted) {
+      return NextResponse.json({ success: false, error: 'cancelled', cancelled: true }, { status: 499 });
+    }
+
     // Perf audit (Codex, read-only): el buffer descargado aquí se usaba una
     // sola vez para extractText y se descartaba — la fase de visión (más
     // abajo) volvía a descargar el MISMO objeto de R2 para el mismo
@@ -1576,6 +1614,7 @@ export async function POST(req: NextRequest) {
     // pueda bloquear coverageCertified/planGenerationAllowed más abajo. Un
     // console.warn nunca es suficiente autoridad de coverage.
     const failedVisualPages: Array<{ material: string; page: number }> = [];
+    const detectedSourceFigures: BlueprintSourceFigure[] = [];
 
     for (const m of validMaterials) {
       console.log(`\n📖 ${m.materialName} (${m.text.length} chars)`);
@@ -1655,6 +1694,8 @@ export async function POST(req: NextRequest) {
               if (outcome.status === 'enriched') {
                 const existing = fullPageMap.get(pageNum) || '';
                 fullPageMap.set(pageNum, existing + '\n\n[Visual content]\n' + outcome.text);
+                const sourceFigure=buildPageSourceFigure(m.materialId,pageNum,outcome.text)
+                if(sourceFigure)detectedSourceFigures.push(sourceFigure)
               }
               // Auditoría de garantías (verificación post-misión, GARANTÍA 1
               // de esta ronda): 'failed' es la ÚNICA salida que significa
@@ -1734,7 +1775,7 @@ export async function POST(req: NextRequest) {
 
     normalizeImportance(deduped);
 
-    const blocksWithIds = deduped.map((b, i) => ({
+    const blocksWithIds = attachSourceFiguresToBlocks(deduped.map((b, i) => ({
       id: `block_${i}`, kind: b.kind, label: b.label, summary: b.summary,
       materialId: b.materialId || '', materialName: b.materialName || '',
       pages: b.pages || [], firstPage: (b.pages || [])[0] || 0,
@@ -1745,7 +1786,7 @@ export async function POST(req: NextRequest) {
       examProbability: b.examProbability ?? 50, estimatedMinutes: b.estimatedMinutes ?? 2,
       _fallback: b._fallback || false,
       sourceSpans: Array.isArray(b.sourceSpans) ? b.sourceSpans : [],
-    }));
+    })),detectedSourceFigures);
 
     const topicsIndex = buildTopicsIndex(allTopics, blocksWithIds);
     const { uniqueConcepts } = deduplicateConcepts(blocksWithIds);

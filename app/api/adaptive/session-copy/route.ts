@@ -154,6 +154,15 @@ CRITICAL RULES:
 Respond ONLY with valid JSON array:
 [{"n":1,"title":"unique title","intro":"specific introduction"}]`;
 
+    // AUDITORÍA (StudyAL_Visual_System_Stress_Test, Bug 2): última oportunidad
+    // barata antes del único gasto LLM real de esta ruta — si el proceso que
+    // originó esta cadena (generate-plan -> journeyBuilder -> aquí) ya fue
+    // cancelado, evita despachar la llamada. No cancela una llamada YA
+    // enviada; solo evita enviarla si todavía no salió.
+    if (req.signal?.aborted) {
+      return NextResponse.json({ success: false, error: 'cancelled', cancelled: true }, { status: 499 });
+    }
+
     const result = await alaiRequest(async (client, getModel) => {
       return await client.chat.completions.create({
         model: getModel(),

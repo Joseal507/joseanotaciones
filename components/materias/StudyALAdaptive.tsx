@@ -14,6 +14,7 @@ import {
 import { generateStudyPlan, type LegacyStudyPlan } from "../../lib/adaptive/planGenerator";
 import { roleBadge } from "../../lib/adaptive/narrativeFormatter";
 import type { LearningJourney } from "../../lib/adaptive/journeyBuilder";
+import { GenerationAttemptTracker } from "../../lib/adaptive/generationAttemptTracker";
 import {
   adaptiveSessionRoute,
   getAdaptiveLifecycleState,
@@ -184,7 +185,59 @@ export default function StudyALAdaptive({
   const lastJourneyKeyRef = useRef<string | null>(null);
   const generationInFlightRef = useRef(false);
   const generationAuthorizedRef = useRef(false);
+  // AUDITORÍA (StudyAL_Visual_System_Stress_Test, Bug 2): blueprint -> plan ->
+  // session-copy no tenía ninguna política de cancelación — salir de esta vista
+  // a mitad de generación dejaba todo el trabajo restante corriendo en
+  // background, y una respuesta tardía de un intento abandonado podía
+  // sobrescribir un intento nuevo (mismo sessionId). GenerationAttemptTracker
+  // (lib/adaptive/generationAttemptTracker.ts — extraído para poder probar el
+  // contrato token/stillCurrent/AbortController directamente, sin React/DOM,
+  // ver scripts/tests/generation-attempt-tracker-contracts.ts) identifica el
+  // intento VIGENTE (blueprint y journey del MISMO proceso comparten un solo
+  // token, ya que journey siempre corre después de blueprint dentro del mismo
+  // intento real) y su AbortController. Nunca se promete cancelar una llamada
+  // YA despachada a OpenRouter/Groq — solo se evita aplicar/persistir su
+  // resultado si llega tarde, y se evita lanzar la SIGUIENTE etapa cara
+  // (generate-plan, session-copy) si el intento que la pidió ya no es el vigente.
+  const generationTrackerRef = useRef(new GenerationAttemptTracker());
+  function beginGenerationAttempt(): { token: number; signal: AbortSignal } {
+    return generationTrackerRef.current.begin();
+  }
+  // Aborta cualquier llamada de red del intento vigente al desmontar el
+  // componente (usuario navegó fuera del modo adaptativo) — cierra la
+  // conexión HTTP saliente; no garantiza que el proveedor externo detenga
+  // inferencia ya despachada, solo evita seguir pagando/aplicando etapas
+  // futuras de ESTE proceso.
+  useEffect(() => {
+    return () => { generationTrackerRef.current.abortCurrent(); };
+  }, []);
   const [journeyError, setJourneyError] = useState<string | null>(null);
+  // AUDITORÍA (StudyAL_Visual_System_Stress_Test, Layer B GAP "no
+  // regeneración silenciosa"): restoreGapAfterReady (ver loadSession más
+  // abajo) fija journeyError con el mensaje honesto de hueco de
+  // restauración — pero el efecto de limpieza de journey (más abajo,
+  // "if (!setupReady || !blueprintReady || blueprintDegraded)") lo borraba
+  // INCONDICIONALMENTE en el mismo tick, precisamente PORQUE blueprint está
+  // ausente en el escenario de hueco (esa es la definición del hueco). El
+  // usuario nunca llegaba a ver el mensaje de recovery ni el botón
+  // "Reintentar preparación del plan" — la UI caía directo a "Preparando el
+  // análisis inicial…" como si fuera un setup genuinamente nuevo. Este flag
+  // le dice a ese efecto de limpieza que NO borre journeyError mientras el
+  // hueco siga pendiente de una acción explícita del usuario.
+  const restoreGapPendingRef = useRef(false);
+  // AUDITORÍA (misma misión, hallazgo posterior): el botón "Reintentar
+  // preparación del plan" solo marcaba generationAuthorizedRef.current=true
+  // (un ref) — el efecto de generación de blueprint más abajo depende de
+  // [sessionLoading, blueprint, blueprintError, blueprintLoading, journey,
+  // lifecycleState], NINGUNO de los cuales cambia de VALOR en el escenario
+  // de restoreGapAfterReady (lifecycleState ya era 'setup_complete' desde
+  // el primer render, precisamente PORQUE blueprint/journey ya faltaban —
+  // esa es la definición del hueco), así que el clic nunca disparaba un
+  // nuevo render del efecto y la regeneración quedaba pedida pero nunca
+  // ejecutada. Este contador, incrementado únicamente por una acción
+  // explícita del usuario, garantiza que el efecto se reevalúe sin importar
+  // si algún otro valor derivado coincide por casualidad con el anterior.
+  const [regenerationTrigger, setRegenerationTrigger] = useState(0);
   const [blueprintQuality, setBlueprintQuality] = useState<any>(null);
   const setupReady = Boolean(setup?.completedAt);
   const blueprintReady = Boolean(
@@ -343,8 +396,32 @@ export default function StudyALAdaptive({
           setSetup(normalizedSession.adaptiveSetup);
           if (normalizedSession.setupHash) setCurrentSetupHash(normalizedSession.setupHash);
           setDone(true);
-          // CRITICAL: autorizar generación de artifacts al restaurar sesión existente
-          generationAuthorizedRef.current = true;
+          // AUDITORÍA (StudyAL_Visual_System_Stress_Test, Bug 1C): "adaptiveState
+          // === 'ready'" solo se fija cuando blueprint+journey YA se generaron
+          // con éxito antes (ver el catch de generación más abajo,
+          // `adaptiveState: "ready"`) — ese campo vive en la copia LIVIANA de la
+          // sesión (studyal_sessions_v4), nunca se despoja como blueprint/journey/
+          // sessionContent, así que sobrevive incluso cuando el artefacto pesado
+          // (blueprint/journey) no restauró. Si el programa YA estaba listo antes
+          // pero ahora falta blueprint o journey, esto es un FALLO DE RESTORE, no
+          // una sesión que nunca generó nada — autorizar generación aquí
+          // regeneraría el plan completo cada vez que el usuario sale y vuelve
+          // tras cualquier hueco de restauración transitorio. Solo se autoriza
+          // automáticamente cuando el programa nunca llegó a 'ready' (primera vez
+          // real). Si ya estaba 'ready' y algo no restauró, se muestra un error
+          // honesto reutilizando el mismo botón "Reintentar preparación del
+          // plan" — la regeneración exige ahora una acción explícita del
+          // usuario, nunca es automática tras un restore fallido.
+          const restoreGapAfterReady = normalizedSession.adaptiveState === "ready" &&
+            (!normalizedSession.blueprint || !normalizedSession.journey);
+          if (restoreGapAfterReady) {
+            restoreGapPendingRef.current = true;
+            setJourneyError(
+              "Ya habías completado la preparación de este plan, pero no pudimos restaurar todos los datos guardados. Puedes reintentar la restauración; no se generará un plan nuevo salvo que lo pidas explícitamente."
+            );
+          } else {
+            generationAuthorizedRef.current = true;
+          }
         }
 
         let loadedBlueprint = normalizedSession.blueprint;
@@ -375,8 +452,13 @@ export default function StudyALAdaptive({
           // No hay journey pero sí setup — intentar generar
           setActiveTab("plan");
           lastJourneyKeyRef.current = null;
-          // Solo mostrar error si fue una sesión específica por sessionId
-          if (sessionId && !loadedBlueprint) {
+          // Solo mostrar error si fue una sesión específica por sessionId — pero
+          // NUNCA pisar el mensaje más específico de restoreGapAfterReady (arriba
+          // en este mismo efecto): ambos casos comparten el mismo bloque de UI y
+          // el mismo botón "Reintentar", pero el mensaje de hueco de restauración
+          // es más preciso (explica que NO se generará un plan nuevo salvo acción
+          // explícita) que este genérico "crear un plan nuevo explícitamente".
+          if (sessionId && !loadedBlueprint && !restoreGapPendingRef.current) {
             setJourneyError("No encontramos el plan persistido solicitado. Puedes volver al mapa o crear un plan nuevo explícitamente.");
           }
         }
@@ -401,13 +483,15 @@ export default function StudyALAdaptive({
       hasJourney: Boolean(journey),
     }) || blueprintLoading) return;
     generateBlueprint();
-  }, [sessionLoading, blueprint, blueprintError, blueprintLoading, journey, lifecycleState]);
+  }, [sessionLoading, blueprint, blueprintError, blueprintLoading, journey, lifecycleState, regenerationTrigger]);
 
   async function generateBlueprint() {
     if (generationInFlightRef.current) return;
     generationInFlightRef.current = true;
     setBlueprintLoading(true);
     setBlueprintError(null);
+    const { token: myToken, signal } = beginGenerationAttempt();
+    const stillCurrent = () => generationTrackerRef.current.stillCurrent(myToken);
 
     try {
       const activeSessionId = resolvedSession?.id || sessionId;
@@ -426,7 +510,7 @@ export default function StudyALAdaptive({
 
           if (!text && matId) {
             try {
-              const r = await fetch(`/api/materials/${matId}/download-url`, { credentials: "same-origin" });
+              const r = await fetch(`/api/materials/${matId}/download-url`, { credentials: "same-origin", signal });
               if (r.ok) {
                 const d = await r.json();
                 // Just use materialId for now — text extraction happens server side
@@ -447,6 +531,7 @@ export default function StudyALAdaptive({
           };
         })
       );
+      if (!stillCurrent()) return;
 
       const res = await fetch("/api/adaptive/blueprint", {
         method: "POST",
@@ -455,10 +540,13 @@ export default function StudyALAdaptive({
           materials: materialsWithText,
           userProfile: profile,
           adaptiveSetup: setup,
+          generationToken: String(myToken),
         }),
+        signal,
       });
 
       const json = await res.json();
+      if (!stillCurrent()) return;
       if (!res.ok || !json.success) throw new Error(json.error || "Error generando blueprint");
 
       setBlueprint(json.blueprint);
@@ -471,11 +559,13 @@ export default function StudyALAdaptive({
           profile,
           cleanMaterialName,
         );
+        if (!stillCurrent()) return;
         setStudyPlan(plan);
         // Ir automáticamente al tab del plan cuando se genera
         setActiveTab("plan");
       } catch (planErr) {
       }
+      if (!stillCurrent()) return;
 
       const blueprintSession = updateSessionById(activeSessionId, current => ({
         ...current,
@@ -484,6 +574,12 @@ export default function StudyALAdaptive({
       }));
       if (blueprintSession) setResolvedSession(blueprintSession);
     } catch (e: any) {
+      // AUDITORÍA (Bug 2): un abort intencional (cleanup/token superseded)
+      // nunca debe tratarse como fallo de generación — no marcar
+      // adaptiveState:'error' ni mostrar blueprintError por una cancelación
+      // deliberada, o el usuario vería un mensaje de error falso la próxima
+      // vez que abra esta sesión.
+      if (e?.name === "AbortError" || !stillCurrent()) return;
       setBlueprintError(e.message || "Error desconocido");
       const activeSessionId = resolvedSession?.id || sessionId;
       if (activeSessionId) {
@@ -509,7 +605,12 @@ export default function StudyALAdaptive({
   useEffect(() => {
     if (!setupReady || !blueprintReady || blueprintDegraded) {
       setJourney(null);
-      setJourneyError(null);
+      // No pisar el mensaje de hueco de restauración pendiente — este efecto
+      // existe para limpiar journeyError STALE cuando el blueprint todavía
+      // no está listo en el flujo normal, pero el escenario de hueco se
+      // define precisamente por blueprint ausente; borrarlo aquí anulaba el
+      // mensaje de recovery en el mismo tick en que se mostraba.
+      if (!restoreGapPendingRef.current) setJourneyError(null);
       return;
     }
 
@@ -539,6 +640,19 @@ export default function StudyALAdaptive({
     }
     lastJourneyKeyRef.current = journeyKey;
 
+    // AUDITORÍA (Bug 2): journey siempre corre DESPUÉS de blueprint dentro del
+    // MISMO intento real — reutiliza el token/controller que blueprint ya
+    // registró en vez de crear uno nuevo (eso invalidaría la identidad del
+    // intento vigente sin motivo). Si por algún camino no había un controller
+    // activo (p.ej. journey restaurado sin haber pasado por generateBlueprint
+    // en este montaje), se crea uno propio para no dejar esta llamada sin
+    // señal de cancelación.
+    const existingSignal = generationTrackerRef.current.currentSignal;
+    const { token: myToken, signal } = existingSignal
+      ? { token: generationTrackerRef.current.currentToken, signal: existingSignal }
+      : beginGenerationAttempt();
+    const stillCurrent = () => generationTrackerRef.current.stillCurrent(myToken);
+
     // async IIFE para poder usar await dentro de useEffect
     (async () => {
     try {
@@ -552,10 +666,13 @@ export default function StudyALAdaptive({
           setup,
           materialTitle: materialNames[0] || "Material",
           quality: blueprintQuality,  // pasar quality para que el servidor pueda bloquear
+          generationToken: String(myToken),
         }),
+        signal,
       });
 
       const data = await res.json();
+      if (!stillCurrent()) return;
 
       // Si el blueprint está degradado, el servidor devuelve 422
       if (res.status === 422 && data.degraded) {
@@ -581,7 +698,31 @@ export default function StudyALAdaptive({
         adaptiveState: "ready",
       }));
       if (readySession) setResolvedSession(readySession);
+      // Pipeline continuo: en cuanto el plan es durable, empieza Session 1.
+      // Usa el mismo attempt/signal del plan, por lo que salir del modo aborta
+      // la petición y un resultado stale nunca se persiste.
+      const firstChapter = (j.chapters || []).find((chapter: any) => chapter.chapterNumber === 1)
+      if (readySession && firstChapter && firstChapter.kind !== 'final_review' && stillCurrent()) {
+        void fetch('/api/adaptive/session-teach', {
+          method:'POST', headers:{'content-type':'application/json'}, signal,
+          body:JSON.stringify({
+            session:firstChapter, blueprint, userProfile:profile || {}, setup,
+            materialTitle:materialNames[0] || 'Material', materialType:'general',
+            totalSessions:(j.chapters || []).length, userId,
+            allBlocks:blueprint?.blocks || [], allTopics:blueprint?.topics || [],
+            primaryBlockIds:firstChapter.blockIds || [], requestOrigin:'prefetch',
+            preparationState:(readySession.sessionPreparation as any)?.['1'],
+          }),
+        }).then(response=>response.json()).then(prefetched=>{
+          if(!stillCurrent()||!prefetched?.success||!prefetched?.classContent)return
+          const persisted=updateSessionById(readySession.id,(current:any)=>({...current,sessionPreparation:{...(current.sessionPreparation||{}),'1':prefetched.classContent.preparationState},sessionContent:{...(current.sessionContent||{}),'1':prefetched.classContent}}))
+          if(persisted)setResolvedSession(persisted)
+        }).catch(prefetchError=>{if(prefetchError?.name!=='AbortError')console.warn('[adaptive-prefetch] session_1_failed_retryable')})
+      }
     } catch (err: any) {
+      // AUDITORÍA (Bug 2): mismo criterio que generateBlueprint — un abort
+      // intencional (cleanup/token superseded) nunca es un error de producto.
+      if (err?.name === "AbortError" || !stillCurrent()) return;
       console.error("[StudyALAdaptive] Error construyendo journey reactivo:", err?.message || err);
       lastJourneyKeyRef.current = null;
       setJourney(null);
@@ -909,6 +1050,7 @@ export default function StudyALAdaptive({
                   </div>
                   <button
                     onClick={() => {
+                      restoreGapPendingRef.current = false;
                       generationAuthorizedRef.current = true;
                       lastJourneyKeyRef.current = null;
                       setJourneyError(null);
@@ -920,6 +1062,10 @@ export default function StudyALAdaptive({
                         }));
                         if (retrying) setResolvedSession(retrying);
                       }
+                      // Fuerza al efecto de generación a reevaluarse aunque
+                      // lifecycleState ya fuera 'setup_complete' antes del clic
+                      // (caso restoreGapAfterReady — ver declaración arriba).
+                      setRegenerationTrigger(n => n + 1);
                     }}
                     style={{ marginTop: 14, padding: "10px 16px", borderRadius: 10, border: 0, cursor: "pointer" }}
                   >
@@ -1153,7 +1299,7 @@ export default function StudyALAdaptive({
                             )}
 
                             {/* Exit criteria — solo sesión activo/disponible, no intro */}
-                            {isAvailable && chapter.kind !== "introduction" && chapter.exitCriteria.length > 0 && (
+                            {isAvailable && chapter.kind !== "introduction" && (chapter.exitCriteria?.length ?? 0) > 0 && (
                               <div style={{
                                 marginTop: 10, paddingTop: 10,
                                 borderTop: "1px solid var(--border-color)",

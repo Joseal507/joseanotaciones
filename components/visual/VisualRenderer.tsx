@@ -12,6 +12,8 @@ import type {
   VisualInteractionVerb,
   VisualSpec,
 } from "../../lib/adaptive/visual/visualContract"
+import { EquationView, FlowSvgView, GeometrySvgView, SourceImageView, StructureGraphSvgView } from "./UniversalVisualViews"
+import { evaluateExpression } from "../../lib/adaptive/visual/engines/shared"
 
 interface VisualRendererProps {
   spec: VisualSpec
@@ -34,11 +36,16 @@ const submitBtn: React.CSSProperties = { marginTop: 12, padding: "8px 16px", bac
 export function describeVisualSpec(spec: VisualSpec): string {
   try {
     if (spec.engine === "graph_2d") return `Gráfica de f(x) = ${spec.data.expression}, dominio [${spec.data.domain[0]}, ${spec.data.domain[1]}].`
-    if (spec.engine === "structured_grid") return `Tabla ICE de la reacción ${spec.data.reaction}, especies: ${spec.data.species.join(", ")}.`
+    if (spec.engine === "structured_grid") return `Tabla estructurada ${spec.data.title||spec.data.reaction}, filas: ${spec.data.species.join(", ")}.`
     if (spec.engine === "spatial_vector") return `Diagrama de cuerpo libre sobre ${spec.data.body}: ${spec.data.forces.map(f => `${f.label} (${f.magnitude ?? "?"} ${f.unit || ""} a ${f.angleDeg}°)`).join(", ")}.`
     if (spec.engine === "chemistry_2d") return `Estructura con átomos ${spec.data.atoms.map(a => `${a.id}=${a.element}`).join(", ")} y ${spec.data.bonds.length} enlace(s).`
     if (spec.engine === "code_execution") return `Traza de ejecución (${spec.data.language}) con ${spec.data.steps.length} paso(s).`
-    return `Cronología con ${spec.data.events.length} evento(s): ${spec.data.events.map(e => `${e.date ? `${e.date}: ` : ""}${e.label}`).join(", ")}.`
+    if (spec.engine === "timeline") return `Cronología con ${spec.data.events.length} evento(s): ${spec.data.events.map(e => `${e.date ? `${e.date}: ` : ""}${e.label}`).join(", ")}.`
+    if (spec.engine === "geometry_canvas") return `Construcción geométrica con ${spec.data.points.length} puntos y ${spec.data.segments.length} segmentos.`
+    if (spec.engine === "structure_graph") return `Estructura con ${spec.data.nodes.length} nodos y ${spec.data.edges.length} relaciones.`
+    if (spec.engine === "flow_state") return `Proceso de ${spec.data.stages.length} etapas.`
+    if (spec.engine === "equation_expression") return `Transformación simbólica de ${spec.data.steps.length} pasos.`
+    return `Figura fuente: ${spec.data.alt}.`
   } catch {
     return `Visual de tipo ${spec.engine} (${spec.representation}) no disponible en este momento.`
   }
@@ -74,7 +81,12 @@ function VisualRendererInner({ spec, mode, onSubmit, disabled }: VisualRendererP
   if (spec.engine === "spatial_vector") return <SpatialVectorView data={spec.data} mode={mode} onSubmit={onSubmit} disabled={disabled} />
   if (spec.engine === "chemistry_2d") return <Chemistry2DView data={spec.data} mode={mode} onSubmit={onSubmit} disabled={disabled} />
   if (spec.engine === "code_execution") return <CodeExecutionView data={spec.data} mode={mode} onSubmit={onSubmit} disabled={disabled} />
-  return <TimelineView data={spec.data} mode={mode} onSubmit={onSubmit} disabled={disabled} />
+  if (spec.engine === "timeline") return <TimelineView data={spec.data} mode={mode} onSubmit={onSubmit} disabled={disabled} />
+  if (spec.engine === "geometry_canvas") return <GeometrySvgView data={spec.data} mode={mode} onSubmit={onSubmit} disabled={disabled}/>
+  if (spec.engine === "structure_graph") return <StructureGraphSvgView data={spec.data} mode={mode} onSubmit={onSubmit} disabled={disabled}/>
+  if (spec.engine === "flow_state") return <FlowSvgView data={spec.data} mode={mode} onSubmit={onSubmit} disabled={disabled}/>
+  if (spec.engine === "equation_expression") return <EquationView data={spec.data} mode={mode} onSubmit={onSubmit} disabled={disabled}/>
+  return <SourceImageView data={spec.data} mode={mode} onSubmit={onSubmit} disabled={disabled}/>
 }
 
 // Técnica "sr-only" estándar (clip, no display:none/visibility:hidden) — visible
@@ -84,9 +96,47 @@ const srOnly: React.CSSProperties = {
   overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0,
 }
 
+// Copia y color por modo pedagógico (Bug 4, StudyAL_Visual_System_Stress_Test):
+// el mismo VisualSpec puede renderizarse en teach/practice/assess, y antes de
+// este fix no había ninguna señal visual que distinguiera un ejemplo
+// explicativo de una comprobación que bloquea Continuar — el usuario veía la
+// misma tarjeta "📝 Ejemplo" con un formulario de examen sin previo aviso.
+// No se crea un engine ni un dato nuevo: se reutiliza `mode` (ya existente en
+// VisualInteractionMode) solo para decidir texto/color de esta cabecera.
+function modeBanner(mode: VisualInteractionMode): { label: string; detail: string; color: string; bg: string; border: string } {
+  if (mode === "teach") {
+    return { label: "Explora el ejemplo", detail: "Contenido explicativo — no afecta tu progreso.", color: "#60a5fa", bg: "rgba(59,130,246,0.10)", border: "rgba(59,130,246,0.35)" }
+  }
+  if (mode === "practice") {
+    return { label: "Práctica guiada", detail: "Recibe retroalimentación — puedes continuar sin acertar.", color: "#facc15", bg: "rgba(250,204,21,0.10)", border: "rgba(250,204,21,0.35)" }
+  }
+  return { label: "Comprobación requerida", detail: "Necesitas una respuesta correcta para continuar.", color: "#f472b6", bg: "rgba(244,114,182,0.10)", border: "rgba(244,114,182,0.35)" }
+}
+
+function VisualModeHeader({ mode }: { mode: VisualInteractionMode }) {
+  const copy = modeBanner(mode)
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "8px 14px", marginBottom: 8, background: copy.bg, border: `1px solid ${copy.border}`, borderRadius: 10 }}>
+      <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: copy.color }}>{copy.label}</span>
+      <span style={{ fontSize: 12, color: "#9ca3af" }}>{copy.detail}</span>
+    </div>
+  )
+}
+
+// Nota corta junto a la interacción misma (además de la cabecera general),
+// para que la diferencia practice/assess sea visible exactamente donde el
+// usuario va a escribir su respuesta, no solo arriba del todo.
+function InteractionConsequenceNote({ mode }: { mode: VisualInteractionMode }) {
+  if (mode === "assess") {
+    return <div style={{ fontSize: 12, color: "#f472b6", marginBottom: 8 }}>Se requiere una respuesta correcta para continuar.</div>
+  }
+  return <div style={{ fontSize: 12, color: "#facc15", marginBottom: 8 }}>Práctica — tu respuesta no bloquea tu progreso.</div>
+}
+
 export function VisualRenderer(props: VisualRendererProps) {
   return (
     <VisualErrorBoundary spec={props.spec}>
+      <VisualModeHeader mode={props.mode} />
       <VisualRendererInner {...props} />
       <p style={srOnly}>{describeVisualSpec(props.spec)}</p>
     </VisualErrorBoundary>
@@ -94,32 +144,114 @@ export function VisualRenderer(props: VisualRendererProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Genera marcas "redondas" (1/2/5 × 10^n) dentro de [min, max] — evita ticks
+// como 3.333 que no aportan lectura a un estudiante (Bug 5, GraphEngine).
+function niceTicks(min: number, max: number, targetCount = 5): number[] {
+  if (!(max > min)) return [min]
+  const rawStep = (max - min) / targetCount
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)))
+  const residual = rawStep / magnitude
+  const step = (residual > 5 ? 10 : residual > 2 ? 5 : residual > 1 ? 2 : 1) * magnitude
+  const start = Math.ceil(min / step) * step
+  const ticks: number[] = []
+  for (let v = start; v <= max + step * 1e-6; v += step) ticks.push(Math.round(v / step) * step)
+  return ticks.length ? ticks : [min, max]
+}
+
+function fmtTick(v: number): string {
+  return Math.abs(v) < 1e-9 ? "0" : Number(v.toFixed(4)).toString()
+}
+
 function GraphView({ data, mode, onSubmit, disabled }: { data: GraphDataSpec; mode: VisualInteractionMode; onSubmit?: (verb: VisualInteractionVerb, response: unknown) => void; disabled?: boolean }) {
   const [x, setX] = useState("")
   const [y, setY] = useState("")
-  const width = 320, height = 200
+  const [exploredPoint, setExploredPoint] = useState(0)
+  const [sliderX,setSliderX]=useState(data.domain[0])
+  // Área de trazado en un sistema de coordenadas interno fijo (viewBox) que
+  // escala al 100% del ancho disponible — antes era un SVG de 320×200 fijo
+  // que dejaba la mitad de una tarjeta ancha en blanco.
+  const vbWidth = 480, vbHeight = 280
+  const margin = { top: 26, right: 16, bottom: 32, left: 40 }
+  const plotW = vbWidth - margin.left - margin.right
+  const plotH = vbHeight - margin.top - margin.bottom
   const [domainMin, domainMax] = data.domain
   const ys = data.points.map(p => p.y)
-  const yMin = Math.min(0, ...ys), yMax = Math.max(0, ...ys) || 1
-  const toScreenX = (px: number) => ((px - domainMin) / (domainMax - domainMin || 1)) * width
-  const toScreenY = (py: number) => height - ((py - yMin) / (yMax - yMin || 1)) * height
+  const rawYMin = Math.min(0, ...ys), rawYMax = Math.max(0, ...ys) || 1
+  const yPad = (rawYMax - rawYMin) * 0.1 || 1
+  const yMin = rawYMin - yPad, yMax = rawYMax + yPad
+  const toScreenX = (px: number) => margin.left + ((px - domainMin) / (domainMax - domainMin || 1)) * plotW
+  const toScreenY = (py: number) => margin.top + plotH - ((py - yMin) / (yMax - yMin || 1)) * plotH
   const path = data.points.map(p => `${toScreenX(p.x)},${toScreenY(p.y)}`).join(" ")
+  const xTicks = niceTicks(domainMin, domainMax)
+  const yTicks = niceTicks(yMin, yMax)
+  const zeroInX = domainMin <= 0 && domainMax >= 0
+  const zeroInY = yMin <= 0 && yMax >= 0
+  const sliderY=evaluateExpression(data.expression,sliderX)
+  const derivedRoots=data.points.filter(point=>Math.abs(point.y)<1e-9)
+  const axisX = zeroInY ? toScreenY(0) : margin.top + plotH
+  const axisY = zeroInX ? toScreenX(0) : margin.left
   return (
     <div style={wrap}>
-      <div style={label}>f(x) = {data.expression} · dominio [{domainMin}, {domainMax}]</div>
-      <svg width={width} height={height} style={{ background: "#0c0c12", borderRadius: 8 }}>
-        <line x1={0} y1={toScreenY(0)} x2={width} y2={toScreenY(0)} stroke="#333" />
-        <line x1={toScreenX(0)} y1={0} x2={toScreenX(0)} y2={height} stroke="#333" />
+      <div style={{ ...label, fontSize: 14, fontWeight: 700, color: "#e5e7eb", marginBottom: 4 }}>f(x) = {data.expression}</div>
+      <div style={label}>dominio [{domainMin}, {domainMax}]</div>
+      <svg data-testid="graph-svg" viewBox={`0 0 ${vbWidth} ${vbHeight}`} style={{ width: "100%", height: "auto", background: "#0c0c12", borderRadius: 8, display: "block", touchAction:"manipulation" }} role="img" aria-label={`Gráfica de ${data.expression}`}>
+        {/* grid */}
+        {xTicks.map((t, i) => <line key={`gx${i}`} x1={toScreenX(t)} y1={margin.top} x2={toScreenX(t)} y2={margin.top + plotH} stroke="#1f2430" strokeWidth={1} />)}
+        {yTicks.map((t, i) => <line key={`gy${i}`} x1={margin.left} y1={toScreenY(t)} x2={margin.left + plotW} y2={toScreenY(t)} stroke="#1f2430" strokeWidth={1} />)}
+        {/* axes */}
+        <line x1={margin.left} y1={axisX} x2={margin.left + plotW} y2={axisX} stroke="#4b5563" strokeWidth={1.5} />
+        <line x1={axisY} y1={margin.top} x2={axisY} y2={margin.top + plotH} stroke="#4b5563" strokeWidth={1.5} />
+        {/* ticks + labels */}
+        {xTicks.map((t, i) => (
+          <g key={`tx${i}`}>
+            <line x1={toScreenX(t)} y1={axisX - 3} x2={toScreenX(t)} y2={axisX + 3} stroke="#6b7280" />
+            <text x={toScreenX(t)} y={margin.top + plotH + 16} fill="#9ca3af" fontSize={10} textAnchor="middle">{fmtTick(t)}</text>
+          </g>
+        ))}
+        {yTicks.map((t, i) => (
+          <g key={`ty${i}`}>
+            <line x1={axisY - 3} y1={toScreenY(t)} x2={axisY + 3} y2={toScreenY(t)} stroke="#6b7280" />
+            <text x={margin.left - 8} y={toScreenY(t) + 3} fill="#9ca3af" fontSize={10} textAnchor="end">{fmtTick(t)}</text>
+          </g>
+        ))}
+        <text x={margin.left + plotW} y={margin.top + plotH + 16} fill="#6b7280" fontSize={10} textAnchor="end">x</text>
+        <text x={margin.left} y={margin.top - 10} fill="#6b7280" fontSize={10} textAnchor="start">f(x)</text>
         {data.points.length > 1 && <polyline points={path} fill="none" stroke="#4ade80" strokeWidth={2} />}
-        {data.points.map((p, i) => <circle key={i} cx={toScreenX(p.x)} cy={toScreenY(p.y)} r={3} fill="#60a5fa" />)}
+        {data.points.map((p, i) => (
+          <g key={i} tabIndex={0} focusable="true" role="button" aria-label={`Punto ${p.x}, ${p.y}`} onClick={()=>{setExploredPoint(i);if(mode!=="teach")onSubmit?.("select_region",{x:p.x,y:p.y})}} onKeyDown={e=>{if(e.key==="Enter"){setExploredPoint(i);if(mode!=="teach")onSubmit?.("select_region",{x:p.x,y:p.y})}}}>
+            <circle cx={toScreenX(p.x)} cy={toScreenY(p.y)} r={exploredPoint===i?7:4} fill={exploredPoint===i?"#facc15":"#60a5fa"} stroke="#0c0c12" strokeWidth={1.5}>
+              <title>{p.label ? `${p.label}: ` : ""}({fmtTick(p.x)}, {fmtTick(p.y)})</title>
+            </circle>
+            {p.label && <text x={toScreenX(p.x)} y={toScreenY(p.y) - 8} fill="#93c5fd" fontSize={10} textAnchor="middle">{p.label}</text>}
+          </g>
+        ))}
+        {mode==="teach"&&sliderY!==null&&<g><line x1={toScreenX(sliderX)} y1={axisX} x2={toScreenX(sliderX)} y2={toScreenY(sliderY)} stroke="#facc15" strokeDasharray="4 3"/><circle cx={toScreenX(sliderX)} cy={toScreenY(sliderY)} r="6" fill="#facc15"/></g>}
       </svg>
+      {mode === "teach" && data.points.length > 0 && (
+        <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={label}>Explora x:</span>
+          {data.points.map((point, index) => <button key={`${point.x}:${index}`} type="button" style={{ ...submitBtn, marginTop: 0, padding: "5px 10px", background: exploredPoint === index ? "#60a5fa" : "#273449", color: "white" }} onClick={() => setExploredPoint(index)}>{fmtTick(point.x)}</button>)}
+          <span style={{ color: "#93c5fd" }}>x={fmtTick(data.points[exploredPoint].x)} → y={fmtTick(data.points[exploredPoint].y)}</span>
+          <input aria-label="Seleccionar valor de x" type="range" min={domainMin} max={domainMax} step={(domainMax-domainMin)/100||1} value={sliderX} onChange={e=>setSliderX(Number(e.target.value))}/>
+          {sliderY!==null&&<span style={{color:"#facc15"}}>f({fmtTick(sliderX)}) = {fmtTick(sliderY)}</span>}
+          {derivedRoots.length>0&&<span style={{color:"#4ade80"}}>Raíz observada: {derivedRoots.map(root=>fmtTick(root.x)).join(", ")}</span>}
+        </div>
+      )}
+      {data.annotations && data.annotations.length > 0 && (
+        <ul style={{ marginTop: 8, paddingLeft: 18, color: "#9ca3af", fontSize: 12 }}>
+          {data.annotations.map((a, i) => <li key={i}>{a}</li>)}
+        </ul>
+      )}
       {(mode === "practice" || mode === "assess") && (
-        <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
-          <span style={{ color: "#9ca3af" }}>¿Cuánto vale f(</span>
-          <input style={input} value={x} onChange={e => setX(e.target.value)} placeholder="x" disabled={disabled} />
-          <span style={{ color: "#9ca3af" }}>) ?</span>
-          <input style={input} value={y} onChange={e => setY(e.target.value)} placeholder="y" disabled={disabled} />
-          <button style={submitBtn} disabled={disabled || !x || !y} onClick={() => onSubmit?.("select_region", { x: Number(x), y: Number(y) })}>Comprobar</button>
+        <div style={{ marginTop: 10 }}>
+          <InteractionConsequenceNote mode={mode} />
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ color: "#9ca3af" }}>¿Cuánto vale f(</span>
+            <input style={input} value={x} onChange={e => setX(e.target.value)} placeholder="x" disabled={disabled} />
+            <span style={{ color: "#9ca3af" }}>) ?</span>
+            <input style={input} value={y} onChange={e => setY(e.target.value)} placeholder="y" disabled={disabled} />
+            <button style={submitBtn} disabled={disabled || !x || !y} onClick={() => onSubmit?.("select_region", { x: Number(x), y: Number(y) })}>Comprobar</button>
+          </div>
         </div>
       )}
     </div>
@@ -129,17 +261,19 @@ function GraphView({ data, mode, onSubmit, disabled }: { data: GraphDataSpec; mo
 // ---------------------------------------------------------------------------
 function StructuredGridView({ data, mode, onSubmit, disabled }: { data: StructuredGridDataSpec; mode: VisualInteractionMode; onSubmit?: (verb: VisualInteractionVerb, response: unknown) => void; disabled?: boolean }) {
   const [values, setValues] = useState<Record<string, string>>({})
+  const [exploredRow, setExploredRow] = useState<"initial" | "change" | "equilibrium">("initial")
   const interactive = mode === "practice" || mode === "assess"
+  const stages=data.stageLabels||{initial:"Inicial",change:"Cambio",equilibrium:"Equilibrio"}
   return (
     <div style={wrap}>
-      <div style={label}>{data.reaction}</div>
-      <table style={{ width: "100%", borderCollapse: "collapse", color: "#e5e7eb" }}>
+      <div style={label}>{data.title||data.reaction}</div>
+      <div style={{overflowX:"auto"}}><table data-testid="structured-grid" style={{ width: "100%", minWidth:420,borderCollapse: "collapse", color: "#e5e7eb" }}>
         <thead>
-          <tr>{["Especie", "Inicial", "Cambio", "Equilibrio"].map(h => <th key={h} style={{ textAlign: "left", padding: 6, borderBottom: "1px solid #333", fontSize: 13, color: "#9ca3af" }}>{h}</th>)}</tr>
+          <tr>{["Elemento", stages.initial, stages.change, stages.equilibrium].map(h => <th key={h} style={{ textAlign: "left", padding: 6, borderBottom: "1px solid #333", fontSize: 13, color: "#9ca3af" }}>{h}</th>)}</tr>
         </thead>
         <tbody>
           {data.species.map(id => (
-            <tr key={id}>
+            <tr key={id} style={mode === "teach" ? { background: exploredRow === "initial" ? "rgba(96,165,250,.08)" : exploredRow === "change" ? "rgba(250,204,21,.08)" : "rgba(74,222,128,.08)" } : undefined}>
               <td style={{ padding: 6 }}>[{id}]</td>
               <td style={{ padding: 6 }}>{String(data.initial[id])}</td>
               <td style={{ padding: 6 }}>{data.change[id]}</td>
@@ -151,9 +285,13 @@ function StructuredGridView({ data, mode, onSubmit, disabled }: { data: Structur
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
+      {mode === "teach" && <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" }}>{([['initial',stages.initial],['change',stages.change],['equilibrium',stages.equilibrium]] as const).map(([row,text])=><button key={row} type="button" style={{...submitBtn,marginTop:0,padding:"5px 10px",background:exploredRow===row?"#60a5fa":"#273449",color:"white"}} onClick={()=>setExploredRow(row)}>{text}</button>)}<span style={{color:"#9ca3af"}}>Selecciona una columna para seguir su relación con todas las filas.</span></div>}
       {interactive && (
-        <button style={submitBtn} disabled={disabled || data.species.some(id => !values[id])} onClick={() => onSubmit?.("fill_cell", values)}>Comprobar</button>
+        <div style={{ marginTop: 10 }}>
+          <InteractionConsequenceNote mode={mode} />
+          <button style={submitBtn} disabled={disabled || data.species.some(id => !values[id])} onClick={() => onSubmit?.("fill_cell", values)}>Comprobar</button>
+        </div>
       )}
     </div>
   )
@@ -162,6 +300,7 @@ function StructuredGridView({ data, mode, onSubmit, disabled }: { data: Structur
 // ---------------------------------------------------------------------------
 function SpatialVectorView({ data, mode, onSubmit, disabled }: { data: SpatialVectorDataSpec; mode: VisualInteractionMode; onSubmit?: (verb: VisualInteractionVerb, response: unknown) => void; disabled?: boolean }) {
   const [attempt, setAttempt] = useState<Record<string, { angleDeg: string; magnitude: string }>>({})
+  const [selectedForce, setSelectedForce] = useState(data.forces[0]?.id || "")
   const interactive = mode === "practice" || mode === "assess"
   const size = 220, cx = size / 2, cy = size / 2
   const scale = 1.6
@@ -186,8 +325,10 @@ function SpatialVectorView({ data, mode, onSubmit, disabled }: { data: SpatialVe
           <marker id="arrow" markerWidth={8} markerHeight={8} refX={6} refY={3} orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#e5e7eb" /></marker>
         </defs>
       </svg>
+      {mode === "teach" && <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginTop:8}}>{data.forces.map(force=><button key={force.id} type="button" style={{...submitBtn,marginTop:0,padding:"5px 10px",background:selectedForce===force.id?"#60a5fa":"#273449",color:"white"}} onClick={()=>setSelectedForce(force.id)}>{force.label}</button>)}{data.forces.filter(force=>force.id===selectedForce).map(force=><span key={force.id} style={{color:"#93c5fd"}}>{force.magnitude ?? "?"} {force.unit || ""}, dirección {force.angleDeg}°</span>)}</div>}
       {interactive && (
         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+          <InteractionConsequenceNote mode={mode} />
           {data.forces.map(force => (
             <div key={force.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <span style={{ color: "#9ca3af", minWidth: 90 }}>{force.label}</span>
@@ -209,34 +350,39 @@ function SpatialVectorView({ data, mode, onSubmit, disabled }: { data: SpatialVe
 // ---------------------------------------------------------------------------
 function Chemistry2DView({ data, mode, onSubmit, disabled }: { data: Chemistry2DDataSpec; mode: VisualInteractionMode; onSubmit?: (verb: VisualInteractionVerb, response: unknown) => void; disabled?: boolean }) {
   const [labels, setLabels] = useState<Record<string, string>>({})
+  const [selectedAtom, setSelectedAtom] = useState(data.atoms[0]?.id || "")
+  const [selectedBond,setSelectedBond]=useState("")
   const interactive = mode === "practice" || mode === "assess"
   const byId = new Map(data.atoms.map(atom => [atom.id, atom]))
-  const width = Math.max(160, ...data.atoms.map(a => a.x)) + 40
-  const height = 100
+  const width = Math.max(240, ...data.atoms.map(a => a.x)) + 70
+  const height = Math.max(150,...data.atoms.map(a=>a.y))+50
   return (
     <div style={wrap}>
       <div style={label}>Estructura</div>
-      <svg width={width} height={height} style={{ background: "#0c0c12", borderRadius: 8 }}>
+      <svg data-testid="chemistry-structure" viewBox={`0 0 ${width} ${height}`} style={{ width:"100%",height:"auto",background: "#0c0c12", borderRadius: 8 }} role="img" aria-label="Estructura química interactiva">
         {data.bonds.map((bond, i) => {
           const from = byId.get(bond.from), to = byId.get(bond.to)
           if (!from || !to) return null
           const offset = bond.order === 2 ? 3 : 0
           return (
-            <g key={i}>
-              <line x1={from.x + 20} y1={from.y + 40 - offset} x2={to.x + 20} y2={to.y + 40 - offset} stroke="#9ca3af" strokeWidth={2} />
+            <g key={i} tabIndex={0} role="button" aria-label={`Enlace ${bond.from}-${bond.to}`} onClick={()=>setSelectedBond(`${bond.from}-${bond.to}`)}>
+              <line x1={from.x + 20} y1={from.y + 40 - offset} x2={to.x + 20} y2={to.y + 40 - offset} stroke={selectedBond===`${bond.from}-${bond.to}`?"#facc15":"#9ca3af"} strokeWidth={selectedBond?3:2} />
               {bond.order >= 2 && <line x1={from.x + 20} y1={from.y + 40 + offset} x2={to.x + 20} y2={to.y + 40 + offset} stroke="#9ca3af" strokeWidth={2} />}
             </g>
           )
         })}
         {data.atoms.map(atom => (
-          <g key={atom.id}>
-            <circle cx={atom.x + 20} cy={atom.y + 40} r={14} fill="#1f2937" stroke="#4ade80" />
+          <g key={atom.id} tabIndex={mode === "teach" ? 0 : undefined} onClick={mode === "teach" ? ()=>setSelectedAtom(atom.id) : undefined} style={mode === "teach" ? {cursor:"pointer"} : undefined}>
+            <circle cx={atom.x + 20} cy={atom.y + 40} r={14} fill={selectedAtom===atom.id?"#1d4ed8":"#1f2937"} stroke="#4ade80" />
             <text x={atom.x + 20} y={atom.y + 44} fill="#e5e7eb" fontSize={11} textAnchor="middle">{interactive ? "?" : atom.element}</text>
           </g>
         ))}
       </svg>
+      {mode === "teach" && <div style={{color:"#93c5fd",fontSize:13,marginTop:8}}>Átomo seleccionado: {selectedAtom} ({data.atoms.find(atom=>atom.id===selectedAtom)?.element}). Selecciona otro átomo para comparar su posición y enlaces.</div>}
       {interactive && (
-        <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ marginTop: 10 }}>
+          <InteractionConsequenceNote mode={mode} />
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {data.atoms.map(atom => (
             <div key={atom.id} style={{ display: "flex", gap: 4, alignItems: "center" }}>
               <span style={{ color: "#9ca3af" }}>{atom.id}</span>
@@ -245,6 +391,7 @@ function Chemistry2DView({ data, mode, onSubmit, disabled }: { data: Chemistry2D
             </div>
           ))}
           <button style={submitBtn} onClick={() => onSubmit?.("label_structure", labels)} disabled={disabled}>Comprobar</button>
+        </div>
         </div>
       )}
     </div>
@@ -271,12 +418,15 @@ function CodeExecutionView({ data, mode, onSubmit, disabled }: { data: CodeExecu
         </div>
       )}
       {interactive && (
-        <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ marginTop: 10 }}>
+          <InteractionConsequenceNote mode={mode} />
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ color: "#9ca3af" }}>En la línea</span>
           <input style={{ ...input, width: 50 }} value={line} onChange={e => setLine(e.target.value)} disabled={disabled} />
           <span style={{ color: "#9ca3af" }}>¿cuál es la salida?</span>
           <input style={input} value={value} onChange={e => setValue(e.target.value)} disabled={disabled} />
           <button style={submitBtn} disabled={disabled || !line || !value} onClick={() => onSubmit?.("predict_output", { line: Number(line), variable: "output", value })}>Comprobar</button>
+        </div>
         </div>
       )}
     </div>
@@ -287,6 +437,7 @@ function CodeExecutionView({ data, mode, onSubmit, disabled }: { data: CodeExecu
 function TimelineView({ data, mode, onSubmit, disabled }: { data: TimelineDataSpec; mode: VisualInteractionMode; onSubmit?: (verb: VisualInteractionVerb, response: unknown) => void; disabled?: boolean }) {
   const sorted = [...data.events].sort((a, b) => a.order - b.order)
   const [order, setOrder] = useState(mode === "teach" ? sorted.map(e => e.id) : [...sorted.map(e => e.id)].reverse())
+  const [selectedEvent, setSelectedEvent] = useState(sorted[0]?.id || "")
   const interactive = mode === "practice" || mode === "assess"
   const byId = new Map(data.events.map(e => [e.id, e]))
   const move = (index: number, delta: number) => {
@@ -299,12 +450,13 @@ function TimelineView({ data, mode, onSubmit, disabled }: { data: TimelineDataSp
   return (
     <div style={wrap}>
       <div style={label}>Orden cronológico</div>
-      <ol style={{ paddingLeft: 20, color: "#e5e7eb" }}>
+      {mode==="teach"&&<div data-testid="timeline-track" style={{display:"flex",alignItems:"flex-start",gap:0,width:"100%",padding:"20px 0",flexWrap:"wrap"}}>{sorted.map((event,index)=><button key={event.id} onClick={()=>setSelectedEvent(event.id)} style={{flex:"1 1 140px",minHeight:72,border:0,borderTop:`3px solid ${selectedEvent===event.id?"#60a5fa":"#475569"}`,background:selectedEvent===event.id?"rgba(96,165,250,.15)":"transparent",color:"#e5e7eb",padding:8,textAlign:"left"}}><strong>{event.date||`Evento ${index+1}`}{event.endDate?`–${event.endDate}`:""}</strong><br/><span>{event.label}</span></button>)}</div>}
+      {interactive&&<ol style={{ paddingLeft: 20, color: "#e5e7eb" }}>
         {(interactive ? order : sorted.map(e => e.id)).map((id, index) => {
           const event = byId.get(id)!
           return (
             <li key={id} style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
-              <span>{!interactive && event.date ? `${event.date} — ` : ""}{event.label}</span>
+              <span style={{padding:4}}>{event.label}</span>
               {interactive && (
                 <span style={{ display: "flex", gap: 4 }}>
                   <button style={{ ...submitBtn, padding: "2px 8px", marginTop: 0 }} disabled={disabled} onClick={() => move(index, -1)}>↑</button>
@@ -314,8 +466,14 @@ function TimelineView({ data, mode, onSubmit, disabled }: { data: TimelineDataSp
             </li>
           )
         })}
-      </ol>
-      {interactive && <button style={submitBtn} disabled={disabled} onClick={() => onSubmit?.("order_sequence", order)}>Comprobar</button>}
+      </ol>}
+      {mode === "teach" && selectedEvent && <div style={{color:"#93c5fd",fontSize:13}}>Evento {sorted.findIndex(event=>event.id===selectedEvent)+1} de {sorted.length}: {byId.get(selectedEvent)?.label}{byId.get(selectedEvent)?.detail?` — ${byId.get(selectedEvent)?.detail}`:""}</div>}
+      {interactive && (
+        <div>
+          <InteractionConsequenceNote mode={mode} />
+          <button style={submitBtn} disabled={disabled} onClick={() => onSubmit?.("order_sequence", order)}>Comprobar</button>
+        </div>
+      )}
     </div>
   )
 }

@@ -78,8 +78,18 @@ export async function POST(req: NextRequest) {
       }, { status: 422 });
     }
 
+    // AUDITORÍA (StudyAL_Visual_System_Stress_Test, Bug 2): buildLearningJourney
+    // cascada en session-copy (llamada LLM). Si el cliente ya abortó esta
+    // request (navegó fuera antes de que llegáramos aquí), no tiene sentido
+    // pagar esa siguiente etapa cara — nadie va a consumir el resultado. No
+    // promete cancelar trabajo YA despachado; solo evita lanzar el SIGUIENTE
+    // trabajo caro cuando el consumidor ya no está.
+    if (req.signal?.aborted) {
+      return NextResponse.json({ success: false, error: 'cancelled', cancelled: true }, { status: 499 });
+    }
+
     const baseUrl = getBaseUrl(req);
-    const journey = await buildLearningJourney(blueprint, setup, materialTitle, baseUrl, userProfile);
+    const journey = await buildLearningJourney(blueprint, setup, materialTitle, baseUrl, userProfile, req.signal);
 
     console.log(`[generate-plan] Journey generado: ${journey.totalChapters} sesiones para "${materialTitle}"`);
 

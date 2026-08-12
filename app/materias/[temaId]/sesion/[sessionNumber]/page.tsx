@@ -103,9 +103,11 @@ import {
   type SessionAction,
   type SessionTransitionState,
 } from "../../../../../lib/adaptive/sessionFinalTransition"
-import type { VisualEvidenceKind, VisualSpec } from "../../../../../lib/adaptive/visual/visualContract"
+import type { VisualCompositionPlan, VisualEvidenceKind, VisualRequiredness, VisualSpec } from "../../../../../lib/adaptive/visual/visualContract"
+import type { TeachingLayoutBlock } from "../../../../../lib/adaptive/visual/teachingLayout"
 import { VisualRenderer } from "../../../../../components/visual/VisualRenderer"
 import { computeSessionDependencyFingerprint, isPrefetchStillValid, shouldPrefetchSession, KeyedPromiseCache } from "../../../../../lib/adaptive/sessionPrefetch"
+import { continueRecoverablePreparation } from "../../../../../lib/adaptive/sessionReliability"
 import { deriveSessionLifecycleStatus, deriveSessionLifecycleInput } from "../../../../../lib/adaptive/sessionLifecycle"
 import { validatePlanSessionConsistency } from "../../../../../lib/adaptive/planSessionConsistency"
 import { isDevToolsEnabled } from "../../../../../lib/dev/devTools"
@@ -128,7 +130,13 @@ interface ClassStep {
   objectiveIds?: string[]
   importance?: "supporting" | "important" | "critical"
   visualSpec?: VisualSpec
+  visualCompositionPlan?: VisualCompositionPlan
+  teachingLayout?: TeachingLayoutBlock[]
   visualEvidenceKind?: VisualEvidenceKind
+  // Solo se usa para decidir teach vs practice cuando NO gatea mastery (ver
+  // dispatch de `mode` más abajo) — required_for_mastery sigue gobernado
+  // exclusivamente por visualEvidenceKind, sin cambios.
+  visualRequirement?: { requiredness?: VisualRequiredness }
 }
 
 interface ClassContent {
@@ -163,6 +171,19 @@ interface ClassContent {
   pendingAssistance?: { attemptKey: string; assistanceLevel: "minimal_hint" | "assisted" } | null
 }
 
+function TeachingLayout({ blocks }: { blocks: TeachingLayoutBlock[] }) {
+  return <div style={{ display:"grid", gap:12 }}>
+    {blocks.map((block,index) => {
+      if (block.kind === "bullets" || block.kind === "numbered_steps") {
+        const Tag = block.kind === "bullets" ? "ul" : "ol"
+        return <Tag key={index} style={{ paddingLeft:24, margin:0 }}>{block.items.map((item,itemIndex)=><li key={itemIndex} style={{marginBottom:6}}><AcademicContent content={item}/></li>)}</Tag>
+      }
+      const accent = block.kind === "warning" ? "#fbbf24" : block.kind === "definition" ? "#60a5fa" : "#cbd5e1"
+      return <div key={index} data-layout-kind={block.kind} style={block.kind === "paragraph" ? undefined : {padding:12,borderLeft:`3px solid ${accent}`,background:"rgba(15,23,42,.55)",borderRadius:8}}><AcademicContent content={'text' in block ? block.text : ''}/></div>
+    })}
+  </div>
+}
+
 const SI = { intro: "🎯", concept: "💡", formula: "🔢", example: "📝", connection: "🔗", warning: "⚠️", recap: "📋", closing: "🏁" } as Record<string, string>
 const SL = { intro: "Introducción", concept: "Concepto", formula: "Fórmula", example: "Ejemplo", connection: "Conexión", warning: "Atención", recap: "Repaso", closing: "Cierre" } as Record<string, string>
 
@@ -193,6 +214,7 @@ export default function SessionPage() {
   // recoveryPrefetchRef, extraído a KeyedPromiseCache (sessionPrefetch.ts) para ser
   // testeable de forma determinista — race-safe dentro de este montaje/pestaña.
   const sessionPrefetchRef = useRef(new KeyedPromiseCache<void>())
+  useEffect(() => () => sessionPrefetchRef.current.cancelAll(), [])
   const recoveryGenerationCoordinatorRef = useRef(new RecoveryGenerationCoordinator<any>(2))
   const verificationClickStartedAtRef = useRef<number | null>(null)
   const autoRecoveryRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -765,8 +787,16 @@ export default function SessionPage() {
         finalReviewContext,
       }
       if (!sessionPreparationPromiseRef.current) {
-        const operation = fetch("/api/adaptive/session-teach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(requestBody) })
-          .then(response => response.json())
+        const operation = continueRecoverablePreparation({
+          initialState: requestBody.preparationState,
+          maxAttempts: 3,
+          request: async (preparationState) => {
+            const response = await fetch("/api/adaptive/session-teach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...requestBody, preparationState }) })
+            return response.json()
+          },
+          onCheckpoint: preparationState => updateSessionById(as_.id, (current: any) => ({ ...current, sessionPreparation: { ...(current.sessionPreparation || {}), [String(sessionNumber)]: preparationState } })),
+          wait: attempt => new Promise(resolve => setTimeout(resolve, attempt * 250)),
+        })
         sessionPreparationPromiseRef.current = operation
         void operation.finally(() => {
           if (sessionPreparationPromiseRef.current === operation) sessionPreparationPromiseRef.current = null
@@ -903,7 +933,7 @@ export default function SessionPage() {
       if (existingNext && (!existingNext._prefetchMeta || isPrefetchStillValid(existingNext._prefetchMeta as any, dependencyFingerprint))) return
 
       const dedupeKey = `${as_.id}:${fromSessionNumber + 1}:${dependencyFingerprint}`
-      await sessionPrefetchRef.current.run(dedupeKey, async () => {
+      await sessionPrefetchRef.current.run(dedupeKey, async signal => {
         const nextAllChapters = allChapters
         const prevOfNext = nextAllChapters.find((c: any) => c.chapterNumber === fromSessionNumber) || null
         const afterNext = nextAllChapters.find((c: any) => c.chapterNumber === fromSessionNumber + 2) || null
@@ -938,7 +968,7 @@ export default function SessionPage() {
           generationHistory: computeGenerationHistorySignals(as_.sessionContent, { excludeSessionNumber: fromSessionNumber + 1 }),
           requestOrigin: 'prefetch',
         }
-        const response = await fetch("/api/adaptive/session-teach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(requestBody) })
+        const response = await fetch("/api/adaptive/session-teach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(requestBody), signal })
         const d = await response.json()
         if (!d?.success || !d?.classContent) return
 
@@ -3261,20 +3291,37 @@ export default function SessionPage() {
           <div style={{ background: "rgba(30,41,59,0.55)", border: "1px solid rgba(148,163,184,0.2)", borderRadius: 16, padding: 28, marginBottom: 24 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}><span style={{ fontSize: 24 }}>{SI[step.type]}</span><span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", padding: "3px 10px", background: "rgba(59,130,246,0.15)", color: "#60a5fa", borderRadius: 999 }}>{SL[step.type]}</span></div>
             <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16, lineHeight: 1.3 }}><AcademicContent content={step.title} /></h2>
-            <div style={{ fontSize: 16, lineHeight: 1.7, color: "#cbd5e1" }}><AcademicContent content={step.content} /></div>
+            <div style={{ fontSize: 16, lineHeight: 1.7, color: "#cbd5e1" }}>{step.teachingLayout?.length ? <TeachingLayout blocks={step.teachingLayout}/> : <AcademicContent content={step.content} />}</div>
             {step.keyPoint && <div style={{ marginTop: 20, padding: 16, background: "rgba(250,204,21,0.08)", border: "1px solid rgba(250,204,21,0.25)", borderRadius: 10 }}><div style={{ fontSize: 11, fontWeight: 700, color: "#fbbf24", marginBottom: 6 }}>💡 Idea clave</div><div style={{ fontSize: 15, color: "#fde68a", fontWeight: 500 }}><AcademicContent content={step.keyPoint} /></div></div>}
             {step.visualSpec && (() => {
               const checkpoint = visualCheckpointState[step.id]
               const gating = Boolean(step.visualEvidenceKind)
               const passed = isVisualStepSatisfied(step)
+              // Bug 4 (StudyAL_Visual_System_Stress_Test): antes este dispatch era
+              // binario (assess | teach) — 'practice' existía en el tipo/contrato
+              // (VisualInteractionMode, INTERACTIONS por engine) pero nunca se
+              // seleccionaba en ningún sitio real. required_for_understanding
+              // (una clasificación YA existente del classifier, ni nueva ni
+              // inventada aquí) es exactamente el caso "puede intentarlo y recibir
+              // feedback, no bloquea progreso" — practice, no teach puro ni
+              // assess. required_for_mastery sigue gobernado EXCLUSIVAMENTE por
+              // visualEvidenceKind/gating, sin ningún cambio.
+              const mode = gating && !passed
+                ? "assess" as const
+                : step.visualRequirement?.requiredness === "required_for_understanding"
+                  ? "practice" as const
+                  : "teach" as const
               return (
                 <div>
                   <VisualRenderer
                     spec={step.visualSpec}
-                    mode={gating && !passed ? "assess" : "teach"}
+                    mode={mode}
                     disabled={checkpoint?.status === "loading" || passed}
                     onSubmit={(verb, response) => void submitVisualCheckpoint(step, verb, response)}
                   />
+                  {step.visualCompositionPlan?.supporting.map(supporting => (
+                    <VisualRenderer key={supporting.id} spec={supporting} mode="teach" />
+                  ))}
                   {checkpoint && checkpoint.status !== "idle" && checkpoint.status !== "loading" && (
                     <div style={{ fontSize: 13, marginTop: -4, marginBottom: 12, color: checkpoint.status === "correct" ? "#4ade80" : "#f87171" }}>{checkpoint.feedback}</div>
                   )}

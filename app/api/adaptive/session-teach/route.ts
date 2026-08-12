@@ -30,6 +30,10 @@ import { legacyMaterialType, resolveAcademicDomain, type AcademicDomain } from '
 import { classifyVisualNeed } from '../../../../lib/adaptive/visual/visualNeedClassifier';
 import { buildVisualSpec } from '../../../../lib/adaptive/visual/visualSpecBuilder';
 import { signVisualSpec } from '../../../../lib/adaptive/visual/visualSpecIntegrity';
+import { extractGroundedVisualComposition, extractGroundedVisualSource } from '../../../../lib/adaptive/visual/groundedVisualSource';
+import { buildVisualCompositionPlan } from '../../../../lib/adaptive/visual/visualComposition';
+import type { VisualCompositionPlan } from '../../../../lib/adaptive/visual/visualContract';
+import { buildTeachingLayout } from '../../../../lib/adaptive/visual/teachingLayout';
 import { signQuestionsInPlace } from '../../../../lib/adaptive/evaluation/questionIntegrity';
 
 export const maxDuration = 120;
@@ -1226,7 +1230,15 @@ Cada paso debe copiar exactamente su id, microId, type, importance, cognitiveTar
 Tu respuesta debe terminar inmediatamente después del campo closing.`
 }
 
-function factoryTeaching(source: TeachingContent, session: TeachRequest['session']): PreparedTeachingContent {
+// export: permite un contract test end-to-end real (Bug 6, StudyAL_Visual_
+// System_Stress_Test) que ejercite "session preparation -> classContent ->
+// VisualSpec adjunto" con la función de producción REAL (misma que usa el
+// POST vivo en generateTeachingStrict más abajo), en vez de reimplementar el
+// classifier/builder por separado — ver scripts/tests/visual-engine-
+// pipeline-matrix-contracts.ts. Exportar una función pura no cambia su
+// comportamiento (mismo patrón que isTransientProviderError/parseFactoryJson
+// más arriba en este archivo).
+export function factoryTeaching(source: TeachingContent, session: TeachRequest['session'], blueprintBlocks: any[] = []): PreparedTeachingContent {
   const steps = (Array.isArray(source.steps) ? source.steps : []).map((item: any, index: number) => {
     const stepId = String(item.stepId || item.id || `step_${index + 1}`)
     const keyPoints = Array.isArray(item.keyPoints) ? [...new Set<string>(item.keyPoints.map((point:any)=>String(point.text||'')).filter(Boolean))] : []
@@ -1236,9 +1248,14 @@ function factoryTeaching(source: TeachingContent, session: TeachRequest['session
     const title=String(item.title || '').trim()
     const content=String(item.content || '').trim()
     const cognitiveTarget=String(item.cognitiveTarget || 'comprehension')
-    // Visual: SIEMPRE derivado de forma determinista del contenido enseñado real (nunca
-    // del JSON del LLM) — ver visualNeedClassifier.ts/visualSpecBuilder.ts. Si no hay
-    // señal cognitiva o el material no trae datos suficientes, ambos quedan undefined.
+    const relatedBlockIds=Array.isArray(item.relatedBlockIds) ? item.relatedBlockIds.map(String) : []
+    // Visual: SIEMPRE derivado de forma determinista — GROUNDED primero (bloque real del
+    // blueprint, con sourceSpans citados literalmente del documento en blueprint/route.ts,
+    // nunca de la prosa de enseñanza que se regenera en cada sesión), y solo si ningún
+    // bloque relacionado produce datos grounded suficientes, cae al camino anterior
+    // (clasificar/extraer sobre la prosa de este step) como fallback seguro. Ver
+    // lib/adaptive/visual/groundedVisualSource.ts — arquitectura, no parche de regex: el
+    // visual deja de depender de cómo el LLM de enseñanza decida redactar esa vez.
     //
     // AUDITORÍA DE CICLO DE VIDA: esta sección corría SIN try/catch propio — un fallo
     // aquí (p.ej. signVisualSpec sin NEXTAUTH_SECRET, o un caso límite no cubierto por
@@ -1249,11 +1266,30 @@ function factoryTeaching(source: TeachingContent, session: TeachRequest['session
     // se degrada a "sin visual para este step" y se registra, nunca se propaga.
     let visualRequirement: ReturnType<typeof classifyVisualNeed> | undefined
     let visualSpec: ReturnType<typeof signVisualSpec> | undefined
+    let visualCompositionPlan: VisualCompositionPlan | undefined
     let visualEvidenceKind: 'visual_construction' | 'visual_manipulation' | 'visual_interpretation' | undefined
     try {
-      visualRequirement = classifyVisualNeed({ microId, title, content, keyPoints, factKeys, cognitiveTarget, sourceStepId: stepId }) || undefined
-      const builtVisualSpec = visualRequirement ? buildVisualSpec(visualRequirement, `${title}\n${content}`, stepId) : null
-      visualSpec = builtVisualSpec ? signVisualSpec(builtVisualSpec) : undefined
+      let builtVisualSpec: ReturnType<typeof buildVisualSpec> = null
+      for (const blockId of relatedBlockIds) {
+        const block = blueprintBlocks.find((b: any) => String(b?.id || '') === blockId)
+        if (!block) continue
+        const groundedComposition = extractGroundedVisualComposition(block)
+        const grounded = extractGroundedVisualSource(block)
+        if (groundedComposition && grounded) {
+          visualRequirement = grounded.requirement
+          visualCompositionPlan = { ...groundedComposition, primary: signVisualSpec(groundedComposition.primary), supporting: groundedComposition.supporting.map(signVisualSpec) }
+          builtVisualSpec = grounded.spec
+          break
+        }
+      }
+      if (!builtVisualSpec) {
+        const visualInput = { microId, title, content, keyPoints, factKeys, cognitiveTarget, sourceStepId: stepId }
+        visualRequirement = classifyVisualNeed(visualInput) || undefined
+        const composition = buildVisualCompositionPlan(visualInput)
+        visualCompositionPlan = composition ? { ...composition, primary: signVisualSpec(composition.primary), supporting: composition.supporting.map(signVisualSpec) } : undefined
+        builtVisualSpec = visualRequirement ? buildVisualSpec(visualRequirement, `${title}\n${content}`, stepId) : null
+      }
+      visualSpec = visualCompositionPlan?.primary || (builtVisualSpec ? signVisualSpec(builtVisualSpec) : undefined)
       // Solo required_for_mastery gatea el objective (FASE 5) — supportive/
       // required_for_understanding nunca bloquean mastery textual.
       visualEvidenceKind = visualSpec && visualRequirement?.requiredness === 'required_for_mastery'
@@ -1265,13 +1301,26 @@ function factoryTeaching(source: TeachingContent, session: TeachRequest['session
       console.warn('[session-teach] visual_attachment_failed_degraded_gracefully', JSON.stringify({
         stepId, microId, message: visualError instanceof Error ? visualError.message : String(visualError),
       }))
-      visualRequirement = undefined; visualSpec = undefined; visualEvidenceKind = undefined
+      visualRequirement = undefined; visualSpec = undefined; visualCompositionPlan = undefined; visualEvidenceKind = undefined
     }
-    return { stepId, id:stepId, microId, title, type:String(item.type || 'concept'), content, keyPoints, keyPointIds, factKeys, importance:item.importance === 'critical' || item.importance === 'supporting' ? item.importance : 'important', cognitiveTarget, sourceReferences:Array.isArray(item.sourceReferences) ? item.sourceReferences : [], objectiveIds:Array.isArray(item.objectiveIds) ? item.objectiveIds.map(String) : keyPoints.map((_:string,i:number)=>`${session.id}:${stepId}:objective:${i+1}`), relatedBlockIds:Array.isArray(item.relatedBlockIds) ? item.relatedBlockIds.map(String) : [], visualRequirement, visualSpec, visualEvidenceKind }
+    return { stepId, id:stepId, microId, title, type:String(item.type || 'concept'), content, keyPoints, keyPointIds, factKeys, importance:item.importance === 'critical' || item.importance === 'supporting' ? item.importance : 'important', cognitiveTarget, sourceReferences:Array.isArray(item.sourceReferences) ? item.sourceReferences : [], objectiveIds:Array.isArray(item.objectiveIds) ? item.objectiveIds.map(String) : keyPoints.map((_:string,i:number)=>`${session.id}:${stepId}:objective:${i+1}`), relatedBlockIds, visualRequirement, visualSpec, visualCompositionPlan, teachingLayout:buildTeachingLayout({type:String(item.type||'concept'),content,keyPoints}), visualEvidenceKind }
   })
   if (!steps.length || new Set(steps.map((step: any) => step.stepId)).size !== steps.length || steps.some((step: any) => !step.title || !step.content || !step.keyPoints.length || !step.factKeys.length)) throw new Error('TEACHING_CONTENT_INVALID')
   if (session.kind === 'introduction' && (steps.length < 3 || steps.length > 5 || steps.some(step => step.relatedBlockIds?.length))) throw new Error('INTRODUCTION_CONTRACT_INVALID')
   return { sessionId:session.id,title:session.title,introduction:source.sessionIntro,closing:source.closing,steps }
+}
+
+export function attachVisualsToPreparedTeaching(teaching: PreparedTeachingContent, session: TeachRequest['session'], blueprintBlocks: any[]): PreparedTeachingContent {
+  return factoryTeaching({
+    sessionIntro: teaching.introduction,
+    closing: teaching.closing,
+    steps: teaching.steps.map(step => ({
+      id: step.stepId, type: step.type as any, title: step.title, content: String(step.content || ''),
+      keyPoints: step.keyPoints.map((text, index) => ({ id: step.keyPointIds[index] || `${step.stepId}:kp:${index + 1}`, text })) as any,
+      microId: step.microId, importance: step.importance, cognitiveTarget: step.cognitiveTarget as any,
+      relatedBlockIds: step.relatedBlockIds || [], factKeys: step.factKeys, sourceReferences: step.sourceReferences as any,
+    })),
+  }, session, blueprintBlocks)
 }
 
 function factoryPlan(raw: Record<string, any>): EvaluationPlan {
@@ -1976,10 +2025,10 @@ async function prepareSessionByFactory(body: TeachRequest & { userId?: string },
 REGLA DE SALIDA:
 - Devuelve JSON puro, sin markdown y sin fences.
 - Si la sesión tiene muchos pasos, prioriza cerrar un JSON completo y válido.
-- Mantén cada step conciso y evita redundancias innecesarias.`:`Repara exclusivamente la respuesta de enseñanza. ${lastError}. Devuelve solo sessionIntro, steps y closing. No generes preguntas ni bloques evaluativos. Usa exactamente TeachingContentSchema y termina inmediatamente después de closing. Sin markdown. Sin fences. JSON puro. Si el error anterior fue INVALID_JSON_TRUNCATED, conserva la estructura pedagógica pero acorta el texto de cada step drásticamente (máximo 300 caracteres por content) para garantizar que el JSON cierre completo. PRIORIDAD: JSON VÁLIDO > DETALLE.\n\n${teachingPrompt}`;let generated;try{generated=await callWithGroqFallbackOnCreditsExhausted({messages:[{role:'user',content}],temperature:0.2,maxTokens:lastError==='INVALID_JSON_TRUNCATED'?7200:6200,json:true,taskType:'session_content',stage:attempt===1?'teaching_generation':'targeted_repair',maxProviderAttempts:1})}catch(providerErr:any){const providerReason=providerErr?.providerError?classifyProviderFailure(providerErr.providerError):null;telemetry('teaching_generation_provider_error',{attempt,reason:providerReason,message:providerErr instanceof Error?providerErr.message:String(providerErr)});if(attempt<2&&isTransientProviderError(providerErr)){lastError='TEACHING_SCHEMA_INVALID';continue}throw providerErr}const diagnostic=teachingResponseDiagnostics(generated.text);telemetry('teaching_generation_remote_succeeded',{stage:'teaching_generation',attempt,durationMs:Date.now()-startedAt,provider:generated.provider,model:generated.model,responseLength:diagnostic.length,first500:diagnostic.first500,last500:diagnostic.last500,detectedFence:diagnostic.detectedFence,appearsTruncated:diagnostic.appearsTruncated,lastValidToken:diagnostic.lastValidToken,extraFields:diagnostic.extraFields,containsForbiddenTeachingFields:/\"(?:evaluationBlocks|questions|correctAnswer)\"/.test(generated.text)});if(!diagnostic.parsed){lastError=diagnostic.appearsTruncated?'INVALID_JSON_TRUNCATED':'TEACHING_SCHEMA_INVALID';telemetry('teaching_schema_failed',{attempt,errorCode:lastError,appearsTruncated:diagnostic.appearsTruncated});continue}const parsed=parseTeachingContent(diagnostic.parsed);if(parsed.success===true){telemetry('teaching_schema_validated',{attempt,responseLength:diagnostic.length,extraFields:[]});return factoryTeaching(parsed.value,session)}lastError=parsed.errorCode;telemetry('teaching_schema_failed',{attempt,errorCode:parsed.errorCode,validationErrors:parsed.validationErrors,extraFields:parsed.extraFields})}throw new Error(lastError)}
-  let state=await runSessionPreparationFactory({ sessionKind:session.kind,generationKey,evalPreference:setup.evalPreference||'mix_everything',load:async()=>body.preparationState||preparationStore.get(generationKey)||null,persist:async value=>{preparationStore.set(generationKey,structuredClone(value))},telemetry,
+- Mantén cada step conciso y evita redundancias innecesarias.`:`Repara exclusivamente la respuesta de enseñanza. ${lastError}. Devuelve solo sessionIntro, steps y closing. No generes preguntas ni bloques evaluativos. Usa exactamente TeachingContentSchema y termina inmediatamente después de closing. Sin markdown. Sin fences. JSON puro. Si el error anterior fue INVALID_JSON_TRUNCATED, conserva la estructura pedagógica pero acorta el texto de cada step drásticamente (máximo 300 caracteres por content) para garantizar que el JSON cierre completo. PRIORIDAD: JSON VÁLIDO > DETALLE.\n\n${teachingPrompt}`;let generated;try{generated=await callWithGroqFallbackOnCreditsExhausted({messages:[{role:'user',content}],temperature:0.2,maxTokens:lastError==='INVALID_JSON_TRUNCATED'?7200:6200,json:true,taskType:'session_content',stage:attempt===1?'teaching_generation':'targeted_repair',maxProviderAttempts:1})}catch(providerErr:any){const providerReason=providerErr?.providerError?classifyProviderFailure(providerErr.providerError):null;telemetry('teaching_generation_provider_error',{attempt,reason:providerReason,message:providerErr instanceof Error?providerErr.message:String(providerErr)});if(attempt<2&&isTransientProviderError(providerErr)){lastError='TEACHING_SCHEMA_INVALID';continue}throw providerErr}const diagnostic=teachingResponseDiagnostics(generated.text);telemetry('teaching_generation_remote_succeeded',{stage:'teaching_generation',attempt,durationMs:Date.now()-startedAt,provider:generated.provider,model:generated.model,responseLength:diagnostic.length,first500:diagnostic.first500,last500:diagnostic.last500,detectedFence:diagnostic.detectedFence,appearsTruncated:diagnostic.appearsTruncated,lastValidToken:diagnostic.lastValidToken,extraFields:diagnostic.extraFields,containsForbiddenTeachingFields:/\"(?:evaluationBlocks|questions|correctAnswer)\"/.test(generated.text)});if(!diagnostic.parsed){lastError=diagnostic.appearsTruncated?'INVALID_JSON_TRUNCATED':'TEACHING_SCHEMA_INVALID';telemetry('teaching_schema_failed',{attempt,errorCode:lastError,appearsTruncated:diagnostic.appearsTruncated});continue}const parsed=parseTeachingContent(diagnostic.parsed);if(parsed.success===true){telemetry('teaching_schema_validated',{attempt,responseLength:diagnostic.length,extraFields:[]});return factoryTeaching(parsed.value,session,Array.isArray(body.blueprint?.blocks)?body.blueprint.blocks:[])}lastError=parsed.errorCode;telemetry('teaching_schema_failed',{attempt,errorCode:parsed.errorCode,validationErrors:parsed.validationErrors,extraFields:parsed.extraFields})}throw new Error(lastError)}
+  let state=await runSessionPreparationFactory({ sessionKind:session.kind,generationKey,evalPreference:setup.evalPreference||'mix_everything',load:async()=>{const restored=body.preparationState||preparationStore.get(generationKey)||null;if(!restored?.teachingContent)return restored;const teachingContent=attachVisualsToPreparedTeaching(restored.teachingContent,session,Array.isArray(body.allBlocks)?body.allBlocks:body.blueprint.blocks);return{...restored,teachingContent}},persist:async value=>{preparationStore.set(generationKey,structuredClone(value))},telemetry,
     generateTeaching:generateTeachingStrict,
-    planEvaluations:async teaching=>{telemetry('evaluation_planning',{generationKey});const base=buildDeterministicEvaluationPlan(teaching,{evalPreference:setup.evalPreference||'mix_everything'});telemetry('deterministic_evaluation_plan_built',{blockCount:base.blocks.length,blocks:base.blocks.map(block=>({blockId:block.blockId,afterStepId:block.afterStepId,coveredStepIds:block.coveredStepIds}))});try{const raw=await remote('evaluation_plan_enrichment',`Enriquece únicamente cantidad, formatos y dificultad de estos bloques ya inmutables. Devuelve SOLO JSON {"blocks":[{"blockId":"...","recommendedQuestionCount":2,"recommendedFormats":["multiple_choice"],"difficulty":"medium"}]}. No devuelvas afterStepId, coveredStepIds, coveredKeyPointIds, coveredFactKeys ni targetObjectiveIds. Modo=${setup.evalPreference||'mix_everything'}.\nBLOQUES=${JSON.stringify(base.blocks.map(block=>({blockId:block.blockId,afterStepId:block.afterStepId,coveredStepIds:block.coveredStepIds,coveredKeyPointIds:block.coveredKeyPointIds,cognitiveTargets:block.cognitiveTargets,stepSummaries:compactTeachingForEvaluation(teaching).filter(step=>block.coveredStepIds.includes(step.stepId)).map(step=>({stepId:step.stepId,title:step.title,keyPoints:step.keyPoints}))})))}`,1200);const enrichments=Array.isArray(raw.blocks)?raw.blocks:[];const byId=new Map(enrichments.map((item:any)=>[String(item.blockId||''),item]));for(const item of enrichments){const forbidden=Object.keys(item||{}).filter(key=>!['blockId','recommendedQuestionCount','recommendedFormats','difficulty'].includes(key));if(forbidden.length)telemetry('EVALUATION_PLAN_FORBIDDEN_STRUCTURAL_OVERRIDE',{blockId:String(item?.blockId||''),fields:forbidden})}return{blocks:base.blocks.map(block=>mergeEvaluationPlanEnrichment(block,(byId.get(block.blockId)||{}) as Record<string,unknown>))}}catch(error){telemetry('evaluation_plan_enrichment_failed',{message:error instanceof Error?error.message:String(error),structuralPlanPreserved:true});return base}},
+    planEvaluations:async teaching=>{telemetry('evaluation_planning',{generationKey});const base=buildDeterministicEvaluationPlan(teaching,{evalPreference:setup.evalPreference||'mix_everything'});telemetry('deterministic_evaluation_plan_built',{blockCount:base.blocks.length,blocks:base.blocks.map(block=>({blockId:block.blockId,afterStepId:block.afterStepId,coveredStepIds:block.coveredStepIds}))});try{const raw=await remote('evaluation_plan_enrichment',`Enriquece únicamente cantidad, formatos y dificultad de estos bloques ya inmutables. Devuelve SOLO JSON {"blocks":[{"blockId":"...","recommendedQuestionCount":2,"recommendedFormats":["multiple_choice"],"difficulty":"medium"}]}. No devuelvas afterStepId, coveredStepIds, coveredKeyPointIds, coveredFactKeys ni targetObjectiveIds. Modo=${setup.evalPreference||'mix_everything'}.\nBLOQUES=${JSON.stringify(base.blocks.map(block=>({blockId:block.blockId,afterStepId:block.afterStepId,coveredStepIds:block.coveredStepIds,coveredKeyPointIds:block.coveredKeyPointIds,cognitiveTargets:block.cognitiveTargets,stepSummaries:compactTeachingForEvaluation(teaching).filter(step=>block.coveredStepIds.includes(step.stepId)).map(step=>({stepId:step.stepId,title:step.title,keyPoints:step.keyPoints}))})))}`,1200);const enrichments=Array.isArray(raw.blocks)?raw.blocks:[];const byId=new Map(enrichments.map((item:any)=>[String(item.blockId||''),item]));for(const item of enrichments){const forbidden=Object.keys(item||{}).filter(key=>!['blockId','recommendedQuestionCount','recommendedFormats','difficulty'].includes(key));if(forbidden.length)telemetry('EVALUATION_PLAN_FORBIDDEN_STRUCTURAL_OVERRIDE',{blockId:String(item?.blockId||''),fields:forbidden})}return{blocks:base.blocks.map(block=>mergeEvaluationPlanEnrichment(block,(byId.get(block.blockId)||{}) as Record<string,unknown>,setup.evalPreference||'mix_everything'))}}catch(error){telemetry('evaluation_plan_enrichment_failed',{message:error instanceof Error?error.message:String(error),structuralPlanPreserved:true});return base}},
     generateEvaluationBlock:async(block,teaching,accepted)=>{const scoped=compactTeachingForEvaluation(teaching).filter(step=>block.coveredStepIds.includes(step.stepId));const raw=await remote('evaluation_block_generation',`Genera preguntas de evaluación para ${block.blockId}.
 
 CONTRATO DE SALIDA — cada pregunta DEBE tener estos campos:
@@ -2008,7 +2057,7 @@ VARIANTS DISPONIBLES Y SU FORMAT:
 - scenario → scenario_predict, scenario_diagnose, scenario_choose_action
 - find_the_error → find_error_calculation, find_error_reasoning, find_error_definition
 - classify → classify_category, classify_valid_invalid
-- numeric_problem → problem_solve, numeric_missing_value (permitido en cualquier MODO incluido quick_test — respuesta corta cerrada, no escritura abierta; usa esta variant, no scenario_predict, cuando el paso trae una fórmula o un ejemplo numérico resuelto — el estudiante debe calcular, no reconocer)
+- numeric_problem → problem_solve, numeric_missing_value (requiere entrada numérica; permitido en mix_everything y, cuando corresponda, write_explain; PROHIBIDO en quick_test)
 - short_response → explain_why_cause, explain_why_consequence, justify_answer, teach_back, short_answer_define, short_answer_compare, short_answer_summarize, problem_setup (respuesta ESCRITA abierta — el estudiante redacta, no selecciona nada. OBLIGATORIO en MODO=write_explain, ver regla de modo más abajo; PROHIBIDO en MODO=quick_test. Usa EXACTAMENTE uno de estos variants, nunca una variación libre como "explain_why" o "justify" sueltos)
 
 SELECCIÓN DE VARIANT POR TIPO DE PASO — GUÍA DETALLADA:
@@ -2029,7 +2078,7 @@ Paso tipo "example":
 Paso tipo "formula":
   RECONOCIMIENTO: word_bank_formula (completar la fórmula con ___)
   COMPRENSIÓN: mcq_best_explanation, find_error_calculation
-  APLICACIÓN: numeric_problem calculando con la fórmula y datos del material (permitido en todos los MODOS, incluido quick_test)
+  APLICACIÓN: numeric_problem calculando con la fórmula y datos del material (solo si el MODO permite escribir; en quick_test transforma el objetivo en selección mediante scenario/multiple_choice/find_the_error)
   OBLIGATORIO: usa valores numéricos exactos del material (groundedness). Si el material ya resuelve un ejemplo numérico, la pregunta de aplicación debe ejercitar ESE cálculo (con los mismos valores o una variación mínima), no solo pedir reconocer la fórmula.
 
 Paso tipo "connection":
@@ -2100,7 +2149,7 @@ classify_category:
   Mínimo 2 categorías reales del material, mínimo 2 ítems por categoría.
 
 MODO=${setup.evalPreference||'mix_everything'}
-quick_test: usa solo múltiple opción, V/F, matching, ordering, word_bank, scenario, find_the_error, numeric_problem — NUNCA short_response (respuesta abierta larga). numeric_problem SÍ está permitido en quick_test: es una respuesta corta y cerrada (un valor), no escritura abierta.
+quick_test: evaluación rápida SIN TECLADO. Usa solo multiple_choice, multi_select, true_false, matching, ordering, classify, word_bank, scenario de selección o find_the_error de selección. NUNCA short_response ni numeric_problem ni ningún input libre.
 write_explain: la evaluación inicial de este bloque DEBE usar short_response (variant explain_why_cause, explain_why_consequence, justify_answer, teach_back, short_answer_define, short_answer_compare o short_answer_summarize según lo que la pregunta exija — usa EXACTAMENTE uno de estos nombres) para TODAS las preguntas que evalúen comprensión/aplicación/transferencia de un concepto. Excepción única: si el paso es de tipo "formula" y el keyPoint exige un cálculo numérico concreto, usa numeric_problem para ESA pregunta específica (sigue siendo respuesta corta cerrada, no una elección entre opciones). NO generes multiple_choice, true_false, matching, word_bank, ordering, scenario, find_the_error ni classify en este modo — este modo existe precisamente para que el estudiante REDACTE su comprensión, no para que seleccione entre alternativas ya escritas.
 mix_everything: elige el formato que mejor demuestre la capacidad exigida por CADA objetivo — no repartas formatos por variedad ni por cuota. Guía mínima: objetivo numérico → numeric_problem; secuencia/proceso → ordering; relación término-definición → matching; categorización → classify; explicación causal que exige que el estudiante PRODUZCA el razonamiento (no solo reconocerlo entre opciones) → short_response o scenario; selección de varios componentes simultáneos genuinamente correctos → multi_select. La regla de variedad de más arriba sigue aplicando como desempate entre formatos igualmente apropiados, nunca como criterio principal.
 
@@ -2148,7 +2197,18 @@ ACEPTADAS=${JSON.stringify(accepted.map(q=>({format:q.format,prompt:q.prompt,tar
         if (nonWritten.length>0) telemetry('write_explain_produced_closed_format_fallback',{blockId:block.blockId,nonWrittenCount:nonWritten.length,totalCount:generatedQuestions.length,formats:nonWritten.map(q=>q.format)})
       }
       return {...block,questions:generatedQuestions}},
-    repairEvaluationBlock:async(block,missing:EvaluationCoverageDiagnosis,accepted)=>{const requiredReplacementCount=Math.max(missing.invalidQuestionIds.length+missing.duplicateQuestionIds.length,missing.missingRequiredStepIds.length,missing.missingCriticalKeyPoints.length,missing.missingImportantKeyPoints.length,missing.missingFactKeys.length);const teaching=preparationStore.get(generationKey)!.teachingContent!;const scopedSteps=compactTeachingForEvaluation(teaching).filter(step=>block.coveredStepIds.includes(step.stepId));const repairPayload={blockId:block.blockId,requiredReplacementCount,missingKeyPointIds:[...missing.missingCriticalKeyPoints,...missing.missingImportantKeyPoints],missingFactKeys:missing.missingFactKeys,invalidQuestionIds:missing.invalidQuestionIds,coveredStepIds:block.coveredStepIds,allowedKeyPointIds:block.coveredKeyPointIds,allowedFactKeys:block.coveredFactKeys,allowedObjectiveIds:block.targetObjectiveIds,allowedCognitiveTargets:block.cognitiveTargets,targetTeaching:scopedSteps,acceptedQuestions:accepted.map(question=>({questionId:question.questionId,format:question.format,prompt:question.prompt,targetStepIds:question.targetStepIds,targetKeyPointIds:question.targetKeyPointIds,targetFactKeys:question.targetFactKeys}))};return factoryQuestions(await remote('incremental_evaluation_repair',`Genera exactamente ${requiredReplacementCount} preguntas nuevas alineadas con targetTeaching. GROUNDEDNESS: todos los valores, números y datos deben estar tomados literalmente de targetTeaching. Si la pregunta evalúa un ejemplo, incluye el contexto del ejemplo en el enunciado. CALIBRACIÓN: recognition=easy, comprehension=medium, application/analysis/transfer=hard. Cada pregunta debe incluir questionId,targetStepIds,targetKeyPointIds,targetFactKeys,targetObjectiveIds,cognitiveTarget,format,prompt,options,correctAnswer,feedback,difficulty. targetFactKeys debe contener al menos un valor literal de allowedFactKeys; targetObjectiveIds debe usar allowedObjectiveIds; cognitiveTarget debe usar allowedCognitiveTargets. Cada pregunta debe cubrir literalmente al menos uno de missingKeyPointIds y evaluar el texto asociado en targetTeaching, sin desviarse a otro dato. Si missingFactKeys no está vacío, el conjunto de preguntas nuevas debe cubrir TODOS esos factKeys literalmente en targetFactKeys (una sola pregunta puede cubrir varios factKeys si genuinamente aplica). Reemplaza funcionalmente invalidQuestionIds. No repitas acceptedQuestions. Usa exclusivamente los IDs suministrados. Devuelve SOLO JSON {"questions":[...]}, con exactamente ${requiredReplacementCount} elementos. No devuelvas un array vacío. Modo=${setup.evalPreference||'mix_everything'}; quick_test exige formatos cerrados.\nTAREA=${JSON.stringify(repairPayload)}`,3200),block)},
+    // BUG REAL (StudyAL_Visual_System_Stress_Test, chapter_2:evaluation:3):
+    // este requiredReplacementCount local repetía la misma conflación que
+    // sessionPreparationFactory.diagnoseEvaluationBlock (invalidQuestionIds.
+    // length+duplicateQuestionIds.length mezclado con cobertura real) —
+    // pedía a Gemini reparar tanto una pregunta redundante inválida como una
+    // cobertura genuina, aunque el motor solo invoca este callback cuando
+    // `missing` ya representa cobertura obligatoria realmente faltante (ver
+    // sessionPreparationFactory.ts:execute, rama PARTIAL_EVALUATION_COVERAGE).
+    // Fix: misma fuente única de verdad que diagnoseEvaluationBlock — el
+    // repair debe pedir exactamente lo que falta pedagógicamente, nunca una
+    // unidad extra solo porque una pregunta individual era inválida/duplicada.
+    repairEvaluationBlock:async(block,missing:EvaluationCoverageDiagnosis,accepted)=>{const requiredReplacementCount=Math.max(missing.missingRequiredStepIds.length,missing.missingCriticalKeyPoints.length,missing.missingImportantKeyPoints.length,missing.missingFactKeys.length);const teaching=preparationStore.get(generationKey)!.teachingContent!;const scopedSteps=compactTeachingForEvaluation(teaching).filter(step=>block.coveredStepIds.includes(step.stepId));const repairPayload={blockId:block.blockId,requiredReplacementCount,missingKeyPointIds:[...missing.missingCriticalKeyPoints,...missing.missingImportantKeyPoints],missingFactKeys:missing.missingFactKeys,invalidQuestionIds:missing.invalidQuestionIds,coveredStepIds:block.coveredStepIds,allowedKeyPointIds:block.coveredKeyPointIds,allowedFactKeys:block.coveredFactKeys,allowedObjectiveIds:block.targetObjectiveIds,allowedCognitiveTargets:block.cognitiveTargets,targetTeaching:scopedSteps,acceptedQuestions:accepted.map(question=>({questionId:question.questionId,format:question.format,prompt:question.prompt,targetStepIds:question.targetStepIds,targetKeyPointIds:question.targetKeyPointIds,targetFactKeys:question.targetFactKeys}))};return factoryQuestions(await remote('incremental_evaluation_repair',`Genera exactamente ${requiredReplacementCount} preguntas nuevas alineadas con targetTeaching. GROUNDEDNESS: todos los valores, números y datos deben estar tomados literalmente de targetTeaching. Si la pregunta evalúa un ejemplo, incluye el contexto del ejemplo en el enunciado. CALIBRACIÓN: recognition=easy, comprehension=medium, application/analysis/transfer=hard. Cada pregunta debe incluir questionId,targetStepIds,targetKeyPointIds,targetFactKeys,targetObjectiveIds,cognitiveTarget,format,prompt,options,correctAnswer,feedback,difficulty. targetFactKeys debe contener al menos un valor literal de allowedFactKeys; targetObjectiveIds debe usar allowedObjectiveIds; cognitiveTarget debe usar allowedCognitiveTargets. Cada pregunta debe cubrir literalmente al menos uno de missingKeyPointIds y evaluar el texto asociado en targetTeaching, sin desviarse a otro dato. Si missingFactKeys no está vacío, el conjunto de preguntas nuevas debe cubrir TODOS esos factKeys literalmente en targetFactKeys (una sola pregunta puede cubrir varios factKeys si genuinamente aplica). Reemplaza funcionalmente invalidQuestionIds. No repitas acceptedQuestions. Usa exclusivamente los IDs suministrados. Devuelve SOLO JSON {"questions":[...]}, con exactamente ${requiredReplacementCount} elementos. No devuelvas un array vacío. Modo=${setup.evalPreference||'mix_everything'}; quick_test exige formatos cerrados.\nTAREA=${JSON.stringify(repairPayload)}`,3200),block)},
   })
   const academicDomainMetadata = {
     academicDomain:body.academicDomain || 'general_conceptual',
@@ -2157,12 +2217,13 @@ ACEPTADAS=${JSON.stringify(accepted.map(q=>({format:q.format,prompt:q.prompt,tar
     academicDomainVersion:body.academicDomainVersion || 'academic-domain-v1',
   }
   Object.assign(state, academicDomainMetadata)
+  if(state.reliability){state.reliability.providerCalls=remoteCallNumber;state.reliability.origin=requestOrigin;state.reliability.finalStatus=state.readiness||state.reliability.finalStatus}
   preparationStore.set(generationKey, structuredClone(state))
-  if(state.preparationStatus!=='ready'||!state.teachingContent){const diagnostic=state.lastDiagnostic;console.error('[session-preparation]',JSON.stringify({event:'session_teach_503',sessionId:session.id,errorCode:diagnostic?.errorCode||'SESSION_PREPARATION_RETRY_REQUIRED',message:state.lastTechnicalError||'',validationErrors:diagnostic?.validationErrors||[],offendingBlock:diagnostic?.offendingBlock||null,unknownStepIds:diagnostic?.unknownStepIds||[],unknownKeyPoints:diagnostic?.unknownKeyPoints||[],missingStepIds:diagnostic?.missingStepIds||[],stack:diagnostic?.stack||'',preparationStatus:state.preparationStatus,teachingPreserved:Boolean(state.teachingContent)}));return NextResponse.json({ok:false,success:false,stage:state.currentGenerationStage==='technical_retry_required'?'evaluation_planning_validation':state.currentGenerationStage,errorCode:diagnostic?.errorCode||'SESSION_PREPARATION_RETRY_REQUIRED',message:state.lastTechnicalError,validationErrors:diagnostic?.validationErrors||[],offendingBlock:diagnostic?.offendingBlock||null,unknownStepIds:diagnostic?.unknownStepIds||[],unknownKeyPoints:diagnostic?.unknownKeyPoints||[],missingStepIds:diagnostic?.missingStepIds||[],preparationStatus:state.preparationStatus,teachingPreserved:Boolean(state.teachingContent),retryFromStage:state.teachingContent&&!state.evaluationPlan?'evaluation_planning':'evaluation_generation',retryable:true,preparationState:state,remoteCalls:remoteCallNumber},{status:503})}
+  if(state.preparationStatus!=='ready'||!state.teachingContent){const diagnostic=state.lastDiagnostic;const recoverable=Boolean(state.teachingContent)&&state.preparationStatus!=='fatal';const responseStatus=recoverable?202:503;console[recoverable?'warn':'error']('[session-preparation]',JSON.stringify({event:recoverable?'session_preparation_recoverable':'session_teach_503',sessionId:session.id,errorCode:diagnostic?.errorCode||'SESSION_PREPARATION_RETRY_REQUIRED',message:state.lastTechnicalError||'',validationErrors:diagnostic?.validationErrors||[],offendingBlock:diagnostic?.offendingBlock||null,unknownStepIds:diagnostic?.unknownStepIds||[],unknownKeyPoints:diagnostic?.unknownKeyPoints||[],missingStepIds:diagnostic?.missingStepIds||[],preparationStatus:state.preparationStatus,readiness:state.readiness,teachingPreserved:Boolean(state.teachingContent)}));return NextResponse.json({ok:false,success:false,recoverable,stage:state.currentGenerationStage,errorCode:diagnostic?.errorCode||'SESSION_PREPARATION_RETRY_REQUIRED',message:state.lastTechnicalError,validationErrors:diagnostic?.validationErrors||[],offendingBlock:diagnostic?.offendingBlock||null,unknownStepIds:diagnostic?.unknownStepIds||[],unknownKeyPoints:diagnostic?.unknownKeyPoints||[],missingStepIds:diagnostic?.missingStepIds||[],preparationStatus:state.preparationStatus,readiness:state.readiness,teachingPreserved:Boolean(state.teachingContent),retryFromStage:state.teachingContent&&!state.evaluationPlan?'evaluation_planning':'evaluation_generation',retryable:recoverable,preparationState:state,remoteCalls:remoteCallNumber},{status:responseStatus})}
   const keyPointText=new Map(state.teachingContent.steps.flatMap(step=>step.keyPointIds.map((id,index)=>[id,step.keyPoints[index]] as const)))
   const rawSession={sessionIntro:state.teachingContent.introduction,sessionClosing:state.teachingContent.closing,steps:state.teachingContent.steps.map(step=>({...step,id:step.stepId})),evaluationBlocks:state.generatedEvaluationBlocks.map(block=>({id:block.blockId,...block,coveredKeyPoints:block.coveredKeyPointIds.map(id=>keyPointText.get(id)).filter(Boolean),questions:block.questions.map(q=>({...q,id:q.questionId,type:q.format,coveredStepIds:q.targetStepIds,coveredKeyPoints:q.targetKeyPointIds.map(id=>keyPointText.get(id)).filter(Boolean),questionText:q.prompt,explanation:q.feedback,targetDimension:q.cognitiveTarget}))}))}
   const canonical=canonicalizeGeneratedSession(rawSession,{sessionId:session.id,kind:session.kind,evaluationMode:setup.evalPreference||'mix_everything'})
-  if(!canonical.session){state={...state,preparationStatus:'technical_retry_required',currentGenerationStage:'session_assembly_validation',lastTechnicalError:'SESSION_PREPARATION_VALIDATION_FAILED',lastDiagnostic:{errorCode:'SESSION_PREPARATION_VALIDATION_FAILED',validationErrors:canonical.errors,unknownStepIds:[],unknownKeyPoints:[],missingStepIds:[]}};preparationStore.set(generationKey,structuredClone(state));console.error('[session-preparation]',JSON.stringify({event:'session_teach_503',sessionId:session.id,stage:'session_assembly_validation',errorCode:'SESSION_PREPARATION_VALIDATION_FAILED',message:'La sesión preparada no pasó la canonicalización final',validationErrors:canonical.errors,offendingBlock:null,unknownStepIds:[],unknownKeyPoints:[],missingStepIds:[],stack:'',preparationStatus:state.preparationStatus,teachingPreserved:true}));return NextResponse.json({ok:false,success:false,stage:'session_assembly_validation',errorCode:'SESSION_PREPARATION_VALIDATION_FAILED',message:'La sesión preparada no pasó la canonicalización final',validationErrors:canonical.errors,offendingBlock:null,unknownStepIds:[],unknownKeyPoints:[],missingStepIds:[],preparationStatus:state.preparationStatus,teachingPreserved:true,retryFromStage:'evaluation_generation',retryable:true,preparationState:state},{status:503})}
+  if(!canonical.session){state={...state,preparationStatus:'recoverable',readiness:'RECOVERABLE',currentGenerationStage:'session_assembly_validation',lastTechnicalError:'SESSION_PREPARATION_VALIDATION_FAILED',lastDiagnostic:{errorCode:'SESSION_PREPARATION_VALIDATION_FAILED',validationErrors:canonical.errors,unknownStepIds:[],unknownKeyPoints:[],missingStepIds:[]}};preparationStore.set(generationKey,structuredClone(state));console.warn('[session-preparation]',JSON.stringify({event:'accepted_component_final_assertion_failed',sessionId:session.id,stage:'session_assembly_validation',errorCode:'SESSION_PREPARATION_VALIDATION_FAILED',validationErrors:canonical.errors,preparationStatus:state.preparationStatus,teachingPreserved:true}));return NextResponse.json({ok:false,success:false,recoverable:true,stage:'session_assembly_validation',errorCode:'SESSION_PREPARATION_VALIDATION_FAILED',message:'Terminando algunos detalles de la sesión',validationErrors:canonical.errors,preparationStatus:state.preparationStatus,teachingPreserved:true,retryFromStage:'evaluation_generation',retryable:true,preparationState:state},{status:202})}
   if (body.preparationState) {
     for (const question of canonical.session.evaluationBlocks.flatMap(block => block.questions)) {
       telemetry('evaluation_question_revalidated',{questionId:question.id,requiresNumericData:question.requiresNumericData===true,valid:true})
@@ -2188,21 +2249,22 @@ ACEPTADAS=${JSON.stringify(accepted.map(q=>({format:q.format,prompt:q.prompt,tar
     // real (el resto del archivo, debajo de esta función, es código
     // inalcanzable — ver comentario en POST).
     for(const block of classContent.evaluationBlocks) signQuestionsInPlace(block.questions)
-    telemetry('session_assembly_validated',{blockCount:canonical.session.evaluationBlocks.length});const payload={success:true,classContent};teachCache.set(generationKey,{result:payload,timestamp:Date.now()});telemetry('session_preparation_ready',{generationKey});return NextResponse.json(payload)
+    telemetry('session_assembly_validated',{blockCount:canonical.session.evaluationBlocks.length});const payload={success:true,classContent};teachCache.set(generationKey,{result:payload,timestamp:Date.now()});telemetry('session_preparation_ready',{generationKey});telemetry('session_preparation_summary',state.reliability?{...state.reliability,sessionId:session.id,finalStatus:'READY'}:{generationKey,sessionId:session.id,providerCalls:remoteCallNumber,finalStatus:'READY'});return NextResponse.json(payload)
   } catch (assemblyError: unknown) {
     const message = assemblyError instanceof Error ? assemblyError.message : String(assemblyError)
     const stack = assemblyError instanceof Error ? assemblyError.stack?.split('\n').slice(0, 8).join('\n') : undefined
     const errorCode = message.startsWith('INVALID_ACADEMIC_FRAGMENT') ? 'CONTENT_SANITIZATION_FAILED'
       : message.includes('NEXTAUTH_SECRET') ? 'QUESTION_SIGNING_FAILED'
       : 'SESSION_ASSEMBLY_FAILED'
-    // El contenido docente que llegó hasta aquí no pasó el ensamblaje final —
-    // preservarlo como 'ready' garantizaría el MISMO fallo en cada retry.
-    // Se invalida para forzar una regeneración real de teaching/evaluación.
-    state={...state,preparationStatus:'teaching_generation',currentGenerationStage:'session_assembly_failed',teachingContent:undefined,teachingHash:undefined,evaluationPlan:undefined,evaluationPlanHash:undefined,generatedEvaluationBlocks:[],acceptedQuestions:[],lastTechnicalError:message,lastDiagnostic:{errorCode,validationErrors:[message],unknownStepIds:[],unknownKeyPoints:[],missingStepIds:[],stack}}
+    // Firma es posterior al checkpoint pedagógico y se reintenta sin destruirlo.
+    // Sanitización, en cambio, demuestra que teaching NUNCA fue final-canónico:
+    // se descarta ese checkpoint inválido (no era contenido válido preservable).
+    const teachingWasCanonical = errorCode !== 'CONTENT_SANITIZATION_FAILED'
+    state={...state,preparationStatus:'recoverable',readiness:'RECOVERABLE',currentGenerationStage:'session_assembly_failed',...(teachingWasCanonical?{}:{teachingContent:undefined,teachingHash:undefined,evaluationPlan:undefined,evaluationPlanHash:undefined,generatedEvaluationBlocks:[],acceptedQuestions:[]}),lastTechnicalError:message,lastDiagnostic:{errorCode,validationErrors:[message],unknownStepIds:[],unknownKeyPoints:[],missingStepIds:[],stack}}
     preparationStore.set(generationKey,structuredClone(state))
-    console.error('[session-preparation]',JSON.stringify({event:'session_teach_503',sessionId:session.id,generationKey,stage:'session_assembly_failed',errorCode,message,stack,preparationStatus:state.preparationStatus,teachingInvalidatedForRetry:true}))
+    console.warn('[session-preparation]',JSON.stringify({event:'session_assembly_recoverable',sessionId:session.id,generationKey,stage:'session_assembly_failed',errorCode,message,preparationStatus:state.preparationStatus,teachingPreserved:teachingWasCanonical}))
     telemetry('session_assembly_failed',{errorCode,message})
-    return NextResponse.json({ok:false,success:false,stage:'session_assembly_failed',errorCode,message,preparationStatus:state.preparationStatus,teachingPreserved:false,retryFromStage:'teaching_generation',retryable:true,preparationState:state},{status:503})
+    return NextResponse.json({ok:false,success:false,recoverable:true,stage:'session_assembly_failed',errorCode,message:'Terminando algunos detalles de la sesión',preparationStatus:state.preparationStatus,teachingPreserved:teachingWasCanonical,retryFromStage:teachingWasCanonical?'session_assembly':'teaching_generation',retryable:true,preparationState:state},{status:202})
   }
 }
 

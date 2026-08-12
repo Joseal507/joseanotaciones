@@ -7,10 +7,11 @@ export interface GraphExtraction { data: GraphDataSpec; sourceSpans: VisualSourc
 // material. Nunca inventa una expresión ni un dominio que no esté escrito — si no hay
 // expresión detectable, devuelve null (FASE 6).
 export function extractGraphSpec(sourceText: string, factKeys: string[], sourceStepId: string): GraphExtraction | null {
-  const match = sourceText.match(/\b(f\s*\(\s*x\s*\)|y)\s*=\s*((?:-?\d+(?:\.\d+)?\s*[xX]?\s*(?:\^\s*\d+)?\s*[+\-]?\s*)+)/)
+  const term = String.raw`(?:\d+(?:\.\d+)?(?:\s*\*?\s*x(?:\s*\^\s*\d+)?)?|x(?:\s*\^\s*\d+)?)`
+  const match = sourceText.match(new RegExp(String.raw`\b(f\s*\(\s*x\s*\)|y)\s*=\s*([+\-]?\s*${term}(?:\s*[+\-]\s*${term})*)`, 'i'))
   if (!match) return null
-  const expression = match[2].trim()
-  if (!evaluateExpression(expression, 1)) return null
+  const expression = match[2].trim().replace(/[.,;:]$/, '').trim()
+  if (evaluateExpression(expression, 1) === null) return null
 
   const domainMatch = sourceText.match(/-?\d+(?:\.\d+)?\s*(?:≤|<=)\s*x\s*(?:≤|<=)\s*-?\d+(?:\.\d+)?/)
   let domain: [number, number] = [-10, 10]

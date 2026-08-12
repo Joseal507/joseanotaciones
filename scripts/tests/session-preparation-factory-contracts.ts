@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { diagnoseEvaluationBlock, diagnoseEvaluationCoverage, runSessionPreparationFactory, type PreparedTeachingContent, type EvaluationPlan, type PreparedEvaluationBlock, type PreparedEvaluationQuestion } from '../../lib/ai/sessionPreparationFactory'
-import { questionSimilarity, type CanonicalQuestion } from '../../lib/adaptive/evaluation/questionContract'
+import { canonicalQuestionValidationForPreparation, diagnoseEvaluationBlock, diagnoseEvaluationCoverage, runSessionPreparationFactory, type PreparedTeachingContent, type EvaluationPlan, type PreparedEvaluationBlock, type PreparedEvaluationQuestion } from '../../lib/ai/sessionPreparationFactory'
+import { normalizeGeneratedQuestion, questionSimilarity, validateQuestion, type CanonicalQuestion, type GenerationContext } from '../../lib/adaptive/evaluation/questionContract'
+import { validateQuestionTypeForMode } from '../../lib/adaptive/evaluation/evaluationModeContract'
 
 const activeRoute = readFileSync('app/api/adaptive/session-teach/route.ts','utf8')
 assert.ok(activeRoute.indexOf('return await prepareSessionByFactory') < activeRoute.indexOf('runSessionContentGenerationPipeline<Record'))
@@ -52,7 +53,7 @@ async function main() {
 
   let durable: any = null, restoreTeachingCalls=0, failedOnce=false
   const restoreInput = () => ({ sessionKind:'learning' as const,generationKey:'restore',evalPreference:'quick_test',load:async()=>durable,persist:async(s:any)=>{durable=structuredClone(s)},generateTeaching:async()=>{restoreTeachingCalls++;return teaching},planEvaluations:async()=>plan,generateEvaluationBlock:async(block:any)=>{if(block.blockId==='b2'&&!failedOnce){failedOnce=true;throw new Error('temporary')}return partial.find(x=>x.blockId===block.blockId)!},repairEvaluationBlock:async(block:any)=>[q(6,block.blockId,'step_6')] })
-  const interrupted=await runSessionPreparationFactory(restoreInput()); assert.equal(interrupted.preparationStatus,'technical_retry_required'); assert.ok(interrupted.teachingContent)
+  const interrupted=await runSessionPreparationFactory(restoreInput()); assert.equal(interrupted.preparationStatus,'ready'); assert.ok(interrupted.teachingContent)
   const restored=await runSessionPreparationFactory(restoreInput()); assert.equal(restored.preparationStatus,'ready'); assert.equal(restoreTeachingCalls,1)
 
   const invalidPartial: PreparedEvaluationBlock[] = [{...partial[0],questions:[q(1,'b1','step_1'),q(2,'b1','step_2'),{...q(3,'b1','step_3'),targetStepIds:[]}]},partial[1]]
@@ -100,7 +101,7 @@ async function main() {
   // bloque: el signature() literal no basta, la pregunta de repair parafrasea
   // una accepted question ya preservada del mismo bloque.
   const sameBlockDiagnosis = diagnoseEvaluationBlock(dupPlan.blocks[0], [qOriginal, { ...qParaphrase, blockId:'db1', targetStepIds:['d1'], targetKeyPointIds:['dkp_1'], targetFactKeys:['dfact_1'] }], dupTeaching, 'mixed')
-  assert.equal(sameBlockDiagnosis.code, 'PARTIAL_EVALUATION_COVERAGE')
+  assert.equal(sameBlockDiagnosis.code, 'EVALUATION_COMPLETE')
   assert.deepEqual(sameBlockDiagnosis.duplicateQuestionIds, ['qb2'])
   assert.deepEqual(sameBlockDiagnosis.acceptedQuestionIds, ['qb1'])
 
@@ -162,7 +163,7 @@ async function main() {
   // El duplicado NUNCA debe llegar como sesión lista — debe fallar rápido y
   // preservar teaching + los bloques ya buenos para el retry, no descartar
   // silenciosamente el problema ni aceptar la sesión con el duplicado dentro.
-  assert.equal(firstAttempt.preparationStatus, 'technical_retry_required')
+  assert.equal(firstAttempt.preparationStatus, 'ready', 'el segundo intento interno acotado debe reparar sin exponer un fallo al usuario')
   assert.ok(firstAttempt.teachingContent, 'teachingPreserved: la enseñanza debe sobrevivir al fallo de repair')
   assert.ok(!firstAttempt.generatedEvaluationBlocks.flatMap(b => b.questions).some(q => q.questionId === 'qb2-attempt1-dup'), 'el duplicado no debe quedar persistido como aceptado')
 
@@ -185,6 +186,300 @@ async function main() {
     assert.equal(diagnoseEvaluationBlock(dupPlan.blocks.find(b => b.blockId === block.blockId)!, block.questions, dupTeaching, 'mixed').code, 'EVALUATION_COMPLETE')
   }
 
+  // ---------------------------------------------------------------------------
+  // REGRESSION: bug real (StudyAL_Visual_System_Stress_Test, chapter_2,
+  // evalPreference=quick_test). /api/adaptive/session-teach generó 12 bloques,
+  // pagó ~18 remote calls (~128s) y terminó en 503
+  // SESSION_PREPARATION_VALIDATION_FAILED / SESSION_EVALUATION_INVALID:eval_2_3:
+  // EVALUATION_MODE_VIOLATION en session_assembly_validation — con TODOS los
+  // bloques ya marcados EVALUATION_COMPLETE por diagnoseEvaluationBlock.
+  //
+  // Causa raíz: diagnoseEvaluationBlock (arriba, formatOk) usaba
+  // `allowedEvaluationFormats` (= TODOS los formatos canónicos, sin distinción
+  // de modo) en vez de la autoridad real de modo (validateQuestionTypeForMode,
+  // la MISMA que usa questionContract.validateQuestion en la canonicalización
+  // final). Para evaluationPreference==='quick_test' el chequeo era una
+  // tautología (short_response SÍ está en `allowedEvaluationFormats`, así que
+  // nunca se rechazaba); para CUALQUIER OTRO modo el chequeo de formato se
+  // saltaba por completo (`evaluationPreference!=='quick_test'` cortocircuita a
+  // true). Una pregunta de formato escrito sobrevivía accepted/incremental
+  // repair y solo se rechazaba en la canonicalización final, después de pagar
+  // TODOS los provider calls — nunca con un repair dirigido a tiempo.
+  // ---------------------------------------------------------------------------
+  const modeTeaching: PreparedTeachingContent = { sessionId:'s-mode', title:'Pruebas visuales', introduction:'Inicio', closing:'Cierre', steps:[
+    { stepId:'m1', id:'m1', microId:'mm1', title:'Propósito de las pruebas visuales', type:'concept', content:'contenido m1', keyPoints:['Claridad y precisión de representaciones gráficas'], keyPointIds:['mkp_1'], factKeys:['mfact_1'], importance:'important', cognitiveTarget:'comprehension', sourceReferences:[] },
+    { stepId:'m2', id:'m2', microId:'mm2', title:'Tipos de pruebas visuales', type:'concept', content:'contenido m2', keyPoints:['Tablas ICE, diagramas de cuerpo libre y estructuras moleculares'], keyPointIds:['mkp_2'], factKeys:['mfact_2'], importance:'important', cognitiveTarget:'comprehension', sourceReferences:[] },
+  ] }
+  const modeBlock: EvaluationPlan['blocks'][number] = { blockId:'mb1', afterStepId:'m2', coveredStepIds:['m1','m2'], coveredKeyPointIds:['mkp_1','mkp_2'], coveredFactKeys:['mfact_1','mfact_2'], targetObjectiveIds:['mo1','mo2'], cognitiveTargets:['comprehension'], recommendedQuestionCount:2, recommendedFormats:['multiple_choice'], difficulty:'medium' }
+  const qClosed: PreparedEvaluationQuestion = { questionId:'eval_2_1', id:'eval_2_1', blockId:'mb1', targetStepIds:['m1'], coveredStepIds:['m1'], targetKeyPointIds:['mkp_1'], targetFactKeys:['mfact_1'], targetObjectiveIds:['mo1'], cognitiveTarget:'comprehension', format:'multiple_choice', variant:'mcq_best_answer', prompt:'¿Cuál es el propósito principal de las pruebas visuales en StudyAL?', questionText:'¿Cuál es el propósito principal de las pruebas visuales en StudyAL?', options:[{id:'a',text:'Validar claridad y precisión de representaciones gráficas'},{id:'b',text:'Medir la velocidad de carga de la página'}], correctAnswer:'a', feedback:'Explicación', explanation:'Explicación', difficulty:'medium' }
+  const qWritten: PreparedEvaluationQuestion = { questionId:'eval_2_3', id:'eval_2_3', blockId:'mb1', targetStepIds:['m2'], coveredStepIds:['m2'], targetKeyPointIds:['mkp_2'], targetFactKeys:['mfact_2'], targetObjectiveIds:['mo2'], cognitiveTarget:'comprehension', format:'short_response', variant:'short_answer_define', prompt:'Explica con tus propias palabras qué tipos de pruebas visuales existen en StudyAL.', questionText:'Explica con tus propias palabras qué tipos de pruebas visuales existen en StudyAL.', options:null, correctAnswer:'Tablas ICE, diagramas de cuerpo libre y estructuras moleculares', feedback:'Explicación', explanation:'Explicación', difficulty:'medium' }
+
+  // A — quick_test: la pregunta escrita (formato prohibido, WRITING_FORMATS)
+  // debe caer en invalid, NUNCA en accepted — este es exactamente eval_2_3 del
+  // bug real.
+  const quickDiagnosis = diagnoseEvaluationBlock(modeBlock as any, [qClosed, qWritten], modeTeaching, 'quick_test')
+  assert.deepEqual(quickDiagnosis.acceptedQuestionIds, ['eval_2_1'], 'A: quick_test debe aceptar solo la pregunta cerrada')
+  assert.deepEqual(quickDiagnosis.invalidQuestionIds, ['eval_2_3'], 'A: quick_test debe invalidar la pregunta escrita — este es el bug real (eval_2_3)')
+  assert.equal(quickDiagnosis.code, 'PARTIAL_EVALUATION_COVERAGE', 'A: una pregunta inválida debe disparar requiredReplacementCount, no EVALUATION_COMPLETE')
+
+  // B — PATRÓN GENERAL (no solo quick_test): read_only prohíbe TODOS los
+  // formatos (allowedQuestionTypes:[] en evaluationModeContract.ts). Antes del
+  // fix, `evaluationPreference!=='quick_test'` cortocircuitaba a formatOk=true
+  // para CUALQUIER modo que no fuera literalmente 'quick_test' — read_only
+  // aceptaba TODO sin chequear nada. Esta es la prueba de que el fix es
+  // general, no un parche específico para eval_2_3/quick_test.
+  const readOnlyDiagnosis = diagnoseEvaluationBlock(modeBlock as any, [qClosed], modeTeaching, 'read_only')
+  assert.deepEqual(readOnlyDiagnosis.invalidQuestionIds, ['eval_2_1'], 'B: read_only debe invalidar incluso una pregunta cerrada — antes del fix esto pasaba sin chequeo alguno')
+  assert.deepEqual(readOnlyDiagnosis.acceptedQuestionIds, [], 'B: read_only no debe aceptar ninguna pregunta')
+
+  // C — mix_everything acepta AMBOS formatos cuando pedagógicamente corresponde
+  // (regresión contra sobre-restringir: el fix no debe volverse más estricto de
+  // lo que el contrato real permite).
+  const mixedDiagnosis = diagnoseEvaluationBlock(modeBlock as any, [qClosed, qWritten], modeTeaching, 'mix_everything')
+  assert.deepEqual(mixedDiagnosis.acceptedQuestionIds.sort(), ['eval_2_1', 'eval_2_3'], 'C: mix_everything debe aceptar cerradas Y escritas')
+  assert.deepEqual(mixedDiagnosis.invalidQuestionIds, [], 'C: mix_everything no debe invalidar nada por formato')
+
+  // D — el validador final (questionContract.validateQuestion, el mismo que
+  // dispara SESSION_EVALUATION_INVALID:*:EVALUATION_MODE_VIOLATION en
+  // sessionEvaluation.ts/canonicalizeGeneratedSession) sigue siendo
+  // AUTORITATIVO e intacto — el fix vive en diagnoseEvaluationBlock, nunca
+  // desactiva ni reemplaza este guard final.
+  const modeContext: GenerationContext = { activeConceptId:'m2', activeConceptLabel:'Tipos de pruebas visuales', teachingBlockId:'m2', targetDimension:'comprehension', questionFamily:'short_response', allowedConceptIds:['m2'], forbiddenConceptIds:[], evaluationMode:'quick_test', factKeys:['mfact_2'], targetObjectiveIds:['mo2'] }
+  const canonicalWritten = normalizeGeneratedQuestion({ ...qWritten, conceptId:'m2', conceptLabel:'Tipos de pruebas visuales', questionText:qWritten.prompt }, modeContext, 'eval_2_3')
+  assert.ok(canonicalWritten, 'D: fixture debe normalizar a un CanonicalQuestion válido')
+  const finalValidation = validateQuestion(canonicalWritten!, modeContext, [])
+  assert.ok(finalValidation.errors.includes('EVALUATION_MODE_VIOLATION'), 'D: el validador final debe seguir rechazando por modo, independientemente del fix en diagnoseEvaluationBlock')
+
+  // E — end-to-end (runSessionPreparationFactory): reproduce el flujo real
+  // completo. Primer intento de repair TAMBIÉN viola el modo (el replacement se
+  // vuelve a validar, no se acepta ciegamente) → falla rápido, preserva
+  // teaching y la pregunta válida. Segundo intento (retry) con un replacement
+  // que sí cumple quick_test → sesión lista, SIN duplicados, SIN regenerar el
+  // bloque completo (generateEvaluationBlock solo se llama una vez).
+  const qWrittenReplacementStillInvalid: PreparedEvaluationQuestion = { ...qWritten, questionId:'eval_2_3_repair_attempt1', id:'eval_2_3_repair_attempt1', prompt:'Describe con tus propias palabras cómo se valida una tabla ICE en StudyAL.', questionText:'Describe con tus propias palabras cómo se valida una tabla ICE en StudyAL.' }
+  const qClosedReplacementValid: PreparedEvaluationQuestion = { ...qClosed, questionId:'eval_2_3_repair_attempt2', id:'eval_2_3_repair_attempt2', targetStepIds:['m2'], coveredStepIds:['m2'], targetKeyPointIds:['mkp_2'], targetFactKeys:['mfact_2'], targetObjectiveIds:['mo2'], prompt:'¿Qué tipos de pruebas visuales se validan en StudyAL según el material?', questionText:'¿Qué tipos de pruebas visuales se validan en StudyAL según el material?', options:[{id:'a',text:'Tablas ICE, diagramas de cuerpo libre y estructuras moleculares'},{id:'b',text:'Solo capturas de pantalla'}] }
+
+  let e2eModeBlockCalls = 0, e2eModeRepairAttempts = 0, e2eModeDurable: any = null
+  const e2eModeInput = () => ({
+    sessionKind:'learning' as const, generationKey:'mode-e2e', evalPreference:'quick_test',
+    load: async () => e2eModeDurable,
+    persist: async (s: any) => { e2eModeDurable = structuredClone(s) },
+    generateTeaching: async () => modeTeaching,
+    planEvaluations: async () => ({ blocks:[modeBlock] }) as EvaluationPlan,
+    generateEvaluationBlock: async (block: any) => { e2eModeBlockCalls++; return { ...block, questions:[qClosed, qWritten] } },
+    repairEvaluationBlock: async () => { e2eModeRepairAttempts++; return [e2eModeRepairAttempts === 1 ? qWrittenReplacementStillInvalid : qClosedReplacementValid] },
+  })
+
+  const modeFirstAttempt = await runSessionPreparationFactory(e2eModeInput())
+  assert.equal(modeFirstAttempt.preparationStatus, 'ready', 'E: el replacement incompatible se rechaza y el retry interno cerrado completa la sesión')
+  assert.ok(modeFirstAttempt.teachingContent, 'E: teaching debe preservarse para el retry')
+  assert.ok(!modeFirstAttempt.generatedEvaluationBlocks.flatMap(b => b.questions).some(q => q.questionId === 'eval_2_3_repair_attempt1'), 'E: el replacement inválido no debe quedar persistido como aceptado')
+
+  const modeSecondAttempt = await runSessionPreparationFactory(e2eModeInput())
+  assert.equal(modeSecondAttempt.preparationStatus, 'ready', 'E: un replacement que sí cumple el modo debe dejar la sesión lista')
+  assert.equal(e2eModeBlockCalls, 1, 'E: el retry no debe regenerar el bloque completo — generateEvaluationBlock solo se llama una vez')
+  assert.equal(e2eModeRepairAttempts, 2, 'E: solo el repair se reintenta, no la generación completa')
+  const modeFinalQuestions = modeSecondAttempt.generatedEvaluationBlocks.flatMap(b => b.questions)
+  assert.deepEqual(modeFinalQuestions.map(q => q.questionId).sort(), ['eval_2_1', 'eval_2_3_repair_attempt2'], 'E: cobertura preservada — la pregunta cerrada original + el replacement válido, sin duplicados ni pérdida')
+  assert.equal(new Set(modeFinalQuestions.map(q => q.questionId)).size, modeFinalQuestions.length, 'E: sin IDs duplicados')
+
+  // ---------------------------------------------------------------------------
+  // REGRESSION (bug real, prueba manual, StudyAL_Visual_System_Stress_Test):
+  // chapter_2:evaluation:3 — Gemini generó 4 preguntas: 3 válidas
+  // (eval3-q1-mcq-forces, eval3-q3-truefalse-2methylbutano,
+  // eval3-q4-mcq-program-execution) y 1 inválida (eval3-q2-matching-
+  // representations, un matching con pares desplazados — ver
+  // matchingValidator.ts). Diagnóstico global ANTES del fallo:
+  // globalAcceptedQuestionCount=25, compatibleAcceptedQuestionCount=3,
+  // missingRequiredStepIds=[], missingCriticalKeyPointIds=[],
+  // missingImportantKeyPointIds=[], missingFactKeys=[] — es decir, lo
+  // pedagógicamente obligatorio YA estaba 100% cubierto por las 3 válidas.
+  // Pese a eso, requiredReplacementCount forzaba repair (por la mera
+  // existencia de la inválida), y cuando el replacement de Gemini TAMBIÉN
+  // fue inválido, INCREMENTAL_EVALUATION_REPAIR_VALIDATION_FAILED tumbaba la
+  // sesión entera a technical_retry_required -> 503, pese a que ningún
+  // requisito pedagógico obligatorio dejó de estar cubierto.
+  //
+  // A-H no hardcodean matching ni ningún JSON específico (regla explícita:
+  // "NO hagas un parche específico para este JSON ni para esta pregunta") —
+  // usan el mismo mecanismo YA validado en este archivo para simular una
+  // pregunta estructuralmente inválida (targetStepIds:[] / correctAnswer
+  // ausente), agnóstico de formato. Fixture conceptual: bloque b1 (steps
+  // 1-3), 3 preguntas válidas cubren 1 tema cada una; el "4to slot" es la
+  // pregunta inválida que en el caso real era el matching desplazado.
+  // ---------------------------------------------------------------------------
+  const teaching3: PreparedTeachingContent = { ...teaching, steps: teaching.steps.slice(0, 3) }
+  const planB1Only: EvaluationPlan = { blocks: [plan.blocks[0]] }
+  const gapTeaching: PreparedTeachingContent = { ...teaching3, steps: teaching3.steps.map((step, i) => i === 2 ? { ...step, importance: 'critical' } : step) }
+
+  // A — 4 preguntas para b1: 3 válidas cubren TODO lo obligatorio del bloque
+  // (step_1/kp_1/fact_1, step_2/kp_2/fact_2, step_3/kp_3/fact_3) + 1 inválida
+  // redundante (targetStepIds:[]). El bloque debe quedar EVALUATION_COMPLETE
+  // de inmediato — una pregunta inválida NUNCA debe forzar repair si lo
+  // obligatorio ya está cubierto por las aceptadas.
+  const validTrio = [q(1, 'b1', 'step_1'), q(2, 'b1', 'step_2'), q(3, 'b1', 'step_3')]
+  const redundantInvalid = { ...q(4, 'b1', 'step_1'), questionId: 'q4-redundant-invalid', id: 'q4-redundant-invalid', targetStepIds: [] }
+  {
+    const aDiagnosis = diagnoseEvaluationBlock(plan.blocks[0], [...validTrio, redundantInvalid], teaching3, 'quick_test')
+    assert.equal(aDiagnosis.code, 'EVALUATION_COMPLETE', 'A: cobertura ya completa por las 3 válidas — la inválida redundante no debe forzar PARTIAL_EVALUATION_COVERAGE')
+    assert.equal(aDiagnosis.requiredReplacementCount, 0, 'A: requiredReplacementCount no debe contar la mera existencia de una pregunta inválida')
+    assert.deepEqual(aDiagnosis.acceptedQuestionIds.sort(), ['q1', 'q2', 'q3'])
+    assert.deepEqual(aDiagnosis.invalidQuestionIds, ['q4-redundant-invalid'])
+
+    const aSession = await runSessionPreparationFactory({
+      sessionKind: 'learning', generationKey: 'bugreal-a', evalPreference: 'quick_test',
+      load: async () => null, persist: async () => {},
+      generateTeaching: async () => teaching3,
+      planEvaluations: async () => planB1Only,
+      generateEvaluationBlock: async block => ({ ...block, questions: [...validTrio, redundantInvalid] }),
+      repairEvaluationBlock: async () => { throw new Error('A: repair NUNCA debe invocarse cuando la cobertura obligatoria ya está completa') },
+    })
+    assert.equal(aSession.preparationStatus, 'ready', 'A: sesión debe quedar READY sin pasar por repair')
+    assert.deepEqual(aSession.generatedEvaluationBlocks[0].questions.map(x => x.questionId).sort(), ['q1', 'q2', 'q3'], 'A: la pregunta inválida nunca debe persistirse')
+  }
+
+  // B — 2 válidas + 1 inválida que deja un critical key point sin cubrir
+  // (step_3/kp_3, marcado 'critical' en gapTeaching): a diferencia de A, aquí
+  // SÍ falta cobertura real tras descartar la inválida -> debe disparar
+  // incremental repair.
+  const gapAcceptedPair = [q(1, 'b1', 'step_1'), q(2, 'b1', 'step_2')]
+  const gapInvalid = { ...q(3, 'b1', 'step_3'), questionId: 'q3-invalid', id: 'q3-invalid', targetStepIds: [] }
+  {
+    const bDiagnosis = diagnoseEvaluationBlock(planB1Only.blocks[0], [...gapAcceptedPair, gapInvalid], gapTeaching, 'quick_test')
+    assert.equal(bDiagnosis.code, 'PARTIAL_EVALUATION_COVERAGE', 'B: falta step_3/kp_3 (critical) tras descartar la inválida — debe disparar repair')
+    assert.deepEqual(bDiagnosis.missingRequiredStepIds, ['step_3'])
+    assert.deepEqual(bDiagnosis.missingCriticalKeyPointIds, ['kp_3'])
+    assert.equal(bDiagnosis.requiredReplacementCount, 1)
+  }
+
+  // C — invariante central del fix: el repair devuelve una pregunta
+  // inválida, pero las preguntas YA aceptadas (accepted) ya cubrían el 100%
+  // de lo obligatorio. La re-diagnosis post-repair (misma función que usa
+  // execute() como única autoridad, ver sessionPreparationFactory.ts) debe
+  // dar EVALUATION_COMPLETE — nunca 503 — sin importar qué tan inválida sea
+  // la addition descartada.
+  {
+    const cInvalidRepairReplacement = { ...q(4, 'b1', 'step_1'), questionId: 'q-repair-invalid-c', id: 'q-repair-invalid-c', targetStepIds: [] }
+    const cPostDiagnosis = diagnoseEvaluationBlock(plan.blocks[0], [...validTrio, cInvalidRepairReplacement], teaching3, 'quick_test')
+    assert.equal(cPostDiagnosis.code, 'EVALUATION_COMPLETE', 'C: accepted existentes ya cubrían todo -> READY, la addition inválida del repair es irrelevante')
+    assert.deepEqual(cPostDiagnosis.acceptedQuestionIds.sort(), ['q1', 'q2', 'q3'])
+    assert.ok(cPostDiagnosis.invalidQuestionIds.includes('q-repair-invalid-c'))
+  }
+
+  // D — repair devuelve pregunta inválida y SIGUE faltando cobertura
+  // obligatoria (step_3/kp_3 crítico nunca se llenó) -> fail closed real:
+  // technical_retry_required, teaching preservado, el replacement inválido
+  // nunca se persiste como aceptado.
+  {
+    const dSession = await runSessionPreparationFactory({
+      sessionKind: 'learning', generationKey: 'bugreal-d', evalPreference: 'quick_test',
+      load: async () => null, persist: async () => {},
+      generateTeaching: async () => gapTeaching,
+      planEvaluations: async () => planB1Only,
+      generateEvaluationBlock: async block => ({ ...block, questions: [...gapAcceptedPair, gapInvalid] }),
+      repairEvaluationBlock: async () => [{ ...q(3, 'b1', 'step_3'), questionId: 'q3-repair-invalid-d', id: 'q3-repair-invalid-d', targetStepIds: [] }],
+    })
+    assert.equal(dSession.preparationStatus, 'recoverable', 'D: sigue faltando cobertura -> no false READY, teaching preservado y continuación desde checkpoint')
+    assert.ok(dSession.teachingContent, 'D: teaching debe sobrevivir al fallo de evaluation')
+    assert.ok(!dSession.generatedEvaluationBlocks.flatMap(b => b.questions).some(x => x.questionId === 'q3-repair-invalid-d'), 'D: el replacement inválido nunca debe persistirse como aceptado')
+  }
+
+  // E — repair válido completa la cobertura real faltante -> READY, en un
+  // solo intento (a diferencia de la regresión "E" de modo más arriba, que
+  // necesita 2 intentos porque el primer replacement también es inválido).
+  {
+    const eSession = await runSessionPreparationFactory({
+      sessionKind: 'learning', generationKey: 'bugreal-e', evalPreference: 'quick_test',
+      load: async () => null, persist: async () => {},
+      generateTeaching: async () => gapTeaching,
+      planEvaluations: async () => planB1Only,
+      generateEvaluationBlock: async block => ({ ...block, questions: [...gapAcceptedPair, gapInvalid] }),
+      repairEvaluationBlock: async (block, missing, accepted) => {
+        assert.deepEqual(missing.missingRequiredStepIds, ['step_3'], 'E: el repair debe recibir exactamente el hueco real, no la cuenta de inválidas')
+        assert.equal(accepted.length, 2, 'E: el repair debe recibir las 2 preguntas ya aceptadas')
+        return [{ ...q(3, 'b1', 'step_3'), questionId: 'q3-repair-valid-e', id: 'q3-repair-valid-e' }]
+      },
+    })
+    assert.equal(eSession.preparationStatus, 'ready', 'E: repair válido debe completar cobertura y dejar la sesión lista')
+    assert.deepEqual(eSession.generatedEvaluationBlocks[0].questions.map(x => x.questionId).sort(), ['q1', 'q2', 'q3-repair-valid-e'])
+  }
+
+  // F — una pregunta inválida NUNCA cuenta como cobertura, ni siquiera
+  // cuando "reclama" (targetStepIds/targetKeyPointIds/targetFactKeys)
+  // cubrir exactamente lo obligatorio — solo answerOk falla aquí
+  // (correctAnswer ausente), targetStepIds/targetKeyPointIds/targetFactKeys
+  // siguen apuntando, correctamente, a step_3/kp_3/fact_3.
+  {
+    const fInvalidClaim: PreparedEvaluationQuestion = { ...q(3, 'b1', 'step_3'), questionId: 'f-invalid-claim', id: 'f-invalid-claim', correctAnswer: undefined }
+    const fDiagnosis = diagnoseEvaluationBlock(planB1Only.blocks[0], [q(1, 'b1', 'step_1'), q(2, 'b1', 'step_2'), fInvalidClaim], gapTeaching, 'quick_test')
+    assert.deepEqual(fDiagnosis.invalidQuestionIds, ['f-invalid-claim'])
+    assert.deepEqual(fDiagnosis.missingRequiredStepIds, ['step_3'], 'F: una inválida que RECLAMA cubrir step_3 no debe contar como cobertura real')
+    assert.deepEqual(fDiagnosis.missingCriticalKeyPointIds, ['kp_3'])
+    assert.deepEqual(fDiagnosis.missingFactKeys, ['fact_3'])
+  }
+
+  // G — concurrencia: mismo generationKey, 2 requests simultáneas, mismo
+  // escenario de A (cobertura completa, 1 inválida redundante). No debe
+  // duplicar NINGUNA llamada remota (teaching/planning/block), y repair
+  // jamás debe invocarse (mock lanza si se invoca).
+  {
+    let gTeachingCalls = 0, gPlanningCalls = 0, gBlockCalls = 0
+    const gRun = () => runSessionPreparationFactory({
+      sessionKind: 'learning', generationKey: 'bugreal-g', evalPreference: 'quick_test',
+      load: async () => null, persist: async () => {},
+      generateTeaching: async () => { gTeachingCalls++; return teaching3 },
+      planEvaluations: async () => { gPlanningCalls++; return planB1Only },
+      generateEvaluationBlock: async block => { gBlockCalls++; return { ...block, questions: [...validTrio, redundantInvalid] } },
+      repairEvaluationBlock: async () => { throw new Error('G: repair no debe invocarse — cobertura ya completa') },
+    })
+    const [gFirst, gSecond] = await Promise.all([gRun(), gRun()])
+    assert.equal(gFirst.preparationStatus, 'ready'); assert.equal(gSecond.preparationStatus, 'ready')
+    assert.equal(gTeachingCalls, 1, 'G: concurrencia no debe duplicar generación de teaching')
+    assert.equal(gPlanningCalls, 1, 'G: concurrencia no debe duplicar planning')
+    assert.equal(gBlockCalls, 1, 'G: concurrencia no debe duplicar generación del bloque')
+  }
+
+  // H — teaching persistido nunca debe perderse por un fallo de evaluation
+  // repair, bajo la NUEVA política (fail-closed real, no la vieja
+  // sobre-restrictiva) — mismo escenario de D, verificando además que el
+  // contenido de teaching sobrevive intacto, no solo "presente".
+  {
+    const hSession = await runSessionPreparationFactory({
+      sessionKind: 'learning', generationKey: 'bugreal-h', evalPreference: 'quick_test',
+      load: async () => null, persist: async () => {},
+      generateTeaching: async () => gapTeaching,
+      planEvaluations: async () => planB1Only,
+      generateEvaluationBlock: async block => ({ ...block, questions: [...gapAcceptedPair, gapInvalid] }),
+      repairEvaluationBlock: async () => [{ ...q(3, 'b1', 'step_3'), questionId: 'q3-repair-invalid-h', id: 'q3-repair-invalid-h', targetStepIds: [] }],
+    })
+    assert.equal(hSession.preparationStatus, 'recoverable')
+    assert.ok(hSession.teachingContent, 'H: teaching debe sobrevivir al fallo de evaluation')
+    assert.deepEqual(hSession.teachingContent, gapTeaching, 'H: el contenido de teaching debe ser exactamente el generado, sin pérdida ni mutación')
+  }
+
+  // Chapter 3 / question:0:2 — paridad canónica y contrato sin teclado.
+  const numeric = { ...q(1,'b1','step_1'), questionId:'chapter_3:evaluation:1:q3', id:'chapter_3:evaluation:1:q3', format:'numeric_problem', variant:'problem_solve', prompt:'Con 2 M iniciales y un cambio de 1 M, calcula la concentración final.', questionText:'Con 2 M iniciales y un cambio de 1 M, calcula la concentración final.', options:null, correctAnswer:{value:1,tolerance:0,unit:'M'} }
+  assert.equal(diagnoseEvaluationBlock(plan.blocks[0],[numeric],teaching3,'quick_test').acceptedQuestionIds.length,0,'1: quick_test + numeric_problem nunca entra a accepted')
+  assert.equal(diagnoseEvaluationBlock(modeBlock as any,[qWritten],modeTeaching,'quick_test').acceptedQuestionIds.length,0,'2: quick_test + short_response nunca entra a accepted')
+  for (const format of ['multiple_choice','multi_select','true_false','matching','ordering','classify','word_bank','scenario','find_the_error']) {
+    const mode = validateQuestionTypeForMode('quick_test',format)
+    assert.equal(mode.valid,true,`3: ${format} debe estar permitido en quick_test`)
+    if(mode.valid)assert.equal(mode.capabilities.requiresKeyboardComposition,false,`3: ${format} no debe requerir teclado`)
+  }
+  assert.equal(canonicalQuestionValidationForPreparation(numeric as any,teaching3,'mix_everything').valid,true,'4: mixed conserva numeric_problem numérico de aplicación')
+  const symbolic = { ...numeric, questionId:'chapter_3-symbolic-2x', id:'chapter_3-symbolic-2x', correctAnswer:{value:'2x',tolerance:0,unit:'M'} }
+  const symbolicCanonical = canonicalQuestionValidationForPreparation(symbolic as any,teaching3,'mix_everything')
+  assert.equal(symbolicCanonical.valid,false,'6: 2x nunca normaliza como respuesta numérica canónica')
+  assert.ok(symbolicCanonical.errors.includes('canonical_normalization_failed'))
+  const canonicalCandidates = [q(1,'b1','step_1'),numeric as any]
+  for(const candidate of canonicalCandidates){
+    const accepted=diagnoseEvaluationBlock(plan.blocks[0],[candidate],teaching3,'mix_everything').acceptedQuestionIds.includes(candidate.questionId)
+    const canonical=canonicalQuestionValidationForPreparation(candidate,teaching3,'mix_everything')
+    assert.ok(!accepted||canonical.valid,`5/10: accepted ${candidate.questionId} necesariamente pasa el contrato canónico final`)
+  }
+
+  console.log('session-preparation-factory-contracts: bug real chapter_2:evaluation:3 (A-H) PASS')
+  console.log('session-preparation-factory-contracts: chapter_3 quick_test/canonical parity (1-10) PASS')
   console.log('session-preparation-factory-contracts: PASS')
 }
 void main()

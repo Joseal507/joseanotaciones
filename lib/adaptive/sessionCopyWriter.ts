@@ -121,8 +121,19 @@ export async function writeSessionCopyWithAI(
   setup: AdaptiveSetup,
   baseUrl?: string,
   userProfile?: UserProfileForCopy,
+  signal?: AbortSignal,
 ): Promise<SessionCopy[]> {
   if (sessions.length === 0) return [];
+
+  // AUDITORÍA (StudyAL_Visual_System_Stress_Test, Bug 2): si el proceso que
+  // pidió este journey ya fue cancelado (usuario navegó fuera antes de llegar
+  // aquí), no tiene sentido pagar la llamada LLM de session-copy — nadie va a
+  // consumir el resultado. Se degrada al mismo fallback determinista que ya
+  // existía para cualquier otro fallo (nunca rompe la generación del journey),
+  // solo evita el gasto evitable.
+  if (signal?.aborted) {
+    return sessions.map(generateFallbackCopy);
+  }
 
   try {
     const sessionCopyUrl = baseUrl
@@ -132,6 +143,7 @@ export async function writeSessionCopyWithAI(
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sessions, materialTitle, setup, userProfile }),
+      signal,
     });
 
     const data = await res.json();

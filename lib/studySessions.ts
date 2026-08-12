@@ -643,7 +643,7 @@ export function syncToServer(session: StudySession): void {
         },
       }
         : null;
-      await fetch('/api/study-sessions', {
+      const response = await fetch('/api/study-sessions', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -657,6 +657,29 @@ export function syncToServer(session: StudySession): void {
           adaptiveProgram,
         }),
       });
+      // AUDITORÍA (StudyAL_Visual_System_Stress_Test, Bug 1, hallazgo Codex A):
+      // la respuesta del POST nunca se comprobaba — un 401/413/500 (fetch NO
+      // rechaza la promesa por status HTTP, solo por fallo de red) se trataba
+      // como persistencia exitosa: lastPersistedHash se fijaba igual, así que
+      // el próximo intento con el MISMO snapshot quedaba deduplicado para
+      // siempre (nunca se reintentaba) — blueprint/journey podían quedar sin
+      // persistir en el servidor de forma silenciosa e irrecuperable. Ahora un
+      // rechazo lanza (el catch ya existente de abajo lo loguea) y
+      // lastPersistedHash NO se marca, así que el siguiente syncToServer con
+      // ese mismo snapshot vuelve a intentarlo.
+      let ok = response.ok
+      if (ok) {
+        try {
+          const parsed = await response.clone().json()
+          if (parsed && parsed.success === false) ok = false
+        } catch {
+          // Cuerpo no-JSON con status 2xx: no penalizar — algunos caminos
+          // legacy del Worker pueden responder sin json parseable.
+        }
+      }
+      if (!ok) {
+        throw new Error(`STUDY_SESSIONS_PERSIST_REJECTED:status=${response.status}`)
+      }
       lastPersistedHash.set(session.id, latestHash);
     };
     const previous = singleWriteInFlight.get(session.id) || Promise.resolve();

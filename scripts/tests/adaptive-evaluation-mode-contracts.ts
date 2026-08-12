@@ -63,11 +63,11 @@ assert.equal(quick.allowsFreeText, false)
 assert.equal(quick.allowsLongForm, false)
 assert.equal(quick.requiresQuickInteraction, true)
 
-for (const type of ['multiple_choice', 'multi_select', 'true_false', 'word_bank', 'matching', 'ordering', 'classify', 'numeric_problem']) {
+for (const type of ['multiple_choice', 'multi_select', 'true_false', 'word_bank', 'matching', 'ordering', 'classify', 'scenario', 'find_the_error']) {
   assert.equal(validateQuestionTypeForMode('quick_test', type).valid, true, `${type} debe estar permitido`)
   assert.equal(questionTypeCapabilities(type).isClosedResponse, true)
 }
-for (const type of ['short_response', 'open_response', 'fill_blank', 'numeric_short', 'practical_case', 'prediction']) {
+for (const type of ['short_response', 'open_response', 'fill_blank', 'numeric_problem', 'numeric_short', 'practical_case', 'prediction']) {
   const result = validateQuestionTypeForMode('quick_test', type)
   assert.equal(result.valid, false, `${type} debe estar prohibido`)
   if (!result.valid) assert.equal(result.reason, EVALUATION_MODE_VIOLATION)

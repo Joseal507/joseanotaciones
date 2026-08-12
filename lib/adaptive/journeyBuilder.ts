@@ -192,6 +192,7 @@ export async function buildLearningJourney(
   materialTitle: string,
   baseUrl?: string,
   userProfile?: UserProfileContext,
+  signal?: AbortSignal,
 ): Promise<LearningJourney> {
   const clean = cleanTitle(materialTitle);
 
@@ -246,7 +247,7 @@ export async function buildLearningJourney(
     }));
 
     try {
-      const aiCopies = await writeSessionCopyWithAI(copyInputs, clean, setup, baseUrl, userProfile);
+      const aiCopies = await writeSessionCopyWithAI(copyInputs, clean, setup, baseUrl, userProfile, signal);
       for (let i = 0; i < learningChs.length; i++) {
         const ch = learningChs[i];
         const copy = aiCopies[i];

@@ -23,6 +23,11 @@ const INTERACTIONS: Record<VisualEngine, EngineInteractionSet> = {
   chemistry_2d: { teach: ['reveal_progressive', 'highlight'], practice: ['label_structure'], assess: ['label_structure'] },
   code_execution: { teach: ['step_through', 'highlight'], practice: ['predict_output'], assess: ['predict_output'] },
   timeline: { teach: ['reveal_progressive'], practice: ['order_sequence'], assess: ['order_sequence'] },
+  geometry_canvas:{teach:['reveal_progressive','highlight'],practice:['select_point'],assess:['select_point']},
+  structure_graph:{teach:['reveal_progressive','highlight'],practice:['select_node'],assess:['select_node']},
+  flow_state:{teach:['reveal_progressive','highlight'],practice:['select_stage'],assess:['select_stage']},
+  equation_expression:{teach:['reveal_progressive','highlight'],practice:['transform_expression'],assess:['transform_expression']},
+  source_image:{teach:['highlight'],practice:['select_hotspot'],assess:['select_hotspot']},
 }
 
 const REPRESENTATION: Record<VisualEngine, string> = {
@@ -32,6 +37,7 @@ const REPRESENTATION: Record<VisualEngine, string> = {
   chemistry_2d: 'skeletal_structure',
   code_execution: 'execution_trace',
   timeline: 'chronological_sequence',
+  geometry_canvas:'geometric_construction',structure_graph:'relational_structure',flow_state:'process_or_state',equation_expression:'symbolic_transformation',source_image:'grounded_source_figure',
 }
 
 // Señales puramente estructurales/cognitivas del texto — NUNCA el nombre de la
@@ -68,6 +74,9 @@ function detectEngine(text: string): { engine: VisualEngine; signals: string[] }
     return { engine: 'spatial_vector', signals }
   }
 
+  const coordinatePoints=(textOutsideCode.match(/[A-Z]\s*=\s*\(\s*-?\d+(?:[.,]\d+)?\s*,\s*-?\d+(?:[.,]\d+)?\s*\)/g)||[]).length
+  if(coordinatePoints>=2){signals.push('explicit_coordinate_points','geometric_relation');return{engine:'geometry_canvas',signals}}
+
   // "f(x) =" es un marcador muy distintivo (rara vez aparece por coincidencia en
   // prosa) — se acepta solo con esa forma. La forma desnuda "y = ..." SÍ puede
   // colisionar con prosa ("llegó a las 8 y = 5 minutos después...") — para esa forma
@@ -90,11 +99,26 @@ function detectEngine(text: string): { engine: VisualEngine; signals: string[] }
     return { engine: 'graph_2d', signals }
   }
 
-  const hasBondWords = /\benlace(s)?\b|\bátomo(s)?\b|\batomo(s)?\b|\bestructura esquel[eé]tica\b|\bf[oó]rmula estructural\b/.test(lower)
+  const hasBondWords = /\benlace(s)?\b|\bátomo(s)?\b|\batomo(s)?\b|\bestructura esquel[eé]tica\b|\bf[oó]rmula estructural\b|\bf[oó]rmula condensada\b|\bmol[eé]cula\b/.test(lower)
+  // Dos formas de notación: "C1-C2" (id+índice, formato explícito previo) o
+  // fórmula condensada estándar "CH3-CH2-CH3" (grupos C/CH/CH2/CH3 con
+  // ramificaciones opcionales) — ver chemistry2DEngine.ts para el parser real.
   const hasElementPattern = /\b[A-Z][a-z]?\d*(-[A-Z][a-z]?\d*){1,}\b/.test(text)
+    || /C(?:H\d?)?(?:\([^()]*\))?(?:\s*[-=#]\s*C(?:H\d?)?(?:\([^()]*\))?)+/.test(text)
   if (hasBondWords && hasElementPattern) {
     signals.push('bond_vocabulary', 'element_bond_pattern')
     return { engine: 'chemistry_2d', signals }
+  }
+
+  const relationCount = (textOutsideCode.match(/(?:->|→|depende de|conecta con|contiene|se divide en|forma parte de)/gi) || []).length
+  const processLanguage = /\bproceso\b|\betapa\b|\bflujo\b|\btransici[oó]n\b|\bciclo\b|\bprimero\b|\bdespu[eé]s\b/.test(lowerOutsideCode)
+  if (relationCount >= 1 && processLanguage) {
+    signals.push('ordered_stages', 'process_relation')
+    return { engine: 'flow_state', signals }
+  }
+  if (relationCount >= 2) {
+    signals.push('explicit_node_relations', 'connectivity')
+    return { engine: 'structure_graph', signals }
   }
 
   const yearMatches = text.match(/\b(1[0-9]{3}|20[0-9]{2})\b/g) || []
@@ -104,11 +128,14 @@ function detectEngine(text: string): { engine: VisualEngine; signals: string[] }
     return { engine: 'timeline', signals }
   }
 
+  const equationLines=textOutsideCode.split(/\n|;/).filter(line=>line.includes('=')&&/[+\-*/^]/.test(line)).length
+  if(equationLines>=1){signals.push('explicit_equation','symbolic_structure');return{engine:'equation_expression',signals}}
+
   return null
 }
 
 function determineRequiredness(engine: VisualEngine, cognitiveTarget: string): VisualRequiredness {
-  if (engine === 'timeline') return 'supportive'
+  if (engine === 'timeline'||engine==='source_image') return 'supportive'
   if (cognitiveTarget === 'application' || cognitiveTarget === 'analysis' || cognitiveTarget === 'transfer') {
     return 'required_for_mastery'
   }
@@ -146,5 +173,17 @@ export function classifyVisualNeed(step: ClassifiableStep): VisualRequirement | 
     },
     evidenceRequirements,
     cognitiveSignals: signals,
+    need: engine==='graph_2d'?'coordinate_graph':engine==='structured_grid'?'structured_grid':engine==='spatial_vector'?'vector_spatial':engine==='chemistry_2d'?'molecular_structure':engine==='code_execution'?'code_execution':engine==='timeline'?'timeline':engine==='geometry_canvas'?'geometry':engine==='structure_graph'?'network_connectivity':engine==='flow_state'?'process_flow':engine==='equation_expression'?'equation_structure':'source_figure',
+    visualBenefit: requiredness==='required_for_mastery'?4:requiredness==='required_for_understanding'?3:2,
   }
+}
+
+export function visualNeedCandidates(step:ClassifiableStep):VisualRequirement[]{
+  const primary=classifyVisualNeed(step)
+  if(!primary)return[]
+  const candidates=[primary]
+  const source=`${step.title}\n${step.content}\n${step.keyPoints.join('\n')}`
+  if(primary.engine==='graph_2d'&&source.includes('=')){const secondary={...primary,id:`${primary.id}:equation`,engine:'equation_expression' as const,representation:REPRESENTATION.equation_expression,need:'equation_structure' as const,interactions:INTERACTIONS.equation_expression,cognitiveSignals:[...primary.cognitiveSignals,'supporting_symbolic_structure']};candidates.push(secondary)}
+  if(primary.engine==='structured_grid'&&/[⇌↔]|<=>|<->/.test(source)){const secondary={...primary,id:`${primary.id}:equation`,engine:'equation_expression' as const,representation:REPRESENTATION.equation_expression,need:'equation_structure' as const,interactions:INTERACTIONS.equation_expression,cognitiveSignals:[...primary.cognitiveSignals,'supporting_equation']};candidates.push(secondary)}
+  return candidates.slice(0,3)
 }
