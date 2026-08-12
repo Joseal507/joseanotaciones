@@ -21,6 +21,12 @@ import {
   mayGenerateAdaptiveArtifacts,
   normalizeAdaptivePlanSnapshot,
 } from "../../lib/adaptive/resume";
+import {
+  classifyPersistedAdaptiveProgram,
+  mayGenerateAfterRestore,
+  shouldResumePreparation,
+  type ProgramRestoreState,
+} from "../../lib/adaptive/programRestore";
 
 const HAND = "'Caveat', cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -171,6 +177,7 @@ export default function StudyALAdaptive({
   const [currentSetupHash, setCurrentSetupHash] = useState<string | null>(null);
   const [resolvedSession, setResolvedSession] = useState<any>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
+  const [restoreState, setRestoreState] = useState<ProgramRestoreState>('UNKNOWN');
   const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [done, setDone] = useState(false);
@@ -321,6 +328,7 @@ export default function StudyALAdaptive({
     let cancelled = false;
 
     async function loadSession() {
+      setRestoreState('RESTORING');
       // Sync desde servidor primero para datos cross-browser
       if (temaId) {
         try { await syncSessionsFromServer(temaId); } catch {}
@@ -381,6 +389,7 @@ export default function StudyALAdaptive({
       if (cancelled) return;
 
       if (sessionId && !sess) {
+        setRestoreState('NOTHING_EXISTS');
         setSessionLoadError("No se encontró el proceso adaptativo solicitado.");
       } else if (sess) {
         if (userId && (sess as any).userId && String((sess as any).userId) !== String(userId)) {
@@ -390,6 +399,8 @@ export default function StudyALAdaptive({
         }
 
         const normalizedSession = normalizeAdaptivePlanSnapshot(sess);
+        const persistedState = classifyPersistedAdaptiveProgram(normalizedSession);
+        setRestoreState(persistedState);
         setResolvedSession(normalizedSession);
 
         if (normalizedSession.adaptiveSetup?.completedAt) {
@@ -419,7 +430,7 @@ export default function StudyALAdaptive({
             setJourneyError(
               "Ya habías completado la preparación de este plan, pero no pudimos restaurar todos los datos guardados. Puedes reintentar la restauración; no se generará un plan nuevo salvo que lo pidas explícitamente."
             );
-          } else {
+          } else if (mayGenerateAfterRestore(persistedState) || shouldResumePreparation(persistedState)) {
             generationAuthorizedRef.current = true;
           }
         }
@@ -462,18 +473,19 @@ export default function StudyALAdaptive({
             setJourneyError("No encontramos el plan persistido solicitado. Puedes volver al mapa o crear un plan nuevo explícitamente.");
           }
         }
-      }
+      } else setRestoreState('NOTHING_EXISTS');
 
       // Marcar como listo AL FINAL — después de setear blueprint y journey
       if (!cancelled) setSessionLoading(false);
     }
 
-    loadSession().catch(() => { if (!cancelled) setSessionLoading(false); });
+    loadSession().catch(() => { if (!cancelled) { setRestoreState('NOTHING_EXISTS'); setSessionLoading(false); } });
     return () => { cancelled = true; };
   }, [sessionId, temaId]);
   // Generate blueprint — solo si sessionLoading terminó Y no hay blueprint ya cargado
   useEffect(() => {
     if (sessionLoading) return;
+    if (restoreState === 'UNKNOWN' || restoreState === 'RESTORING' || restoreState === 'FOUND_VALID_PROGRAM') return;
     if (blueprint) return;
     if (blueprintError) return;
     if (!generationAuthorizedRef.current) return;
@@ -483,7 +495,7 @@ export default function StudyALAdaptive({
       hasJourney: Boolean(journey),
     }) || blueprintLoading) return;
     generateBlueprint();
-  }, [sessionLoading, blueprint, blueprintError, blueprintLoading, journey, lifecycleState, regenerationTrigger]);
+  }, [sessionLoading, restoreState, blueprint, blueprintError, blueprintLoading, journey, lifecycleState, regenerationTrigger]);
 
   async function generateBlueprint() {
     if (generationInFlightRef.current) return;
@@ -795,6 +807,7 @@ export default function StudyALAdaptive({
     if (step < stepTitles.length - 1) { setStep((s) => s + 1); return; }
     const finalSetup: AdaptiveSetup = { ...setup, completedAt: Date.now() };
     generationAuthorizedRef.current = true;
+    setRestoreState('NOTHING_EXISTS');
     const newHash = hashSetup(finalSetup);
     setCurrentSetupHash(newHash);
     const activeSessionId = resolvedSession?.id || sessionId;

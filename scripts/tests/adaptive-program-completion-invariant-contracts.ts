@@ -89,11 +89,7 @@ assert.equal(canCompleteSessionFromAssessment(b1, ['recovery:objA:pending']), fa
 // invierte el tripwire: vigila que NO se reintroduzca el hardcode. ═══
 const pageSource = readFileSync('app/materias/[temaId]/sesion/[sessionNumber]/page.tsx', 'utf8')
 const recordCallSites = pageSource.split('recordAssessmentEvidence(').length - 1
-// 3er call site (misión visual): submitVisualCheckpoint. Pasa independent a través de
-// una variable (visualCheckpointIndependent), no de un literal `true,` — el checkpoint
-// visual no tiene canal de asistencia (hint/chat) que ignorar, así que no reproduce
-// Codex Finding 1; el chequeo de "sin literal hardcodeado" de abajo sigue vigilando eso.
-assert.equal(recordCallSites, 3, 'deben existir exactamente 3 call sites de recordAssessmentEvidence en el producto vivo — si aparece uno nuevo, esta prueba debe revisarse')
+assert.equal(recordCallSites, 2, 'deben existir exactamente 2 call sites canónicos de recordAssessmentEvidence; no debe reaparecer una autoridad paralela')
 const independentTrueLiterals = (pageSource.match(/independent:\s*true,/g) || []).length
 assert.equal(independentTrueLiterals, 0, 'los call sites de recordAssessmentEvidence en page.tsx NO deben volver a hardcodear independent:true — deben derivarlo de si hubo asistencia real en este intento (hintShownRef); un literal aquí es el bug de Codex Finding 1 reapareciendo')
 assert.ok(pageSource.includes('hintShownRef'), 'page.tsx debe tener una fuente real de tracking de asistencia (hintShownRef) alimentando independent — si se elimina sin reemplazo equivalente, revisa que no se haya vuelto a un hardcode')

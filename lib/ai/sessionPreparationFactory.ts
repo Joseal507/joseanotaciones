@@ -6,8 +6,7 @@ import { validateCognitiveFormatFit } from '../adaptive/evaluation/cognitiveForm
 import { missingRequiredFactKeys, normalizeGeneratedQuestion, questionSimilarity, validateQuestion, type CanonicalQuestion, type GenerationContext } from '../adaptive/evaluation/questionContract'
 import { validateQuestionTypeForMode } from '../adaptive/evaluation/evaluationModeContract'
 import { normalizeAcademicContent } from '../academic-content/validation'
-import type { VisualCompositionPlan, VisualEvidenceKind, VisualRequirement, VisualSpec } from '../adaptive/visual/visualContract'
-import type { TeachingLayoutBlock } from '../adaptive/visual/teachingLayout'
+import type { TeachingLayoutBlock } from '../adaptive/teachingLayout'
 import { createReliabilitySummary, deriveSessionReadiness, withBoundedRetry, type PreparationCheckpoint, type PreparationReliabilitySummary, type SessionReadiness } from '../adaptive/sessionReliability'
 
 export type SessionPreparationStatus = 'teaching_generation' | 'teaching_ready' | 'evaluation_planning' | 'evaluation_plan_ready' | 'evaluation_generation' | 'evaluation_repair' | 'ready' | 'recoverable' | 'fatal' | 'technical_retry_required'
@@ -17,19 +16,7 @@ export interface PreparedTeachingStep {
   stepId: string; id: string; microId: string; title: string; type: string; content: unknown
   keyPoints: string[]; keyPointIds: string[]; factKeys: string[]; importance: Importance; cognitiveTarget: string
   sourceReferences: unknown[]; objectiveIds?: string[]; relatedBlockIds?: string[]
-  // Adjuntado post-hoc y de forma DETERMINISTA (nunca vía el JSON del LLM — ver
-  // visualNeedClassifier.ts/visualSpecBuilder.ts) por factoryTeaching en
-  // session-teach/route.ts. Ausente cuando el step no tiene necesidad visual
-  // clasificada o el material no trae datos suficientes para construir el spec.
-  visualRequirement?: VisualRequirement
-  visualSpec?: VisualSpec
-  visualCompositionPlan?: VisualCompositionPlan
   teachingLayout?: TeachingLayoutBlock[]
-  // Presente SOLO cuando visualRequirement.requiredness === 'required_for_mastery' —
-  // ver factoryTeaching. Usado para poblar AssessmentObjective.requiredEvidenceKind
-  // (assessmentBlueprint.ts) y así impedir que una MCQ textual "false-master" un
-  // objective que exige evidencia visual real.
-  visualEvidenceKind?: VisualEvidenceKind
 }
 export interface PreparedTeachingContent { sessionId: string; title: string; introduction: string; closing: string; steps: PreparedTeachingStep[] }
 export interface EvaluationPlanBlock {

@@ -27,13 +27,7 @@ import {
   type SessionKind,
 } from '../../../../lib/adaptive/sessionKind';
 import { legacyMaterialType, resolveAcademicDomain, type AcademicDomain } from '../../../../lib/adaptive/academicDomain';
-import { classifyVisualNeed } from '../../../../lib/adaptive/visual/visualNeedClassifier';
-import { buildVisualSpec } from '../../../../lib/adaptive/visual/visualSpecBuilder';
-import { signVisualSpec } from '../../../../lib/adaptive/visual/visualSpecIntegrity';
-import { extractGroundedVisualComposition, extractGroundedVisualSource } from '../../../../lib/adaptive/visual/groundedVisualSource';
-import { buildVisualCompositionPlan } from '../../../../lib/adaptive/visual/visualComposition';
-import type { VisualCompositionPlan } from '../../../../lib/adaptive/visual/visualContract';
-import { buildTeachingLayout } from '../../../../lib/adaptive/visual/teachingLayout';
+import { buildTeachingLayout } from '../../../../lib/adaptive/teachingLayout';
 import { signQuestionsInPlace } from '../../../../lib/adaptive/evaluation/questionIntegrity';
 
 export const maxDuration = 120;
@@ -1223,6 +1217,16 @@ Genera exactamente ${stepCount} pasos docentes. PRESUPUESTO DE ESPACIO: Debido a
 ${usesFinalReviewSynthesis?`INSTRUCCIÓN DE SÍNTESIS: usa demonstratedFactKeys para saber qué SÍ demostró dominar el estudiante (puedes ser breve ahí) y recoverySummary para saber qué le costó (dale más énfasis o una comparación que aclare la confusión). Compacta el recorrido completo — el resultado debe sentirse como "ahora tengo toda la materia organizada en la cabeza", no como releer cada sesión de nuevo.`:`CONTENIDO ASIGNADO: ${JSON.stringify(source)}`}
 METADATOS OBLIGATORIOS POR PASO: ${JSON.stringify(fixedStepMetadata)}
 
+PRESENTACIÓN ESTRUCTURADA DENTRO DE "content" — elige por la forma del conocimiento, nunca por materia y nunca por variedad artificial:
+- definición breve: "Definición: ...";
+- propiedades o factores realmente enumerables: una línea por elemento con "• ";
+- procedimiento o secuencia real: líneas "1. ...", "2. ...";
+- datos naturalmente tabulares: filas delimitadas por "|" con encabezados explícitos;
+- ecuación con sustitución y resultado: ejemplo resuelto compacto;
+- comparación explícita: nombra ambos lados y sus criterios;
+- error frecuente o advertencia grounded: identifícalo como "Error común:" o "Advertencia:".
+Si ninguna estructura aplica, usa una explicación breve normal. No conviertas prosa narrativa en tabla/lista y no repitas el mismo layout sin necesidad. No uses HTML.
+
 Devuelve exclusivamente este TeachingContentSchema como JSON válido, sin markdown:
 {"sessionIntro":"string","steps":[{"id":"step_1","type":"intro|concept|example|connection|formula|recap|closing","title":"string","content":"string","keyPoints":[{"id":"step_1:kp:1","text":"string"}],"microId":"string","importance":"supporting|important|critical","cognitiveTarget":"recognition|comprehension|application|analysis","relatedBlockIds":["string"],"factKeys":["string"],"sourceReferences":[]}],"closing":"string"}
 
@@ -1253,14 +1257,8 @@ export function buildGroundedTeachingFallback(body: TeachRequest): PreparedTeach
   return factoryTeaching({sessionIntro:String(body.session.title||body.materialTitle),steps,closing:'Continúa cuando estés listo.'},body.session,body.blueprint.blocks||[])
 }
 
-// export: permite un contract test end-to-end real (Bug 6, StudyAL_Visual_
-// System_Stress_Test) que ejercite "session preparation -> classContent ->
-// VisualSpec adjunto" con la función de producción REAL (misma que usa el
-// POST vivo en generateTeachingStrict más abajo), en vez de reimplementar el
-// classifier/builder por separado — ver scripts/tests/visual-engine-
-// pipeline-matrix-contracts.ts. Exportar una función pura no cambia su
-// comportamiento (mismo patrón que isTransientProviderError/parseFactoryJson
-// más arriba en este archivo).
+// Exportada para que los contratos de preparación y fallback ejerciten la
+// misma normalización usada por el POST real.
 export function factoryTeaching(source: TeachingContent, session: TeachRequest['session'], blueprintBlocks: any[] = []): PreparedTeachingContent {
   const steps = (Array.isArray(source.steps) ? source.steps : []).map((item: any, index: number) => {
     const stepId = String(item.stepId || item.id || `step_${index + 1}`)
@@ -1272,68 +1270,14 @@ export function factoryTeaching(source: TeachingContent, session: TeachRequest['
     const content=String(item.content || '').trim()
     const cognitiveTarget=String(item.cognitiveTarget || 'comprehension')
     const relatedBlockIds=Array.isArray(item.relatedBlockIds) ? item.relatedBlockIds.map(String) : []
-    // Visual: SIEMPRE derivado de forma determinista — GROUNDED primero (bloque real del
-    // blueprint, con sourceSpans citados literalmente del documento en blueprint/route.ts,
-    // nunca de la prosa de enseñanza que se regenera en cada sesión), y solo si ningún
-    // bloque relacionado produce datos grounded suficientes, cae al camino anterior
-    // (clasificar/extraer sobre la prosa de este step) como fallback seguro. Ver
-    // lib/adaptive/visual/groundedVisualSource.ts — arquitectura, no parche de regex: el
-    // visual deja de depender de cómo el LLM de enseñanza decida redactar esa vez.
-    //
-    // AUDITORÍA DE CICLO DE VIDA: esta sección corría SIN try/catch propio — un fallo
-    // aquí (p.ej. signVisualSpec sin NEXTAUTH_SECRET, o un caso límite no cubierto por
-    // el classifier/builder) tiraba TODO el intento de generación de teaching a
-    // technical_retry_required innecesariamente, aunque el contenido docente en sí ya
-    // era válido. Un visual roto/no generable (aunque sea required_for_understanding o
-    // required_for_mastery) NUNCA debe impedir que el resto de la sesión se prepare —
-    // se degrada a "sin visual para este step" y se registra, nunca se propaga.
-    let visualRequirement: ReturnType<typeof classifyVisualNeed> | undefined
-    let visualSpec: ReturnType<typeof signVisualSpec> | undefined
-    let visualCompositionPlan: VisualCompositionPlan | undefined
-    let visualEvidenceKind: 'visual_construction' | 'visual_manipulation' | 'visual_interpretation' | undefined
-    try {
-      let builtVisualSpec: ReturnType<typeof buildVisualSpec> = null
-      for (const blockId of relatedBlockIds) {
-        const block = blueprintBlocks.find((b: any) => String(b?.id || '') === blockId)
-        if (!block) continue
-        const groundedComposition = extractGroundedVisualComposition(block)
-        const grounded = extractGroundedVisualSource(block)
-        if (groundedComposition && grounded) {
-          visualRequirement = grounded.requirement
-          visualCompositionPlan = { ...groundedComposition, primary: signVisualSpec(groundedComposition.primary), supporting: groundedComposition.supporting.map(signVisualSpec) }
-          builtVisualSpec = grounded.spec
-          break
-        }
-      }
-      if (!builtVisualSpec) {
-        const visualInput = { microId, title, content, keyPoints, factKeys, cognitiveTarget, sourceStepId: stepId }
-        visualRequirement = classifyVisualNeed(visualInput) || undefined
-        const composition = buildVisualCompositionPlan(visualInput)
-        visualCompositionPlan = composition ? { ...composition, primary: signVisualSpec(composition.primary), supporting: composition.supporting.map(signVisualSpec) } : undefined
-        builtVisualSpec = visualRequirement ? buildVisualSpec(visualRequirement, `${title}\n${content}`, stepId) : null
-      }
-      visualSpec = visualCompositionPlan?.primary || (builtVisualSpec ? signVisualSpec(builtVisualSpec) : undefined)
-      // Solo required_for_mastery gatea el objective (FASE 5) — supportive/
-      // required_for_understanding nunca bloquean mastery textual.
-      visualEvidenceKind = visualSpec && visualRequirement?.requiredness === 'required_for_mastery'
-        ? (visualRequirement.evidenceRequirements?.construct ? 'visual_construction' as const
-          : visualRequirement.evidenceRequirements?.manipulate ? 'visual_manipulation' as const
-          : 'visual_interpretation' as const)
-        : undefined
-    } catch (visualError: unknown) {
-      console.warn('[session-teach] visual_attachment_failed_degraded_gracefully', JSON.stringify({
-        stepId, microId, message: visualError instanceof Error ? visualError.message : String(visualError),
-      }))
-      visualRequirement = undefined; visualSpec = undefined; visualCompositionPlan = undefined; visualEvidenceKind = undefined
-    }
-    return { stepId, id:stepId, microId, title, type:String(item.type || 'concept'), content, keyPoints, keyPointIds, factKeys, importance:item.importance === 'critical' || item.importance === 'supporting' ? item.importance : 'important', cognitiveTarget, sourceReferences:Array.isArray(item.sourceReferences) ? item.sourceReferences : [], objectiveIds:Array.isArray(item.objectiveIds) ? item.objectiveIds.map(String) : keyPoints.map((_:string,i:number)=>`${session.id}:${stepId}:objective:${i+1}`), relatedBlockIds, visualRequirement, visualSpec, visualCompositionPlan, teachingLayout:buildTeachingLayout({type:String(item.type||'concept'),content,keyPoints}), visualEvidenceKind }
+    return { stepId, id:stepId, microId, title, type:String(item.type || 'concept'), content, keyPoints, keyPointIds, factKeys, importance:item.importance === 'critical' || item.importance === 'supporting' ? item.importance : 'important', cognitiveTarget, sourceReferences:Array.isArray(item.sourceReferences) ? item.sourceReferences : [], objectiveIds:Array.isArray(item.objectiveIds) ? item.objectiveIds.map(String) : keyPoints.map((_:string,i:number)=>`${session.id}:${stepId}:objective:${i+1}`), relatedBlockIds, teachingLayout:buildTeachingLayout({type:String(item.type||'concept'),content,keyPoints}) }
   })
   if (!steps.length || new Set(steps.map((step: any) => step.stepId)).size !== steps.length || steps.some((step: any) => !step.title || !step.content || !step.keyPoints.length || !step.factKeys.length)) throw new Error('TEACHING_CONTENT_INVALID')
   if (session.kind === 'introduction' && (steps.length < 3 || steps.length > 5 || steps.some(step => step.relatedBlockIds?.length))) throw new Error('INTRODUCTION_CONTRACT_INVALID')
   return { sessionId:session.id,title:session.title,introduction:source.sessionIntro,closing:source.closing,steps }
 }
 
-export function attachVisualsToPreparedTeaching(teaching: PreparedTeachingContent, session: TeachRequest['session'], blueprintBlocks: any[]): PreparedTeachingContent {
+export function normalizePreparedTeachingLayouts(teaching: PreparedTeachingContent, session: TeachRequest['session'], blueprintBlocks: any[]): PreparedTeachingContent {
   return factoryTeaching({
     sessionIntro: teaching.introduction,
     closing: teaching.closing,
@@ -2049,7 +1993,7 @@ REGLA DE SALIDA:
 - Devuelve JSON puro, sin markdown y sin fences.
 - Si la sesión tiene muchos pasos, prioriza cerrar un JSON completo y válido.
 - Mantén cada step conciso y evita redundancias innecesarias.`:`Repara exclusivamente la respuesta de enseñanza. ${lastError}. Devuelve solo sessionIntro, steps y closing. No generes preguntas ni bloques evaluativos. Usa exactamente TeachingContentSchema y termina inmediatamente después de closing. Sin markdown. Sin fences. JSON puro. Si el error anterior fue INVALID_JSON_TRUNCATED, conserva la estructura pedagógica pero acorta el texto de cada step drásticamente (máximo 300 caracteres por content) para garantizar que el JSON cierre completo. PRIORIDAD: JSON VÁLIDO > DETALLE.\n\n${teachingPrompt}`;let generated;try{generated=await callWithGroqFallbackOnCreditsExhausted({messages:[{role:'user',content}],temperature:0.2,maxTokens:lastError==='INVALID_JSON_TRUNCATED'?7200:6200,json:true,taskType:'session_content',stage:attempt===1?'teaching_generation':'targeted_repair',maxProviderAttempts:1})}catch(providerErr:any){const providerReason=providerErr?.providerError?classifyProviderFailure(providerErr.providerError):null;telemetry('teaching_generation_provider_error',{attempt,reason:providerReason,message:providerErr instanceof Error?providerErr.message:String(providerErr)});if(attempt<2&&isTransientProviderError(providerErr)){lastError='TEACHING_SCHEMA_INVALID';continue}throw providerErr}const diagnostic=teachingResponseDiagnostics(generated.text);telemetry('teaching_generation_remote_succeeded',{stage:'teaching_generation',attempt,durationMs:Date.now()-startedAt,provider:generated.provider,model:generated.model,responseLength:diagnostic.length,first500:diagnostic.first500,last500:diagnostic.last500,detectedFence:diagnostic.detectedFence,appearsTruncated:diagnostic.appearsTruncated,lastValidToken:diagnostic.lastValidToken,extraFields:diagnostic.extraFields,containsForbiddenTeachingFields:/\"(?:evaluationBlocks|questions|correctAnswer)\"/.test(generated.text)});if(!diagnostic.parsed){lastError=diagnostic.appearsTruncated?'INVALID_JSON_TRUNCATED':'TEACHING_SCHEMA_INVALID';telemetry('teaching_schema_failed',{attempt,errorCode:lastError,appearsTruncated:diagnostic.appearsTruncated});continue}const parsed=parseTeachingContent(diagnostic.parsed);if(parsed.success===true){telemetry('teaching_schema_validated',{attempt,responseLength:diagnostic.length,extraFields:[]});return factoryTeaching(parsed.value,session,Array.isArray(body.blueprint?.blocks)?body.blueprint.blocks:[])}lastError=parsed.errorCode;telemetry('teaching_schema_failed',{attempt,errorCode:parsed.errorCode,validationErrors:parsed.validationErrors,extraFields:parsed.extraFields})}throw new Error(lastError)}
-  let state=await runSessionPreparationFactory({ sessionKind:session.kind,generationKey,evalPreference:setup.evalPreference||'mix_everything',load:async()=>{const restored=body.preparationState||preparationStore.get(generationKey)||null;if(!restored?.teachingContent)return restored;const teachingContent=attachVisualsToPreparedTeaching(restored.teachingContent,session,Array.isArray(body.allBlocks)?body.allBlocks:body.blueprint.blocks);return{...restored,teachingContent}},persist:async value=>{preparationStore.set(generationKey,structuredClone(value))},telemetry,
+  let state=await runSessionPreparationFactory({ sessionKind:session.kind,generationKey,evalPreference:setup.evalPreference||'mix_everything',load:async()=>{const restored=body.preparationState||preparationStore.get(generationKey)||null;if(!restored?.teachingContent)return restored;const teachingContent=normalizePreparedTeachingLayouts(restored.teachingContent,session,Array.isArray(body.allBlocks)?body.allBlocks:body.blueprint.blocks);return{...restored,teachingContent}},persist:async value=>{preparationStore.set(generationKey,structuredClone(value))},telemetry,
     generateTeaching:async key=>generateTeachingStrict().catch(error=>{
       telemetry('teaching_grounded_fallback_used',{generationAttemptKey:key,reason:error instanceof Error?error.message:String(error)})
       return buildGroundedTeachingFallback(body)

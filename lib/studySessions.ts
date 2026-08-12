@@ -739,6 +739,18 @@ export async function syncSessionsFromServer(temaId?: string): Promise<StudySess
         if (!sess.setupHash && localExisting.setupHash) sess.setupHash = localExisting.setupHash;
         if (!sess.blueprint && localExisting.blueprint) sess.blueprint = localExisting.blueprint;
         if (!sess.journey && localExisting.journey) sess.journey = localExisting.journey;
+        sess.sessionContent = {
+          ...(localExisting.sessionContent || {}),
+          ...(sess.sessionContent || {}),
+        };
+        sess.sessionPreparation = {
+          ...(localExisting.sessionPreparation || {}),
+          ...(sess.sessionPreparation || {}),
+        };
+        sess.recoveryQueues = {
+          ...(localExisting.recoveryQueues || {}),
+          ...(sess.recoveryQueues || {}),
+        };
         if (!sess.activeStudyMs && localExisting.activeStudyMs) sess.activeStudyMs = localExisting.activeStudyMs;
         if (!sess.breakHoursAcknowledged && localExisting.breakHoursAcknowledged) {
           sess.breakHoursAcknowledged = localExisting.breakHoursAcknowledged;
@@ -747,15 +759,29 @@ export async function syncSessionsFromServer(temaId?: string): Promise<StudySess
       if (!sess?.id) continue;
 
       const local = all[sess.id];
-      if (!local || Number(sess.lastOpenedAt || 0) >= Number(local.lastOpenedAt || 0)) {
-        // Preservar sessionContent local si el servidor devolvió uno más antiguo o vacío
-        if (local?.sessionContent && !sess.sessionContent) {
-          sess.sessionContent = local.sessionContent;
-        }
-        if (local?.recoveryQueues && !sess.recoveryQueues) {
-          sess.recoveryQueues = local.recoveryQueues;
-        }
+      if (!local) {
         all[sess.id] = sess;
+      } else {
+        // Scalar navigation state follows the newest snapshot, but durable
+        // adaptive artifacts are reconciled independently. A lightweight local
+        // write can have a newer lastOpenedAt while lacking the server-only
+        // blueprint/journey; using timestamp as an all-or-nothing authority made
+        // a valid program look absent and triggered regeneration on "Seguir".
+        const serverIsNewer = Number(sess.updatedAt || sess.lastOpenedAt || 0) >= Number(local.updatedAt || local.lastOpenedAt || 0)
+        const shell = serverIsNewer ? sess : local
+        all[sess.id] = normalizeSession({
+          ...shell,
+          adaptiveSetup: sess.adaptiveSetup || local.adaptiveSetup,
+          setupHash: sess.setupHash || local.setupHash,
+          blueprint: sess.blueprint || local.blueprint,
+          journey: sess.journey || local.journey,
+          sessionContent: { ...(local.sessionContent || {}), ...(sess.sessionContent || {}) },
+          sessionPreparation: { ...(local.sessionPreparation || {}), ...(sess.sessionPreparation || {}) },
+          recoveryQueues: { ...(local.recoveryQueues || {}), ...(sess.recoveryQueues || {}) },
+          completedSessionNumbers: [...new Set([...(local.completedSessionNumbers || []), ...(sess.completedSessionNumbers || [])])],
+          unresolvedMicroIds: serverIsNewer ? sess.unresolvedMicroIds : local.unresolvedMicroIds,
+          isProgramComplete: local.isProgramComplete === true || sess.isProgramComplete === true,
+        })
       }
     }
 

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('chapter-style: prefetch+cold exactly-once, truncado x2 grounded, quick_test y DCL browser',async({page,request})=>{
+test('chapter-style text-only: prefetch+cold exactly-once, refresh en preparación, truncado x2 grounded y quick_test',async({page,request})=>{
   const sessionId='e2e-truncated-prefetch-dcl',temaId='e2e-truncated-prefetch-dcl-tema'
   const sessionTeachCalls:Array<{chapter:number;origin:string}>=[],payloads:any[]=[]
   await page.route('**/api/study-sessions**',route=>route.request().method()==='GET'?route.fulfill({json:{success:true,sessions:[]}}):route.fulfill({json:{success:true}}))
@@ -30,6 +30,8 @@ test('chapter-style: prefetch+cold exactly-once, truncado x2 grounded, quick_tes
   await page.goto(`/materias/${temaId}/sesion/1?adaptiveSessionId=${sessionId}`)
   await expect.poll(()=>sessionTeachCalls.some(call=>call.chapter===2&&call.origin==='prefetch')).toBe(true)
   await page.goto(`/materias/${temaId}/sesion/2?adaptiveSessionId=${sessionId}`)
+  await page.waitForTimeout(100)
+  await page.reload()
   await expect(page.getByRole('heading',{level:1,name:/Diagrama de cuerpo libre|Sesión 2/})).toBeVisible({timeout:15_000})
   const chapter2Payloads=payloads.filter(item=>item.classContent?.sessionNumber===2)
   expect(new Set(chapter2Payloads.map(item=>JSON.stringify(item.classContent.steps))).size).toBe(1)
@@ -45,6 +47,7 @@ test('chapter-style: prefetch+cold exactly-once, truncado x2 grounded, quick_tes
   expect(chapter3.classContent.steps.every((step:any)=>step.content.includes('grounded'))).toBe(true)
   for(const payload of payloads)for(const block of payload.classContent?.evaluationBlocks||[])for(const question of block.questions||[])expect(['numeric_problem','short_response']).not.toContain(question.format)
   expect(await page.locator('input[type="text"], textarea, input[type="number"]').count()).toBe(0)
+  expect(await page.locator('[data-testid="graph-svg"], [data-testid="structured-grid"], [data-testid="spatial-vector-system"], [data-testid="chemistry-structure"], [data-testid="timeline-track"]').count()).toBe(0)
   const persisted=await page.evaluate(({sessionId})=>JSON.parse(localStorage.getItem('studyal_adaptive_artifacts_v1')||'{}')[sessionId],{sessionId})
   expect(Object.keys(persisted.sessionContent)).toEqual(expect.arrayContaining(['1','2','3']))
   expect(persisted.sessionContent['3'].assessmentBlueprint?.objectives?.some((objective:any)=>objective.mastered)).not.toBe(true)

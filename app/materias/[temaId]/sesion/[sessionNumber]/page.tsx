@@ -103,18 +103,36 @@ import {
   type SessionAction,
   type SessionTransitionState,
 } from "../../../../../lib/adaptive/sessionFinalTransition"
-import type { VisualCompositionPlan, VisualEvidenceKind, VisualRequiredness, VisualSpec } from "../../../../../lib/adaptive/visual/visualContract"
-import type { TeachingLayoutBlock } from "../../../../../lib/adaptive/visual/teachingLayout"
-import { VisualRenderer } from "../../../../../components/visual/VisualRenderer"
+import type { TeachingLayoutBlock } from "../../../../../lib/adaptive/teachingLayout"
 import { computeSessionDependencyFingerprint, isPrefetchStillValid, shouldPrefetchSession, KeyedPromiseCache, sharedSessionPreparationRequests } from "../../../../../lib/adaptive/sessionPrefetch"
 import { continueRecoverablePreparation } from "../../../../../lib/adaptive/sessionReliability"
 import { deriveSessionLifecycleStatus, deriveSessionLifecycleInput } from "../../../../../lib/adaptive/sessionLifecycle"
 import { validatePlanSessionConsistency } from "../../../../../lib/adaptive/planSessionConsistency"
 import { isDevToolsEnabled } from "../../../../../lib/dev/devTools"
-import { buildDevCanonicalAnswer, buildDevCanonicalVisualResponse } from "../../../../../lib/adaptive/dev/devCanonicalAnswer"
+import { buildDevCanonicalAnswer } from "../../../../../lib/adaptive/dev/devCanonicalAnswer"
 import type { CanonicalUserAnswer } from "../../../../../lib/adaptive/evaluation/questionContract"
 
 type SessionPhase = "teaching" | "evaluating" | "feedback" | "reteaching" | "verification_generation"
+const PREPARATION_WATCHDOG_MS = 180_000
+
+async function requestSessionPreparation(body: unknown, sharedSignal: AbortSignal): Promise<any> {
+  const controller = new AbortController()
+  const abortFromShared = () => controller.abort(sharedSignal.reason)
+  sharedSignal.addEventListener("abort", abortFromShared, { once: true })
+  const watchdog = window.setTimeout(() => controller.abort(new DOMException("Preparation watchdog expired", "TimeoutError")), PREPARATION_WATCHDOG_MS)
+  try {
+    const response = await fetch("/api/adaptive/session-teach", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+    return await response.json()
+  } finally {
+    window.clearTimeout(watchdog)
+    sharedSignal.removeEventListener("abort", abortFromShared)
+  }
+}
 
 interface ClassStep {
   id: string
@@ -129,14 +147,7 @@ interface ClassStep {
   cognitiveTarget?: CanonicalQuestion["targetDimension"]
   objectiveIds?: string[]
   importance?: "supporting" | "important" | "critical"
-  visualSpec?: VisualSpec
-  visualCompositionPlan?: VisualCompositionPlan
   teachingLayout?: TeachingLayoutBlock[]
-  visualEvidenceKind?: VisualEvidenceKind
-  // Solo se usa para decidir teach vs practice cuando NO gatea mastery (ver
-  // dispatch de `mode` más abajo) — required_for_mastery sigue gobernado
-  // exclusivamente por visualEvidenceKind, sin cambios.
-  visualRequirement?: { requiredness?: VisualRequiredness }
 }
 
 interface ClassContent {
@@ -157,6 +168,7 @@ interface ClassContent {
   evaluationBlocks?: EvaluationBlock[]
   evaluationProgress?: Record<string, EvaluationBlockProgress>
   evaluationCoverage?: { coverageRatio: number }
+  preparationState?: unknown
   chatHistory?: AlaiChatMessage[]
   // AUDITORÍA ADVERSARIAL (post-7a3c3f7, Finding 1 CONFIRMADO): hintShownRef
   // y chatAssistedRef eran refs efímeros en memoria, sin persistencia — un
@@ -174,12 +186,15 @@ interface ClassContent {
 function TeachingLayout({ blocks }: { blocks: TeachingLayoutBlock[] }) {
   return <div style={{ display:"grid", gap:12 }}>
     {blocks.map((block,index) => {
-      if (block.kind === "bullets" || block.kind === "numbered_steps") {
+      if (block.kind === "bullets" || block.kind === "numbered_steps" || block.kind === "sequence") {
         const Tag = block.kind === "bullets" ? "ul" : "ol"
         return <Tag key={index} style={{ paddingLeft:24, margin:0 }}>{block.items.map((item,itemIndex)=><li key={itemIndex} style={{marginBottom:6}}><AcademicContent content={item}/></li>)}</Tag>
       }
-      const accent = block.kind === "warning" ? "#fbbf24" : block.kind === "definition" ? "#60a5fa" : "#cbd5e1"
-      return <div key={index} data-layout-kind={block.kind} style={block.kind === "paragraph" ? undefined : {padding:12,borderLeft:`3px solid ${accent}`,background:"rgba(15,23,42,.55)",borderRadius:8}}><AcademicContent content={'text' in block ? block.text : ''}/></div>
+      if (block.kind === "table") return <div key={index} style={{overflowX:"auto"}}><table data-layout-kind="table" style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{block.headers.map((header,i)=><th key={i} style={{textAlign:"left",padding:10,borderBottom:"1px solid rgba(148,163,184,.35)"}}><AcademicContent content={header}/></th>)}</tr></thead><tbody>{block.rows.map((row,r)=><tr key={r}>{row.map((cell,c)=><td key={c} style={{padding:10,borderBottom:"1px solid rgba(148,163,184,.18)"}}><AcademicContent content={cell}/></td>)}</tr>)}</tbody></table></div>
+      if (block.kind === "comparison") return <div key={index} data-layout-kind="comparison" style={{display:"grid",gridTemplateColumns:`repeat(${block.columns.length}, minmax(0,1fr))`,gap:10}}>{block.columns.map((column,i)=><section key={i} style={{padding:12,background:"rgba(15,23,42,.55)",borderRadius:8}}><strong>{column.heading}</strong><ul style={{paddingLeft:18}}>{column.items.map((item,j)=><li key={j}>{item}</li>)}</ul></section>)}</div>
+      if (block.kind === "cause_effect") return <div key={index} data-layout-kind="cause_effect" style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:10,alignItems:"center"}}><div>{block.causes.map((item,i)=><div key={i}>{item}</div>)}</div><span aria-hidden>→</span><div>{block.effects.map((item,i)=><div key={i}>{item}</div>)}</div></div>
+      const accent = block.kind === "warning" || block.kind === "common_error" ? "#fbbf24" : block.kind === "definition" ? "#60a5fa" : block.kind === "key_takeaways" ? "#4ade80" : "#cbd5e1"
+      return <div key={index} data-layout-kind={block.kind} style={block.kind === "explanation" ? undefined : {padding:12,borderLeft:`3px solid ${accent}`,background:"rgba(15,23,42,.55)",borderRadius:8}}><AcademicContent content={'text' in block ? block.text : ''}/></div>
     })}
   </div>
 }
@@ -219,6 +234,8 @@ export default function SessionPage() {
   const recoveryGenerationCoordinatorRef = useRef(new RecoveryGenerationCoordinator<any>(2))
   const verificationClickStartedAtRef = useRef<number | null>(null)
   const autoRecoveryRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const preparationResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (preparationResumeTimerRef.current) clearTimeout(preparationResumeTimerRef.current) }, [])
   // Auditoría adversarial (Codex Finding 1): fuente REAL de assistance por
   // intento — se activa únicamente cuando el bloque de pista realmente se
   // renderizó para currentQuestion (misma condición que el JSX de abajo), no
@@ -231,10 +248,6 @@ export default function SessionPage() {
   const [coverageMap, setCoverageMap] = useState<CoverageMap | null>(null)
   const [assessmentBlueprint, setAssessmentBlueprint] = useState<AssessmentBlueprint | null>(null)
   const assessmentBlueprintRef = useRef<AssessmentBlueprint | null>(null)
-  // Estado del checkpoint visual inline (FASE 4/5): por stepId, si el estudiante ya
-  // completó correctamente la interacción visual de ese step. Gatea "Continuar" SOLO
-  // cuando el step tiene visualEvidenceKind (requiredness=required_for_mastery).
-  const [visualCheckpointState, setVisualCheckpointState] = useState<Record<string, { status: "idle" | "loading" | "correct" | "incorrect"; feedback?: string }>>({})
   const [skipEvaluation, setSkipEvaluation] = useState(false)
   const [pendingQuestions, setPendingQuestions] = useState<CanonicalQuestion[]>([])
   const [previousQuestions, setPreviousQuestions] = useState<CanonicalQuestion[]>([])
@@ -638,7 +651,6 @@ export default function SessionPage() {
                 cached.steps.map(step => ({
                   ...step,
                   importance: step.importance === "critical" ? 1 : step.importance === "important" ? 0.7 : 0.4,
-                  requiredEvidenceKind: step.visualEvidenceKind,
                 })),
                 as_.id,
                 Number(cached.assessmentPlanVersion || 1),
@@ -786,7 +798,7 @@ export default function SessionPage() {
         nextSessionTitle: nextChapter?.title || null,
         previouslyTaught,
         primaryBlockIds: chapter.blockIds || [],
-        preparationState: (as_.sessionPreparation as any)?.[String(sessionNumber)] || undefined,
+        preparationState: (as_.sessionPreparation as any)?.[String(sessionNumber)] || cached?.preparationState || undefined,
         // Señales reales (no inventadas) de sesiones ya generadas en este mismo
         // journey — desempate de variedad y nivel cognitivo ya demostrado por
         // factKey (P3.2). Nunca criterio principal de selección.
@@ -804,8 +816,12 @@ export default function SessionPage() {
           maxAttempts: 3,
           request: async (preparationState) => {
             return sharedSessionPreparationRequests.run(preparationDedupeKey, async signal => {
-              const response = await fetch("/api/adaptive/session-teach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...requestBody, preparationState, requestOrigin:'cold' }), signal })
-              return response.json()
+              try {
+                return await requestSessionPreparation({ ...requestBody, preparationState, requestOrigin:'cold' }, signal)
+              } catch (requestError) {
+                if (signal.aborted) throw requestError
+                return { success:false, recoverable:true, preparationState, errorCode:requestError instanceof Error ? requestError.name : 'PREPARATION_REQUEST_FAILED' }
+              }
             })
           },
           onCheckpoint: preparationState => stillCurrent()?updateSessionById(as_.id, (current: any) => ({ ...current, sessionPreparation: { ...(current.sessionPreparation || {}), [String(sessionNumber)]: preparationState } })):null,
@@ -819,7 +835,17 @@ export default function SessionPage() {
       const d = await sessionPreparationPromiseRef.current
       if (!d.success || !d.classContent) {
         if (d.preparationState) updateSessionById(as_.id, (current: any) => ({ ...current, sessionPreparation: { ...(current.sessionPreparation || {}), [String(sessionNumber)]: d.preparationState } }))
-        setError("No pudimos preparar esta sesión. Vuelve al plan e inténtalo de nuevo."); setLoading(false); return
+        if (d.recoverable) {
+          setError(null)
+          setLoading(true)
+          if (!preparationResumeTimerRef.current) preparationResumeTimerRef.current = setTimeout(() => {
+            preparationResumeTimerRef.current = null
+            const nextVersion = ++loadContextVersionRef.current
+            void loadContext(nextVersion)
+          }, 1_500)
+          return
+        }
+        setError("No pudimos preparar esta sesión porque el material o el programa no permiten continuar de forma segura."); setLoading(false); return
       }
 
       // Normalizar evaluationBlocks — garantizar que sea array y que afterStepId coincida con step.id real
@@ -907,7 +933,6 @@ export default function SessionPage() {
       steps.map(step => ({
         ...step,
         importance: step.importance === "critical" ? 1 : step.importance === "important" ? 0.7 : 0.4,
-        requiredEvidenceKind: step.visualEvidenceKind,
       })),
       si?.id || "",
       Number(cd?.assessmentPlanVersion || 1),
@@ -984,10 +1009,7 @@ export default function SessionPage() {
           generationHistory: computeGenerationHistorySignals(as_.sessionContent, { excludeSessionNumber: fromSessionNumber + 1 }),
           requestOrigin: 'prefetch',
         }
-        const d = await sharedSessionPreparationRequests.run(dedupeKey, async sharedSignal => {
-          const response = await fetch("/api/adaptive/session-teach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(requestBody), signal: sharedSignal })
-          return response.json()
-        })
+        const d = await sharedSessionPreparationRequests.run(dedupeKey, sharedSignal => requestSessionPreparation(requestBody, sharedSignal))
         if (!d?.success || !d?.classContent) return
 
         const generatedStepIds = new Set((d.classContent.steps || []).map((s: any) => s.id))
@@ -1034,81 +1056,6 @@ export default function SessionPage() {
         },
       }
     })
-  }
-
-  // Checkpoint visual inline: grading server-authoritative vía /api/adaptive/
-  // visual-check (determinista, sin LLM), luego evidencia real a través del MISMO
-  // recordAssessmentEvidence/persistAssessmentBlueprint que usa el flujo textual —
-  // nunca una autoridad de mastery paralela.
-  async function submitVisualCheckpoint(step: ClassStep, verb: import("../../../../../lib/adaptive/visual/visualContract").VisualInteractionVerb, response: unknown) {
-    if (!step.visualSpec) return
-    setVisualCheckpointState(prev => ({ ...prev, [step.id]: { status: "loading" } }))
-    try {
-      const res = await fetch("/api/adaptive/visual-check", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ visualSpec: step.visualSpec, submission: { visualSpecId: step.visualSpec.id, verb, response } }),
-      })
-      const json = await res.json()
-      if (!json?.success) {
-        setVisualCheckpointState(prev => ({ ...prev, [step.id]: { status: "incorrect", feedback: "No pudimos calificar la interacción. Intenta de nuevo." } }))
-        return
-      }
-      const result = json.result as { correct: boolean; score: number; evidenceKind: string; feedback: string }
-      if (assessmentBlueprintRef.current && step.microId) {
-        const matchedObjectives = assessmentBlueprintRef.current.objectives.filter(o => o.microId === step.microId)
-        if (matchedObjectives.length) {
-          // El checkpoint visual no tiene, en esta slice, ningún canal de asistencia
-          // (pista automática, chat) equivalente al de las preguntas textuales — el
-          // estudiante SIEMPRE interactúa directamente con el visual, así que
-          // independent es genuinamente true aquí (no es el hardcode de Codex
-          // Finding 1: ese bug era ignorar una pista YA mostrada; aquí no existe
-          // ninguna vía de asistencia que ignorar).
-          const visualCheckpointIndependent = true
-          persistAssessmentBlueprint(recordAssessmentEvidence(
-            assessmentBlueprintRef.current,
-            matchedObjectives.map(o => o.objectiveId),
-            step.factKeys || [],
-            {
-              valid: true,
-              correct: result.correct,
-              independent: visualCheckpointIndependent,
-              evidenceId: `visual:${step.visualSpec.id}:${Date.now()}`,
-              evidenceKind: result.evidenceKind as any,
-            },
-          ))
-        }
-      }
-      setVisualCheckpointState(prev => ({ ...prev, [step.id]: { status: result.correct ? "correct" : "incorrect", feedback: result.feedback } }))
-    } catch {
-      setVisualCheckpointState(prev => ({ ...prev, [step.id]: { status: "incorrect", feedback: "Error de red al calificar. Intenta de nuevo." } }))
-    }
-  }
-
-  // HERRAMIENTA DEV-ONLY (recorrido rápido — ver devSkipCurrentQuestion arriba,
-  // nunca visible en producción real). Construye la solución estructurada
-  // canónica del VisualSpec (misma fuente de verdad que gradeVisualInteraction
-  // usa server-side) y la envía por el MISMO submitVisualCheckpoint real —
-  // idéntico POST a /api/adaptive/visual-check, idéntico grading determinista,
-  // idéntico registro de evidencia. Nunca marca el checkpoint como aprobado sin
-  // pasar por ese endpoint.
-  function devResolveVisualCheckpoint(step: ClassStep) {
-    if (!step.visualSpec) return
-    const { verb, response } = buildDevCanonicalVisualResponse(step.visualSpec)
-    void submitVisualCheckpoint(step, verb, response)
-  }
-
-  // Un step con checkpoint visual gating queda satisfecho por CUALQUIERA de dos
-  // fuentes: el checkpoint local de este montaje (respuesta recién enviada), O el
-  // assessmentBlueprint persistido ya mostrando el objective demostrado — esto
-  // último es lo que evita que un refresh a mitad de sesión (tras ya haber pasado el
-  // checkpoint en un montaje anterior) vuelva a bloquear "Continuar": la evidencia
-  // real ya está grabada, solo el estado efímero de React se perdió.
-  function isVisualStepSatisfied(step: ClassStep): boolean {
-    if (!step.visualEvidenceKind) return true
-    if (visualCheckpointState[step.id]?.status === "correct") return true
-    const matched = (assessmentBlueprint?.objectives || []).filter(o => o.microId === step.microId)
-    return matched.length > 0 && matched.every(o => o.independentlyCorrect)
   }
 
   // PARTE B — chat ALAI: mismo patrón exacto que persistAssessmentBlueprint
@@ -1636,7 +1583,6 @@ export default function SessionPage() {
 
   function isAnswerReady(): boolean {
     if (!currentQuestion) return false
-
     if (currentQuestion.format === "word_bank") {
       return wordBankAnswers.length > 0 && wordBankAnswers.every(w => w !== "")
     }
@@ -3311,56 +3257,6 @@ export default function SessionPage() {
             <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16, lineHeight: 1.3 }}><AcademicContent content={step.title} /></h2>
             <div style={{ fontSize: 16, lineHeight: 1.7, color: "#cbd5e1" }}>{step.teachingLayout?.length ? <TeachingLayout blocks={step.teachingLayout}/> : <AcademicContent content={step.content} />}</div>
             {step.keyPoint && <div style={{ marginTop: 20, padding: 16, background: "rgba(250,204,21,0.08)", border: "1px solid rgba(250,204,21,0.25)", borderRadius: 10 }}><div style={{ fontSize: 11, fontWeight: 700, color: "#fbbf24", marginBottom: 6 }}>💡 Idea clave</div><div style={{ fontSize: 15, color: "#fde68a", fontWeight: 500 }}><AcademicContent content={step.keyPoint} /></div></div>}
-            {step.visualSpec && (() => {
-              const checkpoint = visualCheckpointState[step.id]
-              const gating = Boolean(step.visualEvidenceKind)
-              const passed = isVisualStepSatisfied(step)
-              // Bug 4 (StudyAL_Visual_System_Stress_Test): antes este dispatch era
-              // binario (assess | teach) — 'practice' existía en el tipo/contrato
-              // (VisualInteractionMode, INTERACTIONS por engine) pero nunca se
-              // seleccionaba en ningún sitio real. required_for_understanding
-              // (una clasificación YA existente del classifier, ni nueva ni
-              // inventada aquí) es exactamente el caso "puede intentarlo y recibir
-              // feedback, no bloquea progreso" — practice, no teach puro ni
-              // assess. required_for_mastery sigue gobernado EXCLUSIVAMENTE por
-              // visualEvidenceKind/gating, sin ningún cambio.
-              const mode = gating && !passed
-                ? "assess" as const
-                : step.visualRequirement?.requiredness === "required_for_understanding"
-                  ? "practice" as const
-                  : "teach" as const
-              return (
-                <div>
-                  <VisualRenderer
-                    spec={step.visualSpec}
-                    mode={mode}
-                    disabled={checkpoint?.status === "loading" || passed}
-                    onSubmit={(verb, response) => void submitVisualCheckpoint(step, verb, response)}
-                  />
-                  {step.visualCompositionPlan?.supporting.map(supporting => (
-                    <VisualRenderer key={supporting.id} spec={supporting} mode="teach" />
-                  ))}
-                  {checkpoint && checkpoint.status !== "idle" && checkpoint.status !== "loading" && (
-                    <div style={{ fontSize: 13, marginTop: -4, marginBottom: 12, color: checkpoint.status === "correct" ? "#4ade80" : "#f87171" }}>{checkpoint.feedback}</div>
-                  )}
-                  {gating && !passed && (
-                    <div style={{ fontSize: 12, color: "#9ca3af", marginTop: -4, marginBottom: 12 }}>Completa la interacción visual para continuar.</div>
-                  )}
-                  {isDevToolsEnabled() && !passed && (
-                    <button
-                      type="button"
-                      data-testid="dev-resolve-visual"
-                      onClick={() => devResolveVisualCheckpoint(step)}
-                      disabled={checkpoint?.status === "loading"}
-                      title="Envía la solución estructurada canónica de este visual usando el grader real (/api/adaptive/visual-check)."
-                      style={{ background: "rgba(167,139,250,0.12)", border: "1px dashed rgba(167,139,250,0.5)", borderRadius: 8, padding: "6px 12px", marginBottom: 12, color: "#c4b5fd", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-                    >
-                      ⏭ Resolver visual (dev)
-                    </button>
-                  )}
-                </div>
-              )
-            })()}
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ fontSize: 13, opacity: 0.6 }}>
@@ -3378,14 +3274,14 @@ export default function SessionPage() {
                   type="button"
                   data-testid="dev-skip-teaching-step"
                   onClick={proceedToNextStep}
-                  disabled={!isVisualStepSatisfied(step)}
+                  disabled={false}
                   title="Avanza al siguiente paso usando la misma transición real que el botón de continuar."
-                  style={{ background: "rgba(167,139,250,0.12)", border: "1px dashed rgba(167,139,250,0.5)", borderRadius: 8, padding: "10px 16px", color: "#c4b5fd", fontSize: 13, fontWeight: 600, cursor: isVisualStepSatisfied(step) ? "pointer" : "not-allowed", opacity: isVisualStepSatisfied(step) ? 1 : 0.5 }}
+                  style={{ background: "rgba(167,139,250,0.12)", border: "1px dashed rgba(167,139,250,0.5)", borderRadius: 8, padding: "10px 16px", color: "#c4b5fd", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
                 >
                   ⏭ Siguiente (dev)
                 </button>
               )}
-              <button data-testid="session-primary-action" onClick={proceedToNextStep} disabled={!isVisualStepSatisfied(step)} style={{ padding: "14px 32px", background: primarySessionAction.type==="complete_session" ? "linear-gradient(90deg, #4ade80, #22c55e)" : "linear-gradient(90deg, #3b82f6, #6366f1)", color: primarySessionAction.type==="complete_session" ? "#052e16" : "white", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer", opacity: !isVisualStepSatisfied(step) ? 0.5 : 1 }}>{primarySessionActionLabel}</button>
+              <button data-testid="session-primary-action" onClick={proceedToNextStep} style={{ padding: "14px 32px", background: primarySessionAction.type==="complete_session" ? "linear-gradient(90deg, #4ade80, #22c55e)" : "linear-gradient(90deg, #3b82f6, #6366f1)", color: primarySessionAction.type==="complete_session" ? "#052e16" : "white", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>{primarySessionActionLabel}</button>
             </div>
           </div>
         </>)}
@@ -3614,7 +3510,6 @@ export default function SessionPage() {
 
           {/* NUMERIC */}
           {currentQuestion.format === "numeric_problem" && <input type="text" value={typeof userAnswer === "string" ? userAnswer : ""} onChange={e => setUserAnswer(e.target.value)} placeholder="Valor numérico..." style={{ width: "100%", padding: 14, background: "rgba(15,23,42,0.6)", color: "#e2e8f0", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 10, outline: "none", fontSize: 15 }} />}
-
           <div style={{ marginTop: 22 }}>
             {currentQuestion.hint && !userAnswer && !isAnswerReady() && (
               hintRevealed ? (

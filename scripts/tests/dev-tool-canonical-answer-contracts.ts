@@ -2,16 +2,13 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { normalizeGeneratedQuestion, type CanonicalQuestion, type GenerationContext } from '../../lib/adaptive/evaluation/questionContract'
 import { scoreQuestion } from '../../lib/adaptive/evaluation/scoring'
-import { buildDevCanonicalAnswer, buildDevCanonicalVisualResponse } from '../../lib/adaptive/dev/devCanonicalAnswer'
-import { gradeVisualInteraction } from '../../lib/adaptive/visual/visualGrading'
+import { buildDevCanonicalAnswer } from '../../lib/adaptive/dev/devCanonicalAnswer'
 import { isDevToolsEnabled } from '../../lib/dev/devTools'
-import type { VisualSpec } from '../../lib/adaptive/visual/visualContract'
 
 // Herramienta DEV-ONLY de recorrido rápido (misión: botón "⏭ Omitir/responder
 // correctamente" para QA/UX). Estos tests prueban que buildDevCanonicalAnswer/
-// buildDevCanonicalVisualResponse producen respuestas que el GRADER REAL
-// (scoreQuestion/gradeVisualInteraction, los mismos que /api/adaptive/session-check
-// y /api/adaptive/visual-check usan server-side) califica como correctas — nunca
+// buildDevCanonicalAnswer produce respuestas que el GRADER REAL
+// (scoreQuestion, el mismo que /api/adaptive/session-check usa server-side) califica como correctas — nunca
 // se asume corrección, se PRUEBA contra el mismo código que califica a un
 // estudiante real.
 
@@ -37,10 +34,8 @@ else process.env.NEXT_PUBLIC_STUDYAL_DEV_TOOLS = originalDevFlag
 // Este contrato cubre cada método exportado para evitar que un método nuevo o un
 // contador de diagnóstico quede accesible por omisión.
 const reliabilityRouteSource = fs.readFileSync(new URL('../../app/api/e2e-session-reliability/route.ts', import.meta.url), 'utf8')
-const showcaseRouteSource = fs.readFileSync(new URL('../../app/api/e2e-visual-showcase/route.ts', import.meta.url), 'utf8')
 for (const [routeName, source, methods] of [
   ['e2e-session-reliability', reliabilityRouteSource, ['GET', 'POST']],
-  ['e2e-visual-showcase', showcaseRouteSource, ['GET']],
 ] as const) {
   for (const method of methods) {
     const handler = source.match(new RegExp(`export\\s+async\\s+function\\s+${method}\\s*\\([^]*?(?=export\\s+async\\s+function|$)`))?.[0] || ''
@@ -115,26 +110,4 @@ assert.equal(scoreQuestion(mcqA, buildDevCanonicalAnswer(mcqB)).correct, false, 
 // debe LANZAR, nunca degradar a una respuesta inventada silenciosa.
 assert.throws(() => buildDevCanonicalAnswer({ ...mcqA, format: 'unsupported_future_format' } as unknown as CanonicalQuestion), /DEV_CANONICAL_ANSWER_UNSUPPORTED_FORMAT/)
 
-// ===========================================================================
-// 8 — visual required: canonical response verificado contra gradeVisualInteraction
-// REAL (el mismo que /api/adaptive/visual-check ejecuta server-side).
-// ===========================================================================
-const visualFixtures: VisualSpec[] = [
-  { id: 'v1', requirementId: 'r1', microId: 'm1', engine: 'graph_2d', representation: 'graph', conceptual: false, sourceGrounding: { sourceSpans: [], factKeys: [] }, data: { expression: '2x+1', domain: [-5, 5], points: [{ x: 2, y: 5 }] } },
-  { id: 'v2', requirementId: 'r2', microId: 'm2', engine: 'structured_grid', representation: 'ice', conceptual: false, sourceGrounding: { sourceSpans: [], factKeys: [] }, data: { reaction: 'A ⇌ B', species: ['A', 'B'], initial: { A: 1, B: 0 }, change: { A: '-x', B: '+x' }, equilibrium: { A: '1-x', B: 'x' } } },
-  { id: 'v3', requirementId: 'r3', microId: 'm3', engine: 'spatial_vector', representation: 'fbd', conceptual: false, sourceGrounding: { sourceSpans: [], factKeys: [] }, data: { body: 'bloque', forces: [{ id: 'f1', label: 'Peso', magnitude: 50, angleDeg: 270, unit: 'N' }], axes: { x: 'horizontal', y: 'vertical' } } },
-  { id: 'v4', requirementId: 'r4', microId: 'm4', engine: 'chemistry_2d', representation: 'skeletal', conceptual: false, sourceGrounding: { sourceSpans: [], factKeys: [] }, data: { atoms: [{ id: 'C1', element: 'C', x: 0, y: 0 }, { id: 'O1', element: 'O', x: 60, y: 0 }], bonds: [{ from: 'C1', to: 'O1', order: 2 }] } },
-  { id: 'v5', requirementId: 'r5', microId: 'm5', engine: 'code_execution', representation: 'trace', conceptual: false, sourceGrounding: { sourceSpans: [], factKeys: [] }, data: { language: 'python', code: 'x = 3\nprint(x)', steps: [{ line: 1, variables: { x: 3 } }, { line: 2, variables: { x: 3 }, output: '3' }] } },
-  { id: 'v6', requirementId: 'r6', microId: 'm6', engine: 'timeline', representation: 'timeline', conceptual: false, sourceGrounding: { sourceSpans: [], factKeys: [] }, data: { events: [{ id: 'e1', label: 'Primero', order: 1 }, { id: 'e2', label: 'Segundo', order: 2 }, { id: 'e3', label: 'Tercero', order: 3 }] } },
-]
-
-for (const spec of visualFixtures) {
-  const { verb, response } = buildDevCanonicalVisualResponse(spec)
-  const result = gradeVisualInteraction(spec, { visualSpecId: spec.id, verb, response })
-  assert.equal(result.correct, true, `engine=${spec.engine} — buildDevCanonicalVisualResponse debe calificar CORRECTO vía gradeVisualInteraction real, obtuvo: ${JSON.stringify(response)}, score=${result.score}, feedback=${result.feedback}`)
-}
-
-// motor no soportado: debe lanzar, nunca degradar a "aprobado" silencioso.
-assert.throws(() => buildDevCanonicalVisualResponse({ ...visualFixtures[0], engine: 'unsupported_future_engine' } as unknown as VisualSpec), /DEV_CANONICAL_VISUAL_RESPONSE_UNSUPPORTED_ENGINE/)
-
-console.log(`dev-tool-canonical-answer-contracts: PASS (${fixtures.length} formatos de pregunta + ${visualFixtures.length} engines visuales, todos verificados contra el grader real; visibilidad dev/prod verificada; pureza estructural verificada)`)
+console.log(`dev-tool-canonical-answer-contracts: PASS (${fixtures.length} formatos de pregunta verificados contra el grader real; visibilidad dev/prod verificada; pureza estructural verificada)`)

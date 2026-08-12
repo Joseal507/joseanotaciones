@@ -1001,6 +1001,7 @@ export default function TemaView({
 
   // ── Sesiones de estudio activas en este tema ──
   const [activeSessions, setActiveSessions] = useState<StudySession[]>([]);
+  const [sessionsRestoring, setSessionsRestoring] = useState(true);
   // ── ID de sesión a reanudar (cuando se hace "seguir estudiando") ──
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
   // Ref para el modo elegido — nunca se pisa por guards o re-renders
@@ -1020,6 +1021,7 @@ export default function TemaView({
 
   const refreshSessions = useCallback(() => {
     if (!tema?.id) return;
+    setSessionsRestoring(true);
     const existingIds = (tema.documentos || []).map(
       (d: any) => d.materialId || d.id,
     );
@@ -1031,7 +1033,8 @@ export default function TemaView({
         cleanupSessions(tema.id, existingIds);
         setActiveSessions(sessions);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setSessionsRestoring(false));
   }, [tema?.id, tema?.documentos]);
 
   useEffect(() => {
@@ -1085,7 +1088,7 @@ export default function TemaView({
     // Ya no necesitamos buscar en el mastery localStorage porque
     // studySessions.ts v2 siempre guarda processMode correctamente.
     // Fallback al mastery localStorage solo si la sesión es muy vieja (migración).
-    let lastMode: 'free' | 'adaptive' = 'free';
+    let lastMode: 'free' | 'adaptive' = lastSession.processMode === 'adaptive' ? 'adaptive' : 'free';
 
     // Fallback de migración: sesiones viejas sin processMode
     if (lastMode === 'free') {
@@ -1104,7 +1107,7 @@ export default function TemaView({
 
     console.log("⚡ [returnToEnfoque] Sesión:", lastSession.id, "| processMode guardado:", lastSession.processMode, "| modo final:", lastMode);
 
-    setStudyMode('free');
+    setStudyMode(lastMode);
 
     // Abrir el StudyAL Process directamente, sin pasar por el enfoque
     setOpenFree(true);
@@ -3213,6 +3216,7 @@ export default function TemaView({
                 {/* BOTÓN ESTUDIAR / SEGUIR */}
                 <button
                   onClick={async () => {
+                    if (!isResumeMode && sessionsRestoring) return;
                     if (isResumeMode && matchingSession) {
                       // ── Reanudar sesión existente ──
                       setResumeSessionId(matchingSession.id);
@@ -3259,6 +3263,7 @@ export default function TemaView({
                     }
                   }}
                   className="study-btn-neon"
+                  disabled={!isResumeMode && sessionsRestoring}
                   style={{
                     position: "relative",
                     background: isResumeMode

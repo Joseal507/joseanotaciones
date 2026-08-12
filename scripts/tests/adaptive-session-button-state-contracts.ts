@@ -5,7 +5,7 @@ const adaptive=readFileSync('components/materias/StudyALAdaptive.tsx','utf8')
 const contracts:[string,RegExp,string][]=[
  ['crear proceso',/upsertSession\(/,adaptive],['continuar setup',/function next\(/,adaptive],['generar plan',/generateBlueprint/,adaptive],['abrir sesión',/adaptiveSessionRoute/,adaptive],
  ['continuar step',/advanceToNextTeachingStep/,page],['siguiente pregunta',/routeNormalAnswerOutcome/,page],['confirmar respuesta',/Confirmar respuesta/,page],['hint',/hint|pista/i,page],['ALAI',/ALAI/,page],
- ['visual interaction',/VisualRenderer/,page],['dev skip',/dev.*skip|Resolver visual \(dev\)/i,page],['terminar',/Terminar/,page],['siguiente sesión',/hasNextSession/,page],['salir al plan',/openPlan/,page],
+ ['dev skip',/dev.*skip/i,page],['terminar',/Terminar/,page],['siguiente sesión',/hasNextSession/,page],['salir al plan',/openPlan/,page],
  ['volver a sesión',/loadContext/,page],['reintentar',/retrySessionPreparation/,page],['repetir',/replay|repetir/i,page],['refresh restore',/sessionContent|restore/i,page],
 ]
 for(const [name,pattern,source] of contracts)assert.match(source,pattern,`${name}: wiring ausente`)
