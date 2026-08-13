@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
 import { deriveIsProgramComplete } from '../../../lib/adaptive/resume';
+import { sourceSelectionFingerprint } from '../../../lib/adaptive/sourceSelection';
 
 const API = process.env.STUDYAL_API_URL || process.env.NEXT_PUBLIC_STUDYAL_API_URL || '';
 
@@ -41,6 +42,8 @@ export async function GET(req: NextRequest) {
         const mode = s.processMode || s.studyMode || s.process_mode || s.study_mode || 'free';
         const persistedJourney = s.journey || s.adaptiveProgram || s.adaptive_program || null;
         const resumeState = persistedJourney?.resumeState || {};
+        const materialIds = s.materialIds || s.material_ids || [];
+        const selectedPages = s.selectedPages || s.selected_pages || {};
         return {
           ...s,
           processMode: mode,
@@ -67,7 +70,8 @@ export async function GET(req: NextRequest) {
           activeStudyMs: s.activeStudyMs || s.active_study_ms || resumeState.activeStudyMs || 0,
           breakHoursAcknowledged: s.breakHoursAcknowledged || s.break_hours_acknowledged || resumeState.breakHoursAcknowledged || 0,
           materialNames: s.materialNames || s.material_names || [],
-          selectedPages: s.selectedPages || s.selected_pages || {},
+          selectedPages,
+          sourceSelectionFingerprint: sourceSelectionFingerprint(materialIds, selectedPages),
           updatedAt: s.updatedAt || s.updated_at || null,
         };
       }),
@@ -120,7 +124,7 @@ export async function POST(req: NextRequest) {
     // Esto previene que un sync sin adaptiveSetup borre el setup existente
     if (body.primaryMaterialId || body.materialIds?.[0]) payload.primary_material_id = body.primaryMaterialId || body.materialIds[0];
     if (body.masteryMaterialKey) payload.mastery_material_key = body.masteryMaterialKey;
-    if (body.selectedPages && Object.keys(body.selectedPages).length > 0) payload.selected_pages = body.selectedPages;
+    if (body.selectedPages && typeof body.selectedPages === 'object') payload.selected_pages = body.selectedPages;
     if (body.flashcards) payload.flashcards = body.flashcards;
     if (body.notes) payload.notes = body.notes;
     if (body.materialText) payload.material_text = body.materialText;

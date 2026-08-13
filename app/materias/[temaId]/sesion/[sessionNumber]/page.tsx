@@ -105,6 +105,7 @@ import {
 } from "../../../../../lib/adaptive/sessionFinalTransition"
 import type { TeachingLayoutBlock } from "../../../../../lib/adaptive/teachingLayout"
 import { computeSessionDependencyFingerprint, isPrefetchStillValid, shouldPrefetchSession, KeyedPromiseCache, sharedSessionPreparationRequests } from "../../../../../lib/adaptive/sessionPrefetch"
+import { sourceSelectionFingerprint } from "../../../../../lib/adaptive/sourceSelection"
 import { continueRecoverablePreparation } from "../../../../../lib/adaptive/sessionReliability"
 import { deriveSessionLifecycleStatus, deriveSessionLifecycleInput } from "../../../../../lib/adaptive/sessionLifecycle"
 import { validatePlanSessionConsistency } from "../../../../../lib/adaptive/planSessionConsistency"
@@ -220,6 +221,7 @@ export default function SessionPage() {
   const [hasNextSession, setHasNextSession] = useState(false)
   const [sessionKind, setSessionKind] = useState<SessionKind>("learning")
   const actionInFlightRef = useRef(false)
+  const nextSessionNavigationRef = useRef(false)
   const transitionIdRef = useRef(0)
   const completionRenderedRef = useRef(false)
   const inFlightGenerationKeyRef = useRef<string | null>(null)
@@ -534,7 +536,7 @@ export default function SessionPage() {
         computeSessionDependencyFingerprint({
           chapterId: chapter.id, chapterBlockIds: chapter.blockIds || [], blueprintVersion: bp.version || 0,
           journeyId: jy.id || 'current', journeyVersion: jy.version || jy.id || 'current',
-          setupSnapshot: as_.adaptiveSetup, materialHash: as_.masteryMaterialKey || as_.primaryMaterialId || as_.materialIds?.join(','),
+          setupSnapshot: as_.adaptiveSetup, materialHash: as_.sourceSelectionFingerprint || sourceSelectionFingerprint(as_.materialIds, as_.selectedPages),
         }),
       )
       if (cachedPrefetchStale) {
@@ -784,8 +786,10 @@ export default function SessionPage() {
         session: { ...chapter, kind: resolvedKind },
         blueprint: { version: bp.version, topics: bp.topics, blocks: bp.blocks },
         setup: as_.adaptiveSetup,
+        setupHash: as_.setupHash,
         materialTitle: as_.materialNames?.[0] || "Material",
-        materialHash: as_.masteryMaterialKey || as_.primaryMaterialId || as_.materialIds?.join(","),
+        materialHash: as_.sourceSelectionFingerprint || sourceSelectionFingerprint(as_.materialIds, as_.selectedPages),
+        sourceSelectionFingerprint: as_.sourceSelectionFingerprint || sourceSelectionFingerprint(as_.materialIds, as_.selectedPages),
         planVersion: jy.id || jy.version || "current",
         totalSessions: jy.chapters?.length || 0,
         userId: as_.userId,
@@ -808,7 +812,7 @@ export default function SessionPage() {
       const preparationDedupeKey = `${as_.id}:${sessionNumber}:${computeSessionDependencyFingerprint({
         chapterId: chapter.id, chapterBlockIds: chapter.blockIds || [], blueprintVersion: bp.version || 0,
         journeyId: jy.id || 'current', journeyVersion: jy.version || jy.id || 'current',
-        setupSnapshot: as_.adaptiveSetup, materialHash: as_.masteryMaterialKey || as_.primaryMaterialId || as_.materialIds?.join(','),
+        setupSnapshot: as_.adaptiveSetup, materialHash: as_.sourceSelectionFingerprint || sourceSelectionFingerprint(as_.materialIds, as_.selectedPages),
       })}`
       if (!sessionPreparationPromiseRef.current) {
         const operation = continueRecoverablePreparation({
@@ -957,7 +961,7 @@ export default function SessionPage() {
       try { nextKind = resolveSessionKind(nextChapter).kind } catch { return }
       if (!shouldPrefetchSession(nextKind)) return
 
-      const materialHash = as_.masteryMaterialKey || as_.primaryMaterialId || as_.materialIds?.join(',')
+      const materialHash = as_.sourceSelectionFingerprint || sourceSelectionFingerprint(as_.materialIds, as_.selectedPages)
       const dependencyFingerprint = computeSessionDependencyFingerprint({
         chapterId: nextChapter.id, chapterBlockIds: nextChapter.blockIds || [], blueprintVersion: bp.version || 0,
         journeyId: jy.id || 'current', journeyVersion: jy.version || jy.id || 'current',
@@ -994,8 +998,10 @@ export default function SessionPage() {
           session: { ...nextChapter, kind: nextKind },
           blueprint: { version: bp.version, topics: bp.topics, blocks: bp.blocks },
           setup: as_.adaptiveSetup,
+          setupHash: as_.setupHash,
           materialTitle: as_.materialNames?.[0] || "Material",
           materialHash,
+          sourceSelectionFingerprint: materialHash,
           planVersion: jy.id || jy.version || "current",
           totalSessions: jy.chapters?.length || 0,
           userId: as_.userId,
@@ -2976,7 +2982,8 @@ export default function SessionPage() {
   }
 
   function handleNextSession() {
-    if (!sessionData?.id) return
+    if (!sessionData?.id || nextSessionNavigationRef.current) return
+    nextSessionNavigationRef.current = true
     if (!hasNextSession) { router.push(adaptivePlanRoute(temaId, sessionData.id)); return }
     router.push(adaptiveSessionRoute(temaId, sessionData.id, sessionNumber + 1))
   }

@@ -27,6 +27,8 @@ import {
   shouldResumePreparation,
   type ProgramRestoreState,
 } from "../../lib/adaptive/programRestore";
+import { buildSourceSelectionSnapshot } from "../../lib/adaptive/sourceSelection";
+import { computeSessionDependencyFingerprint, sharedSessionPreparationRequests } from "../../lib/adaptive/sessionPrefetch";
 
 const HAND = "'Caveat', cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -36,6 +38,7 @@ interface Props {
   temaId?: string;
   userId?: string;
   sessionId?: string;
+  selectedPages?: Record<string, number[]>;
   onClose: () => void;
 }
 
@@ -169,6 +172,7 @@ export default function StudyALAdaptive({
   temaId,
   userId,
   sessionId,
+  selectedPages: selectedPagesProp,
   onClose,
 }: Props) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -273,6 +277,13 @@ export default function StudyALAdaptive({
     if (fromProps.length > 0) return fromProps;
     return Array.isArray(resolvedSession?.materialNames) ? resolvedSession.materialNames.slice(0, 5) : [];
   }, [materiales, resolvedSession]);
+
+  const sourceSelection = useMemo(() => buildSourceSelectionSnapshot(
+    materialIds,
+    resolvedSession?.selectedPages && Object.keys(resolvedSession.selectedPages).length
+      ? resolvedSession.selectedPages
+      : selectedPagesProp || {},
+  ), [materialIds, resolvedSession?.selectedPages, selectedPagesProp]);
 
   const lifecycleState = getAdaptiveLifecycleState(resolvedSession
     ? { ...resolvedSession, adaptiveSetup: setup, blueprint, journey }
@@ -532,13 +543,12 @@ export default function StudyALAdaptive({
           }
 
           // Get session selectedPages
-          const sess = getSessionById(activeSessionId);
-          const selectedPages = sess?.selectedPages?.[getMaterialId(m)] || [];
+          const selectedPages = sourceSelection.selectedPages[getMaterialId(m)] || [];
 
           return {
             materialId: getMaterialId(m),
             materialName: m.nombre || m.name || "Material",
-            text: text.slice(0, 20000),
+            text,
             selectedPages,
           };
         })
@@ -582,6 +592,8 @@ export default function StudyALAdaptive({
       const blueprintSession = updateSessionById(activeSessionId, current => ({
         ...current,
         blueprint: json.blueprint,
+        selectedPages: sourceSelection.selectedPages,
+        sourceSelectionFingerprint: sourceSelection.fingerprint,
         adaptiveState: "generating",
       }));
       if (blueprintSession) setResolvedSession(blueprintSession);
@@ -707,6 +719,8 @@ export default function StudyALAdaptive({
         ...current,
         blueprint: blueprint || current.blueprint,
         journey: j,
+        selectedPages: sourceSelection.selectedPages,
+        sourceSelectionFingerprint: sourceSelection.fingerprint,
         adaptiveState: "ready",
       }));
       if (readySession) setResolvedSession(readySession);
@@ -715,18 +729,33 @@ export default function StudyALAdaptive({
       // la petición y un resultado stale nunca se persiste.
       const firstChapter = (j.chapters || []).find((chapter: any) => chapter.chapterNumber === 1)
       if (readySession && firstChapter && firstChapter.kind !== 'final_review' && stillCurrent()) {
-        void fetch('/api/adaptive/session-teach', {
-          method:'POST', headers:{'content-type':'application/json'}, signal,
+        const dependencyFingerprint = computeSessionDependencyFingerprint({
+          chapterId:firstChapter.id, chapterBlockIds:firstChapter.blockIds || [], blueprintVersion:blueprint?.version || 0,
+          journeyId:j.id || 'current', journeyVersion:j.version || j.id || 'current', setupSnapshot:setup,
+          materialHash:sourceSelection.fingerprint,
+        })
+        const dedupeKey = `${readySession.id}:1:${dependencyFingerprint}`
+        void sharedSessionPreparationRequests.run(dedupeKey, sharedSignal => fetch('/api/adaptive/session-teach', {
+          method:'POST', headers:{'content-type':'application/json'}, signal:sharedSignal,
           body:JSON.stringify({
             session:firstChapter, blueprint, userProfile:profile || {}, setup,
+            setupHash:currentSetupHash || readySession.setupHash,
             materialTitle:materialNames[0] || 'Material', materialType:'general',
+            materialHash:sourceSelection.fingerprint, sourceSelectionFingerprint:sourceSelection.fingerprint,
+            planVersion:j.id || j.version || 'current',
             totalSessions:(j.chapters || []).length, userId,
             allBlocks:blueprint?.blocks || [], allTopics:blueprint?.topics || [],
             primaryBlockIds:firstChapter.blockIds || [], requestOrigin:'prefetch',
             preparationState:(readySession.sessionPreparation as any)?.['1'],
           }),
-        }).then(response=>response.json()).then(prefetched=>{
+        }).then(response=>response.json())).then(prefetched=>{
           if(!stillCurrent()||!prefetched?.success||!prefetched?.classContent)return
+          prefetched.classContent._prefetchMeta = {
+            dependencyFingerprint,
+            preparedAt:Date.now(),
+            sourceBlueprintVersion:blueprint?.version || 0,
+            journeyVersion:j.version || j.id || 'current',
+          }
           const persisted=updateSessionById(readySession.id,(current:any)=>({...current,sessionPreparation:{...(current.sessionPreparation||{}),'1':prefetched.classContent.preparationState},sessionContent:{...(current.sessionContent||{}),'1':prefetched.classContent}}))
           if(persisted)setResolvedSession(persisted)
         }).catch(prefetchError=>{if(prefetchError?.name!=='AbortError')console.warn('[adaptive-prefetch] session_1_failed_retryable')})
@@ -823,6 +852,8 @@ export default function StudyALAdaptive({
       adaptiveSetup: finalSetup,
       setupHash: newHash,
       adaptiveState: "setup_complete",
+      selectedPages: sourceSelection.selectedPages,
+      sourceSelectionFingerprint: sourceSelection.fingerprint,
     });
     setResolvedSession(persisted);
     setSetup(finalSetup);

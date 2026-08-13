@@ -73,8 +73,16 @@ function hashKey(
   userId: string,
   materialHash: string,
   planVersion: string,
+  setupHash: string,
 ): string {
-  return `${userId}::${sessionId}::${sessionKind}::v${blueprintVersion}::${materialHash}::${planVersion}`;
+  return `${userId}::${sessionId}::${sessionKind}::v${blueprintVersion}::${materialHash}::${planVersion}::${setupHash}`;
+}
+
+function setupFingerprint(setup: unknown): string {
+  const text = JSON.stringify(setup || {})
+  let value = 2166136261
+  for (let index = 0; index < text.length; index++) value = Math.imul(value ^ text.charCodeAt(index), 16777619)
+  return (value >>> 0).toString(16)
 }
 
 interface TeachRequest {
@@ -85,6 +93,8 @@ interface TeachRequest {
   // preparación en segundo plano para N+1 mientras N sigue activa. Ausente/'cold'
   // para todo el tráfico existente (comportamiento histórico intacto).
   requestOrigin?: 'cold' | 'prefetch';
+  setupHash?: string;
+  sourceSelectionFingerprint?: string;
   session: {
     id: string;
     chapterNumber: number;
@@ -2279,6 +2289,7 @@ export async function POST(req: NextRequest) {
       userId || 'anon',
       String(body.materialHash || materialTitle),
       String(body.planVersion || 'current'),
+      String(body.setupHash || setupFingerprint(setup)),
     );
     console.info('[session-content]', JSON.stringify({
       event: 'session_kind_resolved', sessionId: session.id, kind: session.kind,

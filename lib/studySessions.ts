@@ -15,6 +15,7 @@ export type AdaptiveLifecycleState =
   | 'completed'
   | 'error';
 import { migrateJourneySessionKinds } from './adaptive/sessionKind';
+import { buildSourceSelectionSnapshot } from './adaptive/sourceSelection';
 
 export interface AdaptiveSetup {
   knowledgeLevel: 'never_seen' | 'know_little' | 'want_review' | 'already_know';
@@ -40,6 +41,7 @@ export interface StudySession {
   masteryMaterialKey?: string;
   materialNames: string[];
   selectedPages: Record<string, number[]>;
+  sourceSelectionFingerprint?: string;
   flashcards?: any[];
   adaptiveSetup?: AdaptiveSetup;
   setupHash?: string; // identidad única del setup — evita contaminación entre pruebas
@@ -123,6 +125,10 @@ function normalizeSession(raw: any): StudySession {
   const resumeState = journey?.resumeState && typeof journey.resumeState === 'object'
     ? journey.resumeState
     : {};
+  const sourceSelection = buildSourceSelectionSnapshot(
+    Array.isArray(raw?.materialIds) ? raw.materialIds : raw?.material_ids,
+    raw?.selectedPages && typeof raw.selectedPages === 'object' ? raw.selectedPages : raw?.selected_pages,
+  );
   return {
     id: String(raw?.id || ''),
     userId: raw?.userId || raw?.user_id || undefined,
@@ -130,11 +136,7 @@ function normalizeSession(raw: any): StudySession {
     enfoque: (raw?.enfoque || 'teorico') as Enfoque,
     processMode: mode,
     studyMode: mode,
-    materialIds: Array.isArray(raw?.materialIds)
-      ? raw.materialIds.map((x: any) => String(x || '').trim()).filter(Boolean)
-      : Array.isArray(raw?.material_ids)
-        ? raw.material_ids.map((x: any) => String(x || '').trim()).filter(Boolean)
-        : [],
+    materialIds: sourceSelection.materialIds,
     primaryMaterialId: String(
       raw?.primaryMaterialId
       || raw?.primary_material_id
@@ -150,12 +152,8 @@ function normalizeSession(raw: any): StudySession {
       : Array.isArray(raw?.material_names)
         ? raw.material_names.map((x: any) => String(x || '').trim()).filter(Boolean)
         : [],
-    selectedPages:
-      raw?.selectedPages && typeof raw.selectedPages === 'object'
-        ? raw.selectedPages
-        : raw?.selected_pages && typeof raw.selected_pages === 'object'
-          ? raw.selected_pages
-          : {},
+    selectedPages: sourceSelection.selectedPages,
+    sourceSelectionFingerprint: sourceSelection.fingerprint,
     flashcards: Array.isArray(raw?.flashcards) ? raw.flashcards : undefined,
     adaptiveSetup: raw?.adaptiveSetup || raw?.adaptive_setup || undefined,
     setupHash: raw?.setupHash || raw?.setup_hash || undefined,
@@ -325,6 +323,8 @@ export function persistableSnapshot(session: StudySession): Record<string, unkno
     temaId: session.temaId,
     processMode: session.processMode,
     materialIds: session.materialIds,
+    selectedPages: session.selectedPages,
+    sourceSelectionFingerprint: session.sourceSelectionFingerprint,
     adaptiveSetup: session.adaptiveSetup,
     setupHash: session.setupHash,
     blueprint: session.blueprint,
@@ -375,6 +375,7 @@ export function findSession(
   materialIds: string[],
   processMode?: ProcessMode,
   setupHash?: string,
+  sourceFingerprint?: string,
 ): StudySession | null {
   const sessions = getSessionsByTema(temaId);
   const matKey = normalizeIds(materialIds);
@@ -385,7 +386,8 @@ export function findSession(
     // Si se pasa setupHash, filtrar estrictamente por él
     // Esto evita que un setup diferente contamine otro
     const sameSetup = setupHash ? s.setupHash === setupHash : true;
-    return sameMaterials && sameMode && sameSetup;
+    const sameSource = sourceFingerprint ? s.sourceSelectionFingerprint === sourceFingerprint : true;
+    return sameMaterials && sameMode && sameSetup && sameSource;
   });
 
   return matches[0] || null;
@@ -412,6 +414,7 @@ export function upsertSession(params: {
   masteryMaterialKey?: string;
   materialNames?: string[];
   selectedPages?: Record<string, number[]>;
+  sourceSelectionFingerprint?: string;
   flashcards?: any[];
   adaptiveSetup?: AdaptiveSetup;
   setupHash?: string;
@@ -450,18 +453,15 @@ export function upsertSession(params: {
   const all = loadAll();
   const now = Date.now();
 
-  const matIds = [...new Set(
-    (params.materialIds || [])
-      .map(id => String(id || '').trim())
-      .filter(Boolean),
-  )].slice(0, 5);
+  const sourceSelection = buildSourceSelectionSnapshot(params.materialIds, params.selectedPages || {});
+  const matIds = sourceSelection.materialIds;
 
   const mode = (params.processMode || 'free') as ProcessMode;
   const explicitSessionId = String((params as any).sessionId || '').trim();
   const existing =
     (explicitSessionId && all[explicitSessionId])
       ? all[explicitSessionId]
-      : findSession(params.temaId, matIds, mode, params.setupHash);
+      : findSession(params.temaId, matIds, mode, params.setupHash, params.selectedPages ? sourceSelection.fingerprint : undefined);
 
   if (existing) {
     const updated: StudySession = {
@@ -474,7 +474,10 @@ export function upsertSession(params: {
       primaryMaterialId: params.primaryMaterialId ?? existing.primaryMaterialId ?? matIds[0],
       masteryMaterialKey: params.masteryMaterialKey ?? existing.masteryMaterialKey,
       materialNames: params.materialNames ?? existing.materialNames,
-      selectedPages: params.selectedPages ?? existing.selectedPages,
+      selectedPages: params.selectedPages ? sourceSelection.selectedPages : existing.selectedPages,
+      sourceSelectionFingerprint: params.selectedPages
+        ? sourceSelection.fingerprint
+        : existing.sourceSelectionFingerprint,
       flashcards: params.flashcards ?? existing.flashcards,
       adaptiveSetup: params.adaptiveSetup ?? existing.adaptiveSetup,
       setupHash: params.setupHash ?? existing.setupHash,
@@ -517,7 +520,8 @@ export function upsertSession(params: {
     primaryMaterialId: params.primaryMaterialId || matIds[0],
     masteryMaterialKey: params.masteryMaterialKey,
     materialNames: params.materialNames ?? [],
-    selectedPages: params.selectedPages ?? {},
+    selectedPages: sourceSelection.selectedPages,
+    sourceSelectionFingerprint: sourceSelection.fingerprint,
     flashcards: params.flashcards,
     adaptiveSetup: params.adaptiveSetup,
     setupHash: params.setupHash,

@@ -271,12 +271,13 @@ test.describe.serial('program completion — multi-session E2E', () => {
     await page.getByRole('button', { name: 'Enviar respuesta' }).click()
 
     await expect(page.getByRole('button', { name: '🎉 Terminar' })).toBeVisible()
+    const session2Persisted = waitForPersistOf(page, 2)
     await page.getByRole('button', { name: '🎉 Terminar' }).click()
     await expect(page.getByText('Sesión completada')).toBeVisible()
     // hasNextSession (chapter 3 existe) → debe ofrecer continuar, nunca un cierre global.
     await expect(page.getByRole('button', { name: 'Siguiente →' })).toBeVisible()
 
-    await waitForPersistOf(page, 2)
+    await session2Persisted
     expect(store[sessionId].completedSessionNumbers.sort()).toEqual([1, 2])
     // ═══ AUTORIDAD DEL SERVIDOR (simulada con la función real) ═══
     // session complete === true, program complete === false: solo 2/3 capítulos.
@@ -341,12 +342,13 @@ test.describe.serial('program completion — multi-session E2E', () => {
     await page.getByRole('button', { name: 'Enviar respuesta' }).click()
 
     await expect(page.getByRole('button', { name: '🎉 Terminar' })).toBeVisible()
+    const session3Persisted = waitForPersistOf(page, 3)
     await page.getByRole('button', { name: '🎉 Terminar' }).click()
     await expect(page.getByText('Sesión completada')).toBeVisible()
     // Última sesión (chapter 3, sin siguiente) → sin botón "Siguiente →".
     await expect(page.getByRole('button', { name: 'Siguiente →' })).toHaveCount(0)
 
-    await waitForPersistOf(page, 3)
+    await session3Persisted
     expect(store[sessionId].completedSessionNumbers.sort()).toEqual([1, 2, 3])
     expect(store[sessionId].isProgramComplete).toBe(true)
     // Exactamente una transición global a completo — sin duplicados.

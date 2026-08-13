@@ -26,6 +26,9 @@ export interface LearningJourney {
 
   setupSnapshot: AdaptiveSetup;
   blueprintVersion: number;
+  materialIds: string[];
+  selectedPages: Record<string, number[]>;
+  sourceSelectionFingerprint: string;
 }
 
 function cleanTitle(materialTitle: string) {
@@ -226,6 +229,9 @@ export async function buildLearningJourney(
     totalChapters: chapters.length,
     setupSnapshot: setup,
     blueprintVersion: rawBlueprint?.version || 1,
+    materialIds: rawBlueprint?.sourceSelection?.materialIds || [],
+    selectedPages: rawBlueprint?.sourceSelection?.selectedPages || {},
+    sourceSelectionFingerprint: rawBlueprint?.sourceSelectionFingerprint || rawBlueprint?.sourceSelection?.fingerprint || '',
   };
 
   // IA escribe títulos e introducciones específicos del material
@@ -280,5 +286,5 @@ export async function buildLearningJourney(
     chapters,
   };
 
-  return personalizeJourney(finalJourney, setup);
+  return personalizeJourney(finalJourney, setup) as LearningJourney;
 }

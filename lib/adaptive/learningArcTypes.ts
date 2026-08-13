@@ -66,4 +66,7 @@ export interface LearningJourney {
   totalChapters: number;
   setupSnapshot: any;
   blueprintVersion: number;
+  materialIds?: string[];
+  selectedPages?: Record<string, number[]>;
+  sourceSelectionFingerprint?: string;
 }

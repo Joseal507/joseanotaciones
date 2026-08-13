@@ -9,6 +9,7 @@ import {
   enrichBlueprintHeuristics,
   evaluateBlueprintQuality,
 } from '../../../../lib/adaptive/blueprintQuality';
+import { buildSourceSelectionSnapshot, filterTextToSelectedPages } from '../../../../lib/adaptive/sourceSelection';
 
 export const maxDuration = 180;
 export const dynamic = 'force-dynamic';
@@ -1158,6 +1159,8 @@ function normalizeBlueprint(rawBlueprint: any): any {
   return {
     version: 3, createdAt: rawBlueprint.createdAt || Date.now(),
     materials: rawBlueprint.materials || [],
+    sourceSelection: rawBlueprint.sourceSelection,
+    sourceSelectionFingerprint: rawBlueprint.sourceSelectionFingerprint,
     topics: canonicalTopics, blocks: canonicalBlocks, concepts: canonicalConcepts,
     conceptToTopicMap,
     coverage: {
@@ -1553,7 +1556,17 @@ export function certifyBlueprint(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const rawMaterials: { materialId: string; materialName: string; text?: string; selectedPages: number[] }[] = body.materials || [];
+    const suppliedMaterials: { materialId: string; materialName: string; text?: string; selectedPages: number[] }[] = body.materials || [];
+    const sourceSelection = buildSourceSelectionSnapshot(
+      suppliedMaterials.map(material => material.materialId),
+      Object.fromEntries(suppliedMaterials.map(material => [material.materialId, material.selectedPages])),
+    );
+    const byId = new Map(suppliedMaterials.map(material => [String(material.materialId || '').trim(), material]));
+    const rawMaterials = sourceSelection.materialIds.map(materialId => ({
+      ...byId.get(materialId)!,
+      materialId,
+      selectedPages: sourceSelection.selectedPages[materialId],
+    }));
 
     if (!rawMaterials.length) {
       return NextResponse.json({ success: false, error: 'No materials provided' }, { status: 400 });
@@ -1596,12 +1609,20 @@ export async function POST(req: NextRequest) {
           } catch (e) { console.warn(`R2 error for ${m.materialId}:`, e); }
         }
       }
+      text = filterTextToSelectedPages(text, m.selectedPages);
       return { ...m, text, buffer };
     }));
 
     const validMaterials = materialsWithText.filter(m => m.text.trim().length > 30);
     if (!validMaterials.length) {
       return NextResponse.json({ success: false, error: 'No se pudo extraer el texto.' }, { status: 400 });
+    }
+    if (validMaterials.length !== rawMaterials.length) {
+      return NextResponse.json({
+        success: false,
+        error: 'No se pudo extraer de forma segura la selección de uno o más materiales.',
+        missingMaterialIds: rawMaterials.filter(material => !validMaterials.some(valid => valid.materialId === material.materialId)).map(material => material.materialId),
+      }, { status: 400 });
     }
 
     const allBlocks: any[] = [];
@@ -1913,6 +1934,8 @@ export async function POST(req: NextRequest) {
 
     const rawBlueprint = {
       version: 2, createdAt: Date.now(),
+      sourceSelectionFingerprint: sourceSelection.fingerprint,
+      sourceSelection: sourceSelection,
       materials: validMaterials.map((m, i) => ({
         materialId: m.materialId, materialName: m.materialName,
         selectionOrder: i, selectedPages: m.selectedPages,

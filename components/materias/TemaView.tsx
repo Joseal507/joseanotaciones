@@ -20,6 +20,7 @@ import {
   type StudySession,
 } from "../../lib/studySessions";
 import { resolveAdaptiveResumeTarget } from "../../lib/adaptive/resume";
+import { canonicalizeSelectedPages } from "../../lib/adaptive/sourceSelection";
 
 const HAND = "'Caveat', cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -1712,6 +1713,21 @@ export default function TemaView({
     return [];
   }, [tema.documentos, selectedIds, resumeSessionId, activeSessions]);
 
+  const adaptiveSelectedPages = useMemo(() => {
+    const restored = resumeSessionId
+      ? activeSessions.find(session => session.id === resumeSessionId)?.selectedPages
+      : null;
+    if (restored && Object.keys(restored).length) return restored;
+    const materialIds = selectedDocs.map(getMaterialKey);
+    const result: Record<string, number[]> = {};
+    for (const [index, item] of (Array.isArray(seleccionResult) ? seleccionResult : []).entries()) {
+      const materialId = String((item as any)?.materialId || (item as any)?.documentId || materialIds[index] || '').trim();
+      if (!materialId) continue;
+      result[materialId] = canonicalizeSelectedPages((item as any)?.pages || (item as any)?.selectedPages || (item as any)?.paginas || []);
+    }
+    return result;
+  }, [activeSessions, resumeSessionId, seleccionResult, selectedDocs]);
+
 
   // Guard: si la selección actual no coincide con la sesión resumida, limpiar resume viejo
   useEffect(() => {
@@ -2138,6 +2154,7 @@ export default function TemaView({
         temaId={tema?.id}
         userId={userId || undefined}
         sessionId={resumeSessionId || undefined}
+        selectedPages={adaptiveSelectedPages}
         onClose={() => {
           clearAdaptiveAutoOpenState();
           setOpenAdaptive(false);
