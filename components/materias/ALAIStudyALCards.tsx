@@ -6,6 +6,8 @@ import dynamic from 'next/dynamic';
 import { detectContentLanguage } from '../../lib/detectLanguage';
 import MathText from '../MathText';
 import { upsertSession, getSessionsByTema } from '../../lib/studySessions';
+import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
+import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 const SourceViewer = dynamic(() => import('./FlashcardSourceViewer'), { ssr: false });
 
@@ -37,6 +39,7 @@ interface Props {
   onBack: () => void;
   onMasteryEvent?: (event: any) => void;
   masteryContext?: any;
+  sourceSelection?: SourceSelectionSnapshot;
 }
 
 type StudyMode = 'repite' | 'rapido';
@@ -2026,10 +2029,15 @@ function EmptyGenerate({ color, onGenerate, generating, numPages, selectedPages,
 
 import { useMasteryReporter } from '../../hooks/useMastery';
 
-export default function ALAIStudyALCards({ materiales, seleccion, tema, materia, sessionId, onBack, onMasteryEvent, masteryContext }: Props) {
+export default function ALAIStudyALCards({ materiales, seleccion, tema, materia, sessionId, onBack, onMasteryEvent, masteryContext, sourceSelection }: Props) {
   const color = tema?.color || '#22d3ee';
   const [activeMaterialIndex, setActiveMaterialIndex] = useState(0);
   const matActual = materiales[activeMaterialIndex];
+  const effectiveSourceSelection = useMemo(
+    () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
+    [sourceSelection, materiales, seleccion],
+  );
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
 
   const getSelectionPages = useCallback((item: any): number[] => {
     if (!item) return [];
@@ -2253,11 +2261,11 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
       const sessions = getSessionsByTema(tema?.id || '');
       const sess = sessions.find(s => s.id === sessionId);
       if (sess) {
-        if ((sess as any).materialText && typeof (sess as any).materialText === 'string') {
+        if (sess.sourceSelectionFingerprint === effectiveSourceSelection.fingerprint && (sess as any).materialText && typeof (sess as any).materialText === 'string') {
           console.log('📦 Cache hit: materialText (' + (sess as any).materialText.length + ' chars)');
           setMaterialText((sess as any).materialText);
         }
-        if (sess.flashcards && sess.flashcards.length > 0) {
+        if (sess.sourceSelectionFingerprint === effectiveSourceSelection.fingerprint && sess.flashcards && sess.flashcards.length > 0) {
           console.log('📦 Cache hit:', sess.flashcards.length, 'flashcards desde sesión', sessionId);
           setFlashcards(sess.flashcards);
         }
@@ -2266,7 +2274,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
       console.warn('Error cargando cache de sesión:', e);
     }
     setCacheLoaded(true);
-  }, [sessionId, tema?.id, cacheLoaded]);
+  }, [sessionId, tema?.id, cacheLoaded, effectiveSourceSelection.fingerprint]);
 
   useEffect(() => {
     if (!sessionId || !cacheLoaded) return;
@@ -2278,11 +2286,13 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
         const sess = sessions.find(s => s.id === sessionId);
         if (sess) {
           upsertSession({
+            sessionId: sess.id,
             temaId: sess.temaId,
             enfoque: sess.enfoque,
             processMode: (sess.processMode || sess.studyMode || 'free') as any,
             materialIds: sess.materialIds,
             selectedPages: sess.selectedPages,
+            sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
             flashcards: flashcards,
           });
           console.log('💾 Cache guardado:', flashcards.length, 'flashcards en', sessionId);
@@ -2292,7 +2302,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
       }
     }, 800);
     return () => clearTimeout(t);
-  }, [flashcards, sessionId, tema?.id, cacheLoaded, materialText]);
+  }, [flashcards, sessionId, tema?.id, cacheLoaded, materialText, effectiveSourceSelection.fingerprint]);
 
   const filterTextByPages = (fullText: string, pages: number[]): string => {
     if (!pages || pages.length === 0) return fullText;
@@ -2345,71 +2355,14 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
   };
 
   const extractText = useCallback(async (): Promise<string> => {
-    const texts: string[] = [];
-    for (let i = 0; i < materiales.length; i++) {
-      const mat = materiales[i];
-      const matId = mat?.materialId || mat?.id;
-      const sel = findSelectionForMaterial(mat, i);
-      const pages = getSelectionPages(sel);
-
-      console.log('🧩 Flashcards material', {
-        index: i,
-        nombre: mat?.nombre,
-        matId,
-        pages,
-        hasText: !!(sel as any)?.text,
-        materialIndex: (sel as any)?.materialIndex,
-      });
-
-      if ((sel as any)?.text) {
-        const txt = String((sel as any).text || '').trim();
-        if (txt) {
-          console.log(`✅ Material ${i + 1}: usando texto pre-extraído (${txt.length} chars)`);
-          texts.push(`[Material ${i + 1}: ID=${matId} | ${mat?.nombre || matId}${pages.length ? ` | páginas ${pages.join(', ')}` : ''}]
-${txt}`);
-          continue;
-        }
-      }
-
-      if (!matId) {
-        console.warn(`⚠️ Material ${i + 1}: sin ID de material, saltando`);
-        continue;
-      }
-
-      const res = await fetch('/api/enfoques/teorico/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json',  },
-        body: JSON.stringify({ materialIds: [matId] }),
-      });
-      const data = await res.json();
-      const fullText: string = data.materials?.[matId]?.text || '';
-
-      if (!fullText) {
-        console.warn(`⚠️ Material ${i + 1}: sin texto extraído`);
-        continue;
-      }
-
-      if (pages.length > 0) {
-        console.log(`📑 Material ${i + 1}: páginas seleccionadas ${pages.join(', ')}`);
-        const filtered = filterTextByPages(fullText, pages);
-        if (!filtered.trim()) {
-          throw new Error('No se pudo aislar exactamente el texto de las páginas seleccionadas. Vuelve a intentar para que el PDF se reprocese con separadores por página.');
-        }
-        texts.push(`[Material ${i + 1}: ID=${matId} | ${mat?.nombre || matId} | páginas ${pages.join(', ')}]
-${filtered}`);
-      } else {
-        console.log(`📄 Material ${i + 1}: texto completo (${fullText.length} chars)`);
-        texts.push(`[Material ${i + 1}: ID=${matId} | ${mat?.nombre || matId} | documento completo]
-${fullText}`);
-      }
+    if (authorizedStatus === 'loading' || authorizedStatus === 'idle') {
+      throw new Error('La fuente autorizada todavía se está preparando.');
     }
-    console.log('📚 Bloques finales para flashcards:', texts.map((t, idx) => ({
-      index: idx + 1,
-      chars: t.length,
-      preview: t.slice(0, 120).split('\n').join(' '),
-    })));
-    return texts.filter(Boolean).join('\n\n---\n\n');
-  }, [materiales, seleccion, findSelectionForMaterial, getSelectionPages]);
+    if (authorizedStatus === 'error' || !authorizedSource) {
+      throw new Error(authorizedError || 'No se pudo resolver la fuente autorizada.');
+    }
+    return authorizedSource.combinedText;
+  }, [authorizedStatus, authorizedSource, authorizedError]);
 
   const generate = useCallback(async () => {
     setGenerating(true);
@@ -2444,20 +2397,6 @@ ${fullText}`);
         texto = await extractText();
         if (!texto.trim()) { setError('No se pudo extraer texto del material.'); return; }
         setMaterialText(texto);
-        if (sessionId) {
-          try {
-            const sessionsMap = JSON.parse(localStorage.getItem(`study_sessions_v1_${tema?.id || 'default'}`) || '{}');
-            if (sessionsMap[sessionId]) {
-              sessionsMap[sessionId].materialText = texto;
-              localStorage.setItem(`study_sessions_v1_${tema?.id || 'default'}`, JSON.stringify(sessionsMap));
-              console.log('💾 materialText cacheado (' + texto.length + ' chars)');
-            } else {
-              console.warn('Sesión no encontrada en localStorage para cachear materialText.');
-            }
-          } catch (e) {
-            console.warn('Error cacheando materialText:', e);
-          }
-        }
       } else {
         console.log('⚡ Texto ya cacheado (' + texto.length + ' chars) - saltando OCR');
       }
@@ -2531,17 +2470,6 @@ ${fullText}`);
       await new Promise(r => setTimeout(r, 700));
       setFlashcards(cards);
 
-      // ── Modo libre: registrar uso (12%) ──
-      try {
-        onMasteryEvent?.({
-          tool: 'flashcards',
-          materialId: matActual?.materialId || matActual?.id || '',
-          score: 60,
-          conceptsIdentified: cards.slice(0, 8).map(c => c.question?.slice(0, 60) || ''),
-          freeModeUse: true,
-          freeDomainPct: 12,
-        });
-      } catch (_) {}
     } catch (e: any) {
       setError(e.message || 'Error al generar flashcards');
     } finally {

@@ -1,8 +1,11 @@
 export interface SourceSelectionSnapshot {
   materialIds: string[]
   selectedPages: Record<string, number[]>
+  materials: Array<{ materialId: string; selectedPages: number[] }>
   fingerprint: string
 }
+
+export type SourceSelectionInput = Pick<SourceSelectionSnapshot, 'materials' | 'fingerprint'>
 
 function hash(text: string): string {
   let first = 2166136261
@@ -33,7 +36,45 @@ export function buildSourceSelectionSnapshot(
     [...ids].sort().map(id => [id, canonicalizeSelectedPages(rawPages[id])]),
   )
   const payload = JSON.stringify({ materialIds: [...ids].sort(), selectedPages: pagesByMaterial })
-  return { materialIds: ids, selectedPages: pagesByMaterial, fingerprint: hash(payload) }
+  return {
+    materialIds: ids,
+    selectedPages: pagesByMaterial,
+    materials: ids.map(materialId => ({ materialId, selectedPages: pagesByMaterial[materialId] || [] })),
+    fingerprint: hash(payload),
+  }
+}
+
+export function hasExplicitPageSelection(snapshot: SourceSelectionSnapshot): boolean {
+  return snapshot.materials.length > 0 && snapshot.materials.every(material => material.selectedPages.length > 0)
+}
+
+export function mapPageSelectionsToMaterials(
+  materials: Array<{ id?: unknown; materialId?: unknown }>,
+  selections: unknown,
+): Record<string, number[]> {
+  const items = Array.isArray(selections) ? selections : []
+  const result: Record<string, number[]> = {}
+  for (const [index, item] of items.entries()) {
+    const record = item && typeof item === 'object' ? item as Record<string, unknown> : {}
+    const emittedId = String(record.materialId || record.material_id || record.documentId || record.document_id || '').trim()
+    const material = materials.find(candidate =>
+      String(candidate.id || '') === emittedId || String(candidate.materialId || candidate.id || '') === emittedId
+    ) || materials[index]
+    const materialId = String(material?.materialId || material?.id || '').trim()
+    if (!materialId) continue
+    result[materialId] = canonicalizeSelectedPages(record.pages || record.selectedPages || record.paginasSeleccionadas || record.paginas || record.pageNumbers)
+  }
+  return result
+}
+
+export function stripNonInstructionalBoilerplate(text: string): string {
+  return String(text || '')
+    .replace(/©\s*\d{4}[^.\n]{0,120}\.?/gi, ' ')
+    .replace(/\b(?:copyright|all rights reserved|todos los derechos reservados)\b[^.\n]{0,120}\.?/gi, ' ')
+    .replace(/\bprentice[\s-]*hall\b/gi, ' ')
+    .replace(/^(?:page|página|slide|diapositiva)\s+\d+\s*$/gim, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 export function sourceSelectionFingerprint(materialIds: unknown, selectedPages: unknown): string {
@@ -50,7 +91,14 @@ export function filterTextToSelectedPages(text: string, selectedPages: unknown):
   const selected = canonicalizeSelectedPages(selectedPages)
   if (!selected.length) return String(text || '')
   const source = String(text || '')
-  const marker = /\[(?:P[aá]gina|Pagina)\s+(\d+)\]/gi
+  const formFeedPages = source.split('\f')
+  if (formFeedPages.length > 1) {
+    return selected
+      .map(page => formFeedPages[page - 1]?.trim() ? `[Pagina ${page}]\n${formFeedPages[page - 1].trim()}` : '')
+      .filter(Boolean)
+      .join('\n\n')
+  }
+  const marker = /\[(?:P[aá]gina|Pagina|Page)\s+(\d+)\]/gi
   const matches = [...source.matchAll(marker)]
   if (!matches.length) return ''
   const allowed = new Set(selected)
@@ -63,6 +111,38 @@ export function filterTextToSelectedPages(text: string, selectedPages: unknown):
     chunks.push(source.slice(start, end).trim())
   }
   return chunks.join('\n\n')
+}
+
+export function buildSourceSelectionFromMaterials(
+  materials: Array<{ id?: unknown; materialId?: unknown }>,
+  selections: unknown,
+): SourceSelectionSnapshot {
+  const materialIds = materials
+    .map(material => String(material.materialId || material.id || '').trim())
+    .filter(Boolean)
+  return buildSourceSelectionSnapshot(
+    materialIds,
+    mapPageSelectionsToMaterials(materials, selections),
+  )
+}
+
+export function validateSourceSelectionInput(input: unknown): SourceSelectionSnapshot | null {
+  if (!input || typeof input !== 'object') return null
+  const record = input as Record<string, unknown>
+  if (!Array.isArray(record.materials) || record.materials.length < 1 || record.materials.length > 5) return null
+  const materials = record.materials.map(item => {
+    const value = item && typeof item === 'object' ? item as Record<string, unknown> : {}
+    return {
+      materialId: String(value.materialId || '').trim(),
+      selectedPages: canonicalizeSelectedPages(value.selectedPages),
+    }
+  })
+  if (materials.some(material => !material.materialId)) return null
+  const snapshot = buildSourceSelectionSnapshot(
+    materials.map(material => material.materialId),
+    Object.fromEntries(materials.map(material => [material.materialId, material.selectedPages])),
+  )
+  return String(record.fingerprint || '') === snapshot.fingerprint ? snapshot : null
 }
 
 export function prepareCanonicalSourceMaterials<T extends { materialId: string; text: string; selectedPages?: number[] }>(

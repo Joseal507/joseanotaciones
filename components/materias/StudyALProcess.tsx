@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useMultiContent } from "../../lib/materials/useContent";
+import type { SourceSelectionSnapshot } from "../../lib/adaptive/sourceSelection";
+import { useAuthorizedSource } from "../../lib/materials/useAuthorizedSource";
+import { sourceScopedKey } from "../../lib/materials/authorizedSource";
 import {
   generateStudyBlocks,
   buildMasteryContext,
@@ -44,6 +46,8 @@ interface Props {
   masterySnapshot?: any;
   masteryState?: MaterialMastery | null;
   userId?: string | null;
+  sessionId: string;
+  sourceSelection: SourceSelectionSnapshot;
 }
 
 const VB_W = 800;
@@ -85,35 +89,27 @@ export default function StudyALProcess({
   onOpenStudyMap,
   onOpenCheatCodes,
   onComingSoon,
+  temaId,
+  userId,
+  sessionId,
+  sourceSelection,
 }: Props) {
   const [ready, setReady] = useState(false);
   const [completed, setCompleted] = useState<Record<string, boolean>>({});
 
-  const sessionKey = useMemo(() => {
-    const ids = materiales
-      .map(getMaterialId)
-      .filter(Boolean)
-      .sort()
-      .join("-");
+  const sessionKey = useMemo(() => sourceScopedKey(
+    'studyal_process_free',
+    sourceSelection,
+    { sessionId, temaId, userId },
+  ), [sessionId, sourceSelection.fingerprint, temaId, userId]);
 
-    return `studyal_process_free_${ids || "empty"}`;
-  }, [materiales]);
-
-  const { texts: contenidos, status: contentStatus } = useMultiContent(
-    materiales.map((material: any) => ({
-      id: material.id,
-      contenido: material.contenido,
-      kind: material.kind ?? material.tipo,
-      materialId: material.materialId,
-    })),
-    true,
-  );
-
-  const totalChars = Object.values(contenidos || {}).join("").length;
+  const { result: authorizedSource, status: contentStatus } = useAuthorizedSource(sourceSelection);
+  const totalChars = authorizedSource?.totalChars || 0;
   const estimatedPages = Math.max(1, Math.round(totalChars / 1600));
 
-  const localMasteryState = masteryState || null;
-  const localMasterySnapshot = masterySnapshot || null;
+  const masteryMatchesSource = (masteryState as any)?.sourceSelectionFingerprint === sourceSelection.fingerprint;
+  const localMasteryState = masteryMatchesSource ? masteryState || null : null;
+  const localMasterySnapshot = masteryMatchesSource ? masterySnapshot || null : null;
 
   useMemo(
     () => buildMasteryContext(localMasteryState),
@@ -150,16 +146,6 @@ export default function StudyALProcess({
         if (value) nextCompleted[tool] = true;
       },
     );
-
-    const freeProgress = (localMasteryState as any)?.freeModeProgress;
-
-    if (freeProgress) {
-      Object.entries(freeProgress).forEach(([tool, value]) => {
-        if (typeof value === "number" && value > 0) {
-          nextCompleted[tool] = true;
-        }
-      });
-    }
 
     setCompleted(nextCompleted);
 

@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { useMultiContent } from '../../lib/materials/useContent';
+import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
+import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
+import { sourceScopedKey } from '../../lib/materials/authorizedSource';
 
 const HAND = "'Caveat', cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -21,6 +23,8 @@ interface Props {
   onBack: () => void;
   onMasteryEvent?: (event: any) => void;
   masteryContext?: any;
+  sessionId?: string | null;
+  sourceSelection?: SourceSelectionSnapshot;
 }
 
 interface ReviewerResult {
@@ -212,7 +216,7 @@ function conceptBadge(status: string) {
 
 import { useMasteryReporter } from '../../hooks/useMastery';
 
-export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materia, onBack, onMasteryEvent, masteryContext }: Props) {
+export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materia, onBack, onMasteryEvent, masteryContext, sessionId, sourceSelection }: Props) {
   const [phase, setPhase] = useState<Phase>('preview');
   const [notes, setNotes] = useState('');
   const [explanation, setExplanation] = useState('');
@@ -228,52 +232,23 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
 
   // onMasteryEvent viene como prop desde app/materias/page.tsx
 
-  const { texts: contenidos, status: contentStatus, totalChars } = useMultiContent(
-    materiales.map((m: any) => ({
-      id: m.id,
-      contenido: m.contenido,
-      kind: m.kind ?? m.tipo,
-      materialId: m.materialId,
-    })),
-    true,
+  const effectiveSourceSelection = useMemo(
+    () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
+    [sourceSelection, materiales, seleccion],
   );
+  const { result: authorizedSource, status: contentStatus } = useAuthorizedSource(effectiveSourceSelection);
+  const totalChars = authorizedSource?.totalChars || 0;
 
   const storageKey = useMemo(() => {
-    const temaId = tema?.id || tema?.nombre || 'tema';
-    const matIds = materiales.map((m: any) => m?.materialId || m?.id).filter(Boolean).join('_') || 'material';
-    return `studyal_repasar_${temaId}_${matIds}`;
-  }, [tema, materiales]);
+    return sourceScopedKey('studyal_repasar', effectiveSourceSelection, {
+      temaId: tema?.id || tema?.nombre,
+      sessionId,
+    });
+  }, [tema, sessionId, effectiveSourceSelection.fingerprint]);
 
   const selectedText = useMemo(() => extractSelectionText(seleccion), [seleccion]);
 
-  const materialText = useMemo(() => {
-    const blocks = materiales
-      .map((m: any, i: number) => {
-        const matId = m?.materialId || m?.material_id || m?.id || `material_${i + 1}`;
-        const name = m?.nombre || m?.name || m?.titulo || matId;
-        const sel = findSelectionForMaterial(materiales, m, i, seleccion);
-        const pages = getSelectionPages(sel);
-        const selectionText = String((sel as any)?.text || (sel as any)?.texto || (sel as any)?.content || (sel as any)?.contenido || (sel as any)?.selectedText || '').trim();
-        const fullText = String(contenidos[m.id] ?? m.contenido ?? '').trim();
-
-        if (selectionText) {
-          return `[Material ${i + 1}: ID=${matId} | ${name}${pages.length ? ` | páginas ${pages.join(', ')}` : ''}]\n${selectionText}`;
-        }
-
-        if (!fullText) return '';
-
-        if (pages.length > 0) {
-          const filtered = filterTextByPages(fullText, pages);
-          return `[Material ${i + 1}: ID=${matId} | ${name} | páginas ${pages.join(', ')}]\n${filtered || fullText}`;
-        }
-
-        return `[Material ${i + 1}: ID=${matId} | ${name} | documento completo]\n${fullText}`;
-      })
-      .filter(Boolean);
-
-    if (blocks.length > 0) return blocks.join('\n\n---\n\n');
-    return selectedText.trim();
-  }, [selectedText, materiales, seleccion, contenidos]);
+  const materialText = authorizedSource?.combinedText || '';
 
   const preview = useMemo(() => {
     const clean = materialText.replace(/\s+/g, ' ').trim();

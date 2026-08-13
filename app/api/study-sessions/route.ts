@@ -30,10 +30,31 @@ export async function GET(req: NextRequest) {
 
     const json = await res.json();
 
+    if (!res.ok || json?.success === false) {
+      return NextResponse.json({ success: false, error: json?.error || 'Durable persistence rejected' }, { status: res.status || 502 });
+    }
+
     const rawSessions = Array.isArray(json.sessions) ? json.sessions : [];
     const filteredSessions = sessionId
       ? rawSessions.filter((s: any) => String(s?.id || '') === sessionId)
       : rawSessions;
+
+    console.info('[adaptive-program-persist]', JSON.stringify({
+      event: 'program_restore_response',
+      requestedSessionId: sessionId || null,
+      programs: filteredSessions.map((item: any) => ({
+        programId: item.id || null,
+        journeyId: item.journey?.id || item.adaptiveProgram?.id || item.adaptive_program?.id || null,
+        blueprintPresent: Boolean(item.blueprint || item.materialBlueprint || item.material_blueprint),
+        journeyPresent: Boolean(item.journey || item.adaptiveProgram || item.adaptive_program),
+        materialIds: item.materialIds || item.material_ids || [],
+        selectedPages: item.selectedPages || item.selected_pages || {},
+        sessionPreparationKeys: Object.keys(item.sessionPreparation || item.session_preparation || {}),
+        sessionContentKeys: Object.keys(item.sessionContent || item.session_content || {}),
+        currentSessionNumber: item.currentSessionNumber || item.current_session_number || null,
+        status: item.status || null,
+      })),
+    }));
 
     return NextResponse.json({
       success: true,
@@ -191,6 +212,10 @@ export async function POST(req: NextRequest) {
     });
 
     const json = await res.json();
+
+    if (!res.ok || json?.success === false) {
+      return NextResponse.json({ success: false, error: json?.error || 'Durable persistence rejected' }, { status: res.status || 502 });
+    }
 
     // ── Debug: contexto del setup (terminal del servidor) ──
     if (body.processMode === 'adaptive' || body.studyMode === 'adaptive') {

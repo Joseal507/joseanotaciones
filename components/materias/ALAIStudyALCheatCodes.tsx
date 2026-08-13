@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from "../../lib/adaptive/sourceSelection";
+import { useAuthorizedSource } from "../../lib/materials/useAuthorizedSource";
+import { sourceScopedKey } from "../../lib/materials/authorizedSource";
 
 const PDFViewer = dynamic(() => import("./FlashcardsPDFViewer"), {
   ssr: false,
@@ -64,6 +67,8 @@ interface Props {
   onBack: () => void;
   onMasteryEvent?: (event: any) => void;
   masteryContext?: any;
+  sessionId?: string | null;
+  sourceSelection?: SourceSelectionSnapshot;
 }
 
 type QuickFilter = "all" | "favorites" | "hard" | "exam" | "memory";
@@ -731,6 +736,8 @@ export default function ALAIStudyALCheatCodes({
   onBack,
   onMasteryEvent,
   masteryContext,
+  sessionId,
+  sourceSelection,
 }: Props) {
   const [cards, setCards] = useState<CheatCard[]>([]);
   const [materialText, setMaterialText] = useState("");
@@ -757,6 +764,11 @@ export default function ALAIStudyALCheatCodes({
   const [variantLoadingId, setVariantLoadingId] = useState<string | null>(null);
 
   const toastTimer = useRef<number | null>(null);
+  const effectiveSourceSelection = useMemo(
+    () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
+    [sourceSelection, materiales, seleccion],
+  );
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
 
   const activeMaterial =
     materiales[activeMaterialIndex] || materiales[0] || null;
@@ -768,8 +780,11 @@ export default function ALAIStudyALCheatCodes({
   );
 
   const storageKey = useMemo(
-    () => storageKeyFor(materiales, String(tema?.id || tema?.nombre || "tema")),
-    [materiales, tema?.id, tema?.nombre],
+    () => sourceScopedKey('studyal_truquitos_v2', effectiveSourceSelection, {
+      temaId: tema?.id || tema?.nombre,
+      sessionId,
+    }),
+    [effectiveSourceSelection.fingerprint, tema?.id, tema?.nombre, sessionId],
   );
 
   const selectionSequence = useMemo(() => {
@@ -906,23 +921,6 @@ export default function ALAIStudyALCheatCodes({
         throw new Error(data.error || `Error ${res.status}`);
       setCards(Array.isArray(data.cards) ? data.cards : []);
 
-      try {
-        const concepts = (Array.isArray(data.cards) ? data.cards : [])
-          .map((card: any) => card?.title || card?.concept || card?.front || card?.question)
-          .filter(Boolean)
-          .map((x: any) => String(x))
-          .slice(0, 12);
-
-        onMasteryEvent?.({
-          tool: 'truquitos',
-          materialId: materiales?.[0]?.materialId || materiales?.[0]?.id || '',
-          score: Array.isArray(data.cards) && data.cards.length > 0 ? 60 : 35,
-          conceptsIdentified: concepts,
-          freeModeUse: true,
-          freeDomainPct: 6,
-        });
-      } catch (_) {}
-
       if (!Array.isArray(data.cards) || data.cards.length === 0) {
         setError(
           "No se pudieron generar Truquitos útiles con este material.",
@@ -1045,68 +1043,19 @@ export default function ALAIStudyALCheatCodes({
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    async function loadText() {
+    if (authorizedStatus === 'loading' || authorizedStatus === 'idle') {
       setLoadingText(true);
-      setError("");
-      try {
-        const blocks: string[] = [];
-        for (let i = 0; i < materiales.length; i++) {
-          const mat = materiales[i];
-          const matId = mat?.materialId || mat?.material_id || mat?.id;
-          const name = mat?.nombre || mat?.name || matId || `Material ${i + 1}`;
-          const sel = findSelectionForMaterial(materiales, mat, i, seleccion);
-          const pages = getSelectionPages(sel);
-          const selectedText = getSelectionText(sel);
-
-          if (selectedText) {
-            blocks.push(
-              `[Material ${i + 1}: ID=${matId} | ${name}${pages.length ? ` | páginas ${pages.join(", ")}` : ""}]\n${selectedText}`,
-            );
-            continue;
-          }
-
-          if (!matId) continue;
-
-          const res = await fetch("/api/enfoques/teorico/start", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "same-origin",
-            body: JSON.stringify({ materialIds: [matId] }),
-          });
-
-          const data = await res.json();
-          const fullText = String(data.materials?.[matId]?.text || "").trim();
-          if (!fullText) continue;
-
-          if (pages.length > 0) {
-            const filtered = filterTextByPages(fullText, pages);
-            blocks.push(
-              `[Material ${i + 1}: ID=${matId} | ${name} | páginas ${pages.join(", ")}]\n${filtered || fullText}`,
-            );
-          } else {
-            blocks.push(
-              `[Material ${i + 1}: ID=${matId} | ${name} | documento completo]\n${fullText}`,
-            );
-          }
-        }
-
-        if (cancelled) return;
-        const joined = blocks.filter(Boolean).join("\n\n---\n\n");
-        setMaterialText(joined);
-        if (!joined.trim()) setError("No se pudo cargar texto del material.");
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || "Error cargando material.");
-      } finally {
-        if (!cancelled) setLoadingText(false);
-      }
+      return;
     }
-
-    loadText();
-    return () => {
-      cancelled = true;
-    };
-  }, [materiales, seleccion]);
+    setLoadingText(false);
+    if (authorizedStatus === 'error' || !authorizedSource) {
+      setError(authorizedError || 'No se pudo resolver la fuente autorizada.');
+      setMaterialText('');
+      return;
+    }
+    setError('');
+    setMaterialText(authorizedSource.combinedText);
+  }, [authorizedStatus, authorizedSource, authorizedError]);
 
   useEffect(() => {
     let cancelled = false;

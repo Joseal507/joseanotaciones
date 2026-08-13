@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
+import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
+import { sourceScopedKey } from '../../lib/materials/authorizedSource';
 
 interface MapNode {
   id: string;
@@ -28,6 +31,8 @@ interface Props {
   onBack: () => void;
   onMasteryEvent?: (event: any) => void;
   masteryContext?: any;
+  sessionId?: string | null;
+  sourceSelection?: SourceSelectionSnapshot;
 }
 
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -1911,7 +1916,7 @@ const LOAD_STEPS = [
 
 type ViewMode = 'map' | 'cards' | 'outline';
 
-export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onBack, onMasteryEvent, masteryContext }: Props) {
+export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onBack, onMasteryEvent, masteryContext, sessionId, sourceSelection }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mapData, setMapData] = useState<MindMapData | null>(null);
@@ -1925,6 +1930,11 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
   const [studiedSet, setStudiedSet] = useState<Set<string>>(new Set());
   const [showGuidedTour, setShowGuidedTour] = useState(false);
   const [tourIndex, setTourIndex] = useState(0);
+  const effectiveSourceSelection = useMemo(
+    () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
+    [sourceSelection, materiales, seleccion],
+  );
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
 
   useEffect(() => {
     if (!loading) return;
@@ -1934,24 +1944,23 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
 
   // Cache key estable basado en materiales + selección
   const cacheKey = useMemo(() => {
-    const ids = materiales.map((m: any, i: number) => {
-      const id = m?.materialId || m?.material_id || m?.id || `idx_${i}`;
-      return String(id);
-    }).join('|');
-    const sel = Array.isArray(seleccion)
-      ? seleccion.map((s: any, i: number) => {
-          const ids2 = [s?.materialId, s?.id].filter(Boolean).join(',');
-          const pages = (s?.pages || s?.paginasSeleccionadas || []).join(',');
-          return `${i}:${ids2}:${pages}`;
-        }).join('|')
-      : '';
-    return `studymap_v1_${ids}__${sel}`;
-  }, [materiales, seleccion]);
+    return sourceScopedKey('studymap_v2', effectiveSourceSelection, {
+      temaId: tema?.id || tema?.temaId,
+      sessionId,
+    });
+  }, [effectiveSourceSelection.fingerprint, tema?.id, tema?.temaId, sessionId]);
+  const persistenceSessionId = sessionId || cacheKey;
 
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
       try {
+        if (authorizedStatus === 'loading' || authorizedStatus === 'idle') return;
+        if (authorizedStatus === 'error' || !authorizedSource) {
+          setError(authorizedError || 'No se pudo resolver la fuente autorizada.');
+          setLoading(false);
+          return;
+        }
         // Intentar cache primero
         try {
           const cached = sessionStorage.getItem(cacheKey);
@@ -1960,22 +1969,6 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
             if (parsed?.root) {
               console.log('🎯 StudyMap desde cache');
               setMapData(parsed);
-
-              try {
-                const concepts = [
-                  parsed?.root?.label,
-                  ...(parsed?.root?.children || []).map((n: any) => n?.label),
-                ].filter(Boolean).map((x: any) => String(x)).slice(0, 15);
-
-                onMasteryEvent?.({
-                  tool: 'studymap',
-                  materialId: materiales?.[0]?.materialId || materiales?.[0]?.id || '',
-                  score: concepts.length > 0 ? 65 : 45,
-                  conceptsIdentified: concepts,
-                  freeModeUse: true,
-                  freeDomainPct: 8,
-                });
-              } catch (_) {}
 
               setExpandedSet(new Set([parsed.root.id]));
               setLoading(false);
@@ -1991,7 +1984,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
                   .then(r => r.json())
                   .then(d => {
                     const sessions = d?.sessions || [];
-                    const found = sessions.find((s: any) => s?.id === cacheKey);
+                    const found = sessions.find((s: any) => s?.id === persistenceSessionId);
                     const arr = found?.notes?.studyMap?.studied;
                     if (Array.isArray(arr)) {
                       setStudiedSet(new Set(arr));
@@ -2007,44 +2000,8 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
 
         setLoading(true);
         setError(null);
-        const blocks: string[] = [];
-        for (let i = 0; i < materiales.length; i++) {
-          const mat = materiales[i];
-          const matId = mat?.materialId || mat?.material_id || mat?.id;
-          const nombre = mat?.nombre || mat?.name || `Material ${i + 1}`;
-          const sel = findSelectionForMaterial(materiales, mat, i, seleccion || null);
-          const pages = getSelectionPages(sel);
-          const selectedText = getSelectionText(sel);
-          let text = selectedText || String(mat?.contenido || '').trim();
-          if (!text && matId) {
-            const res = await fetch('/api/enfoques/teorico/start', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'same-origin',
-              body: JSON.stringify({ materialIds: [matId] }),
-            });
-            const data = await res.json();
-            const fullText = String(data.materials?.[matId]?.text || '').trim();
-            if (pages.length > 0) {
-              const filtered = filterTextByPages(fullText, pages);
-              text = filtered || fullText;
-            } else {
-              text = fullText;
-            }
-          } else if (pages.length > 0 && text) {
-            const filtered = filterTextByPages(text, pages);
-            text = filtered || text;
-          }
-          if (!text.trim()) continue;
-          blocks.push(`[Material ${i + 1}: ID=${matId} | ${nombre}${pages.length ? ` | páginas ${pages.join(', ')}` : ''}]\n${text}`);
-        }
         if (cancelled) return;
-        if (blocks.length === 0) {
-          setError('No se pudo extraer texto del material.');
-          setLoading(false);
-          return;
-        }
-        const combinedText = blocks.join('\n\n---\n\n');
+        const combinedText = authorizedSource.combinedText;
         if (!cancelled) setMaterialText(combinedText);
         const res = await fetch('/api/alai-studyal-map', {
           method: 'POST',
@@ -2078,20 +2035,6 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
         if (!cancelled) {
           setMapData(mapa);
 
-          try {
-            const concepts = [
-              mapa?.root?.label,
-              ...(mapa?.root?.children || []).map((n: any) => n?.label),
-            ].filter(Boolean).map((x: any) => String(x)).slice(0, 15);
-
-            onMasteryEvent?.({
-              tool: 'studymap',
-              materialId: materiales?.[0]?.materialId || materiales?.[0]?.id || '',
-              score: concepts.length > 0 ? 65 : 45,
-              conceptsIdentified: concepts,
-            });
-          } catch (_) {}
-
           // Por defecto: TODO colapsado (solo el root visible)
           setExpandedSet(new Set([mapa.root.id]));
           setLoading(false);
@@ -2110,7 +2053,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
               .then(d => {
                 if (cancelled) return;
                 const sessions = d?.sessions || [];
-                const found = sessions.find((s: any) => s?.id === cacheKey);
+                const found = sessions.find((s: any) => s?.id === persistenceSessionId);
                 const arr = found?.notes?.studyMap?.studied;
                 if (Array.isArray(arr)) {
                   setStudiedSet(new Set(arr));
@@ -2129,7 +2072,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
     };
     run();
     return () => { cancelled = true; };
-  }, [cacheKey]);
+  }, [cacheKey, persistenceSessionId, authorizedStatus, authorizedSource, authorizedError]);
 
   const handleExport = () => {
     if (!mapData) return;
@@ -2332,10 +2275,13 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
                 body: JSON.stringify({
-                  id: cacheKey,
+                  id: persistenceSessionId,
                   temaId: __temaId4,
                   enfoque: 'studymap',
+                  processMode: 'free',
                   materialIds: __matIds4,
+                  selectedPages: effectiveSourceSelection.selectedPages,
+                  sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
                   notes: { studyMap: { studied: [], updatedAt: Date.now() } },
                   currentPhase: 'studymap',
                   lastOpenedAt: Date.now(),
@@ -2408,10 +2354,13 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
                             headers: { 'Content-Type': 'application/json' },
                             credentials: 'same-origin',
                             body: JSON.stringify({
-                              id: cacheKey,
+                              id: persistenceSessionId,
                               temaId: __temaId3,
                               enfoque: 'studymap',
+                              processMode: 'free',
                               materialIds: __matIds3,
+                              selectedPages: effectiveSourceSelection.selectedPages,
+                              sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
                               notes: { studyMap: { studied: __arr3, updatedAt: Date.now() } },
                               currentPhase: 'studymap',
                               lastOpenedAt: Date.now(),

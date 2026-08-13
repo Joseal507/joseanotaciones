@@ -8,6 +8,8 @@ import confetti from 'canvas-confetti';
 import { detectContentLanguage } from '../../lib/detectLanguage';
 import MathText from '../MathText';
 import MatchingCanvas from './MatchingCanvas';
+import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
+import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 
@@ -235,6 +237,7 @@ export default function ALAIStudyALQuizzes({
   onBack,
   onMasteryEvent,
   masteryContext,
+  sourceSelection,
 }: any) {
   const themeColor = '#d6b26f'; // StudyAL gold - identidad Quiz
 
@@ -257,6 +260,11 @@ export default function ALAIStudyALQuizzes({
   const [questionStartTime, setQuestionStartTime] = useState(0);
   const [showWordBank, setShowWordBank]  = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const effectiveSourceSelection = useMemo(
+    () => (sourceSelection as SourceSelectionSnapshot | undefined) || buildSourceSelectionFromMaterials(materiales, seleccion),
+    [sourceSelection, materiales, seleccion],
+  );
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
 
   // ── PDF multi-material ────────────────────────────────────
   const [pdfUrl, setPdfUrl]         = useState<string | null>(null);
@@ -489,48 +497,14 @@ export default function ALAIStudyALQuizzes({
 
   // ── Extraer texto real de los materiales (igual que ALAIStudyALCards) ──
   const extractQuizText = useCallback(async (): Promise<string> => {
-    const texts: string[] = [];
-    for (let i = 0; i < materiales.length; i++) {
-      const mat = materiales[i];
-      const matId = mat?.materialId || mat?.id;
-      const sel = findSelectionForMaterial(mat, i);
-      const pages = getSelectionPages(sel);
-
-      console.log('🎯 [Quiz] material', { index: i, nombre: mat?.nombre, matId, pages });
-
-      // Texto pre-extraído en la selección
-      if ((sel as any)?.text) {
-        const txt = String((sel as any).text || '').trim();
-        if (txt) {
-          texts.push(`[Material ${i + 1}: ID=${matId} | ${mat?.nombre || matId}${pages.length ? ` | páginas ${pages.join(', ')}` : ''}]\n${txt}`);
-          continue;
-        }
-      }
-
-      if (!matId) { console.warn(`⚠️ [Quiz] Material ${i + 1}: sin ID`); continue; }
-
-      
-
-      const res = await fetch('/api/enfoques/teorico/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json',  },
-        body: JSON.stringify({ materialIds: [matId] }),
-      });
-      const data = await res.json();
-      const fullText: string = data.materials?.[matId]?.text || '';
-
-      if (!fullText) { console.warn(`⚠️ [Quiz] Material ${i + 1}: sin texto`); continue; }
-
-      if (pages.length > 0) {
-        const filtered = filterTextByPages(fullText, pages);
-        if (!filtered.trim()) throw new Error('No se pudo filtrar las páginas seleccionadas. Intentá de nuevo.');
-        texts.push(`[Material ${i + 1}: ID=${matId} | ${mat?.nombre || matId} | páginas ${pages.join(', ')}]\n${filtered}`);
-      } else {
-        texts.push(`[Material ${i + 1}: ID=${matId} | ${mat?.nombre || matId} | documento completo]\n${fullText}`);
-      }
+    if (authorizedStatus === 'loading' || authorizedStatus === 'idle') {
+      throw new Error('La fuente autorizada todavía se está preparando.');
     }
-    return texts.filter(Boolean).join('\n\n---\n\n');
-  }, [materiales, seleccion, findSelectionForMaterial, getSelectionPages, filterTextByPages]);
+    if (authorizedStatus === 'error' || !authorizedSource) {
+      throw new Error(authorizedError || 'No se pudo resolver la fuente autorizada.');
+    }
+    return authorizedSource.combinedText;
+  }, [authorizedStatus, authorizedSource, authorizedError]);
 
   // ── Generar quiz ───────────────────────────────────────────
   const generateQuiz = useCallback(async () => {
@@ -579,17 +553,6 @@ texto.slice(0,8000)
         setElapsed(0);
         setQuizState('playing');
 
-        // ── Modo libre: registrar uso (14%) ──
-        try {
-          onMasteryEvent?.({
-            tool: 'quiz',
-            materialId: materiales[0]?.materialId || materiales[0]?.id || '',
-            score: 65,
-            conceptsIdentified: data.quiz.slice(0, 8).map((q: any) => q?.primaryConcept || q?.question?.slice(0, 60) || '').filter(Boolean),
-            freeModeUse: true,
-            freeDomainPct: 14,
-          });
-        } catch (_) {}
       } else {
         setGenError(data.error || 'No se pudieron generar preguntas. Intentá con más páginas.');
         setQuizState('setup');

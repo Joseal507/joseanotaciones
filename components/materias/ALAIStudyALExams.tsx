@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useMasteryReporter } from '../../hooks/useMastery';
 import dynamic from 'next/dynamic';
+import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
+import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
+import { sourceScopedKey } from '../../lib/materials/authorizedSource';
+import { getSessionById, updateSessionById } from '../../lib/studySessions';
 
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 
@@ -50,6 +54,8 @@ interface Props {
   userName?: string;
   onMasteryEvent?: (event: any) => void;
   masteryContext?: any;
+  sessionId?: string | null;
+  sourceSelection?: SourceSelectionSnapshot;
 }
 
 type Phase = 'setup' | 'generating' | 'exam' | 'evaluating' | 'results';
@@ -72,8 +78,6 @@ const CONFIDENCE_LABEL: Record<Confidence, string> = {
 const CONFIDENCE_ICON: Record<Confidence, string> = {
   guess: '🎲', low: '🤔', high: '👍', very_high: '💪',
 };
-
-const STORAGE_KEY = 'studyal_exam_autosave_v3';
 
 function defaultAnswerFor(type: QuestionType): any {
   if (type === 'multiple_choice' || type === 'true_false') return null;
@@ -108,7 +112,7 @@ function quickGrade(q: ExamQuestion, ans: any): boolean | null {
 }
 
 // ═══════════════════════════════════════════════════════════════
-export default function ALAIStudyALExams({ materiales, seleccion, tema, materia, onBack, userName, onMasteryEvent, masteryContext }: Props) {
+export default function ALAIStudyALExams({ materiales, seleccion, tema, materia, onBack, userName, onMasteryEvent, masteryContext, sessionId, sourceSelection }: Props) {
   const [phase, setPhase] = useState<Phase>('setup');
   const [duration, setDuration] = useState(30);
   const [recommendedMinutes, setRecommendedMinutes] = useState<number | null>(null);
@@ -149,18 +153,26 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
 
   const { reportEvent } = useMasteryReporter();
   const paperRef = useRef<HTMLDivElement | null>(null);
+  const effectiveSourceSelection = useMemo(
+    () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
+    [sourceSelection, materiales, seleccion],
+  );
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
+  const storageKey = useMemo(() => sourceScopedKey('studyal_exam_autosave_v4', effectiveSourceSelection, {
+    temaId: tema?.id || tema?.nombre,
+    sessionId,
+  }), [effectiveSourceSelection.fingerprint, tema?.id, tema?.nombre, sessionId]);
 
   const materialNames = useMemo(() =>
     materiales?.map((m: any) => m?.titulo || m?.nombre || m?.name || 'Material').slice(0, 8) || []
   , [materiales]);
 
   const selectedPagesArr = useMemo(() => {
-    if (!Array.isArray(seleccion)) return [];
     return Array.from(new Set<number>(
-      seleccion.flatMap((s: any) => Array.isArray(s?.pages) ? s.pages : [])
+      effectiveSourceSelection.materials.flatMap(item => item.selectedPages)
         .map(Number).filter((n: number) => Number.isFinite(n) && n > 0)
     )).sort((a, b) => a - b);
-  }, [seleccion]);
+  }, [effectiveSourceSelection]);
 
   const selectedPagesLabel = useMemo(() => {
     if (!selectedPagesArr.length) return 'Todo el material';
@@ -222,50 +234,20 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
 
   // ─── LOAD MATERIAL ───────────────────────────────────────────
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoadingText(true); setGenError('');
-      try {
-        const blocks: string[] = [];
-        for (let i = 0; i < materiales.length; i++) {
-          const mat = materiales[i];
-          const matId = mat?.materialId || mat?.material_id || mat?.id;
-          const name = mat?.nombre || mat?.titulo || mat?.name || matId || `Material ${i + 1}`;
-          const sel = Array.isArray(seleccion)
-            ? (seleccion.find((s: any) => Number(s?.materialIndex) === i) || seleccion[i] || null) : null;
-          const pages = getSelectionPages(sel);
-          const selectedText = String(sel?.text || sel?.texto || sel?.content || sel?.contenido || sel?.selectedText || '').trim();
-
-          if (selectedText) {
-            blocks.push(`[Material ${i + 1}: ID=${matId} | ${name}${pages.length ? ` | páginas ${pages.join(', ')}` : ''}]\n${selectedText}`);
-            continue;
-          }
-          if (!matId) continue;
-          const res = await fetch('/api/enfoques/teorico/start', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            credentials: 'same-origin', body: JSON.stringify({ materialIds: [matId] }),
-          });
-          const data = await res.json();
-          const fullText = String(data.materials?.[matId]?.text || '').trim();
-          if (!fullText) continue;
-          if (pages.length > 0) {
-            const filtered = filterTextByPages(fullText, pages);
-            blocks.push(`[Material ${i + 1}: ID=${matId} | ${name} | páginas ${pages.join(', ')}]\n${filtered || fullText}`);
-          } else {
-            blocks.push(`[Material ${i + 1}: ID=${matId} | ${name} | documento completo]\n${fullText}`);
-          }
-        }
-        if (!cancelled) {
-          const combined = blocks.filter(Boolean).join('\n\n---\n\n');
-          setMaterialText(combined);
-          if (combined) calcRecommended(combined);
-        }
-      } catch (err: any) { if (!cancelled) setGenError(err?.message || 'Error cargando material.'); }
-      finally { if (!cancelled) setLoadingText(false); }
+    if (authorizedStatus === 'loading' || authorizedStatus === 'idle') {
+      setLoadingText(true);
+      return;
     }
-    load();
-    return () => { cancelled = true; };
-  }, [materiales, seleccion, getSelectionPages, filterTextByPages]);
+    setLoadingText(false);
+    if (authorizedStatus === 'error' || !authorizedSource) {
+      setGenError(authorizedError || 'No se pudo resolver la fuente autorizada.');
+      setMaterialText('');
+      return;
+    }
+    setGenError('');
+    setMaterialText(authorizedSource.combinedText);
+    calcRecommended(authorizedSource.combinedText);
+  }, [authorizedStatus, authorizedSource, authorizedError]);
 
   function calcRecommended(text: string) {
     const chars = text.length;
@@ -352,8 +334,30 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
   useEffect(() => {
     if (phase !== 'exam' || !exam) return;
     const data = { examId: exam.id, currentQuestion, answers, confidences, remainingSeconds, marked: [...marked], exam };
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
-  }, [phase, exam, currentQuestion, answers, confidences, remainingSeconds, marked]);
+    try { localStorage.setItem(storageKey, JSON.stringify(data)); } catch {}
+    if (sessionId) {
+      updateSessionById(sessionId, session => ({
+        ...session,
+        notes: {
+          ...(session as any).notes,
+          freeExam: { ...data, sourceSelectionFingerprint: effectiveSourceSelection.fingerprint },
+        },
+      } as any));
+    }
+  }, [phase, exam, currentQuestion, answers, confidences, remainingSeconds, marked, storageKey]);
+
+  useEffect(() => {
+    if (!sessionId || phase !== 'setup') return;
+    const saved = (getSessionById(sessionId) as any)?.notes?.freeExam;
+    if (!saved || saved.sourceSelectionFingerprint !== effectiveSourceSelection.fingerprint || !saved.exam) return;
+    setExam(saved.exam);
+    setCurrentQuestion(Number(saved.currentQuestion || 0));
+    setAnswers(Array.isArray(saved.answers) ? saved.answers : []);
+    setConfidences(Array.isArray(saved.confidences) ? saved.confidences : []);
+    setRemainingSeconds(Number(saved.remainingSeconds || duration * 60));
+    setMarked(new Set(Array.isArray(saved.marked) ? saved.marked : []));
+    setPhase('exam');
+  }, [sessionId, effectiveSourceSelection.fingerprint]);
 
   // ─── GENERATE ───────────────────────────────────────────────
   async function generateExam() {
@@ -364,7 +368,10 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: 'generate', materialText, materia: materia?.nombre || '',
-          tema: tema?.nombre || '', selectedPages: selectedPagesArr, durationMinutes: duration, masteryContext,
+          tema: tema?.nombre || '', selectedPages: selectedPagesArr,
+          selectedPagesByMaterial: effectiveSourceSelection.selectedPages,
+          sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
+          durationMinutes: duration, masteryContext,
         }),
       });
       const data = await res.json();
@@ -571,7 +578,7 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
     } catch { setEvaluation(null); }
     finally {
       setPhase('results');
-      try { localStorage.removeItem(STORAGE_KEY); } catch {}
+      try { localStorage.removeItem(storageKey); } catch {}
       window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 80);
     }
   }
@@ -581,7 +588,7 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
     setDraftConfidence(null); setCurrentQuestion(0); setEvaluation(null); setRemainingSeconds(duration * 60);
     setGenError(''); setMarked(new Set()); setPaused(false); setResultsTab('overview');
     lastAdaptedAt.current = 0;
-    try { localStorage.removeItem(STORAGE_KEY); } catch {}
+    try { localStorage.removeItem(storageKey); } catch {}
   }
 
   const canAdvance = isAnswered(draftAnswer);

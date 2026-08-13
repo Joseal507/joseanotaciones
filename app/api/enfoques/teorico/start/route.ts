@@ -9,6 +9,10 @@ import {
 } from '../../../../../lib/materials/repository';
 import { downloadFromR2 } from '../../../../../lib/materials/storage';
 import { extractText } from '../../../../../lib/materials/extractors';
+import {
+  filterTextToSelectedPages,
+  validateSourceSelectionInput,
+} from '../../../../../lib/adaptive/sourceSelection';
 
 
 async function getUser() {
@@ -25,7 +29,12 @@ export async function POST(req: NextRequest) {
     const user = await getUser();
     if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
-    const { materialIds } = await req.json();
+    const body = await req.json();
+    const sourceSelection = validateSourceSelectionInput(body?.sourceSelection);
+    const materialIds = sourceSelection?.materialIds || body?.materialIds;
+    if (body?.sourceSelection && !sourceSelection) {
+      return NextResponse.json({ error: 'SOURCE_SELECTION_INVALID' }, { status: 400 });
+    }
     if (!materialIds?.length) {
       return NextResponse.json({ error: 'materialIds requeridos' }, { status: 400 });
     }
@@ -74,13 +83,19 @@ export async function POST(req: NextRequest) {
           }
 
           if (cached && cached.raw_text.length > 0 && !shouldRefreshPdfCache) {
+            const authorizedText = sourceSelection
+              ? filterTextToSelectedPages(cached.raw_text, sourceSelection.selectedPages[materialId])
+              : cached.raw_text;
+            if (sourceSelection?.selectedPages[materialId]?.length && !authorizedText.trim()) {
+              throw new Error(`AUTHORIZED_PAGES_UNAVAILABLE:${materialId}`);
+            }
             results[materialId] = {
-              text: cached.raw_text,
+              text: authorizedText,
               nombre: material.nombre,
               kind: material.kind,
               isImageBased: material.kind === 'image',
               fromCache: true,
-              chars: cached.raw_text.length,
+              chars: authorizedText.length,
             };
             return;
           }
@@ -106,13 +121,19 @@ export async function POST(req: NextRequest) {
               pages_count: extraction.pages,
             });
 
+            const authorizedText = sourceSelection
+              ? filterTextToSelectedPages(cleanText, sourceSelection.selectedPages[materialId])
+              : cleanText;
+            if (sourceSelection?.selectedPages[materialId]?.length && !authorizedText.trim()) {
+              throw new Error(`AUTHORIZED_PAGES_UNAVAILABLE:${materialId}`);
+            }
             results[materialId] = {
-              text: cleanText,
+              text: authorizedText,
               nombre: material.nombre,
               kind: material.kind,
               isImageBased: extraction.isImageBased,
               fromCache: false,
-              chars: cleanText.length,
+              chars: authorizedText.length,
             };
           } else {
             await updateMaterialTextStatus(materialId, 'error', {
@@ -123,15 +144,23 @@ export async function POST(req: NextRequest) {
 
         } catch (e: any) {
           console.error(`Error procesando ${materialId}:`, e?.message);
-          try {
-            await updateMaterialTextStatus(materialId, 'error', {
-              last_error: e.message,
-            });
-          } catch {}
+          if (!String(e?.message || '').startsWith('AUTHORIZED_PAGES_UNAVAILABLE:')) {
+            try {
+              await updateMaterialTextStatus(materialId, 'error', {
+                last_error: e.message,
+              });
+            } catch {}
+          }
         }
       })
     );
 
+    if (sourceSelection && Object.keys(results).length !== sourceSelection.materialIds.length) {
+      return NextResponse.json(
+        { error: 'AUTHORIZED_SOURCE_INCOMPLETE' },
+        { status: 422 },
+      );
+    }
     if (Object.keys(results).length === 0) {
       return NextResponse.json(
         { error: 'No se pudo extraer texto de ningún material' },
@@ -144,6 +173,7 @@ export async function POST(req: NextRequest) {
       materials: results,
       count: Object.keys(results).length,
       totalChars: Object.values(results).reduce((s, r) => s + r.chars, 0),
+      sourceSelectionFingerprint: sourceSelection?.fingerprint || null,
     });
 
   } catch (err: any) {

@@ -24,6 +24,8 @@ import {
   releaseNormalBlockRecoveries,
   type RecoveryItem,
 } from '../../lib/adaptive/evaluation/recoveryQueue'
+import { buildSourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection'
+import { fetchAuthorizedSource, sourceScopedKey } from '../../lib/materials/authorizedSource'
 
 const matchingOptions = [
   { id: 'relation-pressure', content: '$K_p = K_c(RT)^{\\Delta n}$' },
@@ -67,6 +69,10 @@ function recoveryQuestion(id: string, text: string, conceptId = 'e2e-concept', c
 
 export default function AdaptiveE2EHarness() {
   const [planRestoreHarness, setPlanRestoreHarness] = useState(false)
+  const [sourceAuthorityHarness, setSourceAuthorityHarness] = useState(false)
+  const [freeSourceHarness, setFreeSourceHarness] = useState(false)
+  const [freeTool, setFreeTool] = useState('hub')
+  const [freeSourceText, setFreeSourceText] = useState('')
   const [evaluationModeHarness, setEvaluationModeHarness] = useState<'quick_test' | 'write_explain' | null>(null)
   const [deliveredFormat, setDeliveredFormat] = useState<string | null>(null)
   const [modeError, setModeError] = useState<string | null>(null)
@@ -87,6 +93,9 @@ export default function AdaptiveE2EHarness() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     setPlanRestoreHarness(params.get('planRestore') === '1')
+    setSourceAuthorityHarness(params.get('sourceAuthority') === '1')
+    setFreeSourceHarness(params.get('freeSourceAuthority') === '1')
+    setFreeTool(params.get('freeTool') || window.localStorage.getItem('e2e-free-tool') || 'hub')
     const requestedMode = params.get('evaluationMode')
     if (requestedMode === 'quick_test' || requestedMode === 'write_explain') {
       setEvaluationModeHarness(requestedMode)
@@ -108,6 +117,12 @@ export default function AdaptiveE2EHarness() {
     }
     setBlockRestoreReady(true)
   }, [])
+
+  useEffect(() => {
+    if (!freeSourceHarness) return
+    const snapshot = buildSourceSelectionSnapshot(['material-a', 'material-b'], { 'material-a': [2], 'material-b': [3] })
+    fetchAuthorizedSource(snapshot).then(result => setFreeSourceText(result.combinedText)).catch(error => setFreeSourceText(`ERROR:${error.message}`))
+  }, [freeSourceHarness])
 
   useEffect(() => {
     if (recovery) window.localStorage.setItem('e2e-recovery-item', JSON.stringify(recovery))
@@ -244,12 +259,58 @@ export default function AdaptiveE2EHarness() {
           id: 'doc-plan-e2e',
           materialId: 'mat-plan-e2e',
           nombre: 'Material persistido',
-          contenido: 'Contenido académico suficiente.',
+          contenido: '[Página 1] Contenido académico suficiente para la selección persistida.',
           tipo: 'pdf',
         }]}
         temaId="tema-plan-e2e"
         userId="e2e-user"
         sessionId="journey-plan-e2e"
+        onClose={() => undefined}
+      />
+    )
+  }
+
+  if (freeSourceHarness) {
+    const snapshot = buildSourceSelectionSnapshot(['material-a', 'material-b'], { 'material-a': [2], 'material-b': [3] })
+    const sessionId = 'free-session-authority-e2e'
+    const open = (tool: string) => {
+      setFreeTool(tool)
+      window.localStorage.setItem('e2e-free-tool', tool)
+      const url = new URL(window.location.href)
+      if (tool === 'studymap' || tool === 'truquitos') {
+        url.searchParams.set('freeTool', tool)
+        url.searchParams.set('freeSessionId', sessionId)
+      } else {
+        url.searchParams.delete('freeTool')
+        url.searchParams.delete('freeSessionId')
+      }
+      window.history.replaceState({}, '', `${url.pathname}${url.search}`)
+    }
+    return <main data-testid="free-source-harness">
+      <p data-testid="free-session-id">{sessionId}</p>
+      <p data-testid="free-source-fingerprint">{snapshot.fingerprint}</p>
+      <p data-testid="free-source-key">{sourceScopedKey('free', snapshot, { sessionId, temaId: 'tema-e2e' })}</p>
+      <p data-testid="free-active-tool">{freeTool}</p>
+      <pre data-testid="free-authorized-source">{freeSourceText}</pre>
+      {['hub', 'repasar', 'flashcards', 'quiz', 'alai', 'studymap', 'truquitos'].map(tool => <button key={tool} onClick={() => open(tool)}>{tool}</button>)}
+    </main>
+  }
+
+  if (sourceAuthorityHarness) {
+    const pages = (count: number, prefix: string, selected: number[]) => Array.from({ length: count }, (_, index) =>
+      `[Página ${index + 1}] ${selected.includes(index + 1) ? `AUTHORIZED_${prefix}_${index + 1}` : `FORBIDDEN_${prefix}_${index + 1}`}`
+    ).join('\n')
+    return (
+      <StudyALAdaptive
+        materiales={[
+          { id: 'doc-a', materialId: 'mat-a', nombre: 'A.pdf', contenido: pages(2, 'A', [1, 2]), tipo: 'pdf' },
+          { id: 'doc-b', materialId: 'mat-b', nombre: 'B.pdf', contenido: pages(5, 'B', [2, 5]), tipo: 'pdf' },
+          { id: 'doc-c', materialId: 'mat-c', nombre: 'C.pdf', contenido: pages(43, 'C', [2, 5, 7, 43]), tipo: 'pdf' },
+        ]}
+        selectedPages={{ 'mat-a': [1, 2], 'mat-b': [2, 5], 'mat-c': [2, 5, 7, 43] }}
+        temaId="tema-source-authority"
+        userId="e2e-source-user"
+        sessionId="program-source-authority"
         onClose={() => undefined}
       />
     )

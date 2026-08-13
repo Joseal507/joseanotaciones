@@ -48,9 +48,13 @@ export async function POST(req: NextRequest) {
     }
 
     // BLOQUEAR si la certificación no permite generar el plan
+    const requestedFingerprint = String(body.sourceSelectionFingerprint || '');
+    const blueprintFingerprint = String(blueprint?.sourceSelectionFingerprint || blueprint?.sourceSelection?.fingerprint || '');
     const planBlocked =
-      quality?.planGenerationAllowed === false ||
-      (quality?.planGenerationAllowed === undefined && quality?.status === 'degraded');
+      quality?.planGenerationAllowed !== true ||
+      quality?.coverageCertified !== true ||
+      !requestedFingerprint ||
+      requestedFingerprint !== blueprintFingerprint;
 
     if (planBlocked) {
       const reasons = [

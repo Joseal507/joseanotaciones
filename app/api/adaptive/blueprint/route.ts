@@ -9,7 +9,7 @@ import {
   enrichBlueprintHeuristics,
   evaluateBlueprintQuality,
 } from '../../../../lib/adaptive/blueprintQuality';
-import { buildSourceSelectionSnapshot, filterTextToSelectedPages } from '../../../../lib/adaptive/sourceSelection';
+import { buildSourceSelectionSnapshot, filterTextToSelectedPages, stripNonInstructionalBoilerplate } from '../../../../lib/adaptive/sourceSelection';
 
 export const maxDuration = 180;
 export const dynamic = 'force-dynamic';
@@ -75,9 +75,9 @@ function cleanExtractedText(text: string): string {
 // Separar texto por páginas usando marcadores [Pagina N]
 function splitTextByPages(fullText: string): Map<number, string> {
   const pageMap = new Map<number, string>();
-  const PAGE_SPLIT = /(?=\[Pagina \d+\])/i;
-  const PAGE_NUM = /\[Pagina (\d+)\]/i;
-  const PAGE_CLEAN = /\[Pagina \d+\]/gi;
+  const PAGE_SPLIT = /(?=\[P[aá]gina \d+\])/i;
+  const PAGE_NUM = /\[P[aá]gina (\d+)\]/i;
+  const PAGE_CLEAN = /\[P[aá]gina \d+\]/gi;
 
   const chunks = fullText.split(PAGE_SPLIT).filter(c => c.trim().length > 0);
 
@@ -103,7 +103,7 @@ function clampInt(value: number, min: number, max: number): number {
 
 function stripEditorialNoise(text: string): string {
   // Solo elimina metadatos editoriales cortos y específicos, nunca contenido real
-  return text
+  return stripNonInstructionalBoilerplate(text)
     // Copyright con año y frase corta después (máx 80 chars, se detiene en punto o fin)
     .replace(/©\s*\d{4}[^.\n]{0,80}/gi, ' ')
     .replace(/todos los derechos reservados\.?/gi, ' ')
@@ -279,11 +279,14 @@ export const VISION_BATCH_SIZE = 2;
 
 export function selectPagesNeedingVision(
   fullPageMap: Map<number, string>,
-  totalPages: number,
+  allowedPages: number | number[],
   stripNoise: (text: string) => string = stripEditorialNoise,
 ): number[] {
   const poorPages: number[] = [];
-  for (let p = 1; p <= totalPages; p++) {
+  const pages = Array.isArray(allowedPages)
+    ? [...new Set(allowedPages)].sort((a, b) => a - b)
+    : Array.from({ length: allowedPages }, (_, index) => index + 1);
+  for (const p of pages) {
     const rawText = fullPageMap.get(p) || '';
     const cleanText = stripNoise(rawText);
     const cleanLen = cleanText.length;
@@ -1568,6 +1571,25 @@ export async function POST(req: NextRequest) {
       selectedPages: sourceSelection.selectedPages[materialId],
     }));
 
+    if (body.requireExplicitPageSelection === true && sourceSelection.materials.some(material => material.selectedPages.length === 0)) {
+      return NextResponse.json({ success: false, error: 'SOURCE_SELECTION_INCOMPLETE' }, { status: 400 });
+    }
+    const claimedFingerprint = body.sourceSelection?.fingerprint;
+    if (claimedFingerprint && claimedFingerprint !== sourceSelection.fingerprint) {
+      return NextResponse.json({ success: false, error: 'SOURCE_SELECTION_FINGERPRINT_MISMATCH' }, { status: 409 });
+    }
+
+    console.info('[adaptive-source-selection]', JSON.stringify({
+      event: 'blueprint_source_received',
+      sourceSelectionFingerprint: sourceSelection.fingerprint,
+      materials: rawMaterials.map(material => ({
+        materialId: material.materialId,
+        materialName: material.materialName,
+        selectedPagesReceived: suppliedMaterials.find(item => String(item.materialId) === material.materialId)?.selectedPages || [],
+        selectedPagesCanonical: material.selectedPages,
+      })),
+    }));
+
     if (!rawMaterials.length) {
       return NextResponse.json({ success: false, error: 'No materials provided' }, { status: 400 });
     }
@@ -1642,6 +1664,16 @@ export async function POST(req: NextRequest) {
 
       // Separar por páginas
       const pageMap = splitTextByPages(m.text);
+      for (const [page, value] of pageMap) pageMap.set(page, stripEditorialNoise(value));
+      console.info('[adaptive-source-selection]', JSON.stringify({
+        event: 'blueprint_pages_authorized',
+        materialId: m.materialId,
+        materialName: m.materialName,
+        selectedPagesCanonical: m.selectedPages,
+        pagesActuallyExtracted: [...pageMap.keys()].sort((a, b) => a - b),
+        pagesSentToProvider: [...pageMap.keys()].sort((a, b) => a - b),
+        sourceSelectionFingerprint: sourceSelection.fingerprint,
+      }));
       console.log(`📄 ${pageMap.size} páginas con contenido`);
 
       // PASO 1: Extraer estructura usando muestra compacta
@@ -1650,10 +1682,10 @@ export async function POST(req: NextRequest) {
       const fullPageMap = new Map<number, string>();
       for (const [pageNum, _] of pageMap.entries()) {
         // Reconstruir con texto completo desde el texto original
-        const pageMarkerRe = new RegExp(`\\[Pagina ${pageNum}\\][\\s\\S]*?(?=\\[Pagina \\d+\\]|$)`, 'i');
+        const pageMarkerRe = new RegExp(`\\[P[aá]gina ${pageNum}\\][\\s\\S]*?(?=\\[P[aá]gina \\d+\\]|$)`, 'i');
         const match = pageMarkerRe.exec(m.text);
         if (match) {
-          const rawPage = match[0].replace(/\[Pagina \d+\]/gi, '').trim();
+          const rawPage = stripEditorialNoise(match[0].replace(/\[P[aá]gina \d+\]/gi, '').trim());
           if (rawPage.length > 20) fullPageMap.set(pageNum, rawPage);
         } else {
           // fallback: usar lo que ya tenemos en pageMap
@@ -1684,15 +1716,9 @@ export async function POST(req: NextRequest) {
       }
 
       if (pdfBuf) {
-        // Detectar el rango completo de páginas del PDF
-        const totalPdfPages = Math.max(
-          ...Array.from(fullPageMap.keys()),
-          0
-        );
-
         // Visión SOLO para páginas realmente vacías o casi vacías
         // (portadas de sección, diapositivas de imagen, páginas sin texto extraíble)
-        const poorPages = selectPagesNeedingVision(fullPageMap, totalPdfPages);
+        const poorPages = selectPagesNeedingVision(fullPageMap, m.selectedPages);
 
         if (poorPages.length > 0) {
           console.log(`🖼️ ${poorPages.length} páginas con poco texto → enriqueciendo con visión: p.${poorPages.join(', ')}`);
@@ -1813,7 +1839,9 @@ export async function POST(req: NextRequest) {
     const { uniqueConcepts } = deduplicateConcepts(blocksWithIds);
 
     const coveredPages = new Set<number>();
+    const coveredSourcePages = new Set<string>();
     for (const b of blocksWithIds) (b.pages || []).forEach(p => coveredPages.add(p));
+    for (const b of blocksWithIds) (b.pages || []).forEach(p => coveredSourcePages.add(`${b.materialId}:${p}`));
 
     const coverageSummary = {
       totalMaterials: validMaterials.length,
@@ -1823,67 +1851,57 @@ export async function POST(req: NextRequest) {
       totalHighImportance: blocksWithIds.filter(b => b.importance >= 75).length,
       estimatedMinutes: Math.max(5, Math.round(blocksWithIds.length * 1.8)),
       pagesWithContent: Array.from(coveredPages).sort((a, b) => a - b),
+      selectedSourcePages: sourceSelection.materials.flatMap(material => material.selectedPages.map(page => ({ materialId: material.materialId, page }))),
     };
 
     // ══════════════════════════════════════════════
     // INVENTARIO DE PÁGINAS — cada página del PDF debe tener disposición
     // ══════════════════════════════════════════════
     // Detectar TODAS las páginas del PDF (incluyendo las que pdf-parse descartó)
-    const totalPagesInPdf = Math.max(
-      ...validMaterials.map(m => {
-        const map = splitTextByPages(m.text);
-        const maxPage = Math.max(...Array.from(map.keys()), 0);
-        return maxPage;
-      }),
-      1
-    );
+    const totalPagesInPdf = sourceSelection.materials.reduce((total, material) => total + material.selectedPages.length, 0);
 
     // Páginas que sí llegaron al pipeline (con texto extraído)
-    const pagesInPipeline = new Set<number>();
+    const pagesInPipeline = new Set<string>();
     for (const m of validMaterials) {
       const map = splitTextByPages(m.text);
       for (const pageNum of map.keys()) {
-        pagesInPipeline.add(pageNum);
+        pagesInPipeline.add(`${m.materialId}:${pageNum}`);
       }
     }
 
     // Clasificar CADA página del rango completo (1 hasta totalPagesInPdf)
-    const pageDispositions: Record<number, {
+    const pageDispositions: Record<string, {
       status: 'represented' | 'no_extractable_text' | 'uncovered_with_content' | 'excluded_low_content';
       reason: string;
       charCount: number;
     }> = {};
 
-    for (let p = 1; p <= totalPagesInPdf; p++) {
-      // ¿Tiene texto extraído por pdf-parse?
-      const pageTexts = validMaterials.map(m => {
-        const map = splitTextByPages(m.text);
-        return map.get(p) || '';
-      });
-      const combinedText = pageTexts.join(' ').trim();
+    for (const material of validMaterials) for (const p of material.selectedPages) {
+      const sourcePageKey = `${material.materialId}:${p}`;
+      const combinedText = stripEditorialNoise(splitTextByPages(material.text).get(p) || '').trim();
       const charCount = combinedText.length;
 
-      if (coveredPages.has(p)) {
-        pageDispositions[p] = {
+      if (coveredSourcePages.has(sourcePageKey)) {
+        pageDispositions[sourcePageKey] = {
           status: 'represented',
           reason: 'Página incluida en al menos un topic',
           charCount,
         };
-      } else if (!pagesInPipeline.has(p) || charCount === 0) {
+      } else if (!pagesInPipeline.has(sourcePageKey) || charCount === 0) {
         // pdf-parse no extrajo texto — probablemente diapositiva/imagen/portada
-        pageDispositions[p] = {
+        pageDispositions[sourcePageKey] = {
           status: 'no_extractable_text',
           reason: 'Sin texto extraíble por PDF parser (diapositiva, imagen, portada o página en blanco)',
           charCount: 0,
         };
       } else if (charCount < 50) {
-        pageDispositions[p] = {
+        pageDispositions[sourcePageKey] = {
           status: 'excluded_low_content',
           reason: `Solo ${charCount} chars — texto insuficiente para análisis`,
           charCount,
         };
       } else {
-        pageDispositions[p] = {
+        pageDispositions[sourcePageKey] = {
           status: 'uncovered_with_content',
           reason: `${charCount} chars extraídos pero no asignados a ningún topic`,
           charCount,
@@ -1902,7 +1920,7 @@ export async function POST(req: NextRequest) {
       dispositionCounts[d.status]++;
     }
 
-    console.log(`\n📋 INVENTARIO DE PÁGINAS (${totalPagesInPdf} páginas totales):`);
+    console.log(`\n📋 INVENTARIO DE PÁGINAS (${totalPagesInPdf} páginas seleccionadas):`);
     console.log(`  ✅ Representadas: ${dispositionCounts.represented}`);
     console.log(`  🖼️ Sin texto extraíble (portadas/imágenes): ${dispositionCounts.no_extractable_text}`);
     console.log(`  ⚠️ Con contenido sin cobertura: ${dispositionCounts.uncovered_with_content}`);
@@ -1911,7 +1929,7 @@ export async function POST(req: NextRequest) {
     // Listar páginas problemáticas
     const problematicPages = Object.entries(pageDispositions)
       .filter(([, d]) => d.status === 'uncovered_with_content')
-      .map(([p, d]) => `  p.${p}: ${d.reason}`);
+      .map(([sourcePage, d]) => `  ${sourcePage}: ${d.reason}`);
     if (problematicPages.length > 0) {
       console.warn(`\n⚠️ PÁGINAS SIN COBERTURA DE CONTENIDO EXTRAÍDO:`);
       problematicPages.forEach(msg => console.warn(msg));
@@ -1920,9 +1938,9 @@ export async function POST(req: NextRequest) {
     // Listar páginas sin texto extraíble (para transparencia)
     const noTextPages = Object.entries(pageDispositions)
       .filter(([, d]) => d.status === 'no_extractable_text')
-      .map(([p]) => parseInt(p));
+      .map(([sourcePage]) => sourcePage);
     if (noTextPages.length > 0) {
-      console.log(`\n🖼️ Páginas sin texto extraíble: p.${noTextPages.join(', ')}`);
+      console.log(`\n🖼️ Páginas seleccionadas sin texto extraíble: ${noTextPages.join(', ')}`);
       console.log(`   → Probablemente diapositivas de título, imágenes o portadas.`);
       console.log(`   → Para análisis completo se requiere OCR/Vision (no ejecutado en este material).`);
     }
@@ -1930,7 +1948,7 @@ export async function POST(req: NextRequest) {
     // Legacy compat
     const pagesWithUncoveredContent = Object.entries(pageDispositions)
       .filter(([, d]) => d.status === 'uncovered_with_content')
-      .map(([p]) => parseInt(p));
+      .map(([sourcePage]) => sourcePage);
 
     const rawBlueprint = {
       version: 2, createdAt: Date.now(),
@@ -1958,12 +1976,12 @@ export async function POST(req: NextRequest) {
       const lastMaterial = validMaterials[validMaterials.length - 1];
       const map = new Map<number, string>();
       if (lastMaterial?.text) {
-        const pageMarkers = lastMaterial.text.split(/(?=\[Pagina \d+\])/i);
+        const pageMarkers = lastMaterial.text.split(/(?=\[P[aá]gina \d+\])/i);
         for (const chunk of pageMarkers) {
-          const match = chunk.match(/\[Pagina (\d+)\]/i);
+          const match = chunk.match(/\[P[aá]gina (\d+)\]/i);
           if (match) {
             const pageNum = parseInt(match[1]);
-            const pageText = chunk.replace(/\[Pagina \d+\]/gi, '').trim();
+            const pageText = stripEditorialNoise(chunk.replace(/\[P[aá]gina \d+\]/gi, '').trim());
             if (pageText.length > 20) map.set(pageNum, pageText);
           }
         }

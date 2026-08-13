@@ -22,7 +22,7 @@ const serverSessionWithGap = {
   studyMode: 'adaptive',
   materialIds: ['mat-plan-e2e'],
   materialNames: ['Material persistido'],
-  selectedPages: {},
+  selectedPages: { 'mat-plan-e2e': [1] },
   adaptiveSetup: {
     knowledgeLevel: 'never_seen', examDateType: 'just_studying', targetScore: 80,
     mainConcern: '', professorExamStyle: [], evalPreference: 'mixed', planView: 'book',

@@ -96,14 +96,14 @@ test('B: generate-plan aborted -> buildLearningJourney nunca se invoca (0 llamad
   const { POST } = await import('../../app/api/adaptive/generate-plan/route')
   const { NextRequest } = await import('next/server')
 
-  const validBlueprint = { version: 1, blocks: [{ id: 'b1' }], topics: [] }
+  const validBlueprint = { version: 1, blocks: [{ id: 'b1' }], topics: [], sourceSelectionFingerprint: 'source-test' }
   const validQuality = { status: 'complete', reasons: [], coverageCertified: true, planGenerationAllowed: true, certificationReasons: [] }
 
   const req = new NextRequest('http://localhost/api/adaptive/generate-plan', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      blueprint: validBlueprint, quality: validQuality, materialTitle: 'Material de prueba',
+      blueprint: validBlueprint, quality: validQuality, materialTitle: 'Material de prueba', sourceSelectionFingerprint: 'source-test',
       setup: { knowledgeLevel: 'never_seen', examDateType: 'just_studying', evalPreference: 'mix_everything' },
     }),
     signal: abortedSignal(),

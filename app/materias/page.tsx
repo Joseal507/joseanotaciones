@@ -44,6 +44,7 @@ import {
 } from '../../lib/masteryEngine';
 import { getSessionById, syncSessionsFromServer } from '../../lib/studySessions';
 import { hasPersistedAdaptiveArtifacts } from '../../lib/adaptive/resume';
+import { buildSourceSelectionFromMaterials } from '../../lib/adaptive/sourceSelection';
 
 type Vista = 'materias' | 'materia' | 'tema' | 'apunte' | 'documento' | 'flashcards' | 'quiz' | 'repasar' | 'analisis' | 'alai' | 'exam';
 
@@ -63,6 +64,7 @@ export default function MateriasPage() {
   const [flashcardsMateriales, setFlashcardsMateriales] = useState<any[]>([]);
   const [flashcardsSeleccion, setFlashcardsSeleccion] = useState<any[] | null>(null);
   const [flashcardsSessionId, setFlashcardsSessionId] = useState<string | null>(null);
+  const [freeToolSessionId, setFreeToolSessionId] = useState<string | null>(null);
   const [quizMateriales, setQuizMateriales]   = useState<any[]>([]);
   const [quizSeleccion,  setQuizSeleccion]    = useState<any[] | undefined>(undefined);
   const [repasarMateriales, setRepasarMateriales] = useState<any[]>([]);
@@ -74,6 +76,7 @@ export default function MateriasPage() {
   const [examMateriales, setExamMateriales] = useState<any[]>([]);
   const [examSeleccion, setExamSeleccion] = useState<any[] | null>(null);
   const [returnToEnfoque, setReturnToEnfoque] = useState(false);
+  const [returnSessionId, setReturnSessionId] = useState<string | null>(null);
   const [autoOpenAdaptive, setAutoOpenAdaptive] = useState(false);
   const [autoOpenAdaptiveSessionId, setAutoOpenAdaptiveSessionId] = useState<string | null>(null);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
@@ -132,6 +135,39 @@ export default function MateriasPage() {
               || localStorage.getItem('studyal_open_tema_adaptive') === 'true';
             setAutoOpenAdaptive(openAdaptive);
             setAutoOpenAdaptiveSessionId(routeSessionId || localStorage.getItem('studyal_open_adaptive_session_id'));
+            const freeSessionId = routeParams.get('freeSessionId');
+            const freeTool = routeParams.get('freeTool') as Vista | null;
+            if (freeSessionId && freeTool && ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam'].includes(freeTool)) {
+              syncSessionsFromServer(targetTemaId).then(() => {
+                const freeSession = getSessionById(freeSessionId);
+                if (!freeSession || freeSession.processMode !== 'free' || freeSession.temaId !== targetTemaId) return;
+                const restoredSource = buildSourceSelectionFromMaterials(
+                  freeSession.materialIds.map(materialId => ({ materialId })),
+                  freeSession.materialIds.map((materialId, materialIndex) => ({ materialId, materialIndex, pages: freeSession.selectedPages?.[materialId] || [] })),
+                );
+                if (restoredSource.fingerprint !== freeSession.sourceSelectionFingerprint) return;
+                const idSet = new Set(freeSession.materialIds.map(String));
+                const selectedMaterials = (tema.documentos || []).filter((document: any) =>
+                  idSet.has(String(document?.materialId || document?.id || '')),
+                );
+                if (selectedMaterials.length !== freeSession.materialIds.length) return;
+                const restoredSelection = freeSession.materialIds.map((materialId, materialIndex) => ({
+                  materialId,
+                  materialIndex,
+                  pages: freeSession.selectedPages?.[materialId] || [],
+                }));
+                setFreeToolSessionId(freeSession.id);
+                if (freeTool === 'flashcards') { setFlashcardsMateriales(selectedMaterials); setFlashcardsSeleccion(restoredSelection); setFlashcardsSessionId(freeSession.id); }
+                if (freeTool === 'quiz') { setQuizMateriales(selectedMaterials); setQuizSeleccion(restoredSelection); }
+                if (freeTool === 'repasar') { setRepasarMateriales(selectedMaterials); setRepasarSeleccion(restoredSelection); }
+                if (freeTool === 'analisis') { setAnalisisMateriales(selectedMaterials); setAnalisisSeleccion(restoredSelection); }
+                if (freeTool === 'alai') { setAlaiMateriales(selectedMaterials); setAlaiSeleccion(restoredSelection); }
+                if (freeTool === 'exam') { setExamMateriales(selectedMaterials); setExamSeleccion(restoredSelection); }
+                setVista(freeTool);
+              }).catch(() => {
+                // Un fallo durable no autoriza usar todos los materiales como fallback.
+              });
+            }
             localStorage.removeItem('studyal_open_tema');
             localStorage.removeItem('studyal_open_tema_adaptive');
             return true;
@@ -151,6 +187,25 @@ export default function MateriasPage() {
       setTimeout(() => clearInterval(interval), 8000);
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const freeTools = new Set(['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam']);
+    const url = new URL(window.location.href);
+    if (freeTools.has(vista) && freeToolSessionId && temaActual?.id) {
+      url.searchParams.set('temaId', temaActual.id);
+      url.searchParams.set('freeSessionId', freeToolSessionId);
+      url.searchParams.set('freeTool', vista);
+    } else if (vista === 'tema') {
+      const internalTool = url.searchParams.get('freeTool');
+      if (internalTool === 'studymap' || internalTool === 'truquitos') return;
+      url.searchParams.delete('freeSessionId');
+      url.searchParams.delete('freeTool');
+    } else {
+      return;
+    }
+    window.history.replaceState({}, '', `${url.pathname}${url.search}`);
+  }, [vista, freeToolSessionId, temaActual?.id]);
 
   useEffect(() => {
     if (!temaActual?.documentos?.length) return;
@@ -1068,7 +1123,8 @@ const eliminarDocumento = async (id: string) => {
             subiendoDoc={subiendoDoc}
             onAbrirUploader={() => setShowUploader(true)}
             returnToEnfoque={returnToEnfoque}
-            onClearReturnToEnfoque={() => setReturnToEnfoque(false)}
+            returnSessionId={returnSessionId}
+            onClearReturnToEnfoque={() => { setReturnToEnfoque(false); setReturnSessionId(null); }}
             autoOpenAdaptive={autoOpenAdaptive}
             autoOpenAdaptiveSessionId={autoOpenAdaptiveSessionId}
             onOpenFlashcards={(mats?: any[], sel?: any[], sessionId?: string | null) => {
@@ -1081,57 +1137,63 @@ const eliminarDocumento = async (id: string) => {
               setFlashcardsMateriales(matsToUse);
               setFlashcardsSeleccion(normalizedSel);
               setFlashcardsSessionId(sessionId || null);
+              setFreeToolSessionId(sessionId || null);
               // Inicializar mastery
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
               setVista('flashcards');
             }}
-            onOpenQuiz={(mats?: any[], sel?: any[]) => {
+            onOpenQuiz={(mats?: any[], sel?: any[], sessionId?: string | null) => {
               const matsToUse = mats || temaActual?.documentos || [];
               setQuizMateriales(matsToUse);
               setQuizSeleccion(sel);
+              setFreeToolSessionId(sessionId || null);
               // Inicializar mastery
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
               setVista('quiz');
             }}
-            onOpenRepasar={(mats?: any[], sel?: any[]) => {
+            onOpenRepasar={(mats?: any[], sel?: any[], sessionId?: string | null) => {
               const matsToUse = mats || temaActual?.documentos || [];
               setRepasarMateriales(matsToUse);
               setRepasarSeleccion(Array.isArray(sel) && sel.length ? sel : null);
+              setFreeToolSessionId(sessionId || null);
               // Inicializar mastery con estos materiales
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
               setVista('repasar');
             }}
-            onOpenAnalisis={(mats?: any[], sel?: any[]) => {
+            onOpenAnalisis={(mats?: any[], sel?: any[], sessionId?: string | null) => {
               const matsToUse = mats || temaActual?.documentos || [];
               const normalizedSel = normalizeSeleccionForFlashcards(sel || null, matsToUse);
               setAnalisisMateriales(matsToUse);
               setAnalisisSeleccion(normalizedSel);
+              setFreeToolSessionId(sessionId || null);
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
               setVista('analisis');
             }}
-            onOpenAlai={(mats?: any[], sel?: any[]) => {
+            onOpenAlai={(mats?: any[], sel?: any[], sessionId?: string | null) => {
               const matsToUse = mats || temaActual?.documentos || [];
               const normalizedSel = normalizeSeleccionForFlashcards(sel || null, matsToUse);
               setAlaiMateriales(matsToUse);
               setAlaiSeleccion(normalizedSel);
+              setFreeToolSessionId(sessionId || null);
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
               setVista('alai');
             }}
-            onOpenExam={(mats?: any[], sel?: any[]) => {
+            onOpenExam={(mats?: any[], sel?: any[], sessionId?: string | null) => {
               const matsToUse = mats || temaActual?.documentos || [];
               const normalizedSel = normalizeSeleccionForFlashcards(sel || null, matsToUse);
               setExamMateriales(matsToUse);
               setExamSeleccion(normalizedSel);
+              setFreeToolSessionId(sessionId || null);
               // Inicializar mastery
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
@@ -1161,14 +1223,16 @@ const eliminarDocumento = async (id: string) => {
 
         {vista === 'flashcards' && temaActual && materiaActual && (
           <ALAIStudyALCards
-            materiales={flashcardsMateriales.length > 0 ? flashcardsMateriales : temaActual.documentos}
+            materiales={flashcardsMateriales}
             seleccion={flashcardsSeleccion}
             tema={temaActual}
             materia={materiaActual}
             sessionId={flashcardsSessionId}
+            sourceSelection={buildSourceSelectionFromMaterials(flashcardsMateriales, flashcardsSeleccion)}
             masteryContext={getMasteryContext()}
             onMasteryEvent={reportMasteryEvent}
             onBack={() => {
+              setReturnSessionId(flashcardsSessionId || freeToolSessionId);
               setReturnToEnfoque(true);
               requestAnimationFrame(() => {
                 setVista('tema');
@@ -1179,13 +1243,16 @@ const eliminarDocumento = async (id: string) => {
 
         {vista === 'quiz' && temaActual && materiaActual && (
           <ALAIStudyALQuizzes
-            materiales={quizMateriales.length > 0 ? quizMateriales : temaActual.documentos}
+            materiales={quizMateriales}
             seleccion={quizSeleccion}
             tema={temaActual}
             materia={materiaActual}
+            sessionId={freeToolSessionId}
+            sourceSelection={buildSourceSelectionFromMaterials(quizMateriales, quizSeleccion)}
             masteryContext={getMasteryContext()}
             onMasteryEvent={reportMasteryEvent}
             onBack={() => {
+              setReturnSessionId(freeToolSessionId);
               setReturnToEnfoque(true);
               setQuizMateriales([]);
               setQuizSeleccion(undefined);
@@ -1198,13 +1265,16 @@ const eliminarDocumento = async (id: string) => {
 
         {vista === 'repasar' && temaActual && materiaActual && (
           <ALAIStudyALRepasar
-            materiales={repasarMateriales.length > 0 ? repasarMateriales : temaActual.documentos}
+            materiales={repasarMateriales}
             seleccion={repasarSeleccion}
             tema={temaActual}
             materia={materiaActual}
+            sessionId={freeToolSessionId}
+            sourceSelection={buildSourceSelectionFromMaterials(repasarMateriales, repasarSeleccion)}
             masteryContext={getMasteryContext()}
             onMasteryEvent={reportMasteryEvent}
             onBack={() => {
+              setReturnSessionId(freeToolSessionId);
               setReturnToEnfoque(true);
               requestAnimationFrame(() => {
                 setVista('tema');
@@ -1215,13 +1285,16 @@ const eliminarDocumento = async (id: string) => {
 
         {vista === 'analisis' && temaActual && materiaActual && (
           <AnalisisTeorico
-            materiales={analisisMateriales.length > 0 ? analisisMateriales : temaActual.documentos}
+            materiales={analisisMateriales}
             seleccion={analisisSeleccion}
             tema={temaActual}
             materia={materiaActual}
+            sessionId={freeToolSessionId}
+            sourceSelection={buildSourceSelectionFromMaterials(analisisMateriales, analisisSeleccion)}
             masteryContext={getMasteryContext()}
             onMasteryEvent={reportMasteryEvent}
             onClose={() => {
+              setReturnSessionId(freeToolSessionId);
               setReturnToEnfoque(true);
               requestAnimationFrame(() => {
                 setVista('tema');
@@ -1232,13 +1305,16 @@ const eliminarDocumento = async (id: string) => {
 
         {vista === 'alai' && temaActual && materiaActual && (
           <ALAIStudyALChat
-            materiales={alaiMateriales.length > 0 ? alaiMateriales : temaActual.documentos}
+            materiales={alaiMateriales}
             seleccion={alaiSeleccion}
             tema={temaActual}
             materia={materiaActual}
+            sessionId={freeToolSessionId}
+            sourceSelection={buildSourceSelectionFromMaterials(alaiMateriales, alaiSeleccion)}
             masteryContext={getMasteryContext()}
             onMasteryEvent={reportMasteryEvent}
             onBack={() => {
+              setReturnSessionId(freeToolSessionId);
               setReturnToEnfoque(true);
               requestAnimationFrame(() => {
                 setVista('tema');
@@ -1250,14 +1326,17 @@ const eliminarDocumento = async (id: string) => {
 
         {vista === 'exam' && temaActual && materiaActual && (
           <ALAIStudyALExams
-            materiales={examMateriales.length > 0 ? examMateriales : temaActual.documentos}
+            materiales={examMateriales}
             seleccion={examSeleccion}
             tema={temaActual}
             materia={materiaActual}
+            sessionId={freeToolSessionId}
+            sourceSelection={buildSourceSelectionFromMaterials(examMateriales, examSeleccion)}
             userName={(session?.user as any)?.name || (session?.user as any)?.username || ''}
             masteryContext={getMasteryContext()}
             onMasteryEvent={reportMasteryEvent}
             onBack={() => {
+              setReturnSessionId(freeToolSessionId);
               setReturnToEnfoque(true);
               requestAnimationFrame(() => {
                 setVista('tema');

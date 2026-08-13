@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
+import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
+import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 
@@ -29,6 +31,8 @@ interface Props {
   onBack: () => void;
   onMasteryEvent?: (event: any) => void;
   masteryContext?: any;
+  sessionId?: string | null;
+  sourceSelection?: SourceSelectionSnapshot;
 }
 
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -272,7 +276,7 @@ function highlightKeywords(text: string): React.ReactNode {
   });
 }
 
-export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, onBack, onMasteryEvent, masteryContext }: Props) {
+export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, onBack, onMasteryEvent, masteryContext, sourceSelection }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: uid(),
@@ -302,6 +306,11 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
 
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const effectiveSourceSelection = useMemo(
+    () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
+    [sourceSelection, materiales, seleccion],
+  );
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
 
   const activeMaterial = materiales[activeMaterialIndex] || materiales[0] || null;
   const activeMaterialId = activeMaterial?.materialId || activeMaterial?.material_id || activeMaterial?.id || '';
@@ -323,7 +332,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
   }, [materiales, activeMaterial, activeMaterialIndex, seleccion]);
 
   const viewerPages = useMemo(() => {
-    const src = forcedPage && Number.isFinite(forcedPage) ? [forcedPage] : [];
+    const src = forcedPage && Number.isFinite(forcedPage) && (activeSelectedPages.length === 0 || activeSelectedPages.includes(forcedPage)) ? [forcedPage] : [];
     return Array.from(new Set([...activeSelectedPages, ...src])).sort((a, b) => a - b);
   }, [activeSelectedPages, forcedPage]);
 
@@ -352,53 +361,27 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
   }, [messages, loadingAnswer]);
 
   useEffect(() => {
-    let cancelled = false;
-    async function loadText() {
+    if (authorizedStatus === 'loading' || authorizedStatus === 'idle') {
       setLoadingText(true);
-      setError('');
-      try {
-        const blocks: string[] = [];
-        for (let i = 0; i < materiales.length; i++) {
-          const mat = materiales[i];
-          const matId = mat?.materialId || mat?.material_id || mat?.id;
-          const name = mat?.nombre || mat?.name || matId || `Material ${i + 1}`;
-          const sel = findSelectionForMaterial(materiales, mat, i, seleccion);
-          const pages = getSelectionPages(sel);
-          const selectedText = getSelectionText(sel);
-          if (selectedText) {
-            blocks.push(`[Material ${i + 1}: ID=${matId} | ${name}${pages.length ? ` | páginas ${pages.join(', ')}` : ''}]\n${selectedText}`);
-            continue;
-          }
-          if (!matId) continue;
-          const res = await fetch('/api/enfoques/teorico/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'same-origin',
-            body: JSON.stringify({ materialIds: [matId] }),
-          });
-          const data = await res.json();
-          const fullText = String(data.materials?.[matId]?.text || '').trim();
-          if (!fullText) continue;
-          if (pages.length > 0) {
-            const filtered = filterTextByPages(fullText, pages);
-            blocks.push(`[Material ${i + 1}: ID=${matId} | ${name} | páginas ${pages.join(', ')}]\n${filtered || fullText}`);
-          } else {
-            blocks.push(`[Material ${i + 1}: ID=${matId} | ${name} | documento completo]\n${fullText}`);
-          }
-        }
-        if (cancelled) return;
-        const joined = blocks.filter(Boolean).join('\n\n---\n\n');
-        setMaterialText(joined);
-        if (!joined.trim()) setError('No se pudo cargar texto del material.');
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Error cargando material.');
-      } finally {
-        if (!cancelled) setLoadingText(false);
-      }
+      return;
     }
-    loadText();
-    return () => { cancelled = true; };
-  }, [materiales, seleccion]);
+    setLoadingText(false);
+    if (authorizedStatus === 'error' || !authorizedSource) {
+      setError(authorizedError || 'No se pudo resolver la fuente autorizada.');
+      setMaterialText('');
+      return;
+    }
+    setError('');
+    setMaterialText(authorizedSource.combinedText);
+  }, [authorizedStatus, authorizedSource, authorizedError]);
+
+  const isAuthorizedCitation = useCallback((materialId: string, page: number) => {
+    const resolvedId = materialId || String(activeMaterialId || '');
+    const selection = effectiveSourceSelection.materials.find(item => item.materialId === resolvedId);
+    return Boolean(selection && Number.isInteger(page) && page > 0 && (
+      selection.selectedPages.length === 0 || selection.selectedPages.includes(page)
+    ));
+  }, [effectiveSourceSelection, activeMaterialId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -427,6 +410,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
     if (pages.length !== 1) return;
     const page = Number(pages[0]);
     const matId = String(msg.sourceMaterial || '');
+    if (!isAuthorizedCitation(matId, page)) return;
     if (matId) {
       const idx = materiales.findIndex((m: any) => String(m?.materialId || m?.material_id || m?.id || '') === matId);
       if (idx >= 0) setActiveMaterialIndex(idx);
@@ -434,7 +418,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
     setForcedPage(page);
     setScrollTrigger((x) => x + 1);
     setPdfCollapsed(false);
-  }, [materiales]);
+  }, [materiales, isAuthorizedCitation]);
 
   const sendMessage = useCallback(async (override?: string) => {
     const text = String(override ?? input).trim();
@@ -469,25 +453,14 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
         confidence: data.confidence || 'media',
         sourceMaterial: data.sourceMaterial || '',
         sourceMaterialName: data.sourceMaterialName || '',
-        sourcePages: Array.isArray(data.sourcePages) ? data.sourcePages : [],
+        sourcePages: Array.isArray(data.sourcePages)
+          ? data.sourcePages.map(Number).filter((page: number) => isAuthorizedCitation(String(data.sourceMaterial || ''), page))
+          : [],
         suggestedFollowups: Array.isArray(data.suggestedFollowups) ? data.suggestedFollowups : [],
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
 
-      // ── Mastery Engine: reportar interacción con ALAI ──
-      try {
-        const confMap: Record<string, number> = { alta: 85, media: 55, baja: 25 };
-        onMasteryEvent?.({
-          tool: 'alai',
-          materialId: activeMaterialId || '',
-          score: data.inMaterial ? 70 : 40,
-          explanationQuality: confMap[data.confidence || 'media'] || 55,
-          conceptsIdentified: [text.slice(0, 60)].filter(Boolean),
-          freeModeUse: true,
-          freeDomainPct: 6,
-        });
-      } catch (_) {}
       const pages = assistantMsg.sourcePages || [];
       if (pages.length === 1) {
         const page = Number(pages[0]);
@@ -515,7 +488,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
     } finally {
       setLoadingAnswer(false);
     }
-  }, [input, loadingAnswer, loadingText, materialText, messages, materia, tema, materiales]);
+  }, [input, loadingAnswer, loadingText, materialText, messages, materia, tema, materiales, isAuthorizedCitation]);
 
   return (
     <div className="aal-screen">

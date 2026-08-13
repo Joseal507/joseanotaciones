@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
+import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 
 const BODY = "'Inter', system-ui, -apple-system, sans-serif";
 const HAND = BODY;
@@ -17,6 +19,8 @@ interface Props {
   nivel?: NivelEstudio;
   onMasteryEvent?: (event: any) => void;
   masteryContext?: any;
+  sessionId?: string | null;
+  sourceSelection?: SourceSelectionSnapshot;
 }
 
 type Analisis = {
@@ -288,7 +292,7 @@ const STEPS = [
   { emoji: '✨', label: 'puliendo detalles...' },
 ];
 
-export default function AnalisisTeorico({ materiales, seleccion, tema, materia, onClose, onGuardarApunte, materialId, nivel: nivelProp, onMasteryEvent, masteryContext }: Props) {
+export default function AnalisisTeorico({ materiales, seleccion, tema, materia, onClose, onGuardarApunte, materialId, nivel: nivelProp, onMasteryEvent, masteryContext, sourceSelection }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [analisis, setAnalisis] = useState<Analisis | null>(null);
@@ -307,6 +311,11 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const effectiveSourceSelection = useMemo(
+    () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
+    [sourceSelection, materiales, seleccion],
+  );
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
 
   const analysisRequestKey = useMemo(() => {
     const matsKey = (materiales || [])
@@ -326,8 +335,8 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
         }).join('|')
       : 'no-selection';
 
-    return `${matsKey}::${selKey}::${materialId || ''}`;
-  }, [materiales, seleccion, materialId]);
+    return `${effectiveSourceSelection.fingerprint}::${matsKey}::${selKey}::${materialId || ''}`;
+  }, [materiales, seleccion, materialId, effectiveSourceSelection.fingerprint]);
 
   // nivel detectado automáticamente por ALAI desde M0
 
@@ -349,50 +358,21 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
         setLoading(true);
         setError(null);
 
-        const documentos: any[] = [];
-
-        for (let i = 0; i < materiales.length; i++) {
-          const mat = materiales[i];
-          const matId = mat?.materialId || mat?.material_id || mat?.id;
-          const nombre = mat?.nombre || mat?.name || mat?.titulo || `Material ${i + 1}`;
-          const sel = findSelectionForMaterial(materiales, mat, i, seleccion);
-          const pages = getSelectionPages(sel);
-          const selectedText = getSelectionText(sel);
-
-          let contenido = selectedText || String(mat?.contenido || '').trim();
-
-          if (!contenido && matId) {
-            const res = await fetch('/api/enfoques/teorico/start', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'same-origin',
-              body: JSON.stringify({ materialIds: [matId] }),
-            });
-
-            const data = await res.json();
-            const fullText = String(data.materials?.[matId]?.text || '').trim();
-
-            if (pages.length > 0) {
-              const filtered = filterTextByPages(fullText, pages);
-              contenido = filtered || fullText;
-            } else {
-              contenido = fullText;
-            }
-          } else if (pages.length > 0 && contenido) {
-            const filtered = filterTextByPages(contenido, pages);
-            contenido = filtered || contenido;
-          }
-
-          if (!contenido.trim()) continue;
-
-          documentos.push({
-            id: matId || mat?.id || `material_${i + 1}`,
-            nombre,
-            contenido,
-            tipo: mat?.tipo || mat?.kind || '',
-            pages,
-          });
+        if (authorizedStatus === 'loading' || authorizedStatus === 'idle') return;
+        if (authorizedStatus === 'error' || !authorizedSource) {
+          throw new Error(authorizedError || 'No se pudo resolver la fuente autorizada.');
         }
+
+        const documentos = effectiveSourceSelection.materials.map(selection => {
+          const source = authorizedSource.materials[selection.materialId];
+          return {
+            id: selection.materialId,
+            nombre: source.nombre,
+            contenido: source.text,
+            tipo: source.kind,
+            pages: selection.selectedPages,
+          };
+        });
 
         if (!documentos.length) {
           throw new Error('No hay contenido legible para analizar.');
@@ -418,7 +398,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
               if (doc.pages?.length) acc[doc.id] = doc.pages;
               return acc;
             }, {}),
-            materialId: materialId || documentos.map((d: any) => d.id).join('__'),
+            materialId: `source_${effectiveSourceSelection.fingerprint}`,
           }),
         });
 
@@ -428,24 +408,6 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
         if (data.success && data.analisis) {
           setAnalisis(data.analisis);
 
-      try {
-        const a = data.analisis;
-        const concepts = [
-          ...(a?.conceptosClave || []),
-          ...(a?.concepts || []),
-          ...(a?.relacionesClave || []),
-        ].filter(Boolean).map((x: any) => String(x)).slice(0, 12);
-
-        onMasteryEvent?.({
-          tool: 'analisis',
-          materialId: materiales?.[0]?.materialId || materiales?.[0]?.id || '',
-          score: typeof a?.score === 'number' ? a.score : 60,
-          conceptsIdentified: concepts,
-          coveragePercent: typeof a?.coverage === 'number' ? a.coverage : undefined,
-          freeModeUse: true,
-          freeDomainPct: 10,
-        });
-      } catch (_) {}
         } else {
           setError(data.error || 'Error generando análisis');
         }
@@ -458,7 +420,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
 
     run();
     return () => { cancelled = true; };
-  }, [analysisRequestKey]);
+  }, [analysisRequestKey, authorizedStatus, authorizedSource, authorizedError]);
 
   // ═══ Scroll spy ═══
   useEffect(() => {

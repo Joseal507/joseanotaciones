@@ -330,6 +330,7 @@ export function persistableSnapshot(session: StudySession): Record<string, unkno
     setupHash: session.setupHash,
     blueprint: session.blueprint,
     journey: session.journey,
+    sessionPreparation: session.sessionPreparation,
     currentSessionNumber: session.currentSessionNumber,
     currentStep: session.currentStep,
     completedSessionNumbers: session.completedSessionNumbers,
@@ -392,6 +393,32 @@ export function findSession(
   });
 
   return matches[0] || null;
+}
+
+export function selectSessionForSource(
+  sessions: StudySession[],
+  params: {
+    materialIds: string[];
+    processMode?: ProcessMode | null;
+    sourceSelectionFingerprint?: string | null;
+  },
+): StudySession | null {
+  const materialKey = normalizeIds(params.materialIds)
+  const candidates = [...sessions]
+    .filter(session => normalizeIds(session.materialIds) === materialKey)
+    .filter(session => !params.processMode || session.processMode === params.processMode)
+  const exactCandidates = params.sourceSelectionFingerprint
+    ? candidates.filter(session => session.sourceSelectionFingerprint === params.sourceSelectionFingerprint)
+    : candidates
+
+  if (!params.sourceSelectionFingerprint) {
+    const sourceIdentities = new Set(exactCandidates.map(session => session.sourceSelectionFingerprint || 'legacy:unknown'))
+    const modes = new Set(exactCandidates.map(session => session.processMode))
+    if (sourceIdentities.size > 1 || (!params.processMode && modes.size > 1)) return null
+  }
+
+  return exactCandidates
+    .sort((left, right) => Number(right.lastOpenedAt || 0) - Number(left.lastOpenedAt || 0))[0] || null
 }
 
 export function getMaterialSessions(temaId: string, materialId: string): StudySession[] {
@@ -637,7 +664,26 @@ export function syncToServer(session: StudySession): void {
     const latestHash = snapshotHash(persistableSnapshot(session));
     if (lastPersistedHash.get(session.id) === latestHash) return;
     const write = async () => {
-      const adaptiveProgram = session.journey
+      await postSessionSnapshot(session, latestHash);
+    };
+    const previous = singleWriteInFlight.get(session.id) || Promise.resolve();
+    const current = previous.catch(() => undefined).then(write).catch((writeError) => {
+      console.error('[study-sessions] syncToServer_write_failed', JSON.stringify({
+        sessionId: session.id,
+        message: writeError instanceof Error ? writeError.message : String(writeError),
+      }))
+      return undefined
+    });
+    singleWriteInFlight.set(session.id, current);
+    void current.finally(() => {
+      if (singleWriteInFlight.get(session.id) === current) singleWriteInFlight.delete(session.id);
+    });
+  }, 150);
+  pendingPersistence.set(session.id, { session, timer });
+}
+
+function adaptiveProgramSnapshot(session: StudySession): any {
+  return session.journey
     ? {
         ...session.journey,
         resumeState: {
@@ -649,6 +695,7 @@ export function syncToServer(session: StudySession): void {
           replaySessionNumber: session.replaySessionNumber,
           replayAttempt: session.replayAttempt || 0,
           sessionContent: session.sessionContent || {},
+          sessionPreparation: session.sessionPreparation || {},
           recoveryQueues: session.recoveryQueues || {},
           isProgramComplete: session.isProgramComplete === true,
           unresolvedMicroIds: session.unresolvedMicroIds || [],
@@ -656,7 +703,22 @@ export function syncToServer(session: StudySession): void {
           breakHoursAcknowledged: session.breakHoursAcknowledged || 0,
         },
       }
-        : null;
+    : null;
+}
+
+async function postSessionSnapshot(session: StudySession, expectedHash: string): Promise<void> {
+      const adaptiveProgram = adaptiveProgramSnapshot(session);
+      console.info('[adaptive-program-persist]', JSON.stringify({
+        event: 'program_commit_requested', programId: session.id,
+        journeyId: session.journey?.id || null,
+        blueprintPresent: Boolean(session.blueprint), journeyPresent: Boolean(session.journey),
+        sourceSelection: { materialIds: session.materialIds, selectedPages: session.selectedPages },
+        sourceSelectionFingerprint: session.sourceSelectionFingerprint || null,
+        sessionPreparationKeys: Object.keys(session.sessionPreparation || {}),
+        sessionContentKeys: Object.keys(session.sessionContent || {}),
+        currentSessionNumber: session.currentSessionNumber || null,
+        status: session.status || null,
+      }));
       const response = await fetch('/api/study-sessions', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -694,44 +756,46 @@ export function syncToServer(session: StudySession): void {
       if (!ok) {
         throw new Error(`STUDY_SESSIONS_PERSIST_REJECTED:status=${response.status}`)
       }
-      lastPersistedHash.set(session.id, latestHash);
-    };
-    const previous = singleWriteInFlight.get(session.id) || Promise.resolve();
-    // AUDITORÍA DE CICLO DE VIDA (verificación focalizada, punto 4): el primer
-    // .catch(() => undefined) es encadenamiento intencional (un write previo
-    // fallido nunca debe bloquear el siguiente intento) — pero el segundo
-    // tragaba el fallo del PROPIO write() (fetch real a /api/study-sessions) sin
-    // ningún rastro: la actualización quedaba perdida en silencio, sin log, sin
-    // reintento, sin aviso. Loguear aquí no cambia el comportamiento de
-    // degradación (sigue sin bloquear la UI ni reintentar indefinidamente), solo
-    // lo hace diagnosticable.
-    const current = previous.catch(() => undefined).then(write).catch((writeError) => {
-      console.error('[study-sessions] syncToServer_write_failed', JSON.stringify({
-        sessionId: session.id,
-        message: writeError instanceof Error ? writeError.message : String(writeError),
-      }))
-      return undefined
-    });
-    singleWriteInFlight.set(session.id, current);
-    void current.finally(() => {
-      if (singleWriteInFlight.get(session.id) === current) singleWriteInFlight.delete(session.id);
-    });
-  }, 150);
-  pendingPersistence.set(session.id, { session, timer });
+      lastPersistedHash.set(session.id, expectedHash);
 }
 
-export async function lookupSessionsFromServer(temaId?: string): Promise<PersistedProgramLookup<StudySession>> {
+export async function persistSessionDurably(sessionId: string): Promise<StudySession> {
+  const pending = pendingPersistence.get(sessionId);
+  if (pending) {
+    clearTimeout(pending.timer);
+    pendingPersistence.delete(sessionId);
+  }
+  const session = getSessionById(sessionId);
+  if (!session) throw new Error('PROGRAM_COMMIT_SESSION_NOT_FOUND');
+  const expectedHash = snapshotHash(persistableSnapshot(session));
+  const previous = singleWriteInFlight.get(sessionId) || Promise.resolve();
+  const current = previous.catch(() => undefined).then(() => postSessionSnapshot(session, expectedHash));
+  singleWriteInFlight.set(sessionId, current);
+  try {
+    await current;
+  } finally {
+    if (singleWriteInFlight.get(sessionId) === current) singleWriteInFlight.delete(sessionId);
+  }
+  return session;
+}
+
+export async function lookupSessionsFromServer(temaId?: string, sessionId?: string): Promise<PersistedProgramLookup<StudySession>> {
   if (typeof window === 'undefined') return { status: 'ERROR', sessions: [], error: 'CLIENT_ONLY_LOOKUP' };
 
   try {
-    const url = `/api/study-sessions${temaId ? `?temaId=${encodeURIComponent(temaId)}` : ''}`;
+    const params = new URLSearchParams();
+    if (temaId) params.set('temaId', temaId);
+    if (sessionId) params.set('sessionId', sessionId);
+    const url = `/api/study-sessions${params.size ? `?${params.toString()}` : ''}`;
     const res = await fetch(url, { cache: 'no-store' });
     const json = await res.json();
 
     if (!res.ok || !json?.success || !Array.isArray(json.sessions)) {
       return {
         status: 'ERROR',
-        sessions: temaId ? getSessionsByTema(temaId) : Object.values(loadAll()),
+        sessions: sessionId
+          ? [getSessionById(sessionId)].filter(Boolean) as StudySession[]
+          : temaId ? getSessionsByTema(temaId) : Object.values(loadAll()),
         error: `DURABLE_LOOKUP_REJECTED:status=${res.status}`,
       };
     }
@@ -795,7 +859,9 @@ export async function lookupSessionsFromServer(temaId?: string): Promise<Persist
     }
 
     saveAll(all);
-    const sessions = temaId ? getSessionsByTema(temaId) : Object.values(loadAll());
+    const sessions = sessionId
+      ? [getSessionById(sessionId)].filter(Boolean) as StudySession[]
+      : temaId ? getSessionsByTema(temaId) : Object.values(loadAll());
     return { status: sessions.length ? 'FOUND' : 'ABSENT', sessions };
   } catch (syncError) {
     // AUDITORÍA DE CICLO DE VIDA (verificación focalizada, punto 4): degradar a
@@ -809,10 +875,21 @@ export async function lookupSessionsFromServer(temaId?: string): Promise<Persist
     }))
     return {
       status: 'ERROR',
-      sessions: temaId ? getSessionsByTema(temaId) : Object.values(loadAll()),
+      sessions: sessionId
+        ? [getSessionById(sessionId)].filter(Boolean) as StudySession[]
+        : temaId ? getSessionsByTema(temaId) : Object.values(loadAll()),
       error: syncError instanceof Error ? syncError.message : String(syncError),
     };
   }
+}
+
+export function lookupSessionByIdFromServer(
+  sessionId: string,
+  temaId?: string,
+): Promise<PersistedProgramLookup<StudySession>> {
+  const exactId = String(sessionId || '').trim();
+  if (!exactId) return Promise.resolve({ status: 'ABSENT', sessions: [] });
+  return lookupSessionsFromServer(temaId, exactId);
 }
 
 export async function syncSessionsFromServer(temaId?: string): Promise<StudySession[]> {

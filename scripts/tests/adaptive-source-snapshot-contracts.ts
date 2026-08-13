@@ -4,6 +4,8 @@ import {
   buildSourceSelectionSnapshot,
   filterTextToSelectedPages,
   prepareCanonicalSourceMaterials,
+  mapPageSelectionsToMaterials,
+  stripNonInstructionalBoilerplate,
   sourceSelectionFingerprint,
 } from '../../lib/adaptive/sourceSelection'
 import { persistableSnapshot } from '../../lib/studySessions'
@@ -30,6 +32,28 @@ const filtered = filterTextToSelectedPages(pagedText, [3, 2, 2])
 assert.match(filtered, /AUTHORIZED_ALPHA/)
 assert.match(filtered, /AUTHORIZED_ALPHA_3/)
 assert.doesNotMatch(filtered, /FORBIDDEN_ALPHA/)
+
+const realMaterials = [
+  { id: 'doc-a', materialId: 'remote-a' },
+  { id: 'doc-b', materialId: 'remote-b' },
+  { id: 'doc-c', materialId: 'remote-c' },
+]
+const realSelection = mapPageSelectionsToMaterials(realMaterials, [
+  { materialId: 'doc-a', paginasSeleccionadas: [2] },
+  { materialId: 'doc-b', paginasSeleccionadas: [1, 3] },
+  { materialId: 'doc-c', paginasSeleccionadas: [6, 23, 27, 35, 38] },
+])
+assert.deepEqual(realSelection, { 'remote-a': [2], 'remote-b': [1, 3], 'remote-c': [6, 23, 27, 35, 38] })
+const realFixture = prepareCanonicalSourceMaterials(realMaterials.map((material, index) => ({
+  materialId: material.materialId,
+  selectedPages: realSelection[material.materialId],
+  text: Array.from({ length: [2, 5, 43][index] }, (_, page) =>
+    `[Pagina ${page + 1}]\n${realSelection[material.materialId].includes(page + 1) ? `AUTHORIZED_${index}_${page + 1}` : `FORBIDDEN_${index}_${page + 1}`}`
+  ).join('\n'),
+})))
+assert.equal(realFixture.materials.reduce((total, material) => total + material.selectedPages!.length, 0), 8)
+assert.doesNotMatch(JSON.stringify(realFixture.materials), /FORBIDDEN_/)
+assert.equal(stripNonInstructionalBoilerplate('© 2009 Prentice-Hall Inc. Todos los derechos reservados.'), '')
 
 for (let count = 1; count <= 5; count++) {
   const ids = Array.from({ length: count }, (_, index) => `material_${index + 1}`)

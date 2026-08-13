@@ -6,6 +6,7 @@ import {
   upsertSession,
   hashSetup,
   lookupSessionsFromServer,
+  persistSessionDurably,
   updateSessionById,
   type AdaptiveSetup,
 } from "../../lib/studySessions";
@@ -27,7 +28,7 @@ import {
   selectPersistedAdaptiveProgram,
   type ProgramRestoreState,
 } from "../../lib/adaptive/programRestore";
-import { buildSourceSelectionSnapshot } from "../../lib/adaptive/sourceSelection";
+import { buildSourceSelectionSnapshot, hasExplicitPageSelection } from "../../lib/adaptive/sourceSelection";
 import { computeSessionDependencyFingerprint, sharedSessionPreparationRequests } from "../../lib/adaptive/sessionPrefetch";
 
 const HAND = "'Caveat', cursive";
@@ -578,12 +579,17 @@ export default function StudyALAdaptive({
         })
       );
       if (!stillCurrent()) return;
+      if (!hasExplicitPageSelection(sourceSelection)) {
+        throw new Error('SOURCE_SELECTION_INCOMPLETE: faltan páginas seleccionadas para uno o más materiales.');
+      }
 
       const res = await fetch("/api/adaptive/blueprint", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           materials: materialsWithText,
+          sourceSelection,
+          requireExplicitPageSelection: true,
           userProfile: profile,
           adaptiveSetup: setup,
           generationToken: String(myToken),
@@ -595,7 +601,17 @@ export default function StudyALAdaptive({
       if (!stillCurrent()) return;
       if (!res.ok || !json.success) throw new Error(json.error || "Error generando blueprint");
 
+      const returnedFingerprint = json.blueprint?.sourceSelectionFingerprint || json.blueprint?.sourceSelection?.fingerprint;
+      if (returnedFingerprint !== sourceSelection.fingerprint) {
+        throw new Error('SOURCE_SELECTION_FINGERPRINT_MISMATCH');
+      }
+      if (json.quality?.planGenerationAllowed !== true || json.quality?.coverageCertified !== true) {
+        setBlueprintQuality(json.quality || null);
+        throw new Error('BLUEPRINT_NOT_CERTIFIED');
+      }
+
       setBlueprint(json.blueprint);
+      setBlueprintQuality(json.quality);
 
       // Generar plan de aprendizaje
       try {
@@ -714,6 +730,7 @@ export default function StudyALAdaptive({
           setup,
           materialTitle: materialNames[0] || "Material",
           quality: blueprintQuality,  // pasar quality para que el servidor pueda bloquear
+          sourceSelectionFingerprint: sourceSelection.fingerprint,
           generationToken: String(myToken),
         }),
         signal,
@@ -735,8 +752,6 @@ export default function StudyALAdaptive({
       }
 
       const j = data.journey;
-      setJourney(j);
-      setJourneyError(null);
       const activeSessionId = resolvedSession?.id || sessionId;
       if (!activeSessionId) throw new Error("No existe un draft adaptativo canónico.");
       const readySession = updateSessionById(activeSessionId, current => ({
@@ -747,7 +762,13 @@ export default function StudyALAdaptive({
         sourceSelectionFingerprint: sourceSelection.fingerprint,
         adaptiveState: "ready",
       }));
-      if (readySession) setResolvedSession(readySession);
+      if (!readySession) throw new Error('PROGRAM_COMMIT_SESSION_NOT_FOUND');
+      await persistSessionDurably(readySession.id);
+      if (!stillCurrent()) return;
+      setResolvedSession(readySession);
+      setJourney(j);
+      setJourneyError(null);
+      setActiveTab('plan');
       // Pipeline continuo: en cuanto el plan es durable, empieza Session 1.
       // Usa el mismo attempt/signal del plan, por lo que salir del modo aborta
       // la petición y un resultado stale nunca se persiste.

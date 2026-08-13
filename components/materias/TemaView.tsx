@@ -17,10 +17,12 @@ import {
   getSessionsByTema,
   getMaterialSessions,
   syncSessionsFromServer,
+  lookupSessionByIdFromServer,
   type StudySession,
+  selectSessionForSource,
 } from "../../lib/studySessions";
 import { resolveAdaptiveResumeTarget } from "../../lib/adaptive/resume";
-import { canonicalizeSelectedPages } from "../../lib/adaptive/sourceSelection";
+import { buildSourceSelectionSnapshot, canonicalizeSelectedPages, mapPageSelectionsToMaterials } from "../../lib/adaptive/sourceSelection";
 
 const HAND = "'Caveat', cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -937,6 +939,7 @@ export default function TemaView({
   onOpenAlai,
   onOpenExam,
   returnToEnfoque,
+  returnSessionId,
   onClearReturnToEnfoque,
   autoOpenAdaptive,
   autoOpenAdaptiveSessionId,
@@ -1039,6 +1042,20 @@ export default function TemaView({
   }, [tema?.id, tema?.documentos]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const activeTool = showStudyMap ? 'studymap' : showCheatCodes ? 'truquitos' : null;
+    const url = new URL(window.location.href);
+    if (activeTool && resumeSessionId) {
+      url.searchParams.set('temaId', tema?.id || '');
+      url.searchParams.set('freeSessionId', resumeSessionId);
+      url.searchParams.set('freeTool', activeTool);
+    } else {
+      return;
+    }
+    window.history.replaceState({}, '', `${url.pathname}${url.search}`);
+  }, [showStudyMap, showCheatCodes, resumeSessionId, tema?.id]);
+
+  useEffect(() => {
     refreshSessions();
   }, [refreshSessions]);
 
@@ -1046,20 +1063,27 @@ export default function TemaView({
   // INSTANTÁNEO: usa datos locales, sin esperar al servidor
   useEffect(() => {
     if (!returnToEnfoque) return;
+    let cancelled = false;
 
-    // Leer sesiones desde localStorage (síncrono, instantáneo)
-    const localSessions = getSessionsByTema(tema?.id || "");
-    const lastSession = localSessions[0];
+    async function restoreReturnedSession() {
+      const localSessions = getSessionsByTema(tema?.id || "");
+      let lastSession = localSessions.find(session => session.id === returnSessionId) || null;
+      if (!lastSession && returnSessionId) {
+        const lookup = await lookupSessionByIdFromServer(returnSessionId, tema?.id || undefined);
+        if (cancelled) return;
+        if (lookup.status === 'ERROR') return;
+        if (lookup.status === 'FOUND') lastSession = lookup.sessions.find(session => session.id === returnSessionId) || null;
+      }
 
-    if (!lastSession) {
-      onClearReturnToEnfoque?.();
-      return;
-    }
+      if (!lastSession) {
+        onClearReturnToEnfoque?.();
+        return;
+      }
 
     const matIds = lastSession.materialIds || [];
 
     // Restaurar IDs seleccionados
-    setSelectedIds(
+      setSelectedIds(
       matIds
         .map((id: string) => {
           const doc = tema.documentos?.find(
@@ -1070,9 +1094,9 @@ export default function TemaView({
         .filter(Boolean),
     );
 
-    setEnfoqueElegido(lastSession.enfoque as any);
+      setEnfoqueElegido(lastSession.enfoque as any);
 
-    if (lastSession.selectedPages) {
+      if (lastSession.selectedPages) {
       const rebuilt = lastSession.materialIds.map(
         (matId: string, idx: number) => ({
           materialId: matId,
@@ -1080,19 +1104,19 @@ export default function TemaView({
           pages: lastSession.selectedPages![matId] || [],
         }),
       );
-      setSeleccionResult(rebuilt as any);
-    }
+        setSeleccionResult(rebuilt as any);
+      }
 
-    setResumeSessionId(lastSession.id);
+      setResumeSessionId(lastSession.id);
 
     // ── FUENTE DE VERDAD DEL MODO: processMode guardado en la sesión ──
     // Ya no necesitamos buscar en el mastery localStorage porque
     // studySessions.ts v2 siempre guarda processMode correctamente.
     // Fallback al mastery localStorage solo si la sesión es muy vieja (migración).
-    let lastMode: 'free' | 'adaptive' = lastSession.processMode === 'adaptive' ? 'adaptive' : 'free';
+      let lastMode: 'free' | 'adaptive' = lastSession.processMode === 'adaptive' ? 'adaptive' : 'free';
 
     // Fallback de migración: sesiones viejas sin processMode
-    if (lastMode === 'free') {
+      if (lastMode === 'free') {
       try {
         const sortedIds = [...matIds].sort().join('-');
         const masteryKey = 'studyal_mastery_v2_' + sortedIds;
@@ -1104,28 +1128,68 @@ export default function TemaView({
           }
         }
       } catch {}
-    }
+      }
 
     console.log("⚡ [returnToEnfoque] Sesión:", lastSession.id, "| processMode guardado:", lastSession.processMode, "| modo final:", lastMode);
 
-    setStudyMode(lastMode);
+      setStudyMode(lastMode);
 
     // Abrir el StudyAL Process directamente, sin pasar por el enfoque
-    setOpenFree(true);
-    onClearReturnToEnfoque?.();
+      setOpenFree(true);
+      onClearReturnToEnfoque?.();
 
     // Sincronizar con servidor en background (sin bloquear UI)
-    syncSessionsFromServer(tema?.id || "").then(() => {
-      refreshSessions();
-    }).catch(() => {});
+      syncSessionsFromServer(tema?.id || "").then(() => {
+        refreshSessions();
+      }).catch(() => {});
+    }
+    restoreReturnedSession().catch(() => {});
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     returnToEnfoque,
+    returnSessionId,
     tema?.id,
     tema?.documentos,
     onClearReturnToEnfoque,
     refreshSessions,
   ]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const tool = params.get('freeTool');
+    const exactSessionId = params.get('freeSessionId');
+    if (!exactSessionId || (tool !== 'studymap' && tool !== 'truquitos')) return;
+    let cancelled = false;
+    lookupSessionByIdFromServer(exactSessionId, tema?.id || undefined).then(lookup => {
+      if (cancelled || lookup.status !== 'FOUND') return;
+      const restored = lookup.sessions.find(session =>
+        session.id === exactSessionId && session.processMode === 'free' && session.temaId === tema?.id
+      );
+      if (!restored) return;
+      const materialSet = new Set(restored.materialIds.map(String));
+      const restoredDocs = (tema.documentos || []).filter((document: any) =>
+        materialSet.has(String(document?.materialId || document?.id || ''))
+      );
+      if (restoredDocs.length !== restored.materialIds.length) return;
+      const restoredSource = buildSourceSelectionSnapshot(restored.materialIds, restored.selectedPages);
+      if (restoredSource.fingerprint !== restored.sourceSelectionFingerprint) return;
+      setSelectedIds(restoredDocs.map((document: any) => String(document.id || document.materialId)));
+      setSeleccionResult(restored.materialIds.map((materialId, materialIndex) => ({
+        materialId,
+        materialIndex,
+        pages: restored.selectedPages[materialId] || [],
+      })) as any);
+      setResumeSessionId(restored.id);
+      setStudyMode('free');
+      chosenModeRef.current = 'free';
+      setOpenFree(false);
+      setShowStudyMap(tool === 'studymap');
+      setShowCheatCodes(tool === 'truquitos');
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [tema?.id, tema?.documentos]);
 
   const shouldAutoOpenAdaptive = autoOpenAdaptive && !adaptiveAutoOpenConsumed;
 
@@ -1718,15 +1782,13 @@ export default function TemaView({
       ? activeSessions.find(session => session.id === resumeSessionId)?.selectedPages
       : null;
     if (restored && Object.keys(restored).length) return restored;
-    const materialIds = selectedDocs.map(getMaterialKey);
-    const result: Record<string, number[]> = {};
-    for (const [index, item] of (Array.isArray(seleccionResult) ? seleccionResult : []).entries()) {
-      const materialId = String((item as any)?.materialId || (item as any)?.documentId || materialIds[index] || '').trim();
-      if (!materialId) continue;
-      result[materialId] = canonicalizeSelectedPages((item as any)?.pages || (item as any)?.selectedPages || (item as any)?.paginas || []);
-    }
-    return result;
+    return mapPageSelectionsToMaterials(selectedDocs, seleccionResult);
   }, [activeSessions, resumeSessionId, seleccionResult, selectedDocs]);
+
+  const freeSourceSelection = useMemo(() => buildSourceSelectionSnapshot(
+    selectedDocs.map(getMaterialKey),
+    adaptiveSelectedPages,
+  ), [selectedDocs, adaptiveSelectedPages]);
 
 
   // Guard: si la selección actual no coincide con la sesión resumida, limpiar resume viejo
@@ -1782,12 +1844,12 @@ export default function TemaView({
 
     requestAnimationFrame(() => {
       const toolMap: Record<string, () => void> = {
-        repasar: () => onOpenRepasar?.(selectedDocs, currentSel as any),
-        analisis: () => onOpenAnalisis?.(selectedDocs, currentSel as any),
+        repasar: () => onOpenRepasar?.(selectedDocs, currentSel as any, resumeSessionId || null),
+        analisis: () => onOpenAnalisis?.(selectedDocs, currentSel as any, resumeSessionId || null),
         flashcards: () => onOpenFlashcards?.(selectedDocs, currentSel as any, resumeSessionId || null),
-        quiz: () => onOpenQuiz?.(selectedDocs, currentSel as any),
-        examen: () => onOpenExam?.(selectedDocs, currentSel as any),
-        alai: () => onOpenAlai?.(selectedDocs, currentSel as any),
+        quiz: () => onOpenQuiz?.(selectedDocs, currentSel as any, resumeSessionId || null),
+        examen: () => onOpenExam?.(selectedDocs, currentSel as any, resumeSessionId || null),
+        alai: () => onOpenAlai?.(selectedDocs, currentSel as any, resumeSessionId || null),
         studymap: () => setShowStudyMap(true),
         truquitos: () => setShowCheatCodes(true),
       };
@@ -2047,6 +2109,8 @@ export default function TemaView({
   if (showStudyMap)
     return (
       <ALAIStudyMap
+        sessionId={resumeSessionId || ''}
+        sourceSelection={freeSourceSelection}
         materiales={selectedDocs}
         seleccion={
           Array.isArray(seleccionResult) && seleccionResult.length
@@ -2057,6 +2121,10 @@ export default function TemaView({
         tema={tema}
         onMasteryEvent={onMasteryEvent}
         onBack={() => {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('freeSessionId');
+          url.searchParams.delete('freeTool');
+          window.history.replaceState({}, '', `${url.pathname}${url.search}`);
           setShowStudyMap(false);
           setOpenFree(true);
         }}
@@ -2066,6 +2134,8 @@ export default function TemaView({
   if (showCheatCodes)
     return (
       <ALAIStudyALCheatCodes
+        sessionId={resumeSessionId || ''}
+        sourceSelection={freeSourceSelection}
         materiales={selectedDocs}
         seleccion={
           Array.isArray(seleccionResult) && seleccionResult.length
@@ -2077,6 +2147,10 @@ export default function TemaView({
         masteryContext={masteryContext}
         onMasteryEvent={onMasteryEvent}
         onBack={() => {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('freeSessionId');
+          url.searchParams.delete('freeTool');
+          window.history.replaceState({}, '', `${url.pathname}${url.search}`);
           setShowCheatCodes(false);
           setOpenFree(true);
         }}
@@ -2183,6 +2257,8 @@ export default function TemaView({
         masterySnapshot={masterySnapshot}
 
         temaId={tema?.id}
+        sessionId={resumeSessionId || ''}
+        sourceSelection={freeSourceSelection}
         enfoque={enfoqueElegido || 'teorico'}
         onOpenStudyMap={() => {
           setShowStudyMap(true);
@@ -2212,6 +2288,7 @@ export default function TemaView({
             Array.isArray(seleccionResult) && seleccionResult.length
               ? seleccionResult
               : undefined,
+            resumeSessionId || null,
           );
         }}
         onOpenFlashcards={() => {
@@ -2482,6 +2559,7 @@ export default function TemaView({
           onOpenQuiz?.(
             matsSeleccionados,
             normalizedSel.length ? normalizedSel : undefined,
+            resumeSessionId || null,
           );
         }}
         onOpenRepasar={() => {
@@ -2616,6 +2694,7 @@ export default function TemaView({
           onOpenRepasar?.(
             matsSeleccionados,
             normalizedSel.length ? normalizedSel : undefined,
+            resumeSessionId || savedSessionId,
           );
         }}
         onOpenAlai={() => {
@@ -2711,6 +2790,7 @@ export default function TemaView({
           onOpenAlai?.(
             matsSeleccionados,
             normalizedSel.length ? normalizedSel : undefined,
+            resumeSessionId || null,
           );
         }}
         onOpenExam={() => {
@@ -2806,6 +2886,7 @@ export default function TemaView({
           onOpenExam?.(
             matsSeleccionados,
             normalizedSel.length ? normalizedSel : undefined,
+            resumeSessionId || null,
           );
         }}
         onComingSoon={() => {}}
@@ -3127,19 +3208,18 @@ export default function TemaView({
             .map((d: any) => getMaterialKey(d))
             .filter(Boolean)
             .sort();
-          const selectedKey = selectedMatIds.join(',');
+          const currentSource = buildSourceSelectionSnapshot(
+            selectedMatIds,
+            mapPageSelectionsToMaterials(selectedDocs, seleccionResult),
+          );
+          const hasCurrentPageSelection = Array.isArray(seleccionResult) && seleccionResult.length > 0;
+          const requestedMode = chosenModeRef.current || null;
 
-          const matchingSession = activeSessions
-            .filter((s) => {
-              const sessKey = [...(s.materialIds || [])].sort().join(',');
-              return sessKey === selectedKey;
-            })
-            .sort((a, b) => {
-              const aAdaptive = a.processMode === "adaptive" ? 1 : 0;
-              const bAdaptive = b.processMode === "adaptive" ? 1 : 0;
-              return bAdaptive - aAdaptive
-                || Number(b.lastOpenedAt || 0) - Number(a.lastOpenedAt || 0);
-            })[0] || null;
+          const matchingSession = selectSessionForSource(activeSessions, {
+            materialIds: selectedMatIds,
+            processMode: requestedMode,
+            sourceSelectionFingerprint: hasCurrentPageSelection ? currentSource.fingerprint : null,
+          });
 
           const isResumeMode = !!matchingSession;
           const resumeMode = (matchingSession?.processMode || 'free') as 'free' | 'adaptive' | 'manual';
@@ -4798,14 +4878,11 @@ export default function TemaView({
 
               items.forEach((item: any, idx: number) => {
                 const fallbackMatId = matIds[idx];
-                const matId = String(
-                  item?.materialId ||
-                    item?.material_id ||
-                    item?.documentId ||
-                    item?.document_id ||
-                    fallbackMatId ||
-                    "",
-                );
+                const emittedId = String(item?.materialId || item?.material_id || item?.documentId || item?.document_id || "");
+                const matchingDocument = selectedDocs.find((document: any) =>
+                  sameId(document?.id, emittedId) || sameId(getMaterialKey(document), emittedId)
+                ) || selectedDocs[idx];
+                const matId = matchingDocument ? getMaterialKey(matchingDocument) : fallbackMatId;
 
                 const rawPages =
                   item?.pages ||
