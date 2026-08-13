@@ -16,6 +16,7 @@ export type AdaptiveLifecycleState =
   | 'error';
 import { migrateJourneySessionKinds } from './adaptive/sessionKind';
 import { buildSourceSelectionSnapshot } from './adaptive/sourceSelection';
+import type { PersistedProgramLookup } from './adaptive/programRestore';
 
 export interface AdaptiveSetup {
   knowledgeLevel: 'never_seen' | 'know_little' | 'want_review' | 'already_know';
@@ -719,8 +720,8 @@ export function syncToServer(session: StudySession): void {
   pendingPersistence.set(session.id, { session, timer });
 }
 
-export async function syncSessionsFromServer(temaId?: string): Promise<StudySession[]> {
-  if (typeof window === 'undefined') return [];
+export async function lookupSessionsFromServer(temaId?: string): Promise<PersistedProgramLookup<StudySession>> {
+  if (typeof window === 'undefined') return { status: 'ERROR', sessions: [], error: 'CLIENT_ONLY_LOOKUP' };
 
   try {
     const url = `/api/study-sessions${temaId ? `?temaId=${encodeURIComponent(temaId)}` : ''}`;
@@ -728,7 +729,11 @@ export async function syncSessionsFromServer(temaId?: string): Promise<StudySess
     const json = await res.json();
 
     if (!res.ok || !json?.success || !Array.isArray(json.sessions)) {
-      return temaId ? getSessionsByTema(temaId) : Object.values(loadAll());
+      return {
+        status: 'ERROR',
+        sessions: temaId ? getSessionsByTema(temaId) : Object.values(loadAll()),
+        error: `DURABLE_LOOKUP_REJECTED:status=${res.status}`,
+      };
     }
 
     const all = loadAll();
@@ -790,7 +795,8 @@ export async function syncSessionsFromServer(temaId?: string): Promise<StudySess
     }
 
     saveAll(all);
-    return temaId ? getSessionsByTema(temaId) : Object.values(loadAll());
+    const sessions = temaId ? getSessionsByTema(temaId) : Object.values(loadAll());
+    return { status: sessions.length ? 'FOUND' : 'ABSENT', sessions };
   } catch (syncError) {
     // AUDITORÍA DE CICLO DE VIDA (verificación focalizada, punto 4): degradar a
     // datos locales sigue siendo correcto (nunca bloquear la sesión activa por
@@ -801,6 +807,14 @@ export async function syncSessionsFromServer(temaId?: string): Promise<StudySess
       temaId: temaId || null,
       message: syncError instanceof Error ? syncError.message : String(syncError),
     }))
-    return temaId ? getSessionsByTema(temaId) : Object.values(loadAll());
+    return {
+      status: 'ERROR',
+      sessions: temaId ? getSessionsByTema(temaId) : Object.values(loadAll()),
+      error: syncError instanceof Error ? syncError.message : String(syncError),
+    };
   }
+}
+
+export async function syncSessionsFromServer(temaId?: string): Promise<StudySession[]> {
+  return (await lookupSessionsFromServer(temaId)).sessions;
 }

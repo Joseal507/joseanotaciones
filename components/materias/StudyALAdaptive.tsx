@@ -2,12 +2,10 @@
 
 import { useEffect, useMemo, useState, useRef } from "react";
 import {
-  getSessionById,
   getSessionsByTema,
   upsertSession,
-  findSession,
   hashSetup,
-  syncSessionsFromServer,
+  lookupSessionsFromServer,
   updateSessionById,
   type AdaptiveSetup,
 } from "../../lib/studySessions";
@@ -25,6 +23,8 @@ import {
   classifyPersistedAdaptiveProgram,
   mayGenerateAfterRestore,
   shouldResumePreparation,
+  restoreStateFromLookup,
+  selectPersistedAdaptiveProgram,
   type ProgramRestoreState,
 } from "../../lib/adaptive/programRestore";
 import { buildSourceSelectionSnapshot } from "../../lib/adaptive/sourceSelection";
@@ -340,15 +340,32 @@ export default function StudyALAdaptive({
 
     async function loadSession() {
       setRestoreState('RESTORING');
-      // Sync desde servidor primero para datos cross-browser
-      if (temaId) {
-        try { await syncSessionsFromServer(temaId); } catch {}
+      // El lookup durable es la autoridad. ERROR nunca equivale a ABSENT.
+      let durableLookup = temaId
+        ? await lookupSessionsFromServer(temaId)
+        : { status: 'ABSENT' as const, sessions: [] };
+      if (temaId && durableLookup.status === 'ERROR') {
+        durableLookup = await lookupSessionsFromServer(temaId);
       }
       if (cancelled) return;
 
       const allAdaptive = temaId
         ? getSessionsByTema(temaId).filter((s: any) => s.processMode === "adaptive")
         : [];
+
+      if (durableLookup.status === 'ERROR') {
+        // Un artefacto local COMPLETO puede seguir sirviéndose durante una caída
+        // temporal del lookup: nunca se interpreta como ABSENT ni autoriza IA.
+        // Si tampoco existe ese checkpoint completo, se queda en RESTORE_ERROR.
+        const localCheckpoint = selectPersistedAdaptiveProgram(allAdaptive, { sessionId, materialIds });
+        if (classifyPersistedAdaptiveProgram(localCheckpoint) !== 'FOUND_VALID_PROGRAM') {
+          setRestoreState('RESTORE_ERROR');
+          setSessionLoadError('No pudimos verificar tu programa guardado. Reintentaremos la restauración sin crear uno nuevo.');
+          setSessionLoading(false);
+          return;
+        }
+        durableLookup = { status: 'FOUND', sessions: allAdaptive };
+      }
 
       const keyOf = (ids?: string[]) =>
         [...new Set((ids || []).map((x: any) => String(x || "").trim()).filter(Boolean))]
@@ -363,9 +380,11 @@ export default function StudyALAdaptive({
         return score;
       };
 
-      let sess = sessionId
-        ? getSessionById(sessionId)
-        : (temaId && materialIds.length > 0 ? findSession(temaId, materialIds, "adaptive") : null);
+      let sess = selectPersistedAdaptiveProgram(allAdaptive, {
+        sessionId,
+        materialIds,
+        sourceSelectionFingerprint: resolvedSession?.sourceSelectionFingerprint,
+      });
 
       const targetKey = keyOf(
         (sess?.materialIds?.length ? sess.materialIds : materialIds) as string[]
@@ -410,7 +429,7 @@ export default function StudyALAdaptive({
         }
 
         const normalizedSession = normalizeAdaptivePlanSnapshot(sess);
-        const persistedState = classifyPersistedAdaptiveProgram(normalizedSession);
+        const persistedState = restoreStateFromLookup(durableLookup, normalizedSession);
         setRestoreState(persistedState);
         setResolvedSession(normalizedSession);
 
@@ -490,7 +509,12 @@ export default function StudyALAdaptive({
       if (!cancelled) setSessionLoading(false);
     }
 
-    loadSession().catch(() => { if (!cancelled) { setRestoreState('NOTHING_EXISTS'); setSessionLoading(false); } });
+    loadSession().catch((error) => { if (!cancelled) {
+      console.error('[adaptive-restore] durable_lookup_failed', error);
+      setRestoreState('RESTORE_ERROR');
+      setSessionLoadError('No pudimos verificar tu programa guardado. Reintentaremos la restauración sin crear uno nuevo.');
+      setSessionLoading(false);
+    } });
     return () => { cancelled = true; };
   }, [sessionId, temaId]);
   // Generate blueprint — solo si sessionLoading terminó Y no hay blueprint ya cargado

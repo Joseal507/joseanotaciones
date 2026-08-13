@@ -124,3 +124,35 @@ test('cold restore server-authoritative: cliente SIN localStorage restaura vía 
 
   console.log('adaptive-persistence-cold-restore: PASS (GET real sin localStorage -> mismo blueprint/journey/sesión actual, 0 llamadas de generación)')
 })
+
+test('restore durable transitorio y dos tabs: 503 no significa ABSENT y ambas restauran la misma identidad sin generación', async ({ context }) => {
+  let lookupCalls = 0
+  const generationRequests: string[] = []
+  await context.route('**/api/study-sessions**', async route => {
+    if (route.request().method() === 'GET') {
+      lookupCalls += 1
+      if (lookupCalls === 1) {
+        await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ success: false, error: 'temporary' }) })
+        return
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, sessions: [serverSession] }) })
+      return
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) })
+  })
+  context.on('request', request => {
+    if (/\/api\/adaptive\/(?:blueprint|generate-plan|session-teach|session-eval)/.test(request.url())) generationRequests.push(request.url())
+  })
+
+  const first = await context.newPage()
+  const second = await context.newPage()
+  await Promise.all([first.goto('/e2e-adaptive?planRestore=1'), second.goto('/e2e-adaptive?planRestore=1')])
+  await Promise.all([
+    expect(first.getByText('Journey restaurado vía servidor E2E')).toBeVisible({ timeout: 15_000 }),
+    expect(second.getByText('Journey restaurado vía servidor E2E')).toBeVisible({ timeout: 15_000 }),
+  ])
+  await expect(first.getByText('Sesión restaurada 3')).toBeVisible()
+  await expect(second.getByText('Sesión restaurada 3')).toBeVisible()
+  expect(generationRequests).toEqual([])
+  expect(lookupCalls).toBeGreaterThanOrEqual(3)
+})
