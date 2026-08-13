@@ -101,7 +101,7 @@ export default function SettingsPage() {
 
       // Cargar perfil privado (user-profile) — fuente de verdad
       try {
-        const upRes = await fetch('/api/user-profile?userId=' + encodeURIComponent(data.user.id), { cache: 'no-store', credentials: 'same-origin' });
+        const upRes = await fetch('/api/user-profile', { cache: 'no-store', credentials: 'same-origin' });
         const upJson = await upRes.json().catch(() => ({}));
         const up = upJson?.data || null;
         if (up) {

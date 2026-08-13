@@ -2,8 +2,6 @@
 
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { darXP } from '../lib/xpClient';
-import { dispararXPToast } from './XPToast';
 
 type Fase = 'estudiar' | 'descanso' | 'descanso-largo';
 
@@ -94,12 +92,6 @@ export default function PomodoroProvider({ children }: { children: React.ReactNo
   }, []);
 
   // Animación de +1 XP por minuto
-  const mostrarXpMinuto = useCallback((xp: number) => {
-    const id = Date.now() + Math.random();
-    setXpMinutoToasts(prev => [...prev, { id, xp }]);
-    setTimeout(() => setXpMinutoToasts(prev => prev.filter(t => t.id !== id)), 2000);
-  }, []);
-
   const tocarSonido = useCallback(() => {
     try {
       const ctx = new AudioContext();
@@ -115,13 +107,6 @@ export default function PomodoroProvider({ children }: { children: React.ReactNo
     } catch {}
   }, []);
 
-  const darXpMinuto = useCallback(async () => {
-    const XP_POR_MINUTO = 1;
-    setXpGanado(prev => prev + XP_POR_MINUTO);
-    mostrarXpMinuto(XP_POR_MINUTO);
-    await darXP('timer', XP_POR_MINUTO, { tipo: 'minuto_estudio' });
-  }, [mostrarXpMinuto]);
-
   const darXpSesion = useCallback(async (
     minutosEstudiados: number,
     sesionCompleta: boolean,
@@ -136,18 +121,8 @@ export default function PomodoroProvider({ children }: { children: React.ReactNo
     const cantidad = Math.min(bonus, 30);
     if (cantidad <= 0) return;
 
-    setXpGanado(prev => prev + cantidad);
-    const result = await darXP('timer', cantidad, { minutosEstudiados, sesionCompleta, tipo: 'bonus_sesion' });
-
-    if (sesionCompleta) {
-      dispararXPToast({
-        xp: result.ok ? result.xpGanado : cantidad,
-        fuente: '⏱️ Sesión completa',
-        emoji: '🏆',
-        color: '#fbbf24',
-        descripcion: `Bonus por ${minutosEstudiados} min de estudio`,
-      });
-    }
+    // XP de Pomodoro queda desactivado hasta que exista un pomodoroSessionId
+    // durable. Premiar ticks o sesiones locales permite farming tras refresh.
     segundosEstudiadosRef.current = 0;
     segundosMinutoRef.current = 0;
   }, []);
@@ -203,7 +178,6 @@ export default function PomodoroProvider({ children }: { children: React.ReactNo
           // Dar 1 XP por cada minuto completo de estudio
           if (segundosMinutoRef.current >= 60) {
             segundosMinutoRef.current = 0;
-            darXpMinuto();
           }
         }
 
@@ -229,7 +203,7 @@ export default function PomodoroProvider({ children }: { children: React.ReactNo
         intervalRef.current = null;
       }
     };
-  }, [corriendo, terminarFase, darXpMinuto]);
+  }, [corriendo, terminarFase]);
 
   const iniciar = useCallback(() => {
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {

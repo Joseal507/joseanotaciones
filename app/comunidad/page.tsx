@@ -1,11 +1,12 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { darXP } from '../../lib/xpClient';
+import { awardXPEvent } from '../../lib/xpClient';
+import { xpEventId } from '../../lib/xpEvents';
 import { dispararXPToast } from '../../components/XPToast';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useSession } from 'next-auth/react';
 import { useIdioma } from '@/hooks/useIdioma';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useDarkMode } from '@/hooks/useDarkMode';
@@ -353,6 +354,7 @@ function PostCard({ post, userId, onLike, onGuardar }: { post: Post; userId: str
 // PÁGINA COMUNIDAD
 // ═══════════════════════════════════════════════════════════════════════════
 export default function ComunidadPage() {
+  const { data: session, status: authStatus } = useSession();
   const router = useRouter();
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
@@ -366,14 +368,17 @@ export default function ComunidadPage() {
   const [showPublicar, setShowPublicar] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) {
-        setUserId(data.user.id);
-        const nombre = data.user.user_metadata?.nombre || data.user.email?.split('@')[0] || 'Usuario';
+    if (authStatus === 'loading') return;
+    const user = session?.user as (typeof session.user & { id?: string }) | undefined;
+    if (user?.id) {
+        setUserId(user.id);
+        const nombre = user.name || user.email?.split('@')[0] || 'Usuario';
         setUserNombre(nombre);
-      }
-    });
-  }, []);
+    } else {
+      setUserId('');
+      setUserNombre('');
+    }
+  }, [authStatus, session]);
 
   const cargarPosts = useCallback(async () => {
     setLoading(true);
@@ -724,11 +729,11 @@ export default function ComunidadPage() {
       {showPublicar && (
         <PublicarComunidad
           onClose={() => setShowPublicar(false)}
-          onPublicado={() => {
+          onPublicado={(postId) => {
             setShowPublicar(false);
-            darXP('post', 15, { tipo: 'publicacion' }).then(res => {
+            awardXPEvent({ eventId: xpEventId('community_post_created', postId), action: 'community_post_created', entityType: 'post', entityId: postId }).then(res => {
               dispararXPToast({
-                xp: res.ok ? res.xpGanado : 15,
+                xp: res.success ? res.awardedXP : 0,
                 fuente: '🌍 Post publicado',
                 emoji: '🌍',
                 color: '#34d399',

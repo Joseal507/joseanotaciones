@@ -145,8 +145,8 @@ export const registrarEstudioHoy = async (): Promise<RachaData> => {
   }
 
   saveRacha(racha);
+  await syncRachaADB(racha);
   darXPPorRacha(racha.rachaActual).catch(() => {});
-  syncRachaADB(racha).catch(() => {});
 
   import('./syncLeaderboard').then(({ syncLeaderboard }) => {
     syncLeaderboard();
@@ -158,26 +158,14 @@ export const registrarEstudioHoy = async (): Promise<RachaData> => {
 const darXPPorRacha = async (rachaActual: number): Promise<void> => {
   if (!isBrowser()) return;
   try {
-    const { darXP } = await import('./xpClient');
-
-    let xpBase = 0;
-    if (rachaActual >= 30) xpBase = 150;
-    else if (rachaActual >= 7) xpBase = 50;
-    else if (rachaActual >= 3) xpBase = 20;
-    else xpBase = 10;
-
-    const hitosXP: Record<number, number> = {
-      3: 30, 7: 75, 14: 100, 30: 200, 60: 350, 100: 500,
-    };
-
-    const xpHito = hitosXP[rachaActual] ?? 0;
-    const xpTotal = xpBase + xpHito;
-
-    await darXP('racha', xpTotal, {
-      rachaActual,
-      esHito: xpHito > 0,
-      xpBase,
-      xpHito,
+    const { awardXPEvent } = await import('./xpClient');
+    const { xpEventId } = await import('./xpEvents');
+    await awardXPEvent({
+      eventId: xpEventId('daily_streak', 'server-date'),
+      action: 'daily_streak',
+      entityType: 'calendar_day',
+      entityId: 'server-date',
+      metadata: { streakObserved: rachaActual },
     });
   } catch {}
 };

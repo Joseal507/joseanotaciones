@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '../lib/supabase';
+import { useSession } from 'next-auth/react';
 import { syncLeaderboard } from '../lib/syncLeaderboard';
 
 const HAND = "'Caveat',cursive";
@@ -371,6 +371,7 @@ function EntryRow({ entry, rank, isMe, onClick }: {
 
 // ── MAIN ───────────────────────────────────────────────────────────────────
 export default function Leaderboard() {
+  const { data: session } = useSession();
   const [entries,  setEntries]  = useState<LeaderEntry[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [myName,   setMyName]   = useState('');
@@ -385,11 +386,13 @@ export default function Leaderboard() {
       const data = await res.json();
       if (data.success) {
         setEntries(data.data||[]);
-        const { data: sd } = await supabase.auth.getUser();
-        if (sd.user) {
-          const name = sd.user.user_metadata?.nombre || sd.user.email?.split('@')[0] || '';
+        const currentUser = session?.user as (typeof session.user & { id?: string }) | undefined;
+        if (currentUser) {
+          const name = currentUser.name || currentUser.email?.split('@')[0] || '';
           setMyName(name);
-          const idx = (data.data||[]).findIndex((e:LeaderEntry)=>e.nombre.toLowerCase()===name.toLowerCase());
+          const idx = (data.data||[]).findIndex((e:LeaderEntry)=>
+            (currentUser.id && e.user_id === currentUser.id) || e.nombre.toLowerCase() === name.toLowerCase()
+          );
           if (idx>=0) setMyRank(idx+1);
         }
       }

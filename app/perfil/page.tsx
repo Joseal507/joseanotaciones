@@ -16,6 +16,7 @@ import TablaRangos from '../../components/TablaRangos';
 import { getRango, getLogrosObtenidos, LogroStats } from '../../lib/xpSystem';
 import { getObjetivos } from '../../lib/agenda';
 import { getRacha } from '../../lib/racha';
+import { useAuthenticatedStudyALUser } from '../../hooks/useAuthenticatedStudyALUser';
 
 const HAND = "'Caveat',cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -29,6 +30,7 @@ export default function PerfilPage() {
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
   const { xpTotal, nivel, progreso, xpEnNivel, xpParaSiguiente, titulo, cargando: xpCargando } = useXP();
+  const { user, status: authStatus } = useAuthenticatedStudyALUser();
 
   useEffect(() => {
     const cargar = async () => {
@@ -50,18 +52,16 @@ export default function PerfilPage() {
         }
       }
 
-      const { supabase } = await import('../../lib/supabase');
-      const { data } = await supabase.auth.getUser();
-      if (data.user) {
-        setNombre(data.user.user_metadata?.nombre || data.user.email?.split('@')[0] || 'Estudiante');
+      if (user) {
+        setNombre(user.name || user.email?.split('@')[0] || 'Estudiante');
       }
       const { getSettings } = await import('../../lib/settings');
       const settings = getSettings();
       setFotoPerfil(settings.fotoPerfil || '');
     };
-    cargar();
+    if (authStatus !== 'loading') cargar();
     getMaterias();
-  }, []);
+  }, [authStatus, user]);
 
   if (!perfil) return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -255,9 +255,7 @@ export default function PerfilPage() {
           </div>
 
           <button onClick={async () => {
-            const { supabase } = await import('../../lib/supabase');
-            const { data } = await supabase.auth.getUser();
-            if (data.user?.id) { const uid = data.user.id; (window as any).__showNavLoader?.(`/u/${uid}`); router.push(`/u/${uid}`); }
+            if (user?.id) { const uid = user.id; (window as any).__showNavLoader?.(`/u/${uid}`); router.push(`/u/${uid}`); }
           }}
             style={{
               padding: '10px 18px',

@@ -25,7 +25,6 @@ import { BetaBadge } from '../components/BetaBanner';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useIdioma } from '../hooks/useIdioma';
 import DailyReward, { shouldShowDailyReward } from '../components/DailyReward';
-import { darXP } from '../lib/xpClient';
 
 interface LeaderEntry {
   user_id: string;
@@ -1779,7 +1778,7 @@ export default function Home() {
   if (mob) return (
     <div style={{ minHeight:'100vh',paddingBottom:90,position:'relative' }}>
       <OnboardingCheck/>
-      {showDailyReward && <DailyReward onClose={() => setShowDailyReward(false)} onClaim={async () => { await darXP('daily_reward', 15); setShowDailyReward(false); }}/>}
+      {showDailyReward && <DailyReward onClose={() => setShowDailyReward(false)} />}
       <BuscadorModal open={buscadorOpen} onClose={() => setBuscadorOpen(false)}/>
 
       <div style={{ position:'relative',zIndex:1,padding:'14px 14px',display:'flex',flexDirection:'column',gap:18 }}>
@@ -1938,7 +1937,7 @@ export default function Home() {
   return (
     <div style={{ minHeight:'100vh',position:'relative' }}>
       <OnboardingCheck/>
-      {showDailyReward && <DailyReward onClose={() => setShowDailyReward(false)} onClaim={async () => { await darXP('daily_reward', 15); setShowDailyReward(false); }}/>}
+      {showDailyReward && <DailyReward onClose={() => setShowDailyReward(false)} />}
       <BuscadorModal open={buscadorOpen} onClose={() => setBuscadorOpen(false)}/>
 
       {/* HEADER */}

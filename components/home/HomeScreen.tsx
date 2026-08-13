@@ -4,7 +4,6 @@ import { useRouter } from 'next/navigation';
 
 import { useState, useEffect } from 'react';
 import DailyReward, { shouldShowDailyReward } from '../DailyReward';
-import { darXP } from '@/lib/xpClient';
 
 type Screen = 'home' | 'upload' | 'document' | 'flashcards';
 
@@ -34,14 +33,6 @@ export default function HomeScreen({ documentContent, flashcards, analysis, onSe
     return () => clearTimeout(timer);
   }, []);
 
-  const handleXPGained = async (xp: number) => {
-    if (xp > 0) {
-      await darXP('racha', xp, { source: 'daily_reward', type: 'spin_win' });
-    } else if (xp < 0) {
-      await darXP('racha', 1, { source: 'daily_reward', type: 'spin_loss', xp_perdido: xp });
-    }
-  };
-
   const cards = [
     { color: 'var(--gold)', emoji: '📄', title: 'Analizar Documentos', desc: 'Sube un PDF, Word o TXT y la IA lo analiza, encuentra palabras clave y frases importantes.', btn: 'Subir documento →', action: () => onSetScreen('upload') },
     { color: 'var(--pink)', emoji: '🎴', title: 'Flashcards', desc: 'Genera tarjetas de estudio automáticamente desde tu documento. Elige cuántas quieres.', btn: 'Ver flashcards →', action: () => onSetScreen('flashcards') },
@@ -68,7 +59,6 @@ export default function HomeScreen({ documentContent, flashcards, analysis, onSe
       {showDaily && (
         <DailyReward
           onClose={() => setShowDaily(false)}
-          onXPGained={handleXPGained}
         />
       )}
 

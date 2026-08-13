@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { getRacha } from '../lib/racha';
 import { dispararXPToast } from './XPToast';
-import { darXP } from '../lib/xpClient';
+import { awardXPEvent } from '../lib/xpClient';
+import { xpEventId } from '../lib/xpEvents';
 
 const getCssVar = (name: string, fallback = '#d6b26f'): string => {
   if (typeof window === 'undefined') return fallback;
@@ -196,10 +197,12 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
     if (!result || claiming) return;
     setClaiming(true);
     try {
-      await darXP('racha', Math.abs(result.xp), {
-        source: 'daily_reward',
-        type: result.isNegative ? 'spin_loss' : 'spin_win',
-        xp_real: result.xp,
+      await awardXPEvent({
+        eventId: xpEventId('daily_reward_claimed', 'server-date'),
+        action: 'daily_reward_claimed',
+        entityType: 'calendar_day',
+        entityId: 'server-date',
+        metadata: { prize: result.xp },
       });
     } catch(e){ console.error(e); }
     if (result.isNegative) {

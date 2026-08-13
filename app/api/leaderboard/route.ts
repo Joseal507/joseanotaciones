@@ -41,7 +41,6 @@ export async function POST(req: NextRequest) {
       email: user.email || null,
       nombre: body.nombre ?? user.name ?? user.email?.split('@')[0] ?? null,
       avatar_url: body.avatar_url ?? user.image ?? null,
-      xp_total: body.xp_total ?? null,
       flashcards_estudiadas: body.flashcards_estudiadas ?? null,
       racha_actual: body.racha_actual ?? null,
       mejor_racha: body.mejor_racha ?? null,

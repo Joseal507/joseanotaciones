@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "test:free-source-authority": "node --import tsx scripts/tests/free-mode-source-authority-contracts.ts",
+    "test:canonical-auth": "node --import tsx scripts/tests/canonical-auth-identity-contracts.ts",
+    "test:xp-ledger": "node --import tsx scripts/tests/xp-ledger-contracts.ts",
     "test:question-types": "node --import tsx scripts/tests/question-type-layer-contracts.ts",
     "test:session-final-transition": "node --import tsx scripts/tests/session-final-transition-contracts.ts",
     "test:adaptive-generality": "node --import tsx scripts/tests/adaptive-generality-static-contracts.ts && node --import tsx scripts/tests/adaptive-generality-generative-contracts.ts",

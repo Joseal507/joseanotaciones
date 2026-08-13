@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import { useAuthenticatedStudyALUser } from '../../hooks/useAuthenticatedStudyALUser';
 import { getHorarioDB, saveHorarioDB, Horario, ClaseHorario } from '../../lib/db';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
@@ -45,6 +45,7 @@ export default function HorarioPage() {
   const [diaActivoMobile, setDiaActivoMobile] = useState<typeof DIAS[number]>('lunes');
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
+  const { user, status: authStatus } = useAuthenticatedStudyALUser();
 
   const DIAS_LABELS_I18N = {
     lunes: tr('lunes'), martes: tr('martes'), miercoles: tr('miercoles'),
@@ -70,10 +71,9 @@ export default function HorarioPage() {
     const cargar = async () => {
       setCargando(true);
       try {
-        const { data } = await supabase.auth.getUser();
-        if (data.user) {
-          setUserId(data.user.id);
-          const h = await getHorarioDB(data.user.id);
+        if (user) {
+          setUserId(user.id);
+          const h = await getHorarioDB(user.id);
           setHorario(h);
         }
       } catch (err) {
@@ -82,11 +82,11 @@ export default function HorarioPage() {
         setCargando(false);
       }
     };
-    cargar();
+    if (authStatus !== 'loading') cargar();
     if (DIAS.includes(diaHoy as any)) {
       setDiaActivoMobile(diaHoy as typeof DIAS[number]);
     }
-  }, []);
+  }, [authStatus, user]);
 
   const guardar = async (nuevoHorario: Horario) => {
     setHorario(nuevoHorario);

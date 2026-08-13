@@ -1,9 +1,9 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { darXP } from '../../lib/xpClient';
+import { awardXPEvent } from '../../lib/xpClient';
+import { stableXPContentId, xpEventId } from '../../lib/xpEvents';
 import { dispararXPToast } from '../XPToast';
-import { calcularXpQuiz } from '../../lib/xpSystem';
 
 import { useState } from 'react';
 import { registrarEstudioHoy } from '../../lib/racha';
@@ -93,16 +93,10 @@ export default function QuizModal({ contenido, temaColor, onClose, materiaNombre
       const porcentajeFinal = preguntas.length > 0 ? Math.round((puntos / preguntas.length) * 100) : 0;
 
       // ── Dar XP por completar quiz ──
-      const xpResult = calcularXpQuiz({
-        preguntasTotales: preguntas.length,
-        correctas: puntos,
-        nivel: 'intermedio',
-        esRepeticion: false,
-        streakQuizzes: 0,
-      });
-      darXP('quiz', xpResult.total, { puntos, total: preguntas.length, porcentaje: porcentajeFinal }).then(res => {
+      const quizEntityId = stableXPContentId({ preguntas, materiaNombre, nivel });
+      awardXPEvent({ eventId: xpEventId('quiz_completed', quizEntityId), action: 'quiz_completed', entityType: 'quiz', entityId: quizEntityId, metadata: { correct: puntos, total: preguntas.length } }).then(res => {
         dispararXPToast({
-          xp: res.ok ? res.xpGanado : xpResult.total,
+          xp: res.success ? res.awardedXP : 0,
           fuente: '🤓 Quiz',
           emoji: porcentajeFinal === 100 ? '🏆' : porcentajeFinal >= 80 ? '⭐' : '✅',
           color: porcentajeFinal === 100 ? '#fbbf24' : porcentajeFinal >= 80 ? '#4ade80' : '#60a5fa',

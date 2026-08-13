@@ -100,10 +100,8 @@ const PERFIL_EMPTY: PerfilEstudio = {
 
 export async function getPerfilDB(userId: string): Promise<PerfilEstudio> {
   try {
-    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
-    if (!api) return PERFIL_EMPTY;
-
-    const res = await fetch(`${api}/study-profiles/by-user?userId=${encodeURIComponent(userId)}`, { cache: 'no-store' });
+    void userId;
+    const res = await fetch('/api/study-profile', { cache: 'no-store', credentials: 'same-origin' });
     if (!res.ok) return PERFIL_EMPTY;
     const data = await res.json();
     return data?.profile || PERFIL_EMPTY;
@@ -114,18 +112,18 @@ export async function getPerfilDB(userId: string): Promise<PerfilEstudio> {
 
 export async function savePerfilDB(userId: string, perfil: PerfilEstudio): Promise<void> {
   try {
-    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
-    if (!api) return;
+    void userId;
 
     const perfilLimpio = {
       ...perfil,
       sesiones: (perfil.sesiones || []).slice(-500),
     };
 
-    await fetch(`${api}/study-profiles/upsert`, {
+    await fetch('/api/study-profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, profile: perfilLimpio }),
+      credentials: 'same-origin',
+      body: JSON.stringify({ profile: perfilLimpio }),
     });
   } catch (err) {
     console.error('Error guardando perfil D1:', err);
@@ -135,10 +133,8 @@ export async function savePerfilDB(userId: string, perfil: PerfilEstudio): Promi
 // ===== AGENDA =====
 export async function getAgendaDB(userId: string): Promise<{ asignaciones: Asignacion[]; objetivos: ObjetivoAgenda[] }> {
   try {
-    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
-    if (!api) return { asignaciones: [], objetivos: [] };
-
-    const res = await fetch(`${api}/agenda/by-user?userId=${encodeURIComponent(userId)}`, { cache: 'no-store' });
+    void userId;
+    const res = await fetch('/api/agenda', { cache: 'no-store', credentials: 'same-origin' });
     if (!res.ok) return { asignaciones: [], objetivos: [] };
     const data = await res.json();
 
@@ -157,13 +153,12 @@ export async function saveAgendaDB(
   objetivos: ObjetivoAgenda[],
 ): Promise<void> {
   try {
-    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
-    if (!api) return;
-
-    await fetch(`${api}/agenda/upsert`, {
+    void userId;
+    await fetch('/api/agenda', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, asignaciones, objetivos }),
+      credentials: 'same-origin',
+      body: JSON.stringify({ asignaciones, objetivos }),
     });
   } catch (err) {
     console.error('Error guardando agenda D1:', err);
@@ -173,10 +168,8 @@ export async function saveAgendaDB(
 // ===== HORARIO =====
 export async function getHorarioDB(userId: string): Promise<Horario> {
   try {
-    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
-    if (!api) return HORARIO_VACIO;
-
-    const res = await fetch(`${api}/horario/by-user?userId=${encodeURIComponent(userId)}`, { cache: 'no-store' });
+    void userId;
+    const res = await fetch('/api/horario', { cache: 'no-store', credentials: 'same-origin' });
     if (!res.ok) return HORARIO_VACIO;
     const data = await res.json();
 
@@ -188,13 +181,12 @@ export async function getHorarioDB(userId: string): Promise<Horario> {
 
 export async function saveHorarioDB(userId: string, horario: Horario): Promise<void> {
   try {
-    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
-    if (!api) return;
-
-    await fetch(`${api}/horario/upsert`, {
+    void userId;
+    await fetch('/api/horario', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, horario }),
+      credentials: 'same-origin',
+      body: JSON.stringify({ horario }),
     });
   } catch (err) {
     console.error('Error guardando horario D1:', err);

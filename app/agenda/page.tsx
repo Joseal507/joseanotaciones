@@ -1,7 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { darXP } from '../../lib/xpClient';
+import { awardXPEvent } from '../../lib/xpClient';
+import { xpEventId } from '../../lib/xpEvents';
 import { dispararXPToast } from '../../components/XPToast';
 import { useXP } from '../../hooks/useXP';
 
@@ -14,7 +15,7 @@ import {
   XP_TAMAÑO, genId,
 } from '../../lib/agenda';
 import { getMaterias } from '../../lib/storage';
-import { supabase } from '../../lib/supabase';
+import { useAuthenticatedStudyALUser } from '../../hooks/useAuthenticatedStudyALUser';
 import { getAgendaDB, saveAgendaDB } from '../../lib/db';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
@@ -51,21 +52,21 @@ export default function AgendaPage() {
   const { tr, idioma } = useIdioma();
 
   const { xpTotal: xpReal, nivel, xpEnNivel: xpNivel, xpParaSiguiente } = useXP();
+  const { user, status: authStatus } = useAuthenticatedStudyALUser();
 
   const hoyStr = hoyISO();
 
   useEffect(() => {
     const cargar = async () => {
       try {
-        const { data } = await supabase.auth.getUser();
-        if (data.user) {
-          setUserId(data.user.id);
-          const db = await getAgendaDB(data.user.id);
+        if (user) {
+          setUserId(user.id);
+          const db = await getAgendaDB(user.id);
           let asigs = db.asignaciones.length ? db.asignaciones : getAsignaciones();
           let objs  = db.objetivos.length    ? db.objetivos    : getObjetivos();
           const { asigs: a2, objs: o2, cambio } = procesarVencidas(asigs, objs);
           setAsignaciones(a2); setObjetivos(o2);
-          if (cambio) await saveAgendaDB(data.user.id, a2, o2);
+          if (cambio) await saveAgendaDB(user.id, a2, o2);
         } else {
           const asigs = getAsignaciones();
           const objs  = getObjetivos();
@@ -78,8 +79,8 @@ export default function AgendaPage() {
       }
       setMaterias(getMaterias());
     };
-    cargar();
-  }, []);
+    if (authStatus !== 'loading') cargar();
+  }, [authStatus, user]);
 
   const showToast = (msg: string, xp: number) => {
     setToast({ msg, xp });
@@ -118,9 +119,9 @@ export default function AgendaPage() {
     await persist(nuevasAsigs, nuevosObjs);
     if (ahoraCompleta) {
       showToast(`✅ ${asig.titulo}`, asig.xp);
-      darXP('objetivo', asig.xp, { tipo: 'asignacion', titulo: asig.titulo }).then(res => {
+      awardXPEvent({ eventId: xpEventId('assignment_completed', asig.id), action: 'assignment_completed', entityType: 'assignment', entityId: asig.id, metadata: { size: asig.tamaño } }).then(res => {
         dispararXPToast({
-          xp: res.ok ? res.xpGanado : asig.xp,
+          xp: res.success ? res.awardedXP : 0,
           fuente: '📋 Asignación completada',
           emoji: '✅',
           color: '#4ade80',
@@ -149,9 +150,9 @@ export default function AgendaPage() {
     await persist(asignaciones, nuevosObjs);
     if (nuevo) {
       showToast(`✅ ${obj.titulo}`, obj.xp);
-      darXP('objetivo', obj.xp, { tipo: 'objetivo', titulo: obj.titulo }).then(res => {
+      awardXPEvent({ eventId: xpEventId('objective_completed', obj.id), action: 'objective_completed', entityType: 'objective', entityId: obj.id, metadata: { size: obj.tamaño || 'pequeño' } }).then(res => {
         dispararXPToast({
-          xp: res.ok ? res.xpGanado : obj.xp,
+          xp: res.success ? res.awardedXP : 0,
           fuente: '🎯 Objetivo completado',
           emoji: obj.xp >= 250 ? '🏆' : obj.xp >= 120 ? '⭐' : '✅',
           color: obj.xp >= 250 ? '#fbbf24' : obj.xp >= 120 ? '#a78bfa' : '#4ade80',

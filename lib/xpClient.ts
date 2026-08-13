@@ -1,26 +1,19 @@
 import { registrarXpDiario } from './xpDiario';
+import type { XPEventRequest, XPEventResult } from './xpEvents';
 
-export type FuenteXP = 'timer' | 'flashcards' | 'quiz' | 'post' | 'objetivo' | 'login' | 'racha' | 'comunidad' | 'daily_reward';
-
-export async function darXP(
-  fuente: FuenteXP,
-  cantidad: number,
-  meta?: Record<string, any>
-): Promise<{ ok: boolean; xpGanado: number; xpTotal: number; nivel: number; subioNivel: boolean }> {
+export async function awardXPEvent(event: XPEventRequest): Promise<XPEventResult> {
   try {
-    if (cantidad === 0) return { ok: false, xpGanado: 0, xpTotal: 0, nivel: 1, subioNivel: false };
-
     const res = await fetch('/api/xp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({ fuente, cantidad, meta }),
+      body: JSON.stringify(event),
     });
 
-    if (!res.ok) return { ok: false, xpGanado: 0, xpTotal: 0, nivel: 1, subioNivel: false };
+    if (!res.ok) return { success: false, applied: false, eventId: event.eventId, awardedXP: 0, totalXP: 0, nivel: 1, subioNivel: false };
 
     const data = await res.json();
-    const xpGanado = data.xp_ganado ?? 0;
+    const xpGanado = data.awardedXP ?? 0;
 
     if (xpGanado > 0) {
       registrarXpDiario(xpGanado);
@@ -32,14 +25,15 @@ export async function darXP(
     }
 
     return {
-      ok: data.ok ?? false,
-      xpGanado,
-      xpTotal: data.xp_total ?? 0,
+      success: data.success ?? false,
+      applied: data.applied ?? false,
+      eventId: data.eventId ?? event.eventId,
+      awardedXP: xpGanado,
+      totalXP: data.totalXP ?? 0,
       nivel: data.nivel ?? 1,
-      subioNivel: data.subio_nivel ?? false,
+      subioNivel: data.subioNivel ?? false,
     };
   } catch {
-    return { ok: false, xpGanado: 0, xpTotal: 0, nivel: 1, subioNivel: false };
+    return { success: false, applied: false, eventId: event.eventId, awardedXP: 0, totalXP: 0, nivel: 1, subioNivel: false };
   }
 }
-

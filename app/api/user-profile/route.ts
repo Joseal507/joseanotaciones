@@ -1,25 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthenticatedStudyALUser } from '../../../lib/auth/studyalUser';
 
 const API = process.env.STUDYAL_API_URL || '';
 
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const userId = searchParams.get('userId');
-
-    if (!userId) {
-      return NextResponse.json({ success: false, error: 'userId requerido' }, { status: 400 });
-    }
+    void req;
+    const user = await getAuthenticatedStudyALUser();
+    if (!user) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
     if (!API) {
-      return NextResponse.json({ success: true, data: null });
+      return NextResponse.json({ success: false, error: 'StudyAL API unavailable' }, { status: 503 });
     }
 
-    const res = await fetch(`${API}/profiles/by-user?userId=${encodeURIComponent(userId)}`, {
+    const res = await fetch(`${API}/profiles/by-user?userId=${encodeURIComponent(user.id)}`, {
       cache: 'no-store',
     });
-
-    const json = await res.json();
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return NextResponse.json({ success: false, error: json.error || 'Profile unavailable' }, { status: res.status });
 
     if (json.profile) {
       const pr = json.profile;
@@ -40,27 +38,25 @@ export async function GET(req: NextRequest) {
       data: json.profile || null,
     });
   } catch {
-    return NextResponse.json({ success: true, data: null });
+    return NextResponse.json({ success: false, error: 'Profile unavailable' }, { status: 503 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await getAuthenticatedStudyALUser();
+    if (!user) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     const body = await req.json();
 
-    if (!body.user_id && !body.id) {
-      return NextResponse.json({ success: false, error: 'user_id requerido' }, { status: 400 });
-    }
-
     if (!API) {
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ success: false, error: 'StudyAL API unavailable' }, { status: 503 });
     }
 
     const payload = {
-      user_id: body.user_id || body.id,
+      user_id: user.id,
       nombre: body.nombre || null,
-      email: body.email || null,
-      avatar_url: body.avatar_url || null,
+      email: user.email,
+      avatar_url: body.avatar_url || user.image,
       descripcion: body.descripcion || null,
       genero: null,
       tipo_estudiante: body.tipo_estudiante || body.tipo_usuario || null,

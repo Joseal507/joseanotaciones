@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import UserMenu from './UserMenu';
 import RachaWidget from './RachaWidget';
 import { useDarkMode } from '../hooks/useDarkMode';
-import { supabase } from '../lib/supabase';
+import { useSession } from 'next-auth/react';
 import { useIdioma } from '../hooks/useIdioma';
 
 interface Props {
@@ -14,6 +14,7 @@ interface Props {
 }
 
 export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: Props) {
+  const { data: session } = useSession();
   const router = useRouter();
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [userId, setUserId] = useState('');
@@ -25,10 +26,9 @@ export default function NavbarMobile({ darkMode: darkModeProp, onToggleDark }: P
   const handleToggle = onToggleDark || toggle;
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) setUserId(data.user.id);
-    });
-  }, []);
+    const user = session?.user as (typeof session.user & { id?: string }) | undefined;
+    setUserId(user?.id || '');
+  }, [session]);
 
   useEffect(() => {
     try {

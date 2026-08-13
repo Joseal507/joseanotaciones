@@ -49,7 +49,7 @@ export default function UserMenu() {
         } catch {}
 
         try {
-          const res = await fetch(`/api/user-profile?userId=${normalizedUser.id}`);
+          const res = await fetch('/api/user-profile', { credentials: 'same-origin' });
           const json = await res.json();
           if (json.success && json.data) {
             setPerfil(json.data);

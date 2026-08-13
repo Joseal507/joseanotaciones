@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { useAuthenticatedStudyALUser } from '../hooks/useAuthenticatedStudyALUser';
 import { getHorarioDB, Horario } from '../lib/db';
 import { useIdioma } from '../hooks/useIdioma';
 
@@ -29,6 +29,7 @@ export default function HorarioWidget() {
   const [horario, setHorario] = useState<Horario | null>(null);
   const [ahora, setAhora] = useState(new Date());
   const { idioma } = useIdioma();
+  const { user, status: authStatus } = useAuthenticatedStudyALUser();
 
   const navHorario = () => {
     try { (window as any).__showNavLoader?.('/horario'); } catch {}
@@ -46,15 +47,14 @@ export default function HorarioWidget() {
 
   useEffect(() => {
     const cargar = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (!data.user) return;
-      const h = await getHorarioDB(data.user.id);
+      if (!user) return;
+      const h = await getHorarioDB(user.id);
       setHorario(h);
     };
-    cargar();
+    if (authStatus !== 'loading') cargar();
     const interval = setInterval(() => setAhora(new Date()), 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [authStatus, user]);
 
   if (!horario) return (
     <div style={{

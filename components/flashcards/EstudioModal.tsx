@@ -1,7 +1,7 @@
 'use client';
-import { darXP } from '../../lib/xpClient';
+import { awardXPEvent } from '../../lib/xpClient';
+import { stableXPContentId, xpEventId } from '../../lib/xpEvents';
 import { dispararXPToast } from '../XPToast';
-import { calcularXpFlashcards } from '../../lib/xpSystem';
 
 import { useState, useRef } from 'react';
 import { registrarEstudioHoy } from '../../lib/racha';
@@ -483,9 +483,9 @@ export default function EstudioModal({ flashcards, onClose, temaColor, onModoExa
     if (completadosUsados > 0) {
       const acertadas2 = (statsUsados.INSANE || 0) + (statsUsados.correcta || 0);
       const falladas2 = (statsUsados.incorrecta || 0) + (statsUsados.muy_incorrecta || 0);
-      const xpFlash = calcularXpFlashcards({ tarjetasRevisadas: completadosUsados, correctas: acertadas2 });
-      darXP('flashcards', xpFlash.total, { tarjetas: completadosUsados, acertadas: acertadas2 }).then(res => {
-        dispararXPToast({ xp: res.ok ? res.xpGanado : xpFlash.total, fuente: '🎴 Flashcards', emoji: '🎴', color: 'var(--gold)', descripcion: `${completadosUsados} tarjetas estudiadas` });
+      const deckEntityId = stableXPContentId({ flashcards, materiaId, esRepaso });
+      awardXPEvent({ eventId: xpEventId('flashcards_completed', deckEntityId), action: 'flashcards_completed', entityType: 'flashcard_deck', entityId: deckEntityId, metadata: { reviewed: completadosUsados, correct: acertadas2 } }).then(res => {
+        dispararXPToast({ xp: res.success ? res.awardedXP : 0, fuente: '🎴 Flashcards', emoji: '🎴', color: 'var(--gold)', descripcion: `${completadosUsados} tarjetas estudiadas` });
       });
       // Registrar sesión con datos reales
       if (materiaId) {

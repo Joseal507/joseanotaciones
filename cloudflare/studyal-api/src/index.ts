@@ -591,7 +591,6 @@ export default {
             nombre = COALESCE(excluded.nombre, leaderboard.nombre),
             email = COALESCE(excluded.email, leaderboard.email),
             avatar_url = COALESCE(excluded.avatar_url, leaderboard.avatar_url),
-            xp_total = COALESCE(excluded.xp_total, leaderboard.xp_total),
             flashcards_estudiadas = COALESCE(excluded.flashcards_estudiadas, leaderboard.flashcards_estudiadas),
             racha_actual = COALESCE(excluded.racha_actual, leaderboard.racha_actual),
             mejor_racha = COALESCE(excluded.mejor_racha, leaderboard.mejor_racha),
@@ -609,7 +608,7 @@ export default {
           body.nombre ?? null,
           body.email ?? null,
           body.avatar_url ?? null,
-          body.xp_total ?? null,
+          0,
           body.flashcards_estudiadas ?? null,
           body.racha_actual ?? null,
           body.mejor_racha ?? null,
@@ -625,6 +624,62 @@ export default {
 
         const entry = await env.DB.prepare("SELECT * FROM leaderboard WHERE user_id = ?").bind(body.user_id).first()
         return json({ ok: true, entry })
+      }
+
+      if (url.pathname === "/xp/events" && request.method === "POST") {
+        const body = await readBody(request)
+        const userId = String(body.user_id || "")
+        const eventId = String(body.event_id || "")
+        const source = String(body.source || "")
+        const action = String(body.action || "")
+        const amount = Number(body.amount)
+        if (!userId || !eventId || !source || !action || !Number.isInteger(amount) || amount === 0) {
+          return json({ ok: false, error: "invalid_xp_event" }, 400)
+        }
+
+        const results = await env.DB.batch([
+          env.DB.prepare(`
+            INSERT OR IGNORE INTO xp_events (
+              user_id, event_id, source, action, entity_type, entity_id,
+              amount, metadata, occurred_at, applied
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 0)
+          `).bind(
+            userId, eventId, source, action, body.entity_type || null,
+            body.entity_id || null, amount, JSON.stringify(body.metadata || {})
+          ),
+          env.DB.prepare(`
+            INSERT OR IGNORE INTO leaderboard (
+              user_id, nombre, email, avatar_url, xp_total, updated_at
+            ) VALUES (?, ?, ?, ?, 0, datetime('now'))
+          `).bind(userId, body.nombre || null, body.email || null, body.avatar_url || null),
+          env.DB.prepare(`
+            UPDATE leaderboard
+            SET xp_total = MAX(0, COALESCE(xp_total, 0) + ?),
+                xp_breakdown = json_set(
+                  COALESCE(xp_breakdown, '{}'),
+                  '$.' || ?,
+                  COALESCE(json_extract(COALESCE(xp_breakdown, '{}'), '$.' || ?), 0) + ?
+                ),
+                updated_at = datetime('now')
+            WHERE user_id = ?
+              AND EXISTS (
+                SELECT 1 FROM xp_events
+                WHERE user_id = ? AND event_id = ? AND applied = 0
+              )
+          `).bind(amount, source, source, amount, userId, userId, eventId),
+          env.DB.prepare(`
+            UPDATE xp_events SET applied = 1
+            WHERE user_id = ? AND event_id = ? AND applied = 0
+          `).bind(userId, eventId),
+        ])
+
+        const entry = await env.DB.prepare("SELECT xp_total FROM leaderboard WHERE user_id = ?").bind(userId).first()
+        return json({
+          ok: true,
+          applied: Number(results[2]?.meta?.changes || 0) === 1,
+          event_id: eventId,
+          total_xp: Number((entry as any)?.xp_total || 0),
+        })
       }
 
 

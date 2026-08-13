@@ -1,17 +1,16 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '../lib/supabase';
+import { getSession } from 'next-auth/react';
 import { registrarEstudioHoy } from '../lib/racha';
+import { awardXPEvent } from '../lib/xpClient';
+import type { XPEventRequest } from '../lib/xpEvents';
 import {
-  getLevelFromXp,
   getLevelProgress,
   getXpNeededForNextLevel,
   getXpInCurrentLevel,
   getLevelTitle,
 } from '../lib/xpSystem';
-
-export type FuenteXP = 'timer' | 'flashcards' | 'quiz' | 'post' | 'objetivo' | 'login' | 'racha' | 'comunidad';
 
 export interface XPResult {
   xpGanado: number;
@@ -51,27 +50,24 @@ export function useXP() {
     };
   });
 
-  const tokenRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
+  const [authStatus, setAuthStatus] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
+
+  useEffect(() => {
+    let active = true;
+    getSession().then(session => {
+      if (active) setAuthStatus(session?.user ? 'authenticated' : 'unauthenticated');
+    }).catch(() => {
+      if (active) setAuthStatus('unauthenticated');
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
     };
-  }, []);
-
-  const getToken = useCallback(async (): Promise<string | null> => {
-    if (tokenRef.current) return tokenRef.current;
-
-    const { data } = await supabase.auth.getSession();
-    tokenRef.current = data.session?.access_token ?? null;
-
-    supabase.auth.onAuthStateChange((_e, session) => {
-      tokenRef.current = session?.access_token ?? null;
-    });
-
-    return tokenRef.current;
   }, []);
 
   const actualizarEstado = useCallback((xpTotal: number, nivel: number, breakdown: Record<string, number>) => {
@@ -100,18 +96,14 @@ export function useXP() {
     }
 
     try {
-      const token = await getToken();
-
-      if (!token) {
+      if (authStatus !== 'authenticated') {
         if (mountedRef.current) {
           setState(prev => ({ ...prev, cargando: false }));
         }
         return;
       }
 
-      const res = await fetch('/api/xp', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch('/api/xp', { credentials: 'same-origin' });
 
       if (!res.ok) {
         if (mountedRef.current) {
@@ -131,22 +123,52 @@ export function useXP() {
     if (mountedRef.current) {
       setState(prev => ({ ...prev, cargando: false }));
     }
-  }, [getToken, actualizarEstado]);
+  }, [authStatus, actualizarEstado]);
 
   useEffect(() => {
     recargar();
   }, [recargar]);
 
-  const marcarEstudioSiAplica = useCallback((fuente: FuenteXP) => {
-    if (fuente === 'racha') return;
+  const marcarEstudioSiAplica = useCallback((action: XPEventRequest['action']) => {
+    if (action === 'daily_streak' || action === 'daily_reward_claimed') return;
     registrarEstudioHoy().catch(() => {});
   }, []);
 
-  const darXP = useCallback(async (fuente: FuenteXP, cantidad: number, meta?: any): Promise<XPResult> => {
+  const darXP = useCallback(async (event: XPEventRequest): Promise<XPResult> => {
     const nivelAnterior = state.nivel;
     const xpAnterior = state.xpTotal;
 
-    if (cantidad <= 0) {
+    try {
+      if (authStatus !== 'authenticated') {
+        return {
+          xpGanado: 0,
+          xpTotal: xpAnterior,
+          nivelAnterior,
+          nivelNuevo: nivelAnterior,
+          subioNivel: false,
+        };
+      }
+      const data = await awardXPEvent(event);
+      if (!data.success) {
+        return {
+          xpGanado: 0,
+          xpTotal: xpAnterior,
+          nivelAnterior,
+          nivelNuevo: nivelAnterior,
+          subioNivel: false,
+        };
+      }
+      actualizarEstado(data.totalXP, data.nivel, state.breakdown);
+      marcarEstudioSiAplica(event.action);
+
+      return {
+        xpGanado: data.awardedXP,
+        xpTotal: data.totalXP,
+        nivelAnterior,
+        nivelNuevo: data.nivel,
+        subioNivel: data.subioNivel,
+      };
+    } catch {
       return {
         xpGanado: 0,
         xpTotal: xpAnterior,
@@ -155,87 +177,7 @@ export function useXP() {
         subioNivel: false,
       };
     }
-
-    const xpOptimista = xpAnterior + cantidad;
-    const nivelOptimista = getLevelFromXp(xpOptimista);
-
-    actualizarEstado(xpOptimista, nivelOptimista, {
-      ...(state.breakdown),
-      [fuente]: (state.breakdown[fuente] ?? 0) + cantidad,
-    });
-
-    try {
-      const token = await getToken();
-
-      if (!token) {
-        marcarEstudioSiAplica(fuente);
-        return {
-          xpGanado: cantidad,
-          xpTotal: xpOptimista,
-          nivelAnterior,
-          nivelNuevo: nivelOptimista,
-          subioNivel: nivelOptimista > nivelAnterior,
-        };
-      }
-
-      const res = await fetch('/api/xp', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ fuente, cantidad, meta }),
-      });
-
-      if (!res.ok) {
-        actualizarEstado(xpAnterior, nivelAnterior, state.breakdown);
-        return {
-          xpGanado: 0,
-          xpTotal: xpAnterior,
-          nivelAnterior,
-          nivelNuevo: nivelAnterior,
-          subioNivel: false,
-        };
-      }
-
-      const data = await res.json();
-
-      if (!data.ok) {
-        actualizarEstado(xpAnterior, nivelAnterior, state.breakdown);
-        return {
-          xpGanado: 0,
-          xpTotal: xpAnterior,
-          nivelAnterior,
-          nivelNuevo: nivelAnterior,
-          subioNivel: false,
-        };
-      }
-
-      actualizarEstado(data.xp_total, data.nivel, {
-        ...(state.breakdown),
-        [fuente]: (state.breakdown[fuente] ?? 0) + data.xp_ganado,
-      });
-
-      marcarEstudioSiAplica(fuente);
-
-      return {
-        xpGanado: data.xp_ganado,
-        xpTotal: data.xp_total,
-        nivelAnterior,
-        nivelNuevo: data.nivel,
-        subioNivel: data.subio_nivel,
-      };
-    } catch {
-      marcarEstudioSiAplica(fuente);
-      return {
-        xpGanado: cantidad,
-        xpTotal: xpOptimista,
-        nivelAnterior,
-        nivelNuevo: nivelOptimista,
-        subioNivel: nivelOptimista > nivelAnterior,
-      };
-    }
-  }, [state, getToken, actualizarEstado, marcarEstudioSiAplica]);
+  }, [state, authStatus, actualizarEstado, marcarEstudioSiAplica]);
 
   return { ...state, darXP, recargar };
 }
