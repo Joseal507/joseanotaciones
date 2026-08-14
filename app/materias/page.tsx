@@ -42,7 +42,7 @@ import {
   type MasteryContext,
   type SessionSummary,
 } from '../../lib/masteryEngine';
-import { getSessionById, getSessionsByTema, syncSessionsFromServer } from '../../lib/studySessions';
+import { getSessionById, getSessionsByTema, lookupSessionByIdFromServer, syncSessionsFromServer } from '../../lib/studySessions';
 import { hasPersistedAdaptiveArtifacts } from '../../lib/adaptive/resume';
 import { buildSourceSelectionFromMaterials } from '../../lib/adaptive/sourceSelection';
 
@@ -140,8 +140,9 @@ export default function MateriasPage() {
             const freeSessionId = routeParams.get('freeSessionId');
             const freeTool = routeParams.get('freeTool') as Vista | null;
             if (freeSessionId && freeTool && ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam'].includes(freeTool)) {
-              syncSessionsFromServer(targetTemaId).then(() => {
-                const freeSession = getSessionById(freeSessionId);
+              lookupSessionByIdFromServer(freeSessionId, targetTemaId).then((lookup) => {
+                if (lookup.status !== 'FOUND') return;
+                const freeSession = lookup.sessions.find(session => session.id === freeSessionId) || null;
                 if (!freeSession || freeSession.processMode !== 'free' || freeSession.temaId !== targetTemaId) return;
                 const restoredSource = buildSourceSelectionFromMaterials(
                   freeSession.materialIds.map(materialId => ({ materialId })),

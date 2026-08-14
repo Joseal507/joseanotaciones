@@ -1,7 +1,17 @@
 'use client';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
+import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
+import {
+  beginFreeAnalysis,
+  completeFreeAnalysis,
+  failFreeAnalysis,
+  initialFreeAnalysisState,
+  recoverInterruptedFreeAnalysis,
+  updateFreeAnalysisEntry,
+  type DurableFreeAnalysisState,
+} from '../../lib/freeAnalysisState';
 
 const BODY = "'Inter', system-ui, -apple-system, sans-serif";
 const HAND = BODY;
@@ -77,107 +87,6 @@ type Analisis = {
   idioma?: 'es' | 'en';
   docNames?: string[];
 };
-
-
-function normalizePages(value: any): number[] {
-  if (Array.isArray(value)) {
-    return Array.from(new Set(
-      value.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n) && n > 0)
-    )).sort((a: number, b: number) => a - b);
-  }
-
-  if (value && typeof value === 'object') {
-    const start = Number(value.start ?? value.from ?? value.startPage ?? value.paginaInicial);
-    const end = Number(value.end ?? value.to ?? value.endPage ?? value.paginaFinal);
-    if (Number.isFinite(start) && Number.isFinite(end) && start > 0 && end >= start) {
-      return Array.from({ length: end - start + 1 }, (_, i) => start + i);
-    }
-  }
-
-  return [];
-}
-
-function getSelectionPages(item: any): number[] {
-  if (!item) return [];
-  const candidates = [
-    item?.pages,
-    item?.paginasSeleccionadas,
-    item?.selectedPages,
-    item?.paginas,
-    item?.pageNumbers,
-    item?.range,
-    item?.selection,
-  ];
-  for (const candidate of candidates) {
-    const pages = normalizePages(candidate);
-    if (pages.length) return pages;
-  }
-  return [];
-}
-
-function getSelectionText(item: any): string {
-  return String(
-    item?.text ??
-    item?.texto ??
-    item?.content ??
-    item?.contenido ??
-    item?.selectedText ??
-    ''
-  ).trim();
-}
-
-function getSelectionIds(item: any): string[] {
-  const nested =
-    item?.material ||
-    item?.documento ||
-    item?.doc ||
-    item?.source ||
-    item?.file ||
-    null;
-
-  return [
-    item?.materialId,
-    item?.material_id,
-    item?.documentId,
-    item?.document_id,
-    item?.docId,
-    item?.doc_id,
-    item?.id,
-    nested?.materialId,
-    nested?.material_id,
-    nested?.id,
-  ]
-    .filter(Boolean)
-    .map((v: any) => String(v));
-}
-
-function findSelectionForMaterial(materiales: any[], mat: any, index: number, seleccion?: any[] | null): any | null {
-  if (!Array.isArray(seleccion) || !seleccion.length || !mat) return null;
-
-  const matIds = getSelectionIds(mat);
-
-  const byMaterialIndex = seleccion.find((item: any) => Number(item?.materialIndex) === index);
-  if (byMaterialIndex) return byMaterialIndex;
-
-  const byId = seleccion.find((item: any) => {
-    const ids = getSelectionIds(item);
-    return ids.some((id: string) => matIds.includes(id));
-  });
-  if (byId) return byId;
-
-  if (materiales.length === 1 && seleccion.length === 1) return seleccion[0];
-
-  const byIndex = seleccion[index];
-  if (byIndex) {
-    const ids = getSelectionIds(byIndex);
-    const pages = getSelectionPages(byIndex);
-    if (ids.some((id: string) => matIds.includes(id)) || pages.length || getSelectionText(byIndex)) {
-      return byIndex;
-    }
-  }
-
-  return null;
-}
 
 
 function cleanMarkdownText(text: string): string {
@@ -258,33 +167,6 @@ function renderAnswerBlocks(text: string) {
   );
 }
 
-function filterTextByPages(text: string, pages: number[]): string {
-  if (!pages.length) return text;
-  const wanted = new Set(pages.map(Number));
-
-  const patterns = [
-    /(?:^|\n)\s*(?:---+\s*)?(?:p[áa]gina|page)\s+(\d+)\s*(?:---+)?\s*\n/gi,
-    /(?:^|\n)\s*=====+\s*(?:p[áa]gina|page)\s+(\d+)\s*=====+\s*\n/gi,
-    /(?:^|\n)\s*\[(?:p[áa]gina|page)\s+(\d+)\]\s*\n/gi,
-  ];
-
-  for (const pattern of patterns) {
-    const matches = Array.from(text.matchAll(pattern));
-    if (matches.length) {
-      const chunks: string[] = [];
-      for (let i = 0; i < matches.length; i++) {
-        const page = Number(matches[i][1]);
-        const start = (matches[i].index || 0) + matches[i][0].length;
-        const end = i + 1 < matches.length ? (matches[i + 1].index || text.length) : text.length;
-        if (wanted.has(page)) chunks.push(text.slice(start, end).trim());
-      }
-      if (chunks.join('\n\n').trim()) return chunks.join('\n\n');
-    }
-  }
-
-  return '';
-}
-
 const STEPS = [
   { emoji: '📄', label: 'leyendo materiales...' },
   { emoji: '🧩', label: 'entendiendo conceptos...' },
@@ -292,7 +174,7 @@ const STEPS = [
   { emoji: '✨', label: 'puliendo detalles...' },
 ];
 
-export default function AnalisisTeorico({ materiales, seleccion, tema, materia, onClose, onGuardarApunte, materialId, nivel: nivelProp, onMasteryEvent, masteryContext, sourceSelection }: Props) {
+export default function AnalisisTeorico({ materiales, seleccion, tema, materia, onClose, onGuardarApunte, nivel: nivelProp, masteryContext, sessionId, sourceSelection }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [analisis, setAnalisis] = useState<Analisis | null>(null);
@@ -308,35 +190,92 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
   const [dudaError, setDudaError] = useState('');
   const [dudaRespuesta, setDudaRespuesta] = useState('');
   const [showCheckAnswers, setShowCheckAnswers] = useState<Record<number, boolean>>({});
+  const [continuityReady, setContinuityReady] = useState(false);
+  const [durableState, setDurableState] = useState<DurableFreeAnalysisState<Analisis>>(
+    () => initialFreeAnalysisState<Analisis>(nivelProp || 'universidad'),
+  );
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const mountedRef = useRef(true);
+  const durableStateRef = useRef(durableState);
+  const generationControllerRef = useRef<AbortController | null>(null);
+  const generationLockedRef = useRef(false);
+  const doubtControllerRef = useRef<AbortController | null>(null);
+  const doubtAttemptRef = useRef(0);
   const effectiveSourceSelection = useMemo(
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
   const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
 
-  const analysisRequestKey = useMemo(() => {
-    const matsKey = (materiales || [])
-      .map((m: any, i: number) => {
-        const id = m?.materialId || m?.material_id || m?.id || `material_${i}`;
-        const contentLen = String(m?.contenido || '').length;
-        return `${id}:${contentLen}`;
-      })
-      .join('|');
+  const analysisRequestKey = `${sessionId || 'missing-session'}::${effectiveSourceSelection.fingerprint}::${nivel}`;
 
-    const selKey = Array.isArray(seleccion)
-      ? seleccion.map((item: any, i: number) => {
-          const ids = getSelectionIds(item).join(',');
-          const pages = getSelectionPages(item).join(',');
-          const textLen = getSelectionText(item).length;
-          return `${i}:${ids}:${pages}:${textLen}`;
-        }).join('|')
-      : 'no-selection';
+  const persistDurableState = useCallback((next: DurableFreeAnalysisState<Analisis>) => {
+    durableStateRef.current = next;
+    setDurableState(next);
+    if (continuityReady && sessionId) {
+      writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'analysis', next);
+    }
+  }, [continuityReady, sessionId, effectiveSourceSelection.fingerprint]);
 
-    return `${effectiveSourceSelection.fingerprint}::${matsKey}::${selKey}::${materialId || ''}`;
-  }, [materiales, seleccion, materialId, effectiveSourceSelection.fingerprint]);
+  useEffect(() => {
+    const restored = readFreeToolState<DurableFreeAnalysisState<Analisis>>(
+      sessionId,
+      effectiveSourceSelection.fingerprint,
+      'analysis',
+    );
+    const base = restored?.state || initialFreeAnalysisState<Analisis>(nivelProp || 'universidad');
+    const recovered = recoverInterruptedFreeAnalysis(base);
+    const requestedType = nivelProp || recovered.selectedType || 'universidad';
+    const next = recovered.selectedType === requestedType
+      ? recovered
+      : { ...recovered, selectedType: requestedType };
+    durableStateRef.current = next;
+    setDurableState(next);
+    setNivel(requestedType);
+    if (restored && next !== restored.state && sessionId) {
+      writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'analysis', next);
+    }
+    setContinuityReady(true);
+  }, [sessionId, effectiveSourceSelection.fingerprint, nivelProp]);
+
+  useEffect(() => {
+    durableStateRef.current = durableState;
+  }, [durableState]);
+
+  useEffect(() => {
+    if (!continuityReady) return;
+    const entry = durableStateRef.current.resultsByType[nivel];
+    if (!entry) return;
+    setAnalisis(entry.result || null);
+    setActiveSection(entry.activeSection || 'vision');
+    setLeidas(new Set(entry.readSections || []));
+    setShowSelfCheck(entry.shownSelfChecks || {});
+    setShowCheckAnswers(entry.shownCheckAnswers || {});
+    setDudaInput(entry.doubtDraft || '');
+    setDudaRespuesta(entry.doubtAnswer || '');
+    setDudaError(entry.doubtError || '');
+    setError(entry.status === 'recoverable' ? (entry.error || 'La generación se interrumpió.') : null);
+    setLoading(entry.status === 'generating');
+  }, [continuityReady, nivel]);
+
+  useEffect(() => {
+    if (!continuityReady || !sessionId) return;
+    const timer = window.setTimeout(() => {
+      const next = updateFreeAnalysisEntry(durableStateRef.current, nivel, {
+        activeSection,
+        readSections: Array.from(leidas),
+        shownSelfChecks: showSelfCheck,
+        shownCheckAnswers: showCheckAnswers,
+        doubtDraft: dudaInput,
+        doubtAnswer: dudaRespuesta,
+        doubtError: dudaError,
+      });
+      persistDurableState(next);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [continuityReady, sessionId, nivel, activeSection, leidas, showSelfCheck, showCheckAnswers, dudaInput, dudaRespuesta, dudaError, persistDurableState]);
 
   // nivel detectado automáticamente por ALAI desde M0
 
@@ -349,16 +288,27 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
     return () => clearInterval(intv);
   }, [loading]);
 
-  // ═══ Fetch del análisis usando 100% del material/páginas seleccionadas ═══
-  useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
+  const runAnalysis = useCallback(async () => {
+      if (!continuityReady || generationLockedRef.current) return;
+      if (!sessionId) {
+        setLoading(false);
+        setError('No se pudo identificar la sesión Free para guardar este análisis.');
+        return;
+      }
+      const current = durableStateRef.current.resultsByType[nivel];
+      if (current?.status === 'completed' && current.result) return;
+      const started = beginFreeAnalysis(durableStateRef.current, nivel);
+      if (started === durableStateRef.current) return;
+      const attempt = started.resultsByType[nivel]?.attempt || 0;
+      persistDurableState(started);
+      generationControllerRef.current?.abort();
+      const controller = new AbortController();
+      generationControllerRef.current = controller;
+      generationLockedRef.current = true;
       try {
         setLoading(true);
         setError(null);
 
-        if (authorizedStatus === 'loading' || authorizedStatus === 'idle') return;
         if (authorizedStatus === 'error' || !authorizedSource) {
           throw new Error(authorizedError || 'No se pudo resolver la fuente autorizada.');
         }
@@ -382,7 +332,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
           .map((doc: any, i: number) => `[Material ${i + 1}: ${doc.nombre}${doc.pages?.length ? ` | páginas ${doc.pages.join(', ')}` : ''}]\n${doc.contenido}`)
           .join('\n\n---\n\n');
 
-        if (!cancelled) setProfesorMaterialText(materialTextForQuestions);
+        if (mountedRef.current) setProfesorMaterialText(materialTextForQuestions);
 
         const res = await fetch('/api/analizar-teorico', {
           method: 'POST',
@@ -398,29 +348,81 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
               if (doc.pages?.length) acc[doc.id] = doc.pages;
               return acc;
             }, {}),
-            materialId: `source_${effectiveSourceSelection.fingerprint}`,
+            materialId: `source_${effectiveSourceSelection.fingerprint}_${nivel}`,
           }),
+          signal: controller.signal,
         });
 
         const data = await res.json();
-        if (cancelled) return;
+        if (!mountedRef.current || controller.signal.aborted || generationControllerRef.current !== controller) return;
 
-        if (data.success && data.analisis) {
-          setAnalisis(data.analisis);
-
-        } else {
-          setError(data.error || 'Error generando análisis');
+        if (!res.ok || !data.success || !data.analisis || typeof data.analisis !== 'object') {
+          throw new Error(data?.error || 'El proveedor devolvió un análisis incompatible.');
         }
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Error de conexión');
+        const completed = completeFreeAnalysis(durableStateRef.current, nivel, attempt, data.analisis as Analisis);
+        if (completed === durableStateRef.current) return;
+        persistDurableState(completed);
+        setAnalisis(data.analisis);
+      } catch (caught: unknown) {
+        if (controller.signal.aborted || generationControllerRef.current !== controller) return;
+        const message = caught instanceof Error ? caught.message : 'Error de conexión';
+        const failed = failFreeAnalysis(durableStateRef.current, nivel, attempt, message);
+        persistDurableState(failed);
+        setError(message);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (generationControllerRef.current === controller) {
+          generationControllerRef.current = null;
+          generationLockedRef.current = false;
+          if (mountedRef.current) setLoading(false);
+        }
+      }
+  }, [continuityReady, sessionId, nivel, authorizedStatus, authorizedSource, authorizedError, effectiveSourceSelection, materia, tema, masteryContext, persistDurableState]);
+
+  // ═══ Restore primero; solo genera si el tipo actual está realmente ausente ═══
+  useEffect(() => {
+    if (!continuityReady || authorizedStatus === 'loading' || authorizedStatus === 'idle') return;
+    const entry = durableStateRef.current.resultsByType[nivel];
+    if (entry?.status === 'completed' && entry.result) {
+      setAnalisis(entry.result);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    if (entry?.status === 'recoverable') {
+      setLoading(false);
+      setError(entry.error || 'La generación se interrumpió.');
+      return;
+    }
+    void runAnalysis();
+  }, [analysisRequestKey, continuityReady, authorizedStatus, nivel, runAnalysis]);
+
+  useEffect(() => {
+    if (!authorizedSource) return;
+    const text = effectiveSourceSelection.materials.map((selection, index) => {
+      const source = authorizedSource.materials[selection.materialId];
+      if (!source) return '';
+      const pageLabel = selection.selectedPages.length ? ` | páginas ${selection.selectedPages.join(', ')}` : '';
+      return `[Material ${index + 1}: ${source.nombre}${pageLabel}]\n${source.text}`;
+    }).filter(Boolean).join('\n\n---\n\n');
+    setProfesorMaterialText(text);
+  }, [authorizedSource, effectiveSourceSelection]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      generationControllerRef.current?.abort();
+      generationControllerRef.current = null;
+      generationLockedRef.current = false;
+      doubtControllerRef.current?.abort();
+      doubtControllerRef.current = null;
+      const entry = durableStateRef.current.resultsByType[nivel];
+      if (entry?.status === 'generating' && sessionId) {
+        const recoverable = recoverInterruptedFreeAnalysis(durableStateRef.current);
+        writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'analysis', recoverable);
       }
     };
-
-    run();
-    return () => { cancelled = true; };
-  }, [analysisRequestKey, authorizedStatus, authorizedSource, authorizedError]);
+  }, [sessionId, effectiveSourceSelection.fingerprint, nivel]);
 
   // ═══ Scroll spy ═══
   useEffect(() => {
@@ -474,6 +476,12 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
     const question = dudaInput.trim();
     if (!question || dudaLoading) return;
 
+    const attempt = doubtAttemptRef.current + 1;
+    doubtAttemptRef.current = attempt;
+    doubtControllerRef.current?.abort();
+    const controller = new AbortController();
+    doubtControllerRef.current = controller;
+
     setDudaLoading(true);
     setDudaError('');
     setDudaRespuesta('');
@@ -490,16 +498,23 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
           materia: materia?.nombre || materia?.name || '',
           tema: tema?.nombre || tema?.name || '',
         }),
+        signal: controller.signal,
       });
 
       const data = await res.json();
+      if (!mountedRef.current || controller.signal.aborted || doubtAttemptRef.current !== attempt) return;
       if (!res.ok || !data.success) throw new Error(data?.error || 'No se pudo responder la duda.');
 
       setDudaRespuesta(String(data.answer || '').trim() || 'No pude generar una respuesta clara.');
     } catch (e: any) {
-      setDudaError(e?.message || 'No se pudo responder la duda.');
+      if (!controller.signal.aborted && doubtAttemptRef.current === attempt) {
+        setDudaError(e?.message || 'No se pudo responder la duda.');
+      }
     } finally {
-      setDudaLoading(false);
+      if (doubtAttemptRef.current === attempt) {
+        doubtControllerRef.current = null;
+        setDudaLoading(false);
+      }
     }
   };
 
@@ -525,6 +540,14 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
 
   const totalSecciones = sectionsList.length;
   const progreso = totalSecciones > 0 ? Math.round((leidas.size / totalSecciones) * 100) : 0;
+
+  useEffect(() => {
+    if (!continuityReady || !sessionId || totalSecciones === 0) return;
+    const completed = leidas.size >= totalSecciones;
+    const current = durableStateRef.current.resultsByType[nivel];
+    if (!current || current.completed === completed) return;
+    persistDurableState(updateFreeAnalysisEntry(durableStateRef.current, nivel, { completed }));
+  }, [continuityReady, sessionId, nivel, leidas, totalSecciones, persistDurableState]);
 
   // ═══ LOADING SCREEN ═══
   if (loading) {
@@ -594,7 +617,16 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
           <div style={{ fontFamily: BODY, fontSize: 15, color: 'var(--text-muted)', maxWidth: 500, textAlign: 'center' }}>
             {error}
           </div>
-          <button onClick={onClose} style={btnPrimario}>← volver</button>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button onClick={onClose} style={btnPrimario}>← volver</button>
+            {durableState.resultsByType[nivel]?.status === 'recoverable' && (
+              <button
+                onClick={() => void runAnalysis()}
+                style={btnPrimario}
+                data-testid="analysis-retry"
+              >reintentar análisis</button>
+            )}
+          </div>
         </div>
         <Styles />
       </div>
@@ -616,7 +648,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
         borderBottom: '1.5px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
         padding: '12px 20px',
         display: 'flex', alignItems: 'center', gap: 16,
-      }}>
+      }} className="analysis-topbar">
         <button onClick={onClose} style={{
           background: 'transparent', border: '1.5px solid var(--text-primary)',
           color: 'var(--text-primary)', padding: '6px 16px',
@@ -665,7 +697,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
         </div>
 
         {/* Progreso */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
+        <div className="analysis-progress" style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
           <div style={{
             fontFamily: BODY, fontSize: 14, color: 'var(--text-muted)',
             display: 'flex', justifyContent: 'space-between',
@@ -690,9 +722,9 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
       <div style={{
         position: 'fixed', top: 78, left: 0, right: 0, bottom: 0,
         display: 'flex', zIndex: 5,
-      }}>
+      }} className="analysis-layout">
         {/* ─── SIDEBAR ÍNDICE ─── */}
-        <aside style={{
+        <aside className="analysis-sidebar" style={{
           width: 240, flexShrink: 0,
           padding: '20px 14px',
           overflowY: 'auto',
@@ -769,7 +801,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
         </aside>
 
         {/* ─── CONTENIDO ─── */}
-        <main ref={scrollRef} style={{
+        <main ref={scrollRef} className="analysis-main" style={{
           flex: 1,
           overflowY: 'auto',
           padding: '20px 32px 80px',
@@ -1236,7 +1268,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
                 </div>
               ) : null}
 
-              <div style={{
+              <div className="analysis-doubt-composer" style={{
                 marginTop: 14,
                 display: 'flex',
                 gap: 10,
@@ -1448,6 +1480,19 @@ function Styles() {
         @keyframes dotPulse {
           0%, 100% { opacity: 0.3; }
           50%      { opacity: 1; }
+        }
+        @media (max-width: 640px) {
+          .analysis-topbar { padding: 10px 12px !important; gap: 10px !important; }
+          .analysis-topbar button { padding: 6px 10px !important; }
+          .analysis-topbar h1 { font-size: 22px !important; }
+          .analysis-progress { display: none !important; }
+          .analysis-layout { top: 72px !important; min-width: 0 !important; }
+          .analysis-sidebar { display: none !important; }
+          .analysis-main { min-width: 0 !important; padding: 14px 12px 64px !important; overflow-x: hidden !important; }
+          .analysis-main section { padding: 20px 16px !important; }
+          .analysis-doubt-composer { flex-direction: column !important; }
+          .analysis-doubt-composer button { width: 100% !important; }
+          .analysis-doubt-composer textarea { min-width: 0 !important; width: 100% !important; box-sizing: border-box !important; }
         }
       `}</style>
     </>

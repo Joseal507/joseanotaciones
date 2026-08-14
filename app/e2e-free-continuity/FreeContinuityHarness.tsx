@@ -6,6 +6,7 @@ import ALAIStudyALExams from '../../components/materias/ALAIStudyALExams';
 import ALAIStudyALCards from '../../components/materias/ALAIStudyALCards';
 import ALAIStudyALRepasar from '../../components/materias/ALAIStudyALRepasar';
 import ALAIStudyALChat from '../../components/materias/ALAIStudyALChat';
+import AnalisisTeorico from '../../components/materias/AnalisisTeorico';
 import { buildSourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import { getSessionById, lookupSessionsFromServer, upsertSession } from '../../lib/studySessions';
 
@@ -21,10 +22,17 @@ const materials = [
 
 export default function FreeContinuityHarness() {
   const [ready, setReady] = useState(false);
+  const analysisLevel = useMemo(() => {
+    if (typeof window === 'undefined') return 'universidad' as const;
+    const requested = new URLSearchParams(window.location.search).get('level');
+    return requested === 'secundaria' || requested === 'medicina' || requested === 'doctorado'
+      ? requested
+      : 'universidad';
+  }, []);
   const tool = useMemo(() => {
     if (typeof window === 'undefined') return 'quiz';
     const requested = new URLSearchParams(window.location.search).get('tool');
-    return ['exam', 'flashcards', 'repasar', 'alai'].includes(requested || '') ? requested : 'quiz';
+    return ['exam', 'flashcards', 'repasar', 'alai', 'analysis'].includes(requested || '') ? requested : 'quiz';
   }, []);
 
   useEffect(() => {
@@ -66,5 +74,6 @@ export default function FreeContinuityHarness() {
   if (tool === 'flashcards') return <ALAIStudyALCards {...shared} />;
   if (tool === 'repasar') return <ALAIStudyALRepasar {...shared} />;
   if (tool === 'alai') return <ALAIStudyALChat {...shared} />;
+  if (tool === 'analysis') return <AnalisisTeorico {...shared} nivel={analysisLevel} onClose={() => {}} />;
   return <ALAIStudyALQuizzes {...shared} />;
 }
