@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import ALAIStudyALQuizzes from '../../components/materias/ALAIStudyALQuizzes';
 import ALAIStudyALExams from '../../components/materias/ALAIStudyALExams';
+import ALAIStudyALCards from '../../components/materias/ALAIStudyALCards';
+import ALAIStudyALRepasar from '../../components/materias/ALAIStudyALRepasar';
 import { buildSourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import { getSessionById, upsertSession } from '../../lib/studySessions';
 
@@ -20,7 +22,8 @@ export default function FreeContinuityHarness() {
   const [ready, setReady] = useState(false);
   const tool = useMemo(() => {
     if (typeof window === 'undefined') return 'quiz';
-    return new URLSearchParams(window.location.search).get('tool') === 'exam' ? 'exam' : 'quiz';
+    const requested = new URLSearchParams(window.location.search).get('tool');
+    return ['exam', 'flashcards', 'repasar'].includes(requested || '') ? requested : 'quiz';
   }, []);
 
   useEffect(() => {
@@ -49,7 +52,8 @@ export default function FreeContinuityHarness() {
     sourceSelection,
     onBack: () => {},
   };
-  return tool === 'exam'
-    ? <ALAIStudyALExams {...shared} userName="Estudiante E2E" />
-    : <ALAIStudyALQuizzes {...shared} />;
+  if (tool === 'exam') return <ALAIStudyALExams {...shared} userName="Estudiante E2E" />;
+  if (tool === 'flashcards') return <ALAIStudyALCards {...shared} />;
+  if (tool === 'repasar') return <ALAIStudyALRepasar {...shared} />;
+  return <ALAIStudyALQuizzes {...shared} />;
 }

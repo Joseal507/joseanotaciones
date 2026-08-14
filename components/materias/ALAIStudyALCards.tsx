@@ -5,9 +5,10 @@ import { useState, useEffect, useRef, useCallback, useMemo} from 'react';
 import dynamic from 'next/dynamic';
 import { detectContentLanguage } from '../../lib/detectLanguage';
 import MathText from '../MathText';
-import { upsertSession, getSessionsByTema } from '../../lib/studySessions';
+import { getSessionsByTema } from '../../lib/studySessions';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
+import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 const SourceViewer = dynamic(() => import('./FlashcardSourceViewer'), { ssr: false });
 
@@ -44,6 +45,35 @@ interface Props {
 
 type StudyMode = 'repite' | 'rapido';
 type StudyOrder = 'bucle' | 'lineal';
+
+interface FlashcardRoundState {
+  kind: 'repite' | 'rapido';
+  shuffledIds: string[];
+  progress?: CardProgress[];
+  currentId?: string;
+  index?: number;
+  userAnswer: string;
+  evaluation: unknown | null;
+  revealed: boolean;
+  done?: boolean;
+  position?: number;
+  userConfidence?: number | null;
+  history?: string[];
+  results?: { card: Flashcard; nivel: string }[];
+}
+
+interface PersistedFlashcardsState {
+  cards: Flashcard[];
+  materialText: string;
+  rightTab: 'material' | 'flashcards';
+  studyMode: StudyMode | null;
+  studyOrder: StudyOrder;
+  favorites: string[];
+  deckCurrent: number;
+  deckFlipped: boolean;
+  round: FlashcardRoundState | null;
+  finished: boolean;
+}
 
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -427,26 +457,16 @@ const SORT_LABELS: Record<SortMode, string> = {
   favs_first: '⭐ Favoritas primero',
 };
 
-function useFlashcardControls(cards: Flashcard[]) {
-  const [favorites, setFavorites] = useState<Set<string>>(() => {
-    if (typeof window === 'undefined') return new Set();
-    try {
-      const stored = localStorage.getItem('flashcard_favs');
-      return new Set(stored ? JSON.parse(stored) : []);
-    } catch { return new Set(); }
-  });
+function useFlashcardControls(cards: Flashcard[], favorites: Set<string>, onFavoritesChange: (favorites: Set<string>) => void) {
   const [showOnlyFavs, setShowOnlyFavs] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>('natural');
   const [showSortMenu, setShowSortMenu] = useState(false);
 
   const toggleFav = (id: string) => {
-    setFavorites(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      try { localStorage.setItem('flashcard_favs', JSON.stringify([...next])); } catch {}
-      return next;
-    });
+    const next = new Set(favorites);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onFavoritesChange(next);
   };
 
   useEffect(() => {
@@ -459,10 +479,9 @@ function useFlashcardControls(cards: Flashcard[]) {
       else removed++;
     });
     if (removed > 0) {
-      setFavorites(cleaned);
-      try { localStorage.setItem('flashcard_favs', JSON.stringify([...cleaned])); } catch {}
+      onFavoritesChange(cleaned);
     }
-  }, [cards, favorites]);
+  }, [cards, favorites, onFavoritesChange]);
 
   useEffect(() => {
     if (favorites.size === 0) {
@@ -597,7 +616,8 @@ function ControlsBar({ controls, color }: {
 
 function DeckView({
   cards, color, onEdit, onDelete, onShowSource, onStudyAll,
-  onStudySingle, onRegenerate, generating, onCreateManual,
+  onStudySingle, onRegenerate, generating, onCreateManual, favorites: favoriteIds,
+  onFavoritesChange, initialCurrent, initialFlipped, onViewStateChange,
 }: {
   cards: Flashcard[];
   color: string;
@@ -609,11 +629,16 @@ function DeckView({
   onRegenerate: () => void;
   generating: boolean;
   onCreateManual: () => void;
+  favorites: Set<string>;
+  onFavoritesChange: (favorites: Set<string>) => void;
+  initialCurrent: number;
+  initialFlipped: boolean;
+  onViewStateChange: (current: number, flipped: boolean) => void;
 }) {
-  const controls = useFlashcardControls(cards);
+  const controls = useFlashcardControls(cards, favoriteIds, onFavoritesChange);
   const { favorites, toggleFav, visibleCards } = controls;
-  const [current, setCurrent] = useState(0);
-  const [flipped, setFlipped] = useState(false);
+  const [current, setCurrent] = useState(initialCurrent);
+  const [flipped, setFlipped] = useState(initialFlipped);
 
   const safeCurrent = visibleCards.length > 0
     ? Math.max(0, Math.min(current, visibleCards.length - 1))
@@ -627,6 +652,7 @@ function DeckView({
   }, [current, safeCurrent]);
 
   useEffect(() => { setFlipped(false); }, [current]);
+  useEffect(() => onViewStateChange(current, flipped), [current, flipped, onViewStateChange]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -768,7 +794,7 @@ function DeckView({
 
 function ScrollList({
   cards, color, onEdit, onDelete, onShowSource, onStudySingle,
-  onStudyAll, onRegenerate, generating, onCreateManual,
+  onStudyAll, onRegenerate, generating, onCreateManual, favorites: favoriteIds, onFavoritesChange,
 }: {
   cards: Flashcard[];
   color: string;
@@ -780,6 +806,8 @@ function ScrollList({
   onRegenerate: () => void;
   generating: boolean;
   onCreateManual: () => void;
+  favorites: Set<string>;
+  onFavoritesChange: (favorites: Set<string>) => void;
 }) {
   const [flippedSet, setFlippedSet] = useState<Set<string>>(new Set());
   const toggleFlip = (id: string) => {
@@ -791,7 +819,7 @@ function ScrollList({
     });
   };
 
-  const controls = useFlashcardControls(cards);
+  const controls = useFlashcardControls(cards, favoriteIds, onFavoritesChange);
   const { favorites, toggleFav, visibleCards } = controls;
 
   return (
@@ -959,7 +987,7 @@ interface CardProgress {
   nextReviewIndex: number;
 }
 
-function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', order = 'bucle', onMasteryEvent }: {
+function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', order = 'bucle', onMasteryEvent, initialState, onStateChange }: {
   cards: Flashcard[];
   color: string;
   onClose: () => void;
@@ -967,8 +995,15 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
   contexto?: string;
   order?: StudyOrder;
   onMasteryEvent?: (event: any) => void;
+  initialState?: FlashcardRoundState | null;
+  onStateChange?: (state: FlashcardRoundState) => void;
 }) {
   const [shuffledCards] = useState<Flashcard[]>(() => {
+    if (initialState?.kind === 'repite' && initialState.shuffledIds.length) {
+      const byId = new Map(cards.map(card => [card.id, card]));
+      const restored = initialState.shuffledIds.map(id => byId.get(id)).filter((card): card is Flashcard => Boolean(card));
+      if (restored.length === cards.length) return restored;
+    }
     if (order === 'bucle') {
       const arr = [...cards];
       for (let i = arr.length - 1; i > 0; i--) {
@@ -981,6 +1016,11 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
   });
 
   const [progress, setProgress] = useState<Map<string, CardProgress>>(() => {
+    if (initialState?.kind === 'repite' && Array.isArray(initialState.progress)) {
+      const validIds = new Set(cards.map(card => card.id));
+      const restored = initialState.progress.filter(item => validIds.has(item.card?.id));
+      if (restored.length === cards.length) return new Map(restored.map(item => [item.card.id, item]));
+    }
     const m = new Map<string, CardProgress>();
     shuffledCards.forEach((card, i) => {
       m.set(card.id, {
@@ -991,21 +1031,46 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
     });
     return m;
   });
-  const [currentId, setCurrentId] = useState<string>(shuffledCards[0]?.id);
-  const [userAnswer, setUserAnswer] = useState('');
+  const [currentId, setCurrentId] = useState<string>(initialState?.currentId || shuffledCards[0]?.id);
+  const [userAnswer, setUserAnswer] = useState(initialState?.userAnswer || '');
   const [evaluating, setEvaluating] = useState(false);
-  const [evaluation, setEvaluation] = useState<any>(null);
-  const [revealed, setRevealed] = useState(false);
-  const [done, setDone] = useState(false);
-  const [position, setPosition] = useState(0);
-  const [userConfidence, setUserConfidence] = useState<number | null>(null);
+  const [evaluation, setEvaluation] = useState<any>(initialState?.evaluation ?? null);
+  const [revealed, setRevealed] = useState(initialState?.revealed === true);
+  const [done, setDone] = useState(initialState?.done === true);
+  const [position, setPosition] = useState(Number(initialState?.position || 0));
+  const [userConfidence, setUserConfidence] = useState<number | null>(initialState?.userConfidence ?? null);
+  const [history, setHistory] = useState<string[]>(initialState?.history || []);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const evaluationAttemptRef = useRef(0);
+  const evaluationControllerRef = useRef<AbortController | null>(null);
 
   const current = progress.get(currentId);
 
   useEffect(() => {
     if (!readOnly) textareaRef.current?.focus();
   }, [currentId, readOnly]);
+
+  useEffect(() => {
+    if (readOnly || !onStateChange) return;
+    onStateChange({
+      kind: 'repite',
+      shuffledIds: shuffledCards.map(card => card.id),
+      progress: Array.from(progress.values()),
+      currentId,
+      userAnswer,
+      evaluation,
+      revealed,
+      done,
+      position,
+      userConfidence,
+      history,
+    });
+  }, [readOnly, onStateChange, shuffledCards, progress, currentId, userAnswer, evaluation, revealed, done, position, userConfidence, history]);
+
+  useEffect(() => () => {
+    evaluationAttemptRef.current += 1;
+    evaluationControllerRef.current?.abort();
+  }, []);
 
   const getNextCard = useCallback((currentProgress: Map<string, CardProgress>) => {
     const pending = Array.from(currentProgress.values())
@@ -1017,6 +1082,12 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
 
   const evaluate = async () => {
     if (!current || !userAnswer.trim()) return;
+    if (evaluating) return;
+    const attempt = evaluationAttemptRef.current + 1;
+    evaluationAttemptRef.current = attempt;
+    evaluationControllerRef.current?.abort();
+    const controller = new AbortController();
+    evaluationControllerRef.current = controller;
     setEvaluating(true);
     try {
       const res = await fetch('/api/evaluar', {
@@ -1029,11 +1100,14 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
           idioma: 'es',
           contexto,
         }),
+        signal: controller.signal,
       });
       const data = await res.json();
+      if (controller.signal.aborted || evaluationAttemptRef.current !== attempt) return;
       setEvaluation(data.resultado);
       setRevealed(true);
     } catch (e) {
+      if (controller.signal.aborted || evaluationAttemptRef.current !== attempt) return;
       console.error("Error al evaluar con IA:", e);
       setEvaluation({
         nivel: 'medio_correcta', porcentaje: 50,
@@ -1041,7 +1115,10 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
         consejo: '',
       });
     } finally {
-      setEvaluating(false);
+      if (evaluationAttemptRef.current === attempt) {
+        setEvaluating(false);
+        evaluationControllerRef.current = null;
+      }
     }
   };
 
@@ -1299,7 +1376,6 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
     { correct: 0, medium: 0, wrong: 0 }
   );
 
-  const [history, setHistory] = useState<string[]>([]);
   const canGoBack = history.length > 0;
   const goBack = () => {
     if (history.length === 0) return;
@@ -1624,10 +1700,17 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
   );
 }
 
-function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle' }: {
+function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle', initialState, onStateChange }: {
   cards: Flashcard[]; color: string; onClose: () => void; contexto?: string; order?: StudyOrder;
+  initialState?: FlashcardRoundState | null;
+  onStateChange?: (state: FlashcardRoundState) => void;
 }) {
   const [shuffledCards] = useState<Flashcard[]>(() => {
+    if (initialState?.kind === 'rapido' && initialState.shuffledIds.length) {
+      const byId = new Map(cards.map(card => [card.id, card]));
+      const restored = initialState.shuffledIds.map(id => byId.get(id)).filter((card): card is Flashcard => Boolean(card));
+      if (restored.length === cards.length) return restored;
+    }
     if (order === 'bucle') {
       const arr = [...cards];
       for (let i = arr.length - 1; i > 0; i--) {
@@ -1638,17 +1721,34 @@ function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle' }: 
     }
     return [...cards];
   });
-  const [index, setIndex] = useState(0);
-  const [results, setResults] = useState<{ card: Flashcard; nivel: string }[]>([]);
-  const [userAnswer, setUserAnswer] = useState('');
+  const [index, setIndex] = useState(Number(initialState?.index || 0));
+  const [results, setResults] = useState<{ card: Flashcard; nivel: string }[]>(initialState?.results || []);
+  const [userAnswer, setUserAnswer] = useState(initialState?.userAnswer || '');
   const [evaluating, setEvaluating] = useState(false);
-  const [evaluation, setEvaluation] = useState<any>(null);
-  const [revealed, setRevealed] = useState(false);
+  const [evaluation, setEvaluation] = useState<any>(initialState?.evaluation ?? null);
+  const [revealed, setRevealed] = useState(initialState?.revealed === true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const evaluationAttemptRef = useRef(0);
+  const evaluationControllerRef = useRef<AbortController | null>(null);
 
   const card = shuffledCards[index];
 
   useEffect(() => { textareaRef.current?.focus(); }, [index]);
+  useEffect(() => {
+    onStateChange?.({
+      kind: 'rapido',
+      shuffledIds: shuffledCards.map(item => item.id),
+      index,
+      results,
+      userAnswer,
+      evaluation,
+      revealed,
+    });
+  }, [onStateChange, shuffledCards, index, results, userAnswer, evaluation, revealed]);
+  useEffect(() => () => {
+    evaluationAttemptRef.current += 1;
+    evaluationControllerRef.current?.abort();
+  }, []);
 
   const nivelColors: any = {
     INSANE: '#10b981', correcta: '#4ade80',
@@ -1664,6 +1764,11 @@ function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle' }: 
 
   const evaluate = async () => {
     if (!card || !userAnswer.trim() || evaluating) return;
+    const attempt = evaluationAttemptRef.current + 1;
+    evaluationAttemptRef.current = attempt;
+    evaluationControllerRef.current?.abort();
+    const controller = new AbortController();
+    evaluationControllerRef.current = controller;
     setEvaluating(true);
     try {
       const res = await fetch('/api/evaluar', {
@@ -1676,11 +1781,14 @@ function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle' }: 
           idioma: 'es',
           contexto,
         }),
+        signal: controller.signal,
       });
       const data = await res.json();
+      if (controller.signal.aborted || evaluationAttemptRef.current !== attempt) return;
       setEvaluation(data.resultado);
       setRevealed(true);
     } catch (e) {
+      if (controller.signal.aborted || evaluationAttemptRef.current !== attempt) return;
       console.error("Error al evaluar con IA:", e);
       setEvaluation({
         nivel: 'medio_correcta', porcentaje: 50,
@@ -1688,7 +1796,10 @@ function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle' }: 
         consejo: '',
       });
     } finally {
-      setEvaluating(false);
+      if (evaluationAttemptRef.current === attempt) {
+        setEvaluating(false);
+        evaluationControllerRef.current = null;
+      }
     }
   };
 
@@ -2208,6 +2319,13 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
   const [sourceCard, setSourceCard] = useState<Flashcard | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [rightTab, setRightTab] = useState<'material' | 'flashcards'>('material');
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [deckCurrent, setDeckCurrent] = useState(0);
+  const [deckFlipped, setDeckFlipped] = useState(false);
+  const [roundState, setRoundState] = useState<FlashcardRoundState | null>(null);
+  const [continuityReady, setContinuityReady] = useState(false);
+  const generationAttemptRef = useRef(0);
+  const generationControllerRef = useRef<AbortController | null>(null);
 
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(true);
@@ -2258,9 +2376,25 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
   useEffect(() => {
     if (!sessionId || cacheLoaded) return;
     try {
-      const sessions = getSessionsByTema(tema?.id || '');
-      const sess = sessions.find(s => s.id === sessionId);
-      if (sess) {
+      const durable = readFreeToolState<PersistedFlashcardsState>(
+        sessionId,
+        effectiveSourceSelection.fingerprint,
+        'flashcards',
+      );
+      const sess = getSessionsByTema(tema?.id || '').find(s => s.id === sessionId);
+      if (durable) {
+        const saved = durable.state;
+        setFlashcards(Array.isArray(saved.cards) ? saved.cards : []);
+        setMaterialText(typeof saved.materialText === 'string' ? saved.materialText : '');
+        setRightTab(saved.rightTab === 'flashcards' ? 'flashcards' : 'material');
+        setStudyMode(saved.studyMode || null);
+        setStudyOrder(saved.studyOrder || 'bucle');
+        setFavorites(new Set(Array.isArray(saved.favorites) ? saved.favorites : []));
+        setDeckCurrent(Math.max(0, Number(saved.deckCurrent || 0)));
+        setDeckFlipped(saved.deckFlipped === true);
+        setRoundState(saved.round || null);
+      } else if (sess) {
+        // Backward-compatible deck migration; progress/favorites are not guessed.
         if (sess.sourceSelectionFingerprint === effectiveSourceSelection.fingerprint && (sess as any).materialText && typeof (sess as any).materialText === 'string') {
           console.log('📦 Cache hit: materialText (' + (sess as any).materialText.length + ' chars)');
           setMaterialText((sess as any).materialText);
@@ -2274,35 +2408,39 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
       console.warn('Error cargando cache de sesión:', e);
     }
     setCacheLoaded(true);
+    setContinuityReady(true);
   }, [sessionId, tema?.id, cacheLoaded, effectiveSourceSelection.fingerprint]);
 
   useEffect(() => {
-    if (!sessionId || !cacheLoaded) return;
-    if (flashcards.length === 0) return;
-
+    if (!sessionId || !cacheLoaded || !continuityReady) return;
     const t = setTimeout(() => {
-      try {
-        const sessions = getSessionsByTema(tema?.id || '');
-        const sess = sessions.find(s => s.id === sessionId);
-        if (sess) {
-          upsertSession({
-            sessionId: sess.id,
-            temaId: sess.temaId,
-            enfoque: sess.enfoque,
-            processMode: (sess.processMode || sess.studyMode || 'free') as any,
-            materialIds: sess.materialIds,
-            selectedPages: sess.selectedPages,
-            sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
-            flashcards: flashcards,
-          });
-          console.log('💾 Cache guardado:', flashcards.length, 'flashcards en', sessionId);
-        }
-      } catch (e) {
-        console.warn('Error guardando cache:', e);
-      }
-    }, 800);
+      writeFreeToolState<PersistedFlashcardsState>(sessionId, effectiveSourceSelection.fingerprint, 'flashcards', {
+        cards: flashcards,
+        materialText,
+        rightTab,
+        studyMode,
+        studyOrder,
+        favorites: [...favorites],
+        deckCurrent,
+        deckFlipped,
+        round: roundState,
+        finished: Boolean(roundState?.done || (roundState?.kind === 'rapido' && Number(roundState.index || 0) >= flashcards.length && flashcards.length > 0)),
+      });
+    }, 250);
     return () => clearTimeout(t);
-  }, [flashcards, sessionId, tema?.id, cacheLoaded, materialText, effectiveSourceSelection.fingerprint]);
+  }, [flashcards, sessionId, cacheLoaded, continuityReady, materialText, effectiveSourceSelection.fingerprint, rightTab, studyMode, studyOrder, favorites, deckCurrent, deckFlipped, roundState]);
+
+  useEffect(() => () => {
+    generationAttemptRef.current += 1;
+    generationControllerRef.current?.abort();
+  }, []);
+
+  const handleFavoritesChange = useCallback((next: Set<string>) => setFavorites(new Set(next)), []);
+  const handleDeckViewState = useCallback((current: number, flipped: boolean) => {
+    setDeckCurrent(current);
+    setDeckFlipped(flipped);
+  }, []);
+  const handleRoundState = useCallback((next: FlashcardRoundState) => setRoundState(next), []);
 
   const filterTextByPages = (fullText: string, pages: number[]): string => {
     if (!pages || pages.length === 0) return fullText;
@@ -2365,6 +2503,12 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
   }, [authorizedStatus, authorizedSource, authorizedError]);
 
   const generate = useCallback(async () => {
+    if (generating) return;
+    const attempt = generationAttemptRef.current + 1;
+    generationAttemptRef.current = attempt;
+    generationControllerRef.current?.abort();
+    const controller = new AbortController();
+    generationControllerRef.current = controller;
     setGenerating(true);
     setError('');
     setGeneratingStep(
@@ -2441,8 +2585,10 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
               masteryContext,
               totalSelectedPages,
             }),
+            signal: controller.signal,
           });
           const data = await res.json();
+          if (controller.signal.aborted || generationAttemptRef.current !== attempt) return [];
           if (!data.success || !data.flashcards?.length) {
             console.warn(`⚠️ Material ${blockIdx + 1} sin flashcards:`, data.error);
             return [];
@@ -2452,6 +2598,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
         })
       );
       const allCards = allResponses.flat();
+      if (controller.signal.aborted || generationAttemptRef.current !== attempt) return;
       if (allCards.length === 0) {
         setError('No se pudieron generar flashcards.'); return;
       }
@@ -2468,16 +2615,25 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
       setGeneratingProgress(100);
       setGeneratingStep(`¡Listo! ${cards.length} flashcards generadas`);
       await new Promise(r => setTimeout(r, 700));
+      if (controller.signal.aborted || generationAttemptRef.current !== attempt) return;
       setFlashcards(cards);
+      setFavorites(new Set());
+      setDeckCurrent(0);
+      setDeckFlipped(false);
+      setRoundState(null);
 
     } catch (e: any) {
+      if (controller.signal.aborted || generationAttemptRef.current !== attempt) return;
       setError(e.message || 'Error al generar flashcards');
     } finally {
       clearInterval(progressInterval);
       clearInterval(stepInterval);
-      setGenerating(false);
+      if (generationAttemptRef.current === attempt) {
+        setGenerating(false);
+        generationControllerRef.current = null;
+      }
     }
-  }, [extractText, matActual, hasAnySelection, totalSelectedPages, materialText, seleccion, sessionId, tema?.id]);
+  }, [extractText, matActual, hasAnySelection, totalSelectedPages, materialText, seleccion, generating, masteryContext]);
 
   const editCard = (id: string, q: string, a: string) => {
     setFlashcards(prev => prev.map(c => c.id === id ? { ...c, question: q, answer: a } : c));
@@ -2501,8 +2657,8 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
     ? sortCardsByMastery(flashcards, masteryContext)
     : flashcards;
 
-  if (studyMode === 'repite') return <StudyRepite cards={sortedCards} color={color} onClose={() => setStudyMode(null)} contexto={materialText} order={studyOrder} onMasteryEvent={onMasteryEvent} />;
-  if (studyMode === 'rapido') return <StudyRapido cards={flashcards} color={color} onClose={() => setStudyMode(null)} contexto={materialText} order={studyOrder} />;
+  if (studyMode === 'repite') return <StudyRepite cards={sortedCards} color={color} onClose={() => setStudyMode(null)} contexto={materialText} order={studyOrder} onMasteryEvent={onMasteryEvent} initialState={roundState?.kind === 'repite' ? roundState : null} onStateChange={handleRoundState} />;
+  if (studyMode === 'rapido') return <StudyRapido cards={flashcards} color={color} onClose={() => setStudyMode(null)} contexto={materialText} order={studyOrder} initialState={roundState?.kind === 'rapido' ? roundState : null} onStateChange={handleRoundState} />;
 
   return (
     <div style={{
@@ -2668,6 +2824,8 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
                   onRegenerate={generate}
                   generating={generating}
                   onCreateManual={crearManualmente}
+                  favorites={favorites}
+                  onFavoritesChange={handleFavoritesChange}
                 />
               )}
             </div>
@@ -2693,6 +2851,11 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
                 onRegenerate={generate}
                 generating={generating}
                 onCreateManual={crearManualmente}
+                favorites={favorites}
+                onFavoritesChange={handleFavoritesChange}
+                initialCurrent={deckCurrent}
+                initialFlipped={deckFlipped}
+                onViewStateChange={handleDeckViewState}
               />
             )}
           </div>
@@ -2770,7 +2933,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
       {showStudySelector && (
         <StudySelector
           color={color}
-          onSelect={(mode, ord) => { setStudyMode(mode); setStudyOrder(ord); setShowStudySelector(false); }}
+          onSelect={(mode, ord) => { setRoundState(null); setStudyMode(mode); setStudyOrder(ord); setShowStudySelector(false); }}
           onClose={() => setShowStudySelector(false)}
         />
       )}

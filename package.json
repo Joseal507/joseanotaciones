@@ -8,6 +8,7 @@
     "test:xp-ledger": "node --import tsx scripts/tests/xp-ledger-contracts.ts",
     "test:study-data-integrity": "node --import tsx scripts/tests/study-data-integrity-contracts.ts",
     "test:free-tool-continuity": "node --import tsx scripts/tests/free-tool-continuity-contracts.ts",
+    "test:free-flashcards-repasar": "node --import tsx scripts/tests/free-flashcards-repasar-continuity-contracts.ts",
     "test:question-types": "node --import tsx scripts/tests/question-type-layer-contracts.ts",
     "test:session-final-transition": "node --import tsx scripts/tests/session-final-transition-contracts.ts",
     "test:adaptive-generality": "node --import tsx scripts/tests/adaptive-generality-static-contracts.ts && node --import tsx scripts/tests/adaptive-generality-generative-contracts.ts",

@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 import { sourceScopedKey } from '../../lib/materials/authorizedSource';
+import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
 
 const HAND = "'Caveat', cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -90,6 +91,18 @@ interface Attempt {
   mode: ExplainMode;
   explanation: string;
   analysis: AnalysisResult;
+}
+
+interface PersistedRepasarState {
+  phase: Phase;
+  notes: string;
+  explanation: string;
+  mode: ExplainMode;
+  analysis: AnalysisResult | null;
+  attempts: Attempt[];
+  followUpAnswer: string;
+  teachCheck: unknown | null;
+  activeRepasarColor: string;
 }
 
 function clampText(text: string, max = 60000) {
@@ -229,6 +242,11 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
   const [teachCheck, setTeachCheck] = useState<any | null>(null);
   const [activeRepasarColor, setActiveRepasarColor] = useState('rgba(250, 204, 21, 0.48)');
   const [error, setError] = useState('');
+  const [continuityReady, setContinuityReady] = useState(false);
+  const analysisAttemptRef = useRef(0);
+  const analysisControllerRef = useRef<AbortController | null>(null);
+  const verificationAttemptRef = useRef(0);
+  const verificationControllerRef = useRef<AbortController | null>(null);
 
   // onMasteryEvent viene como prop desde app/materias/page.tsx
 
@@ -255,10 +273,16 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
     return clean.slice(0, 1400);
   }, [materialText]);
   useEffect(() => {
+    const durable = readFreeToolState<PersistedRepasarState>(
+      sessionId,
+      effectiveSourceSelection.fingerprint,
+      'repasar',
+    );
     try {
-      const raw = localStorage.getItem(storageKey);
-      if (!raw) return;
-      const saved = JSON.parse(raw);
+      // Backward compatibility is allowed only for the exact source/session-scoped key.
+      const legacyRaw = durable ? null : localStorage.getItem(storageKey);
+      const saved = durable?.state || (legacyRaw ? JSON.parse(legacyRaw) : null);
+      if (!saved) return;
       if (saved?.phase) setPhase(saved.phase);
       if (typeof saved?.notes === 'string') setNotes(saved.notes);
       if (typeof saved?.explanation === 'string') setExplanation(saved.explanation);
@@ -266,12 +290,19 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
       if (Array.isArray(saved?.attempts)) setAttempts(saved.attempts);
       if (saved?.analysis) setAnalysis(saved.analysis);
       if (saved?.teachCheck) setTeachCheck(saved.teachCheck);
-    } catch {}
-  }, [storageKey]);
+      if (typeof saved?.followUpAnswer === 'string') setFollowUpAnswer(saved.followUpAnswer);
+      if (typeof saved?.activeRepasarColor === 'string') setActiveRepasarColor(saved.activeRepasarColor);
+    } catch {
+      // An unreadable legacy cache is not absence and never replaces durable state.
+    } finally {
+      setContinuityReady(true);
+    }
+  }, [storageKey, sessionId, effectiveSourceSelection.fingerprint]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(storageKey, JSON.stringify({
+    if (!continuityReady || !sessionId) return;
+    const timer = window.setTimeout(() => {
+      writeFreeToolState<PersistedRepasarState>(sessionId, effectiveSourceSelection.fingerprint, 'repasar', {
         phase,
         notes,
         explanation,
@@ -279,10 +310,19 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
         attempts,
         analysis,
         teachCheck,
-        updatedAt: Date.now(),
-      }));
-    } catch {}
-  }, [storageKey, phase, notes, explanation, mode, attempts, analysis, teachCheck]);
+        followUpAnswer,
+        activeRepasarColor,
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [continuityReady, sessionId, effectiveSourceSelection.fingerprint, phase, notes, explanation, mode, attempts, analysis, teachCheck, followUpAnswer, activeRepasarColor]);
+
+  useEffect(() => () => {
+    analysisAttemptRef.current += 1;
+    verificationAttemptRef.current += 1;
+    analysisControllerRef.current?.abort();
+    verificationControllerRef.current?.abort();
+  }, []);
 
   const pendingTeachAnalysis = useMemo(() => {
     if (analysis?.teachMissing) return analysis;
@@ -317,9 +357,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
     setFollowUpAnswer('');
     setTeachCheck(null);
     setError('');
-    try {
-      localStorage.removeItem(storageKey);
-    } catch {}
+    setActiveRepasarColor('rgba(250, 204, 21, 0.48)');
   };
 
   const evaluate = async () => {
@@ -335,6 +373,12 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
       return;
     }
 
+    if (loading) return;
+    const attempt = analysisAttemptRef.current + 1;
+    analysisAttemptRef.current = attempt;
+    analysisControllerRef.current?.abort();
+    const controller = new AbortController();
+    analysisControllerRef.current = controller;
     setLoading(true);
     setError('');
     setAnalysis(null);
@@ -353,10 +397,12 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
           previousWeakConcepts: weakConcepts,
           masteryContext,
         }),
+        signal: controller.signal,
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'No se pudo analizar.');
+      if (controller.signal.aborted || analysisAttemptRef.current !== attempt) return;
 
       setAnalysis(data.analysis);
       setAttempts((prev) => [
@@ -406,9 +452,13 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
         });
       } catch (_) {}
     } catch (err: any) {
+      if (controller.signal.aborted || analysisAttemptRef.current !== attempt) return;
       setError(err?.message || 'No se pudo analizar.');
     } finally {
-      setLoading(false);
+      if (analysisAttemptRef.current === attempt) {
+        setLoading(false);
+        analysisControllerRef.current = null;
+      }
     }
   };
 
@@ -448,6 +498,12 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
       return;
     }
 
+    if (checkingTeach) return;
+    const attempt = verificationAttemptRef.current + 1;
+    verificationAttemptRef.current = attempt;
+    verificationControllerRef.current?.abort();
+    const controller = new AbortController();
+    verificationControllerRef.current = controller;
     setCheckingTeach(true);
     setError('');
 
@@ -474,16 +530,22 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
           lesson,
           answer: followUpAnswer,
         }),
+        signal: controller.signal,
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'No se pudo verificar.');
+      if (controller.signal.aborted || verificationAttemptRef.current !== attempt) return;
 
       setTeachCheck(data.check);
     } catch (err: any) {
+      if (controller.signal.aborted || verificationAttemptRef.current !== attempt) return;
       setError(err?.message || 'No se pudo verificar.');
     } finally {
-      setCheckingTeach(false);
+      if (verificationAttemptRef.current === attempt) {
+        setCheckingTeach(false);
+        verificationControllerRef.current = null;
+      }
     }
   };
 
@@ -515,6 +577,8 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
       color: 'var(--text-primary)',
       fontFamily: BODY,
       padding: '26px 28px 42px',
+      boxSizing: 'border-box',
+      overflowX: 'hidden',
       backgroundImage: `linear-gradient(to bottom, transparent 0, transparent 47px, color-mix(in srgb, var(--text-primary) 7%, transparent) 47px, color-mix(in srgb, var(--text-primary) 7%, transparent) 48px, transparent 48px)`,
       backgroundSize: '100% 48px',
     }}>
@@ -527,6 +591,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
           justifyContent: 'space-between',
           alignItems: 'center',
           gap: 18,
+          flexWrap: 'wrap',
           marginBottom: 26,
         }}>
           <button onClick={onBack} style={{
@@ -562,7 +627,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
             fontSize: 20,
             color: 'var(--text-muted)',
             textAlign: 'right',
-            minWidth: 160,
+            minWidth: 0,
           }}>
             <div>{contentStatus === 'loading' ? 'cargando texto…' : `${totalChars.toLocaleString()} chars`}</div>
             <button onClick={resetSession} style={{
