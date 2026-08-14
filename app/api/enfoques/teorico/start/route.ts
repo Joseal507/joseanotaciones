@@ -29,7 +29,16 @@ export async function POST(req: NextRequest) {
     const user = await getUser();
     if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
-    const body = await req.json();
+    let body: any;
+    try {
+      body = await req.json();
+    } catch (parseError) {
+      // Body abortado por AbortController del cliente o JSON malformado.
+      return NextResponse.json(
+        { error: 'REQUEST_BODY_INVALID_OR_ABORTED' },
+        { status: 400 },
+      );
+    }
     const sourceSelection = validateSourceSelectionInput(body?.sourceSelection);
     const materialIds = sourceSelection?.materialIds || body?.materialIds;
     if (body?.sourceSelection && !sourceSelection) {

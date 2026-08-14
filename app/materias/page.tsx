@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo} from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import dynamicImport from 'next/dynamic';
@@ -78,6 +78,7 @@ export default function MateriasPage() {
   const [examSeleccion, setExamSeleccion] = useState<any[] | null>(null);
   const [returnToEnfoque, setReturnToEnfoque] = useState(false);
   const [returnSessionId, setReturnSessionId] = useState<string | null>(null);
+
   const [autoOpenAdaptive, setAutoOpenAdaptive] = useState(false);
   const [autoOpenAdaptiveSessionId, setAutoOpenAdaptiveSessionId] = useState<string | null>(null);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
@@ -226,6 +227,39 @@ export default function MateriasPage() {
   // ── Mastery Engine — vive aquí, persiste entre vistas ──
   const [masteryState, setMasteryState] = useState<MaterialMastery | null>(null);
   const [masterySnapshot, setMasterySnapshot] = useState<MasterySnapshot | null>(null);
+
+  // FIX P0: memoizar sourceSelection y masteryContext para evitar bounce.
+  // Antes se construian inline en JSX (nueva identidad cada render) → useAuthorizedSource
+  // veia snapshot nuevo → refetch → setResult(null) → UI de la herramienta desaparecia.
+  const flashcardsSource = useMemo(
+    () => buildSourceSelectionFromMaterials(flashcardsMateriales, flashcardsSeleccion),
+    [flashcardsMateriales, flashcardsSeleccion],
+  );
+  const quizSource = useMemo(
+    () => buildSourceSelectionFromMaterials(quizMateriales, quizSeleccion),
+    [quizMateriales, quizSeleccion],
+  );
+  const repasarSource = useMemo(
+    () => buildSourceSelectionFromMaterials(repasarMateriales, repasarSeleccion),
+    [repasarMateriales, repasarSeleccion],
+  );
+  const analisisSource = useMemo(
+    () => buildSourceSelectionFromMaterials(analisisMateriales, analisisSeleccion),
+    [analisisMateriales, analisisSeleccion],
+  );
+  const alaiSource = useMemo(
+    () => buildSourceSelectionFromMaterials(alaiMateriales, alaiSeleccion),
+    [alaiMateriales, alaiSeleccion],
+  );
+  const examSource = useMemo(
+    () => buildSourceSelectionFromMaterials(examMateriales, examSeleccion),
+    [examMateriales, examSeleccion],
+  );
+  const memoizedMasteryContext = useMemo(
+    () => buildMasteryContext(masteryState),
+    [masteryState],
+  );
+
 
   // Auto-extraer conceptos en background cuando el mastery existe pero no tiene conceptos
   const autoExtractConcepts = async (mastery: MaterialMastery) => {
@@ -1231,8 +1265,8 @@ const eliminarDocumento = async (id: string) => {
             tema={temaActual}
             materia={materiaActual}
             sessionId={flashcardsSessionId}
-            sourceSelection={buildSourceSelectionFromMaterials(flashcardsMateriales, flashcardsSeleccion)}
-            masteryContext={getMasteryContext()}
+            sourceSelection={flashcardsSource}
+            masteryContext={memoizedMasteryContext}
             onMasteryEvent={reportMasteryEvent}
             onBack={() => {
               setReturnSessionId(flashcardsSessionId || freeToolSessionId);
@@ -1251,8 +1285,8 @@ const eliminarDocumento = async (id: string) => {
             tema={temaActual}
             materia={materiaActual}
             sessionId={freeToolSessionId}
-            sourceSelection={buildSourceSelectionFromMaterials(quizMateriales, quizSeleccion)}
-            masteryContext={getMasteryContext()}
+            sourceSelection={quizSource}
+            masteryContext={memoizedMasteryContext}
             onMasteryEvent={reportMasteryEvent}
             onBack={() => {
               setReturnSessionId(freeToolSessionId);
@@ -1273,8 +1307,8 @@ const eliminarDocumento = async (id: string) => {
             tema={temaActual}
             materia={materiaActual}
             sessionId={freeToolSessionId}
-            sourceSelection={buildSourceSelectionFromMaterials(repasarMateriales, repasarSeleccion)}
-            masteryContext={getMasteryContext()}
+            sourceSelection={repasarSource}
+            masteryContext={memoizedMasteryContext}
             onMasteryEvent={reportMasteryEvent}
             onBack={() => {
               setReturnSessionId(freeToolSessionId);
@@ -1293,8 +1327,8 @@ const eliminarDocumento = async (id: string) => {
             tema={temaActual}
             materia={materiaActual}
             sessionId={freeToolSessionId}
-            sourceSelection={buildSourceSelectionFromMaterials(analisisMateriales, analisisSeleccion)}
-            masteryContext={getMasteryContext()}
+            sourceSelection={analisisSource}
+            masteryContext={memoizedMasteryContext}
             onMasteryEvent={reportMasteryEvent}
             onClose={() => {
               setReturnSessionId(freeToolSessionId);
@@ -1313,8 +1347,8 @@ const eliminarDocumento = async (id: string) => {
             tema={temaActual}
             materia={materiaActual}
             sessionId={freeToolSessionId}
-            sourceSelection={buildSourceSelectionFromMaterials(alaiMateriales, alaiSeleccion)}
-            masteryContext={getMasteryContext()}
+            sourceSelection={alaiSource}
+            masteryContext={memoizedMasteryContext}
             onMasteryEvent={reportMasteryEvent}
             onBack={() => {
               setReturnSessionId(freeToolSessionId);
@@ -1334,9 +1368,9 @@ const eliminarDocumento = async (id: string) => {
             tema={temaActual}
             materia={materiaActual}
             sessionId={freeToolSessionId}
-            sourceSelection={buildSourceSelectionFromMaterials(examMateriales, examSeleccion)}
+            sourceSelection={examSource}
             userName={(session?.user as any)?.name || (session?.user as any)?.username || ''}
-            masteryContext={getMasteryContext()}
+            masteryContext={memoizedMasteryContext}
             onMasteryEvent={reportMasteryEvent}
             onBack={() => {
               setReturnSessionId(freeToolSessionId);
