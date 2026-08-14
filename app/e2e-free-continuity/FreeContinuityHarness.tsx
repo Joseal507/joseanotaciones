@@ -9,6 +9,7 @@ import ALAIStudyALChat from '../../components/materias/ALAIStudyALChat';
 import AnalisisTeorico from '../../components/materias/AnalisisTeorico';
 import ALAIStudyMap from '../../components/materias/ALAIStudyMap';
 import ALAIStudyALCheatCodes from '../../components/materias/ALAIStudyALCheatCodes';
+import StudyALProcess from '../../components/materias/StudyALProcess';
 import { buildSourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import { getSessionById, lookupSessionsFromServer, upsertSession } from '../../lib/studySessions';
 
@@ -22,8 +23,12 @@ const materials = [
   { id: 'e2e-free-b', materialId: 'e2e-free-b', nombre: 'Material B' },
 ];
 
+type ActiveTool = 'hub' | 'quiz' | 'exam' | 'flashcards' | 'repasar' | 'alai' | 'analysis' | 'studymap' | 'truquitos';
+
 export default function FreeContinuityHarness() {
   const [ready, setReady] = useState(false);
+  const [activeTool, setActiveTool] = useState<ActiveTool>('hub');
+
   const analysisLevel = useMemo(() => {
     if (typeof window === 'undefined') return 'universidad' as const;
     const requested = new URLSearchParams(window.location.search).get('level');
@@ -31,11 +36,20 @@ export default function FreeContinuityHarness() {
       ? requested
       : 'universidad';
   }, []);
-  const tool = useMemo(() => {
-    if (typeof window === 'undefined') return 'quiz';
+
+  const initialTool = useMemo((): ActiveTool => {
+    if (typeof window === 'undefined') return 'hub';
     const requested = new URLSearchParams(window.location.search).get('tool');
-    return ['exam', 'flashcards', 'repasar', 'alai', 'analysis', 'studymap', 'truquitos'].includes(requested || '') ? requested : 'quiz';
+    if (requested === 'hub') return 'hub';
+    if (['exam', 'flashcards', 'repasar', 'alai', 'analysis', 'studymap', 'truquitos', 'quiz'].includes(requested || '')) {
+      return requested as ActiveTool;
+    }
+    return 'hub';
   }, []);
+
+  useEffect(() => {
+    setActiveTool(initialTool);
+  }, [initialTool]);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +77,9 @@ export default function FreeContinuityHarness() {
   }, []);
 
   if (!ready) return <div data-testid="free-continuity-loading">Preparando sesión</div>;
+
+  const goBack = () => setActiveTool('hub');
+
   const shared = {
     materiales: materials,
     seleccion: sourceSelection.materials.map(item => ({ materialId: item.materialId, pages: item.selectedPages })),
@@ -70,14 +87,43 @@ export default function FreeContinuityHarness() {
     materia: { id: 'e2e-free-materia', nombre: 'Materia E2E' },
     sessionId,
     sourceSelection,
-    onBack: () => {},
+    onBack: goBack,
   };
-  if (tool === 'exam') return <ALAIStudyALExams {...shared} userName="Estudiante E2E" />;
-  if (tool === 'flashcards') return <ALAIStudyALCards {...shared} />;
-  if (tool === 'repasar') return <ALAIStudyALRepasar {...shared} />;
-  if (tool === 'alai') return <ALAIStudyALChat {...shared} />;
-  if (tool === 'analysis') return <AnalisisTeorico {...shared} nivel={analysisLevel} onClose={() => {}} />;
-  if (tool === 'studymap') return <ALAIStudyMap {...shared} />;
-  if (tool === 'truquitos') return <ALAIStudyALCheatCodes {...shared} />;
-  return <ALAIStudyALQuizzes {...shared} />;
+
+  if (activeTool === 'exam') return <ALAIStudyALExams {...shared} userName="Estudiante E2E" />;
+  if (activeTool === 'flashcards') return <ALAIStudyALCards {...shared} />;
+  if (activeTool === 'repasar') return <ALAIStudyALRepasar {...shared} />;
+  if (activeTool === 'alai') return <ALAIStudyALChat {...shared} />;
+  if (activeTool === 'analysis') return <AnalisisTeorico {...shared} nivel={analysisLevel} onClose={goBack} />;
+  if (activeTool === 'studymap') return <ALAIStudyMap {...shared} />;
+  if (activeTool === 'truquitos') return <ALAIStudyALCheatCodes {...shared} />;
+  if (activeTool !== 'hub') return <ALAIStudyALQuizzes {...shared} />;
+
+  // HUB mode: mount real StudyALProcess
+  return (
+    <div data-testid="free-hub-container" style={{ position: 'fixed', inset: 0 }}>
+      <div data-testid="session-id" style={{ display: 'none' }}>{sessionId}</div>
+      <div data-testid="source-fingerprint" style={{ display: 'none' }}>{sourceSelection.fingerprint}</div>
+      <div data-testid="selected-pages" style={{ display: 'none' }}>
+        {JSON.stringify(sourceSelection.selectedPages)}
+      </div>
+      <StudyALProcess
+        materiales={materials}
+        temaId="e2e-free-tema"
+        enfoque="teorico"
+        sessionId={sessionId}
+        sourceSelection={sourceSelection}
+        onClose={goBack}
+        onOpenFlashcards={() => setActiveTool('flashcards')}
+        onOpenQuiz={() => setActiveTool('quiz')}
+        onOpenRepasar={() => setActiveTool('repasar')}
+        onOpenAnalisis={() => setActiveTool('analysis')}
+        onOpenAlai={() => setActiveTool('alai')}
+        onOpenExam={() => setActiveTool('exam')}
+        onOpenStudyMap={() => setActiveTool('studymap')}
+        onOpenCheatCodes={() => setActiveTool('truquitos')}
+        onComingSoon={() => {}}
+      />
+    </div>
+  );
 }

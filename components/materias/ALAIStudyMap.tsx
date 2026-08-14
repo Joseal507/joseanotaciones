@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
@@ -1517,6 +1518,7 @@ function StudyPanel({
   tema,
   explanationsByNodeId,
   onPersistExplanation,
+  isMobile,
 }: {
   node: MapNode | null;
   mapData: MindMapData;
@@ -1527,6 +1529,7 @@ function StudyPanel({
   tema?: string;
   explanationsByNodeId: Record<string, StudyMapExplanationState>;
   onPersistExplanation: (nodeId: string, explanation: StudyMapExplanationState) => void;
+  isMobile?: boolean;
 }) {
   const showingRoot = !node || node.id === mapData.root.id;
   const current = node || mapData.root;
@@ -1734,16 +1737,33 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
     </div>
   );
 
+  // Mobile: overlay drawer when node selected, hidden otherwise
+  if (isMobile && !node) return null;
+
   return (
     <aside style={{
-      width: 440,
-      flexShrink: 0,
-      background: 'var(--bg-card)',
-      borderLeft: '1.5px solid var(--border-color2)',
-      display: 'flex',
-      flexDirection: 'column',
-      minHeight: 0,
-      overflow: 'hidden',
+      ...(isMobile ? {
+        position: 'fixed',
+        inset: 0,
+        zIndex: 200,
+        width: '100%',
+        maxWidth: '100vw',
+        background: 'var(--bg-card)',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+        overflow: 'hidden',
+        overflowX: 'hidden',
+      } : {
+        width: 440,
+        flexShrink: 0,
+        background: 'var(--bg-card)',
+        borderLeft: '1.5px solid var(--border-color2)',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+        overflow: 'hidden',
+      }),
     }}>
       {/* Header */}
       <div style={{
@@ -1759,7 +1779,7 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
           }}>
             📚 {typeLabel}
           </div>
-          {!showingRoot && (
+          {(isMobile || !showingRoot) && (
             <button onClick={onClose} title="Cerrar"
               style={{
                 width: 26, height: 26, borderRadius: 6, border: 'none',
@@ -1954,6 +1974,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
   const [showGuidedTour, setShowGuidedTour] = useState(false);
   const [tourIndex, setTourIndex] = useState(0);
   const [reloadToken, setReloadToken] = useState(0);
+  const isMobile = useIsMobile();
 
   const effectiveSourceSelection = useMemo(
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
@@ -2250,11 +2271,13 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#f8f6f0', display: 'flex', flexDirection: 'column', zIndex: 9999 }}>
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 14,
-        padding: '12px 20px',
+        display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14,
+        padding: isMobile ? '8px 12px' : '12px 20px',
         background: 'var(--bg-card)',
         borderBottom: '1.5px solid var(--border-color2)',
         flexShrink: 0, zIndex: 10,
+        overflowX: 'hidden',
+        flexWrap: 'nowrap',
       }}>
         <button onClick={onBack} style={{
           border: '2px solid var(--text-primary)', background: 'var(--bg-card)',
@@ -2367,8 +2390,8 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
 
       <div style={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden' }}>
         {view === 'map' && (
-          <div style={{ display: 'flex', width: '100%', height: '100%' }}>
-            <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+          <div style={{ display: 'flex', width: '100%', height: '100%', overflowX: 'hidden' }}>
+            <div style={{ flex: 1, position: 'relative', minWidth: 0, overflow: 'hidden' }}>
               <MindMap
                 data={mapData}
                 selectedId={selectedNode?.id || null}
@@ -2414,6 +2437,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
                   },
                 });
               }}
+              isMobile={isMobile}
             />
 
             {showGuidedTour && mapData && (() => {

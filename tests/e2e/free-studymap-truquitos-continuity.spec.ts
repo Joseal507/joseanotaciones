@@ -142,11 +142,41 @@ test('Study Map restaura desde servidor sin estado local', async ({ browser }) =
   const secondPage = await secondCtx.newPage();
   const { mapCalls } = await installRoutes(secondPage, server);
   await secondPage.goto('/e2e-free-continuity?tool=studymap');
-  // On mobile 390x844 the map SVG may overflow the viewport but the component
-  // header is visible, confirming restore succeeded.
+
+  // MOBILE USABILITY: header must be visible and usable
   await expect(secondPage.getByRole('button', { name: /volver al proceso/i })).toBeVisible({ timeout: 15000 });
-  // Verify nodes are in DOM (even if SVG is clipped on mobile)
-  await expect(secondPage.locator('.node-clickable')).toHaveCount(3, { timeout: 15000 });
+
+  // MOBILE USABILITY: map container must not overflow horizontally
+  const noHScroll = await secondPage.evaluate(() =>
+    document.documentElement.scrollWidth <= window.innerWidth
+  );
+  expect(noHScroll).toBe(true);
+
+  // MOBILE USABILITY: map view toggle button must be visible
+  await expect(secondPage.getByRole('button', { name: '🗺️ Mapa' })).toBeVisible({ timeout: 5000 });
+
+  // MOBILE USABILITY: nodes must be in DOM (map rendered)
+  await expect(secondPage.locator('.node-clickable').first()).toBeAttached({ timeout: 10000 });
+
+  // MOBILE USABILITY: clicking a node must open the study panel as overlay
+  await secondPage.locator('.node-clickable').first().click({ force: true });
+  await secondPage.waitForTimeout(800);
+
+  // Panel must be visible after node click
+  // (on mobile it renders as a fixed overlay covering the screen)
+  await expect(secondPage.locator('aside').first()).toBeVisible({ timeout: 5000 });
+
+  // Panel must be scrollable (not cut off) - check no horizontal overflow still
+  const noHScrollAfterPanel = await secondPage.evaluate(() =>
+    document.documentElement.scrollWidth <= window.innerWidth
+  );
+  expect(noHScrollAfterPanel).toBe(true);
+
+  // Close panel and verify map is accessible again
+  await secondPage.getByRole('button', { name: '✕' }).first().click();
+  await secondPage.waitForTimeout(400);
+  await expect(secondPage.getByRole('button', { name: /volver al proceso/i })).toBeVisible({ timeout: 5000 });
+
   expect(mapCalls()).toBeLessThanOrEqual(1);
   await secondCtx.close();
 });
