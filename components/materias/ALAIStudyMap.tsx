@@ -3,7 +3,17 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
-import { sourceScopedKey } from '../../lib/materials/authorizedSource';
+import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
+import {
+  beginFreeStudyMap,
+  completeFreeStudyMap,
+  failFreeStudyMap,
+  initialFreeStudyMapState,
+  recoverInterruptedFreeStudyMap,
+  updateFreeStudyMapState,
+  type DurableFreeStudyMapState,
+  type StudyMapExplanationState,
+} from '../../lib/freeStudyMapState';
 
 interface MapNode {
   id: string;
@@ -1486,6 +1496,17 @@ function findParentChain(root: MapNode, targetId: string, chain: MapNode[] = [])
   return null;
 }
 
+
+function findNodeById(root: MapNode, targetId: string | null | undefined): MapNode | null {
+  if (!targetId) return null;
+  if (root.id === targetId) return root;
+  for (const child of root.children || []) {
+    const found = findNodeById(child, targetId);
+    if (found) return found;
+  }
+  return null;
+}
+
 function StudyPanel({
   node,
   mapData,
@@ -1494,6 +1515,8 @@ function StudyPanel({
   materialText,
   materia,
   tema,
+  explanationsByNodeId,
+  onPersistExplanation,
 }: {
   node: MapNode | null;
   mapData: MindMapData;
@@ -1502,6 +1525,8 @@ function StudyPanel({
   materialText: string;
   materia?: string;
   tema?: string;
+  explanationsByNodeId: Record<string, StudyMapExplanationState>;
+  onPersistExplanation: (nodeId: string, explanation: StudyMapExplanationState) => void;
 }) {
   const showingRoot = !node || node.id === mapData.root.id;
   const current = node || mapData.root;
@@ -1516,44 +1541,35 @@ function StudyPanel({
     : current.type === 'leaf' ? 'Concepto'
     : 'Detalle';
 
-  const [explicacion, setExplicacion] = useState<any>(null);
+  const [explicacion, setExplicacion] = useState<StudyMapExplanationState | null>(null);
   const [loadingExp, setLoadingExp] = useState(false);
   const [errExp, setErrExp] = useState('');
-  const cacheRef = useRef<Map<string, any>>(new Map());
+  const attemptRef = useRef<Record<string, number>>({});
 
-  // Generar explicación cuando cambia el nodo (con cache local + sessionStorage)
   useEffect(() => {
     if (!current || showingRoot) {
       setExplicacion(null);
       setErrExp('');
+      setLoadingExp(false);
       return;
     }
 
-    const cacheKey = `studymap_exp_${current.id}_${current.label}`;
-
-    // Cache local en memoria
-    if (cacheRef.current.has(cacheKey)) {
-      setExplicacion(cacheRef.current.get(cacheKey));
+    const persisted = explanationsByNodeId[current.id];
+    if (persisted) {
+      setExplicacion(persisted);
+      setErrExp('');
+      setLoadingExp(false);
       return;
     }
-
-    // Cache en sessionStorage
-    try {
-      const cached = sessionStorage.getItem(cacheKey);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        cacheRef.current.set(cacheKey, parsed);
-        setExplicacion(parsed);
-        return;
-      }
-    } catch {}
 
     let cancelled = false;
+    const attempt = (attemptRef.current[current.id] || 0) + 1;
+    attemptRef.current[current.id] = attempt;
+
     setLoadingExp(true);
     setErrExp('');
     setExplicacion(null);
 
-    // Pregunta inteligente: ALAI elige las secciones según el tipo de concepto
     const pregunta = `Eres un profesor enseñando el concepto "${current.label}"${parentNode ? ` dentro de la categoría "${parentNode.label}"` : ''}.
 
 ═══════════════════════════════════════════
@@ -1671,27 +1687,34 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
     })
       .then(r => r.json())
       .then(data => {
-        if (cancelled) return;
+        if (cancelled || attemptRef.current[current.id] !== attempt) return;
         if (data.success && data.answer) {
-          const result = {
+          const result: StudyMapExplanationState = {
             answer: data.answer,
             inMaterial: data.inMaterial,
             outsideMaterialNote: data.outsideMaterialNote || '',
             sourcePages: data.sourcePages || [],
             suggestedFollowups: data.suggestedFollowups || [],
           };
-          cacheRef.current.set(cacheKey, result);
-          try { sessionStorage.setItem(cacheKey, JSON.stringify(result)); } catch {}
+          onPersistExplanation(current.id, result);
           setExplicacion(result);
         } else {
           setErrExp(data.error || 'No se pudo generar la explicación');
         }
       })
-      .catch(e => { if (!cancelled) setErrExp(e?.message || 'Error de conexión'); })
-      .finally(() => { if (!cancelled) setLoadingExp(false); });
+      .catch(e => {
+        if (!cancelled && attemptRef.current[current.id] === attempt) {
+          setErrExp(e?.message || 'Error de conexión');
+        }
+      })
+      .finally(() => {
+        if (!cancelled && attemptRef.current[current.id] === attempt) {
+          setLoadingExp(false);
+        }
+      });
 
     return () => { cancelled = true; };
-  }, [current.id]);
+  }, [current.id, current.label, current.description, parentNode?.label, showingRoot, materialText, materia, tema, explanationsByNodeId, onPersistExplanation]);
 
   const Section = ({ icon, title, color: c, children }: any) => (
     <div>
@@ -1930,11 +1953,69 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
   const [studiedSet, setStudiedSet] = useState<Set<string>>(new Set());
   const [showGuidedTour, setShowGuidedTour] = useState(false);
   const [tourIndex, setTourIndex] = useState(0);
+  const [reloadToken, setReloadToken] = useState(0);
+
   const effectiveSourceSelection = useMemo(
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
   const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
+  const fingerprint = effectiveSourceSelection.fingerprint;
+  const generationAttemptRef = useRef(0);
+  const persistedStateRef = useRef<DurableFreeStudyMapState>(initialFreeStudyMapState());
+
+  const persistState = useCallback((nextState: DurableFreeStudyMapState) => {
+    persistedStateRef.current = nextState;
+    writeFreeToolState(sessionId, fingerprint, 'studymap', nextState);
+  }, [sessionId, fingerprint]);
+
+  const persistPatch = useCallback((patch: Partial<Pick<
+    DurableFreeStudyMapState,
+    'studiedNodeIds' | 'expandedNodeIds' | 'selectedNodeId' | 'view' | 'showGuidedTour' | 'tourIndex' | 'explanationsByNodeId'
+  >>) => {
+    const nextState = updateFreeStudyMapState(persistedStateRef.current, patch);
+    persistState(nextState);
+  }, [persistState]);
+
+  const applyPersistedState = useCallback((state: DurableFreeStudyMapState, combinedText: string) => {
+    persistedStateRef.current = state;
+    setMaterialText(combinedText);
+    setMapData((state.mapData as MindMapData | null) || null);
+
+    const rootId = state.mapData?.root?.id;
+    const expandedIds = state.expandedNodeIds.length > 0
+      ? state.expandedNodeIds
+      : rootId
+      ? [rootId]
+      : [];
+    setExpandedSet(new Set(expandedIds));
+    setStudiedSet(new Set(state.studiedNodeIds || []));
+    setView((state.view || 'map') as ViewMode);
+    setShowGuidedTour(Boolean(state.showGuidedTour));
+    setTourIndex(Number.isFinite(state.tourIndex) ? state.tourIndex : 0);
+
+    const restoredSelected = state.mapData
+      ? findNodeById(state.mapData.root as MapNode, state.selectedNodeId)
+      : null;
+    setSelectedNode(restoredSelected);
+    setError(state.status === 'recoverable' ? state.error || null : null);
+  }, []);
+
+  const resetAndReload = useCallback(() => {
+    const cleared = initialFreeStudyMapState();
+    persistedStateRef.current = cleared;
+    writeFreeToolState(sessionId, fingerprint, 'studymap', cleared);
+    setMapData(null);
+    setSelectedNode(null);
+    setExpandedSet(new Set());
+    setStudiedSet(new Set());
+    setShowGuidedTour(false);
+    setTourIndex(0);
+    setLastExpandedId(null);
+    setError(null);
+    setLoading(true);
+    setReloadToken(value => value + 1);
+  }, [sessionId, fingerprint]);
 
   useEffect(() => {
     if (!loading) return;
@@ -1942,17 +2023,9 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
     return () => clearInterval(intv);
   }, [loading]);
 
-  // Cache key estable basado en materiales + selección
-  const cacheKey = useMemo(() => {
-    return sourceScopedKey('studymap_v2', effectiveSourceSelection, {
-      temaId: tema?.id || tema?.temaId,
-      sessionId,
-    });
-  }, [effectiveSourceSelection.fingerprint, tema?.id, tema?.temaId, sessionId]);
-  const persistenceSessionId = sessionId || cacheKey;
-
   useEffect(() => {
     let cancelled = false;
+
     const run = async () => {
       try {
         if (authorizedStatus === 'loading' || authorizedStatus === 'idle') return;
@@ -1961,48 +2034,53 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
           setLoading(false);
           return;
         }
-        // Intentar cache primero
-        try {
-          const cached = sessionStorage.getItem(cacheKey);
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (parsed?.root) {
-              console.log('🎯 StudyMap desde cache');
-              setMapData(parsed);
 
-              setExpandedSet(new Set([parsed.root.id]));
-              setLoading(false);
-              // Espejo local primero (instantáneo)
-              try {
-                const studiedRaw = localStorage.getItem(`${cacheKey}_studied`);
-                if (studiedRaw) setStudiedSet(new Set(JSON.parse(studiedRaw)));
-              } catch {}
-              // Sync desde study-sessions (cross-device)
-              const __temaId1 = tema?.id || tema?.temaId || '';
-              if (__temaId1) {
-                fetch(`/api/study-sessions?temaId=${encodeURIComponent(__temaId1)}`, { credentials: 'same-origin' })
-                  .then(r => r.json())
-                  .then(d => {
-                    const sessions = d?.sessions || [];
-                    const found = sessions.find((s: any) => s?.id === persistenceSessionId);
-                    const arr = found?.notes?.studyMap?.studied;
-                    if (Array.isArray(arr)) {
-                      setStudiedSet(new Set(arr));
-                      try { localStorage.setItem(`${cacheKey}_studied`, JSON.stringify(arr)); } catch {}
-                    }
-                  })
-                  .catch(() => {});
-              }
-              return;
-            }
+        const combinedText = authorizedSource.combinedText;
+        let restoredState = initialFreeStudyMapState();
+        const restoredEnvelope = readFreeToolState<DurableFreeStudyMapState>(sessionId, fingerprint, 'studymap');
+
+        if (restoredEnvelope?.state) {
+          restoredState = recoverInterruptedFreeStudyMap(restoredEnvelope.state);
+          if (restoredState !== restoredEnvelope.state) {
+            persistState(restoredState);
+          } else {
+            persistedStateRef.current = restoredState;
           }
-        } catch {}
+        } else {
+          persistedStateRef.current = restoredState;
+        }
+
+        if (cancelled) return;
+
+        if (restoredState.mapData) {
+          applyPersistedState(restoredState, combinedText);
+          setLoading(false);
+          return;
+        }
+
+        if (restoredState.status === 'recoverable' && !restoredState.mapData) {
+          persistedStateRef.current = restoredState;
+          setMaterialText(combinedText);
+          setMapData(null);
+          setSelectedNode(null);
+          setExpandedSet(new Set());
+          setStudiedSet(new Set(restoredState.studiedNodeIds || []));
+          setView((restoredState.view || 'map') as ViewMode);
+          setShowGuidedTour(Boolean(restoredState.showGuidedTour));
+          setTourIndex(Number.isFinite(restoredState.tourIndex) ? restoredState.tourIndex : 0);
+          setError(restoredState.error || 'La generación se interrumpió. Puedes reintentar.');
+          setLoading(false);
+          return;
+        }
+
+        const started = beginFreeStudyMap(restoredState);
+        generationAttemptRef.current = started.attempt;
+        persistState(started);
 
         setLoading(true);
         setError(null);
-        if (cancelled) return;
-        const combinedText = authorizedSource.combinedText;
-        if (!cancelled) setMaterialText(combinedText);
+        setMaterialText(combinedText);
+
         const res = await fetch('/api/alai-studyal-map', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2013,13 +2091,25 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
             masteryContext,
           }),
         });
+
         if (cancelled) return;
+
         const data = await res.json();
+
+        if (cancelled || generationAttemptRef.current !== started.attempt) return;
+
         if (!data.success || !data.mapa) {
+          const failed = failFreeStudyMap(
+            persistedStateRef.current,
+            started.attempt,
+            data.error || 'No se pudo generar el mapa mental.',
+          );
+          persistState(failed);
           setError(data.error || 'No se pudo generar el mapa mental.');
           setLoading(false);
           return;
         }
+
         const assignIds = (node: any, level = 0, colorIndex = 0): MapNode => {
           const color = level === 0 ? '#d6b26f' : BRANCH_COLORS[colorIndex % BRANCH_COLORS.length];
           return {
@@ -2031,48 +2121,48 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
             ),
           };
         };
+
         const mapa: MindMapData = { ...data.mapa, root: assignIds(data.mapa.root) };
-        if (!cancelled) {
-          setMapData(mapa);
 
-          // Por defecto: TODO colapsado (solo el root visible)
-          setExpandedSet(new Set([mapa.root.id]));
-          setLoading(false);
-          try { sessionStorage.setItem(cacheKey, JSON.stringify(mapa)); } catch {}
-
-          // Espejo local primero
-          try {
-            const studiedRaw = localStorage.getItem(`${cacheKey}_studied`);
-            if (studiedRaw) setStudiedSet(new Set(JSON.parse(studiedRaw)));
-          } catch {}
-          // Sync desde study-sessions (cross-device)
-          const __temaId2 = tema?.id || tema?.temaId || '';
-          if (__temaId2) {
-            fetch(`/api/study-sessions?temaId=${encodeURIComponent(__temaId2)}`, { credentials: 'same-origin' })
-              .then(r => r.json())
-              .then(d => {
-                if (cancelled) return;
-                const sessions = d?.sessions || [];
-                const found = sessions.find((s: any) => s?.id === persistenceSessionId);
-                const arr = found?.notes?.studyMap?.studied;
-                if (Array.isArray(arr)) {
-                  setStudiedSet(new Set(arr));
-                  try { localStorage.setItem(`${cacheKey}_studied`, JSON.stringify(arr)); } catch {}
-                }
-              })
-              .catch(() => {});
-          }
-        }
+        const completed = completeFreeStudyMap(
+          persistedStateRef.current,
+          started.attempt,
+          mapa as any,
+        );
+        persistState(completed);
+        applyPersistedState(completed, combinedText);
+        setLoading(false);
       } catch (e: any) {
+        const failed = failFreeStudyMap(
+          persistedStateRef.current,
+          generationAttemptRef.current,
+          e?.message || 'Error de conexión',
+        );
+        persistState(failed);
         if (!cancelled) {
           setError(e?.message || 'Error de conexión');
           setLoading(false);
         }
       }
     };
+
     run();
     return () => { cancelled = true; };
-  }, [cacheKey, persistenceSessionId, authorizedStatus, authorizedSource, authorizedError]);
+  }, [
+    sessionId,
+    fingerprint,
+    authorizedStatus,
+    authorizedSource,
+    authorizedError,
+    materia?.nombre,
+    materia?.name,
+    tema?.nombre,
+    tema?.name,
+    masteryContext,
+    reloadToken,
+    persistState,
+    applyPersistedState,
+  ]);
 
   const handleExport = () => {
     if (!mapData) return;
@@ -2088,26 +2178,16 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
     setTimeout(() => setExportMsg(''), 2000);
   };
 
-  const toggleExpand = (id: string) => {
+  const toggleExpand = useCallback((id: string) => {
     setExpandedSet(prev => {
       const next = new Set(prev);
       if (next.has(id)) {
-        // Colapsar: quitar el id y todos sus descendientes
         const findAndRemoveDescendants = (node: MapNode) => {
-          if (!node) return;
           next.delete(node.id);
           (node.children || []).forEach(findAndRemoveDescendants);
         };
         if (mapData) {
-          const findNode = (node: MapNode, targetId: string): MapNode | null => {
-            if (node.id === targetId) return node;
-            for (const c of node.children || []) {
-              const f = findNode(c, targetId);
-              if (f) return f;
-            }
-            return null;
-          };
-          const target = findNode(mapData.root, id);
+          const target = findNodeById(mapData.root, id);
           if (target) findAndRemoveDescendants(target);
         } else {
           next.delete(id);
@@ -2115,27 +2195,11 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
       } else {
         next.add(id);
       }
+      persistPatch({ expandedNodeIds: [...next] });
       return next;
     });
-    // Marcar que hubo expansión para que la cámara se anime
     setLastExpandedId(id);
-  };
-
-  const expandAll = () => {
-    if (!mapData) return;
-    const all = new Set<string>();
-    const traverse = (n: MapNode) => {
-      all.add(n.id);
-      (n.children || []).forEach(traverse);
-    };
-    traverse(mapData.root);
-    setExpandedSet(all);
-  };
-
-  const collapseAll = () => {
-    if (!mapData) return;
-    setExpandedSet(new Set([mapData.root.id]));
-  };
+  }, [mapData, persistPatch]);
 
   if (loading) {
     return (
@@ -2172,8 +2236,11 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
       <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, zIndex: 9999, padding: 24 }}>
         <div style={{ fontSize: 48 }}>😅</div>
         <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif" }}>No se pudo generar el mapa</div>
-        <div style={{ fontSize: 14, color: 'var(--text-muted)', maxWidth: 400, textAlign: 'center', fontFamily: "'Inter', sans-serif" }}>{error}</div>
-        <button onClick={onBack} style={{ padding: '10px 24px', borderRadius: 12, border: '2px solid var(--text-primary)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif", fontSize: 15, fontWeight: 700, cursor: 'pointer', boxShadow: '3px 4px 0 var(--text-primary)' }}>← Volver</button>
+        <div style={{ fontSize: 14, color: 'var(--text-muted)', maxWidth: 420, textAlign: 'center', fontFamily: "'Inter', sans-serif" }}>{error}</div>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+          <button onClick={resetAndReload} style={{ padding: '10px 24px', borderRadius: 12, border: '2px solid var(--gold)', background: 'var(--bg-card)', color: 'var(--gold)', fontFamily: "'Inter', sans-serif", fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>↻ Reintentar</button>
+          <button onClick={onBack} style={{ padding: '10px 24px', borderRadius: 12, border: '2px solid var(--text-primary)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif", fontSize: 15, fontWeight: 700, cursor: 'pointer', boxShadow: '3px 4px 0 var(--text-primary)' }}>← Volver</button>
+        </div>
       </div>
     );
   }
@@ -2207,15 +2274,17 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
           )}
         </div>
 
-
-
         <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border-color2)' }}>
           {([
             { key: 'map', label: '🗺️ Mapa' },
             { key: 'cards', label: '🎴 Cards' },
             { key: 'outline', label: '📋 Outline' },
           ] as { key: ViewMode; label: string }[]).map(v => (
-            <button key={v.key} onClick={() => { setView(v.key); setSelectedNode(null); }}
+            <button key={v.key} onClick={() => {
+              setView(v.key);
+              setSelectedNode(null);
+              persistPatch({ view: v.key, selectedNodeId: null });
+            }}
               style={{
                 padding: '6px 12px', borderRadius: 9, border: 'none',
                 background: view === v.key ? 'var(--gold)' : 'transparent',
@@ -2225,7 +2294,6 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
           ))}
         </div>
 
-        {/* Tour guiado */}
         <button
           onClick={() => {
             if (!mapData) return;
@@ -2235,17 +2303,22 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
               (n.children || []).forEach(traverse);
             };
             traverse(mapData.root);
-            // Expandir todo al empezar el tour
             const all = new Set<string>();
             allNodes.forEach(n => all.add(n.id));
+            const first = allNodes[0] || null;
             setExpandedSet(all);
             setShowGuidedTour(true);
             setTourIndex(0);
-            // Seleccionar el primer nodo del tour
-            if (allNodes[0]) {
-              setSelectedNode(allNodes[0]);
-              setLastExpandedId(allNodes[0].id);
+            if (first) {
+              setSelectedNode(first);
+              setLastExpandedId(first.id);
             }
+            persistPatch({
+              expandedNodeIds: [...all],
+              showGuidedTour: true,
+              tourIndex: 0,
+              selectedNodeId: first?.id || null,
+            });
           }}
           title="Lectura guiada"
           style={{
@@ -2257,43 +2330,10 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
           }}
         >🔊 Tour</button>
 
-        {/* Regenerar */}
         <button
           onClick={() => {
             if (!confirm('¿Regenerar el mapa con un análisis nuevo? El actual se perderá.')) return;
-            try {
-              sessionStorage.removeItem(cacheKey);
-              localStorage.removeItem(`${cacheKey}_studied`);
-              Object.keys(sessionStorage).filter(k => k.startsWith('studymap_exp_')).forEach(k => sessionStorage.removeItem(k));
-            } catch {}
-            // Limpiar progreso en study-sessions
-            const __temaId4 = tema?.id || tema?.temaId || '';
-            if (__temaId4) {
-              const __matIds4 = (materiales || []).map((m: any) => m?.materialId || m?.material_id || m?.id).filter(Boolean);
-              fetch('/api/study-sessions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'same-origin',
-                body: JSON.stringify({
-                  id: persistenceSessionId,
-                  temaId: __temaId4,
-                  enfoque: 'studymap',
-                  processMode: 'free',
-                  materialIds: __matIds4,
-                  selectedPages: effectiveSourceSelection.selectedPages,
-                  sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
-                  notes: { studyMap: { studied: [], updatedAt: Date.now() } },
-                  currentPhase: 'studymap',
-                  lastOpenedAt: Date.now(),
-                }),
-              }).catch(() => {});
-            }
-            setMapData(null);
-            setSelectedNode(null);
-            setStudiedSet(new Set());
-            setExpandedSet(new Set());
-            // Forzar regeneración cambiando estado
-            window.location.reload();
+            resetAndReload();
           }}
           title="Regenerar mapa"
           style={{
@@ -2305,7 +2345,6 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
           }}
         >🔁 Regenerar</button>
 
-        {/* Progreso */}
         {mapData.totalConcepts && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 6,
@@ -2335,42 +2374,15 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
                 selectedId={selectedNode?.id || null}
                 onSelect={(n) => {
                   setSelectedNode(n);
-                  if (n && mapData) {
-                    setTimeout(() => {
-                      setStudiedSet(prev => {
-                        if (prev.has(n.id)) return prev;
-                        const next = new Set(prev);
-                        next.add(n.id);
-                        const __arr3 = [...next];
-                        try {
-                          localStorage.setItem(`${cacheKey}_studied`, JSON.stringify(__arr3));
-                        } catch {}
-                        // Persistir en study-sessions (cross-device)
-                        const __temaId3 = tema?.id || tema?.temaId || '';
-                        if (__temaId3) {
-                          const __matIds3 = (materiales || []).map((m: any) => m?.materialId || m?.material_id || m?.id).filter(Boolean);
-                          fetch('/api/study-sessions', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            credentials: 'same-origin',
-                            body: JSON.stringify({
-                              id: persistenceSessionId,
-                              temaId: __temaId3,
-                              enfoque: 'studymap',
-                              processMode: 'free',
-                              materialIds: __matIds3,
-                              selectedPages: effectiveSourceSelection.selectedPages,
-                              sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
-                              notes: { studyMap: { studied: __arr3, updatedAt: Date.now() } },
-                              currentPhase: 'studymap',
-                              lastOpenedAt: Date.now(),
-                            }),
-                          }).catch(() => {});
-                        }
-                        return next;
-                      });
-                    }, 1800);
-                  }
+                  setStudiedSet(prev => {
+                    const next = new Set(prev);
+                    next.add(n.id);
+                    persistPatch({
+                      selectedNodeId: n.id,
+                      studiedNodeIds: [...next],
+                    });
+                    return next;
+                  });
                 }}
                 expandedSet={expandedSet}
                 onToggleExpand={toggleExpand}
@@ -2381,14 +2393,29 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
             <StudyPanel
               node={selectedNode}
               mapData={mapData}
-              onClose={() => setSelectedNode(null)}
-              onJumpToNode={(n) => { setSelectedNode(n); setLastExpandedId(n.id); }}
+              onClose={() => {
+                setSelectedNode(null);
+                persistPatch({ selectedNodeId: null });
+              }}
+              onJumpToNode={(n) => {
+                setSelectedNode(n);
+                setLastExpandedId(n.id);
+                persistPatch({ selectedNodeId: n.id });
+              }}
               materialText={materialText}
               materia={materia?.nombre || materia?.name || ''}
               tema={tema?.nombre || tema?.name || ''}
+              explanationsByNodeId={persistedStateRef.current.explanationsByNodeId || {}}
+              onPersistExplanation={(nodeId, explanation) => {
+                persistPatch({
+                  explanationsByNodeId: {
+                    ...(persistedStateRef.current.explanationsByNodeId || {}),
+                    [nodeId]: explanation,
+                  },
+                });
+              }}
             />
 
-            {/* Controles flotantes de Tour Guiado */}
             {showGuidedTour && mapData && (() => {
               const allNodes: MapNode[] = [];
               const traverse = (n: MapNode) => {
@@ -2407,6 +2434,11 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
                 if (n) {
                   setSelectedNode(n);
                   setLastExpandedId(n.id);
+                  persistPatch({
+                    tourIndex: idx,
+                    showGuidedTour: true,
+                    selectedNodeId: n.id,
+                  });
                 }
               };
 
@@ -2467,7 +2499,11 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
                       fontSize: 14, fontWeight: 800, opacity: tourIndex >= total - 1 ? 0.4 : 1,
                     }}>→</button>
 
-                  <button onClick={() => { setShowGuidedTour(false); setTourIndex(0); }}
+                  <button onClick={() => {
+                    setShowGuidedTour(false);
+                    setTourIndex(0);
+                    persistPatch({ showGuidedTour: false, tourIndex: 0 });
+                  }}
                     title="Salir del tour"
                     style={{
                       width: 32, height: 32, borderRadius: 8,

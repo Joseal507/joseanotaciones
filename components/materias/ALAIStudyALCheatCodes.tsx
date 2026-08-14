@@ -5,6 +5,18 @@ import dynamic from "next/dynamic";
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from "../../lib/adaptive/sourceSelection";
 import { useAuthorizedSource } from "../../lib/materials/useAuthorizedSource";
 import { sourceScopedKey } from "../../lib/materials/authorizedSource";
+import { readFreeToolState, writeFreeToolState } from "../../lib/freeToolState";
+import {
+  assignStableCardIds,
+  beginFreeTruquitos,
+  completeFreeTruquitos,
+  failFreeTruquitos,
+  initialFreeTruquitosState,
+  recoverInterruptedFreeTruquitos,
+  updateFreeTruquitosState,
+  type DurableFreeTruquitosState,
+  type TruquitosCard as DurableTruquitosCard,
+} from "../../lib/freeTruquitosState";
 
 const PDFViewer = dynamic(() => import("./FlashcardsPDFViewer"), {
   ssr: false,
@@ -745,7 +757,7 @@ export default function ALAIStudyALCheatCodes({
   const [loadingCards, setLoadingCards] = useState(false);
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
-  const [requestedInitial, setRequestedInitial] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfCollapsed, setPdfCollapsed] = useState(false);
@@ -764,11 +776,67 @@ export default function ALAIStudyALCheatCodes({
   const [variantLoadingId, setVariantLoadingId] = useState<string | null>(null);
 
   const toastTimer = useRef<number | null>(null);
+  const generationAttemptRef = useRef(0);
+  const variantAttemptRef = useRef<Record<string, number>>({});
+  const persistedStateRef = useRef<DurableFreeTruquitosState>(initialFreeTruquitosState());
+
   const effectiveSourceSelection = useMemo(
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
   const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
+  const fingerprint = effectiveSourceSelection.fingerprint;
+
+  const legacyStorageKey = useMemo(
+    () =>
+      sourceScopedKey("studyal_truquitos_v2", effectiveSourceSelection, {
+        temaId: tema?.id || tema?.nombre,
+        sessionId,
+      }),
+    [effectiveSourceSelection.fingerprint, tema?.id, tema?.nombre, sessionId],
+  );
+
+  const persistState = useCallback((nextState: DurableFreeTruquitosState) => {
+    persistedStateRef.current = nextState;
+    writeFreeToolState(sessionId, fingerprint, "truquitos", nextState);
+  }, [sessionId, fingerprint]);
+
+  const persistPatch = useCallback((patch: Partial<Pick<
+    DurableFreeTruquitosState,
+    "favorites" | "known" | "saved" | "variants" | "quickFilter" | "pdfCollapsed" | "activeMaterialIndex" | "forcedPage"
+  >>) => {
+    const nextState = updateFreeTruquitosState(persistedStateRef.current, patch);
+    persistState(nextState);
+  }, [persistState]);
+
+  const applyPersistedState = useCallback((state: DurableFreeTruquitosState) => {
+    persistedStateRef.current = state;
+
+    const nextCards = Array.isArray(state.cards) ? (state.cards as CheatCard[]) : [];
+    const nextFavorites = Array.isArray(state.favorites) ? state.favorites : [];
+    const nextKnown = Array.isArray(state.known) ? state.known : [];
+    const nextSaved = Array.isArray(state.saved) ? state.saved : [];
+    const nextVariants = (state.variants || {}) as Record<string, CheatCard | null>;
+    const nextQuickFilter = (state.quickFilter || "all") as QuickFilter;
+    const nextPdfCollapsed = Boolean(state.pdfCollapsed);
+    const nextActiveIndex = Number.isFinite(Number(state.activeMaterialIndex))
+      ? Math.max(0, Math.min(materiales.length - 1, Number(state.activeMaterialIndex)))
+      : 0;
+    const nextForcedPage = Number.isFinite(Number(state.forcedPage))
+      ? Number(state.forcedPage)
+      : undefined;
+
+    setCards(nextCards);
+    setFavorites(nextFavorites);
+    setKnown(nextKnown);
+    setSaved(nextSaved);
+    setVariants(nextVariants);
+    setQuickFilter(nextQuickFilter);
+    setPdfCollapsed(nextPdfCollapsed);
+    setActiveMaterialIndex(nextActiveIndex);
+    setForcedPage(nextForcedPage);
+    setError(state.status === "recoverable" ? state.error || "" : "");
+  }, [materiales.length]);
 
   const activeMaterial =
     materiales[activeMaterialIndex] || materiales[0] || null;
@@ -777,14 +845,6 @@ export default function ALAIStudyALCheatCodes({
       activeMaterial?.material_id ||
       activeMaterial?.id ||
       "",
-  );
-
-  const storageKey = useMemo(
-    () => sourceScopedKey('studyal_truquitos_v2', effectiveSourceSelection, {
-      temaId: tema?.id || tema?.nombre,
-      sessionId,
-    }),
-    [effectiveSourceSelection.fingerprint, tema?.id, tema?.nombre, sessionId],
   );
 
   const selectionSequence = useMemo(() => {
@@ -880,31 +940,20 @@ export default function ALAIStudyALCheatCodes({
     toastTimer.current = window.setTimeout(() => setToast(""), 1800);
   }, []);
 
-  const saveState = useCallback(
-    (next: { favorites?: string[]; known?: string[]; saved?: string[] }) => {
-      try {
-        const current = JSON.parse(localStorage.getItem(storageKey) || "{}");
-        localStorage.setItem(
-          storageKey,
-          JSON.stringify({
-            favorites: next.favorites ?? current.favorites ?? [],
-            known: next.known ?? current.known ?? [],
-            saved: next.saved ?? current.saved ?? [],
-          }),
-        );
-      } catch {}
-    },
-    [storageKey],
-  );
-
   const toggleId = useCallback((list: string[], id: string) => {
     return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
   }, []);
 
   const generateCheatCodes = useCallback(async () => {
     if (!materialText.trim()) return;
+
+    const started = beginFreeTruquitos(persistedStateRef.current);
+    generationAttemptRef.current = started.attempt;
+    persistState(started);
+
     setLoadingCards(true);
     setError("");
+
     try {
       const res = await fetch("/api/alai-studyal-cheat-codes", {
         method: "POST",
@@ -916,23 +965,72 @@ export default function ALAIStudyALCheatCodes({
           masteryContext,
         }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.success)
-        throw new Error(data.error || `Error ${res.status}`);
-      setCards(Array.isArray(data.cards) ? data.cards : []);
 
-      if (!Array.isArray(data.cards) || data.cards.length === 0) {
-        setError(
-          "No se pudieron generar Truquitos útiles con este material.",
+      const data = await res.json();
+
+      if (generationAttemptRef.current !== started.attempt) return;
+
+      if (!res.ok || !data.success) {
+        const failed = failFreeTruquitos(
+          persistedStateRef.current,
+          started.attempt,
+          data.error || `Error ${res.status}`,
         );
+        persistState(failed);
+        if ((persistedStateRef.current.cards || []).length > 0) {
+          setError("");
+          showToast(data.error || "No se pudo regenerar. Se conservó la versión actual.");
+        } else {
+          setError(data.error || `Error ${res.status}`);
+        }
+        setLoadingCards(false);
+        return;
+      }
+
+      const stableCards = assignStableCardIds(
+        Array.isArray(data.cards) ? data.cards : [],
+      ) as unknown as CheatCard[];
+
+      const completed = completeFreeTruquitos(
+        persistedStateRef.current,
+        started.attempt,
+        stableCards as unknown as DurableTruquitosCard[],
+      );
+      persistState(completed);
+      applyPersistedState(completed);
+
+      if (!stableCards.length) {
+        setError("No se pudieron generar Truquitos útiles con este material.");
+      } else {
+        setError("");
       }
     } catch (e: any) {
-      setError(e?.message || "Error generando Truquitos.");
-      setCards([]);
+      const failed = failFreeTruquitos(
+        persistedStateRef.current,
+        started.attempt,
+        e?.message || "Error generando Truquitos.",
+      );
+      persistState(failed);
+      if ((persistedStateRef.current.cards || []).length > 0) {
+        setError("");
+        showToast("No se pudo regenerar. Se conservó la versión actual.");
+      } else {
+        setError(e?.message || "Error generando Truquitos.");
+      }
     } finally {
-      setLoadingCards(false);
+      if (generationAttemptRef.current === started.attempt) {
+        setLoadingCards(false);
+      }
     }
-  }, [materialText, materia?.nombre, tema?.nombre]);
+  }, [
+    materialText,
+    materia?.nombre,
+    tema?.nombre,
+    masteryContext,
+    persistState,
+    applyPersistedState,
+    showToast,
+  ]);
 
   const jumpToSource = useCallback(
     (card: CheatCard) => {
@@ -942,22 +1040,30 @@ export default function ALAIStudyALCheatCodes({
           : undefined;
       const materialId = String(card.sourceMaterial || "");
 
+      let nextIndex = activeMaterialIndex;
       if (materialId) {
         const idx = materiales.findIndex(
           (m: any) =>
             String(m?.materialId || m?.material_id || m?.id || "") ===
             materialId,
         );
-        if (idx >= 0) setActiveMaterialIndex(idx);
+        if (idx >= 0) {
+          nextIndex = idx;
+          setActiveMaterialIndex(idx);
+        }
       }
 
-      if (page && Number.isFinite(page)) {
-        setForcedPage(page);
-        setScrollTrigger((x) => x + 1);
-        setPdfCollapsed(false);
-      }
+      const nextForcedPage = page && Number.isFinite(page) ? page : undefined;
+      setForcedPage(nextForcedPage);
+      setScrollTrigger((x) => x + 1);
+      setPdfCollapsed(false);
+      persistPatch({
+        activeMaterialIndex: nextIndex,
+        forcedPage: nextForcedPage,
+        pdfCollapsed: false,
+      });
     },
-    [materiales],
+    [materiales, activeMaterialIndex, persistPatch],
   );
 
   const generateVariant = useCallback(async (
@@ -965,6 +1071,9 @@ export default function ALAIStudyALCheatCodes({
     action: "another_trick" | "another_analogy" | "simple"
   ) => {
     if (!materialText.trim()) return;
+    const attempt = (variantAttemptRef.current[card.id] || 0) + 1;
+    variantAttemptRef.current[card.id] = attempt;
+
     try {
       setVariantLoadingId(card.id);
       const res = await fetch("/api/alai-studyal-cheat-codes", {
@@ -979,12 +1088,21 @@ export default function ALAIStudyALCheatCodes({
       });
 
       const data = await res.json();
+      if (variantAttemptRef.current[card.id] !== attempt) return;
       if (!res.ok || !data.success) throw new Error(data.error || `Error ${res.status}`);
 
-      setVariants((prev) => ({
-        ...prev,
-        [card.id]: data.card || null,
-      }));
+      const variantCard = data.card
+        ? (assignStableCardIds([data.card])[0] as unknown as CheatCard)
+        : null;
+
+      setVariants((prev) => {
+        const next = {
+          ...prev,
+          [card.id]: variantCard,
+        };
+        persistPatch({ variants: next });
+        return next;
+      });
 
       showToast(
         action === "simple"
@@ -994,11 +1112,15 @@ export default function ALAIStudyALCheatCodes({
             : "Otro truquito listo"
       );
     } catch (e: any) {
-      showToast(e?.message || "No se pudo generar otra versión");
+      if (variantAttemptRef.current[card.id] === attempt) {
+        showToast(e?.message || "No se pudo generar otra versión");
+      }
     } finally {
-      setVariantLoadingId(null);
+      if (variantAttemptRef.current[card.id] === attempt) {
+        setVariantLoadingId(null);
+      }
     }
-  }, [materialText, showToast]);
+  }, [materialText, showToast, persistPatch]);
 
   const handleShare = useCallback(
     async (card: CheatCard) => {
@@ -1028,34 +1150,102 @@ export default function ALAIStudyALCheatCodes({
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = JSON.parse(localStorage.getItem(storageKey) || "{}");
-      setFavorites(Array.isArray(raw?.favorites) ? raw.favorites : []);
-      setKnown(Array.isArray(raw?.known) ? raw.known : []);
-      setSaved(Array.isArray(raw?.saved) ? raw.saved : []);
-    } catch {}
-  }, [storageKey]);
-
-  useEffect(() => {
     return () => {
       if (toastTimer.current) window.clearTimeout(toastTimer.current);
     };
   }, []);
 
   useEffect(() => {
-    if (authorizedStatus === 'loading' || authorizedStatus === 'idle') {
-      setLoadingText(true);
-      return;
-    }
-    setLoadingText(false);
-    if (authorizedStatus === 'error' || !authorizedSource) {
-      setError(authorizedError || 'No se pudo resolver la fuente autorizada.');
-      setMaterialText('');
-      return;
-    }
-    setError('');
-    setMaterialText(authorizedSource.combinedText);
-  }, [authorizedStatus, authorizedSource, authorizedError]);
+    let cancelled = false;
+
+    const run = async () => {
+      if (authorizedStatus === "loading" || authorizedStatus === "idle") {
+        setLoadingText(true);
+        return;
+      }
+
+      setLoadingText(false);
+
+      if (authorizedStatus === "error" || !authorizedSource) {
+        setError(authorizedError || "No se pudo resolver la fuente autorizada.");
+        setMaterialText("");
+        return;
+      }
+
+      const combinedText = authorizedSource.combinedText;
+      setMaterialText(combinedText);
+
+      const envelope = readFreeToolState<DurableFreeTruquitosState>(
+        sessionId,
+        fingerprint,
+        "truquitos",
+      );
+
+      let restoredState = initialFreeTruquitosState();
+
+      if (envelope?.state) {
+        restoredState = recoverInterruptedFreeTruquitos(envelope.state);
+        if (restoredState !== envelope.state) {
+          persistState(restoredState);
+        } else {
+          persistedStateRef.current = restoredState;
+        }
+      } else {
+        persistedStateRef.current = restoredState;
+
+        try {
+          const legacy = JSON.parse(localStorage.getItem(legacyStorageKey) || "{}");
+          const migrated = updateFreeTruquitosState(restoredState, {
+            favorites: Array.isArray(legacy?.favorites) ? legacy.favorites : [],
+            known: Array.isArray(legacy?.known) ? legacy.known : [],
+            saved: Array.isArray(legacy?.saved) ? legacy.saved : [],
+          });
+          if (
+            migrated.favorites.length ||
+            migrated.known.length ||
+            migrated.saved.length
+          ) {
+            restoredState = migrated;
+            persistState(migrated);
+          }
+        } catch {}
+      }
+
+      if (cancelled) return;
+
+      applyPersistedState(restoredState);
+
+      if ((restoredState.cards || []).length > 0) {
+        setLoadingCards(false);
+        return;
+      }
+
+      if (restoredState.status === "recoverable") {
+        setLoadingCards(false);
+        setError(restoredState.error || "La generación se interrumpió. Puedes reintentar.");
+        return;
+      }
+
+      setLoadingCards(true);
+      await generateCheatCodes();
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    sessionId,
+    fingerprint,
+    authorizedStatus,
+    authorizedSource,
+    authorizedError,
+    legacyStorageKey,
+    generateCheatCodes,
+    persistState,
+    applyPersistedState,
+    reloadToken,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1078,13 +1268,6 @@ export default function ALAIStudyALCheatCodes({
       cancelled = true;
     };
   }, [activeMaterialId]);
-
-  useEffect(() => {
-    if (!loadingText && materialText && !requestedInitial) {
-      setRequestedInitial(true);
-      generateCheatCodes();
-    }
-  }, [loadingText, materialText, requestedInitial, generateCheatCodes]);
 
   return (
     <div className="cc-screen">
@@ -1151,7 +1334,11 @@ export default function ALAIStudyALCheatCodes({
               </div>
               <button
                 className="cc-collapse-btn"
-                onClick={() => setPdfCollapsed(!pdfCollapsed)}
+                onClick={() => {
+                  const next = !pdfCollapsed;
+                  setPdfCollapsed(next);
+                  persistPatch({ pdfCollapsed: next });
+                }}
                 title={pdfCollapsed ? "Expandir" : "Colapsar"}
               >
                 {pdfCollapsed ? "→" : "←"}
@@ -1163,7 +1350,10 @@ export default function ALAIStudyALCheatCodes({
                 {materiales.map((m: any, i: number) => (
                   <button
                     key={m?.id || i}
-                    onClick={() => setActiveMaterialIndex(i)}
+                    onClick={() => {
+                      setActiveMaterialIndex(i);
+                      persistPatch({ activeMaterialIndex: i });
+                    }}
                     className={`cc-mat-tab ${i === activeMaterialIndex ? "active" : ""}`}
                   >
                     {i + 1}. {(m?.nombre || m?.name || "Material").slice(0, 18)}
@@ -1217,7 +1407,7 @@ export default function ALAIStudyALCheatCodes({
                 <i />
               </div>
             </div>
-          ) : error ? (
+          ) : error && cards.length === 0 ? (
             <div className="cc-error-card">
               <div style={{ fontSize: 44 }}>⚠️</div>
               <h2>No pude generar los Truquitos</h2>
@@ -1265,14 +1455,17 @@ export default function ALAIStudyALCheatCodes({
                   <button
                     key={item.key}
                     className={`cc-filter-pill ${quickFilter === item.key ? "active" : ""}`}
-                    onClick={() => setQuickFilter(item.key as QuickFilter)}
+                    onClick={() => {
+                      const next = item.key as QuickFilter;
+                      setQuickFilter(next);
+                      persistPatch({ quickFilter: next });
+                    }}
                   >
                     {item.label}
                   </button>
                 ))}
               </div>
 
-              
               {(() => {
                 const esenciales = filteredCards.filter(c =>
                   ["tesis_central","regla_oro","solo_una_cosa"].includes(c.type)
@@ -1328,17 +1521,17 @@ export default function ALAIStudyALCheatCodes({
                             onToggleFavorite={() => {
                               const next = toggleId(favorites, card.id);
                               setFavorites(next);
-                              saveState({ favorites: next });
+                              persistPatch({ favorites: next });
                             }}
                             onToggleKnown={() => {
                               const next = toggleId(known, card.id);
                               setKnown(next);
-                              saveState({ known: next });
+                              persistPatch({ known: next });
                             }}
                             onSaveNote={() => {
                               const next = toggleId(saved, card.id);
                               setSaved(next);
-                              saveState({ saved: next });
+                              persistPatch({ saved: next });
                               showToast("Guardado");
                             }}
                             onCopy={async () => {
@@ -1368,7 +1561,6 @@ export default function ALAIStudyALCheatCodes({
                   </>
                 );
               })()}
-
 
               {professorAdvice && (
                 <div className="cc-intro" style={{ marginTop: 20 }}>

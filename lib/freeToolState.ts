@@ -1,7 +1,7 @@
 import type { StudySession } from './studySessions';
 import { getSessionById, updateSessionById } from './studySessions';
 
-export type DurableFreeTool = 'quiz' | 'exam' | 'flashcards' | 'repasar' | 'alai' | 'analysis';
+export type DurableFreeTool = 'quiz' | 'exam' | 'flashcards' | 'repasar' | 'alai' | 'analysis' | 'studymap' | 'truquitos';
 
 export interface FreeToolStateEnvelope<T = unknown> {
   version: 1;
