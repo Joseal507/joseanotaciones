@@ -10,6 +10,7 @@ import MathText from '../MathText';
 import MatchingCanvas from './MatchingCanvas';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
+import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
 
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 
@@ -54,6 +55,22 @@ interface HistoryEntry {
     consejo?: string;
     detalles?: string[];
   };
+}
+
+interface PersistedQuizState {
+  quizState: QuizState;
+  difficulty: Difficulty;
+  selectedTypes: QuestionType[];
+  questionCount: number;
+  customCount: string;
+  questions: Question[];
+  currentIndex: number;
+  userAnswer: any;
+  isLocked: boolean;
+  history: HistoryEntry[];
+  quizStartTime: number;
+  questionStartTime: number;
+  quizContext: string;
 }
 
 const BODY = "'Plus Jakarta Sans', system-ui, sans-serif";
@@ -238,6 +255,7 @@ export default function ALAIStudyALQuizzes({
   onMasteryEvent,
   masteryContext,
   sourceSelection,
+  sessionId,
 }: any) {
   const themeColor = '#d6b26f'; // StudyAL gold - identidad Quiz
 
@@ -260,11 +278,81 @@ export default function ALAIStudyALQuizzes({
   const [questionStartTime, setQuestionStartTime] = useState(0);
   const [showWordBank, setShowWordBank]  = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [continuityReady, setContinuityReady] = useState(false);
+  const generationBusyRef = useRef(false);
+  const generationAttemptRef = useRef(0);
+  const generationControllerRef = useRef<AbortController | null>(null);
+  const evaluationBusyRef = useRef(false);
   const effectiveSourceSelection = useMemo(
     () => (sourceSelection as SourceSelectionSnapshot | undefined) || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
   const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
+
+  useEffect(() => {
+    const restored = readFreeToolState<PersistedQuizState>(
+      sessionId,
+      effectiveSourceSelection.fingerprint,
+      'quiz',
+    );
+    if (restored) {
+      const saved = restored.state;
+      setDifficulty(saved.difficulty || 'medium');
+      setSelectedTypes(Array.isArray(saved.selectedTypes) && saved.selectedTypes.length ? saved.selectedTypes : ['multiple_choice']);
+      setQuestionCount(Number(saved.questionCount || 10));
+      setCustomCount(String(saved.customCount || ''));
+      setQuestions(Array.isArray(saved.questions) ? saved.questions : []);
+      setCurrentIndex(Math.max(0, Number(saved.currentIndex || 0)));
+      setUserAnswer(saved.userAnswer ?? null);
+      setIsLocked(saved.isLocked === true);
+      setHistory(Array.isArray(saved.history) ? saved.history : []);
+      setQuizStartTime(Number(saved.quizStartTime || 0));
+      setQuestionStartTime(Number(saved.questionStartTime || Date.now()));
+      setQuizContext(String(saved.quizContext || ''));
+      const restoredPhase = saved.quizState === 'generating' ? 'setup' : (saved.quizState || 'setup');
+      setQuizState(restoredPhase);
+      if (saved.quizState === 'generating') {
+        setGenError('La generación anterior se interrumpió. Puedes reintentar sin perder tu sesión.');
+      }
+      if (saved.quizState === 'playing' && saved.quizStartTime) {
+        setElapsed(Math.max(0, Math.floor((Date.now() - saved.quizStartTime) / 1000)));
+      }
+    }
+    setContinuityReady(true);
+  }, [sessionId, effectiveSourceSelection.fingerprint]);
+
+  useEffect(() => {
+    if (!continuityReady || !sessionId) return;
+    const timer = window.setTimeout(() => {
+      writeFreeToolState<PersistedQuizState>(sessionId, effectiveSourceSelection.fingerprint, 'quiz', {
+        quizState,
+        difficulty,
+        selectedTypes,
+        questionCount,
+        customCount,
+        questions,
+        currentIndex,
+        userAnswer,
+        isLocked,
+        history,
+        quizStartTime,
+        questionStartTime,
+        quizContext,
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [
+    continuityReady, sessionId, effectiveSourceSelection.fingerprint, quizState,
+    difficulty, selectedTypes, questionCount, customCount, questions, currentIndex,
+    userAnswer, isLocked, history, quizStartTime, questionStartTime, quizContext,
+  ]);
+
+  useEffect(() => () => {
+    generationAttemptRef.current += 1;
+    generationControllerRef.current?.abort();
+  }, []);
 
   // ── PDF multi-material ────────────────────────────────────
   const [pdfUrl, setPdfUrl]         = useState<string | null>(null);
@@ -277,8 +365,6 @@ export default function ALAIStudyALQuizzes({
 
 
   // ── Timer visible ──────────────────────────────────────────
-  const [elapsed, setElapsed] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (quizState === 'playing') {
@@ -508,6 +594,12 @@ export default function ALAIStudyALQuizzes({
 
   // ── Generar quiz ───────────────────────────────────────────
   const generateQuiz = useCallback(async () => {
+    if (generationBusyRef.current) return;
+    generationBusyRef.current = true;
+    const attempt = ++generationAttemptRef.current;
+    generationControllerRef.current?.abort();
+    const controller = new AbortController();
+    generationControllerRef.current = controller;
     setQuizState('generating');
     setGenError(null);
     const finalCount = customCount
@@ -538,8 +630,10 @@ texto.slice(0,8000)
           seleccion,
           masteryContext,
         }),
+        signal: controller.signal,
       });
       const data = await res.json();
+      if (controller.signal.aborted || generationAttemptRef.current !== attempt) return;
       if (data.success && data.quiz?.length > 0) {
         setQuestions(data.quiz);
         setCurrentIndex(0);
@@ -558,8 +652,14 @@ texto.slice(0,8000)
         setQuizState('setup');
       }
     } catch (e: any) {
+      if (controller.signal.aborted || generationAttemptRef.current !== attempt) return;
       setGenError(e?.message || 'Error de red.');
       setQuizState('setup');
+    } finally {
+      if (generationAttemptRef.current === attempt) {
+        generationBusyRef.current = false;
+        generationControllerRef.current = null;
+      }
     }
   }, [customCount, questionCount, difficulty, selectedTypes, seleccion, extractQuizText]);
 
@@ -572,7 +672,7 @@ texto.slice(0,8000)
 
     if (
       isLocked ||
-      isEvaluating ||
+      isEvaluating || evaluationBusyRef.current ||
       answerToCheck === null ||
       answerToCheck === undefined
     ) return;
@@ -584,6 +684,7 @@ texto.slice(0,8000)
       setUserAnswer(directAnswer);
     }
 
+    evaluationBusyRef.current = true;
     setIsEvaluating(true);
 
     let correct = checkAnswer(q, answerToCheck);
@@ -790,9 +891,8 @@ texto.slice(0,8000)
       true
     );
 
-    setIsEvaluating(
-      false
-    );
+    evaluationBusyRef.current = false;
+    setIsEvaluating(false);
 
     setTimeout(() => {
       document
@@ -1004,15 +1104,6 @@ texto.slice(0,8000)
           </div>
         )}
 
-        {/* Reportar error (derecha) */}
-        {quizState === 'playing' && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button className="saq-report-btn" title="Reportar error en la pregunta">
-              ⚡ Reportar error
-            </button>
-            <button className="saq-menu-btn" title="Más opciones">⋮</button>
-          </div>
-        )}
       </header>
 
       {/* ── BODY ───────────────────────────────────────────── */}

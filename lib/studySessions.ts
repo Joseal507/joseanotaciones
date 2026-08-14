@@ -44,6 +44,7 @@ export interface StudySession {
   selectedPages: Record<string, number[]>;
   sourceSelectionFingerprint?: string;
   flashcards?: any[];
+  notes?: Record<string, any>;
   adaptiveSetup?: AdaptiveSetup;
   setupHash?: string; // identidad única del setup — evita contaminación entre pruebas
   blueprint?: any; // análisis completo del material
@@ -103,6 +104,22 @@ function normalizeIds(ids: string[]): string {
     .join(',');
 }
 
+function mergeSessionNotes(localNotes: Record<string, any> = {}, serverNotes: Record<string, any> = {}) {
+  const localTools = localNotes.freeTools || {};
+  const serverTools = serverNotes.freeTools || {};
+  const freeTools: Record<string, any> = {};
+  for (const tool of new Set([...Object.keys(localTools), ...Object.keys(serverTools)])) {
+    const local = localTools[tool];
+    const server = serverTools[tool];
+    freeTools[tool] = Number(server?.revision || 0) >= Number(local?.revision || 0) ? server : local;
+  }
+  return {
+    ...localNotes,
+    ...serverNotes,
+    freeTools,
+  };
+}
+
 function normalizeSession(raw: any): StudySession {
   const mode = (raw?.processMode || raw?.studyMode || raw?.process_mode || raw?.study_mode || 'free') as ProcessMode;
   const rawJourney = raw?.journey || raw?.adaptiveProgram || raw?.adaptive_program || undefined;
@@ -156,6 +173,7 @@ function normalizeSession(raw: any): StudySession {
     selectedPages: sourceSelection.selectedPages,
     sourceSelectionFingerprint: sourceSelection.fingerprint,
     flashcards: Array.isArray(raw?.flashcards) ? raw.flashcards : undefined,
+    notes: raw?.notes && typeof raw.notes === 'object' ? raw.notes : undefined,
     adaptiveSetup: raw?.adaptiveSetup || raw?.adaptive_setup || undefined,
     setupHash: raw?.setupHash || raw?.setup_hash || undefined,
     blueprint: raw?.blueprint || raw?.materialBlueprint || raw?.material_blueprint || undefined,
@@ -326,6 +344,7 @@ export function persistableSnapshot(session: StudySession): Record<string, unkno
     materialIds: session.materialIds,
     selectedPages: session.selectedPages,
     sourceSelectionFingerprint: session.sourceSelectionFingerprint,
+    notes: session.notes,
     adaptiveSetup: session.adaptiveSetup,
     setupHash: session.setupHash,
     blueprint: session.blueprint,
@@ -507,6 +526,7 @@ export function upsertSession(params: {
         ? sourceSelection.fingerprint
         : existing.sourceSelectionFingerprint,
       flashcards: params.flashcards ?? existing.flashcards,
+      notes: params.notes ?? existing.notes,
       adaptiveSetup: params.adaptiveSetup ?? existing.adaptiveSetup,
       setupHash: params.setupHash ?? existing.setupHash,
       blueprint: params.blueprint ?? existing.blueprint,
@@ -551,6 +571,7 @@ export function upsertSession(params: {
     selectedPages: sourceSelection.selectedPages,
     sourceSelectionFingerprint: sourceSelection.fingerprint,
     flashcards: params.flashcards,
+    notes: params.notes,
     adaptiveSetup: params.adaptiveSetup,
     setupHash: params.setupHash,
     blueprint: params.blueprint || undefined,
@@ -828,6 +849,7 @@ export async function lookupSessionsFromServer(temaId?: string, sessionId?: stri
         if (!sess.breakHoursAcknowledged && localExisting.breakHoursAcknowledged) {
           sess.breakHoursAcknowledged = localExisting.breakHoursAcknowledged;
         }
+        sess.notes = mergeSessionNotes(localExisting.notes, sess.notes);
       }
       if (!sess?.id) continue;
 
@@ -851,6 +873,7 @@ export async function lookupSessionsFromServer(temaId?: string, sessionId?: stri
           sessionContent: { ...(local.sessionContent || {}), ...(sess.sessionContent || {}) },
           sessionPreparation: { ...(local.sessionPreparation || {}), ...(sess.sessionPreparation || {}) },
           recoveryQueues: { ...(local.recoveryQueues || {}), ...(sess.recoveryQueues || {}) },
+          notes: mergeSessionNotes(local.notes, sess.notes),
           completedSessionNumbers: [...new Set([...(local.completedSessionNumbers || []), ...(sess.completedSessionNumbers || [])])],
           unresolvedMicroIds: serverIsNewer ? sess.unresolvedMicroIds : local.unresolvedMicroIds,
           isProgramComplete: local.isProgramComplete === true || sess.isProgramComplete === true,

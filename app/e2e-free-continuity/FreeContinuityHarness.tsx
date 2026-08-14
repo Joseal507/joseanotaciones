@@ -1,0 +1,55 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import ALAIStudyALQuizzes from '../../components/materias/ALAIStudyALQuizzes';
+import ALAIStudyALExams from '../../components/materias/ALAIStudyALExams';
+import { buildSourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
+import { getSessionById, upsertSession } from '../../lib/studySessions';
+
+const sessionId = 'e2e-free-tool-continuity';
+const sourceSelection = buildSourceSelectionSnapshot(
+  ['e2e-free-a', 'e2e-free-b'],
+  { 'e2e-free-a': [2, 5], 'e2e-free-b': [1, 7] },
+);
+const materials = [
+  { id: 'e2e-free-a', materialId: 'e2e-free-a', nombre: 'Material A' },
+  { id: 'e2e-free-b', materialId: 'e2e-free-b', nombre: 'Material B' },
+];
+
+export default function FreeContinuityHarness() {
+  const [ready, setReady] = useState(false);
+  const tool = useMemo(() => {
+    if (typeof window === 'undefined') return 'quiz';
+    return new URLSearchParams(window.location.search).get('tool') === 'exam' ? 'exam' : 'quiz';
+  }, []);
+
+  useEffect(() => {
+    const existing = getSessionById(sessionId);
+    if (!existing) {
+      upsertSession({
+        id: sessionId,
+        temaId: 'e2e-free-tema',
+        enfoque: 'teorico',
+        processMode: 'free',
+        materialIds: sourceSelection.materialIds,
+        materialNames: ['Material A', 'Material B'],
+        selectedPages: sourceSelection.selectedPages,
+      });
+    }
+    setReady(true);
+  }, []);
+
+  if (!ready) return <div data-testid="free-continuity-loading">Preparando sesión</div>;
+  const shared = {
+    materiales: materials,
+    seleccion: sourceSelection.materials.map(item => ({ materialId: item.materialId, pages: item.selectedPages })),
+    tema: { id: 'e2e-free-tema', nombre: 'Tema E2E' },
+    materia: { id: 'e2e-free-materia', nombre: 'Materia E2E' },
+    sessionId,
+    sourceSelection,
+    onBack: () => {},
+  };
+  return tool === 'exam'
+    ? <ALAIStudyALExams {...shared} userName="Estudiante E2E" />
+    : <ALAIStudyALQuizzes {...shared} />;
+}

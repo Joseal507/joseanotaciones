@@ -6,7 +6,8 @@ import dynamic from 'next/dynamic';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 import { sourceScopedKey } from '../../lib/materials/authorizedSource';
-import { getSessionById, updateSessionById } from '../../lib/studySessions';
+import { getSessionById } from '../../lib/studySessions';
+import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
 
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 
@@ -46,6 +47,30 @@ interface Evaluation {
   gradeProbabilities?: { A: number; B: number; C: number; fail: number };
   recommendation: string;
   recoveryPlan: { title: string; detail: string }[];
+}
+
+interface PersistedExamState {
+  phase: Phase;
+  duration: number;
+  recommendedMinutes: number | null;
+  examMode: 'closed' | 'open';
+  adaptive: boolean;
+  exam: GeneratedExam | null;
+  currentQuestion: number;
+  answers: any[];
+  confidences: (Confidence | null)[];
+  draftAnswer: any;
+  draftConfidence: Confidence | null;
+  marked: number[];
+  deadlineAt: number | null;
+  paused: boolean;
+  remainingSeconds: number;
+  questionTimes: number[];
+  evaluation: Evaluation | null;
+  submissionError: string;
+  pendingSubmissionAnswers: any[] | null;
+  pendingSubmissionConfidences: (Confidence | null)[] | null;
+  resultsTab: 'overview' | 'questions' | 'calibration';
 }
 
 interface Props {
@@ -148,6 +173,17 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
   const [activeMaterialIndex, setActiveMaterialIndex] = useState(0);
 
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
+  const [continuityReady, setContinuityReady] = useState(false);
+  const [deadlineAt, setDeadlineAt] = useState<number | null>(null);
+  const [submissionError, setSubmissionError] = useState('');
+  const [pendingSubmissionAnswers, setPendingSubmissionAnswers] = useState<any[] | null>(null);
+  const [pendingSubmissionConfidences, setPendingSubmissionConfidences] = useState<(Confidence | null)[] | null>(null);
+  const generationBusyRef = useRef(false);
+  const generationAttemptRef = useRef(0);
+  const generationControllerRef = useRef<AbortController | null>(null);
+  const evaluationBusyRef = useRef(false);
+  const evaluationAttemptRef = useRef(0);
+  const evaluationControllerRef = useRef<AbortController | null>(null);
   const [genStep, setGenStep] = useState(0);
   const [resultsTab, setResultsTab] = useState<'overview' | 'questions' | 'calibration'>('overview');
 
@@ -260,11 +296,16 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
 
   // ─── TIMER ──────────────────────────────────────────────────
   useEffect(() => {
-    if (phase !== 'exam' || paused) return;
-    if (remainingSeconds <= 0) { submitExam(); return; }
-    const t = window.setInterval(() => setRemainingSeconds(v => Math.max(0, v - 1)), 1000);
-    return () => window.clearInterval(t);
-  }, [phase, remainingSeconds, paused]);
+    if (phase !== 'exam' || paused || !deadlineAt) return;
+    const updateClock = () => {
+      const next = Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000));
+      setRemainingSeconds(next);
+      if (next <= 0 && !evaluationBusyRef.current) submitExam();
+    };
+    updateClock();
+    const timer = window.setInterval(updateClock, 1000);
+    return () => window.clearInterval(timer);
+  }, [phase, paused, deadlineAt]);
 
   // ─── GLOBAL ENTER LISTENER — captura Enter en TODOS los tipos ──
   useEffect(() => {
@@ -298,6 +339,9 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
   // ─── PDF LOADER ─────────────────────────────────────────────
   const matActual = materiales?.[activeMaterialIndex] ?? materiales?.[0];
   const matActualId = matActual?.materialId || matActual?.id || null;
+  const activeMaterialSelectedPages = matActualId
+    ? (effectiveSourceSelection.selectedPages[String(matActualId)] || [])
+    : [];
 
   useEffect(() => {
     if (!matActualId || phase !== 'exam') { setPdfUrl(null); return; }
@@ -330,42 +374,97 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
     return () => window.clearInterval(t);
   }, [phase]);
 
-  // ─── AUTO-SAVE ──────────────────────────────────────────────
+  // ─── RESTORE + EVENT-DRIVEN AUTO-SAVE ──────────────────────
   useEffect(() => {
-    if (phase !== 'exam' || !exam) return;
-    const data = { examId: exam.id, currentQuestion, answers, confidences, remainingSeconds, marked: [...marked], exam };
-    try { localStorage.setItem(storageKey, JSON.stringify(data)); } catch {}
-    if (sessionId) {
-      updateSessionById(sessionId, session => ({
-        ...session,
-        notes: {
-          ...(session as any).notes,
-          freeExam: { ...data, sourceSelectionFingerprint: effectiveSourceSelection.fingerprint },
-        },
-      } as any));
+    const durable = readFreeToolState<PersistedExamState>(sessionId, effectiveSourceSelection.fingerprint, 'exam');
+    let saved = durable?.state || null;
+    if (!saved && sessionId) {
+      const legacy = (getSessionById(sessionId) as any)?.notes?.freeExam;
+      if (legacy?.sourceSelectionFingerprint === effectiveSourceSelection.fingerprint && legacy.exam) {
+        saved = {
+          phase: 'exam', duration, recommendedMinutes: null, examMode: 'closed', adaptive: true,
+          exam: legacy.exam, currentQuestion: Number(legacy.currentQuestion || 0),
+          answers: Array.isArray(legacy.answers) ? legacy.answers : [],
+          confidences: Array.isArray(legacy.confidences) ? legacy.confidences : [],
+          draftAnswer: legacy.answers?.[legacy.currentQuestion] ?? '', draftConfidence: legacy.confidences?.[legacy.currentQuestion] ?? null,
+          marked: Array.isArray(legacy.marked) ? legacy.marked : [], deadlineAt: null,
+          paused: false, remainingSeconds: Number(legacy.remainingSeconds || duration * 60),
+          questionTimes: [], evaluation: null, submissionError: '', pendingSubmissionAnswers: null,
+          pendingSubmissionConfidences: null, resultsTab: 'overview',
+        };
+      }
     }
-  }, [phase, exam, currentQuestion, answers, confidences, remainingSeconds, marked, storageKey]);
+    if (saved?.exam) {
+      setDuration(Number(saved.duration || 30));
+      setRecommendedMinutes(saved.recommendedMinutes ?? null);
+      setExamMode(saved.examMode || 'closed');
+      setAdaptive(saved.adaptive !== false);
+      setExam(saved.exam);
+      setCurrentQuestion(Math.max(0, Number(saved.currentQuestion || 0)));
+      setAnswers(Array.isArray(saved.answers) ? saved.answers : []);
+      setConfidences(Array.isArray(saved.confidences) ? saved.confidences : []);
+      setDraftAnswer(saved.draftAnswer ?? defaultAnswerFor(saved.exam.questions?.[saved.currentQuestion || 0]?.type));
+      setDraftConfidence(saved.draftConfidence ?? null);
+      setMarked(new Set(Array.isArray(saved.marked) ? saved.marked : []));
+      setDeadlineAt(saved.deadlineAt || (Date.now() + Math.max(0, Number(saved.remainingSeconds || 0)) * 1000));
+      setPaused(saved.paused === true || saved.phase === 'evaluating');
+      setRemainingSeconds(Math.max(0, saved.deadlineAt && saved.paused !== true
+        ? Math.ceil((saved.deadlineAt - Date.now()) / 1000)
+        : Number(saved.remainingSeconds || 0)));
+      setQuestionTimes(Array.isArray(saved.questionTimes) ? saved.questionTimes : []);
+      setEvaluation(saved.evaluation || null);
+      setSubmissionError(saved.phase === 'evaluating'
+        ? 'La corrección anterior se interrumpió. Reintenta sin regenerar el examen.'
+        : String(saved.submissionError || ''));
+      setPendingSubmissionAnswers(saved.pendingSubmissionAnswers || null);
+      setPendingSubmissionConfidences(saved.pendingSubmissionConfidences || null);
+      setResultsTab(saved.resultsTab || 'overview');
+      setPhase(saved.phase === 'evaluating' ? 'exam' : saved.phase);
+    }
+    setContinuityReady(true);
+  }, [sessionId, effectiveSourceSelection.fingerprint]);
 
   useEffect(() => {
-    if (!sessionId || phase !== 'setup') return;
-    const saved = (getSessionById(sessionId) as any)?.notes?.freeExam;
-    if (!saved || saved.sourceSelectionFingerprint !== effectiveSourceSelection.fingerprint || !saved.exam) return;
-    setExam(saved.exam);
-    setCurrentQuestion(Number(saved.currentQuestion || 0));
-    setAnswers(Array.isArray(saved.answers) ? saved.answers : []);
-    setConfidences(Array.isArray(saved.confidences) ? saved.confidences : []);
-    setRemainingSeconds(Number(saved.remainingSeconds || duration * 60));
-    setMarked(new Set(Array.isArray(saved.marked) ? saved.marked : []));
-    setPhase('exam');
-  }, [sessionId, effectiveSourceSelection.fingerprint]);
+    if (!continuityReady || !sessionId || !exam) return;
+    const timer = window.setTimeout(() => {
+      const state: PersistedExamState = {
+        phase, duration, recommendedMinutes, examMode, adaptive, exam, currentQuestion,
+        answers, confidences, draftAnswer, draftConfidence, marked: [...marked], deadlineAt,
+        paused, remainingSeconds, questionTimes, evaluation, submissionError,
+        pendingSubmissionAnswers, pendingSubmissionConfidences, resultsTab,
+      };
+      writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'exam', state);
+      try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch {}
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [
+    continuityReady, sessionId, effectiveSourceSelection.fingerprint, phase, duration,
+    recommendedMinutes, examMode, adaptive, exam, currentQuestion, answers, confidences,
+    draftAnswer, draftConfidence, marked, deadlineAt, paused, questionTimes, evaluation,
+    submissionError, pendingSubmissionAnswers, pendingSubmissionConfidences, resultsTab, storageKey,
+  ]);
+
+  useEffect(() => () => {
+    generationAttemptRef.current += 1;
+    generationControllerRef.current?.abort();
+    evaluationAttemptRef.current += 1;
+    evaluationControllerRef.current?.abort();
+  }, []);
 
   // ─── GENERATE ───────────────────────────────────────────────
   async function generateExam() {
     if (!materialText.trim()) { setGenError('No hay texto del material.'); return; }
+    if (generationBusyRef.current) return;
+    generationBusyRef.current = true;
+    const attempt = ++generationAttemptRef.current;
+    generationControllerRef.current?.abort();
+    const controller = new AbortController();
+    generationControllerRef.current = controller;
     setPhase('generating'); setGenError('');
     try {
       const res = await fetch('/api/alai-studyal-exam', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           mode: 'generate', materialText, materia: materia?.nombre || '',
           tema: tema?.nombre || '', selectedPages: selectedPagesArr,
@@ -375,6 +474,7 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
         }),
       });
       const data = await res.json();
+      if (controller.signal.aborted || generationAttemptRef.current !== attempt) return;
       if (!res.ok || !data.success) throw new Error(data.error || `Error ${res.status}`);
       if (!data.exam?.questions?.length) throw new Error('ALAI no generó preguntas.');
 
@@ -389,13 +489,23 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
       setDraftConfidence(null);
       setCurrentQuestion(0);
       setRemainingSeconds(duration * 60);
+      setDeadlineAt(Date.now() + duration * 60 * 1000);
       setMarked(new Set());
       setEvaluation(null);
+      setSubmissionError('');
+      setPendingSubmissionAnswers(null);
+      setPendingSubmissionConfidences(null);
       setPhase('exam');
       window.setTimeout(() => paperRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
     } catch (err: any) {
+      if (controller.signal.aborted || generationAttemptRef.current !== attempt) return;
       setGenError(err?.message || 'No se pudo generar el examen.');
       setPhase('setup');
+    } finally {
+      if (generationAttemptRef.current === attempt) {
+        generationBusyRef.current = false;
+        generationControllerRef.current = null;
+      }
     }
   }
 
@@ -536,13 +646,33 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
 
   // ─── SUBMIT ─────────────────────────────────────────────────
   async function submitExam(finalAnswers?: any[], finalConfidences?: (Confidence | null)[]) {
-    if (!exam) return;
+    if (!exam || evaluationBusyRef.current) return;
     const finals = finalAnswers || (() => { const a = [...answers]; a[currentQuestion] = draftAnswer; return a; })();
     const finalsConf = finalConfidences || confidences;
-    setAnswers(finals); setPhase('evaluating');
+    const attempt = ++evaluationAttemptRef.current;
+    evaluationControllerRef.current?.abort();
+    const controller = new AbortController();
+    evaluationControllerRef.current = controller;
+    evaluationBusyRef.current = true;
+    setAnswers(finals);
+    setPendingSubmissionAnswers(finals);
+    setPendingSubmissionConfidences(finalsConf);
+    setSubmissionError('');
+    setPaused(true);
+    setPhase('evaluating');
+    if (sessionId) {
+      writeFreeToolState<PersistedExamState>(sessionId, effectiveSourceSelection.fingerprint, 'exam', {
+        phase: 'evaluating', duration, recommendedMinutes, examMode, adaptive, exam,
+        currentQuestion, answers: finals, confidences: finalsConf, draftAnswer,
+        draftConfidence, marked: [...marked], deadlineAt, paused: true, remainingSeconds,
+        questionTimes, evaluation: null, submissionError: '',
+        pendingSubmissionAnswers: finals, pendingSubmissionConfidences: finalsConf, resultsTab,
+      });
+    }
     try {
       const res = await fetch('/api/alai-studyal-exam', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           mode: 'evaluate', exam, answers: finals, confidences: finalsConf,
           questionTimes,
@@ -550,8 +680,12 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
         }),
       });
       const data = await res.json();
+      if (controller.signal.aborted || attempt !== evaluationAttemptRef.current) return;
       if (!res.ok || !data.success) throw new Error(data.error);
       setEvaluation(data.evaluation);
+      setPendingSubmissionAnswers(null);
+      setPendingSubmissionConfidences(null);
+      setSubmissionError('');
 
       // ── Mastery Engine: reportar resultado de Examen ──
       try {
@@ -575,17 +709,44 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
         }
       } catch (_) {}
 
-    } catch { setEvaluation(null); }
-    finally {
       setPhase('results');
-      try { localStorage.removeItem(storageKey); } catch {}
       window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 80);
+    } catch (error: any) {
+      if (controller.signal.aborted || attempt !== evaluationAttemptRef.current) return;
+      setEvaluation(null);
+      setSubmissionError(error?.message || 'No se pudo corregir el examen. Tu intento está guardado; vuelve a intentarlo.');
+      setPhase('exam');
+      setPaused(true);
+    } finally {
+      if (attempt === evaluationAttemptRef.current) {
+        evaluationBusyRef.current = false;
+        evaluationControllerRef.current = null;
+      }
+    }
+  }
+
+  function retryEvaluation() {
+    if (!exam || evaluationBusyRef.current) return;
+    void submitExam(
+      pendingSubmissionAnswers || answers,
+      pendingSubmissionConfidences || confidences,
+    );
+  }
+
+  function togglePause() {
+    if (paused) {
+      setDeadlineAt(Date.now() + Math.max(0, remainingSeconds) * 1000);
+      setPaused(false);
+    } else {
+      if (deadlineAt) setRemainingSeconds(Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000)));
+      setPaused(true);
     }
   }
 
   function resetAll() {
     setPhase('setup'); setExam(null); setAnswers([]); setConfidences([]); setDraftAnswer('');
     setDraftConfidence(null); setCurrentQuestion(0); setEvaluation(null); setRemainingSeconds(duration * 60);
+    setDeadlineAt(null); setSubmissionError(''); setPendingSubmissionAnswers(null); setPendingSubmissionConfidences(null);
     setGenError(''); setMarked(new Set()); setPaused(false); setResultsTab('overview');
     lastAdaptedAt.current = 0;
     try { localStorage.removeItem(storageKey); } catch {}
@@ -753,7 +914,7 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
                 <button onClick={() => setShowPdf(v => !v)} style={{ padding: '10px 14px', borderRadius: 10, background: showPdf ? 'rgba(245,200,66,.18)' : 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)', color: showPdf ? '#f5c842' : '#fff', cursor: 'pointer', fontWeight: 800, fontSize: 14 }}>
                   📄 {showPdf ? 'Ocultar PDF' : 'Ver PDF'}
                 </button>
-                <button onClick={() => setPaused(p => !p)} style={{ padding: '10px 14px', borderRadius: 10, background: paused ? 'rgba(245,200,66,.18)' : 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)', color: paused ? '#f5c842' : '#fff', cursor: 'pointer', fontWeight: 800, fontSize: 14 }}>
+                <button onClick={togglePause} style={{ padding: '10px 14px', borderRadius: 10, background: paused ? 'rgba(245,200,66,.18)' : 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)', color: paused ? '#f5c842' : '#fff', cursor: 'pointer', fontWeight: 800, fontSize: 14 }}>
                   {paused ? '▶ Reanudar' : '⏸ Pausar'}
                 </button>
               </div>
@@ -764,7 +925,14 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: 60 }}>⏸</div>
                   <h1 style={{ color: '#f5c842' }}>Examen pausado</h1>
-                  <button onClick={() => setPaused(false)} style={{ marginTop: 20, padding: '16px 32px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #f5c842, #d6a72c)', color: '#080808', fontWeight: 950, fontSize: 16, cursor: 'pointer' }}>Continuar →</button>
+                  {submissionError ? (
+                    <>
+                      <p style={{ color: '#fecaca', maxWidth: 520 }}>{submissionError}</p>
+                      <button onClick={retryEvaluation} style={{ marginTop: 20, padding: '16px 32px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #f5c842, #d6a72c)', color: '#080808', fontWeight: 950, fontSize: 16, cursor: 'pointer' }}>Reintentar corrección</button>
+                    </>
+                  ) : (
+                    <button onClick={togglePause} style={{ marginTop: 20, padding: '16px 32px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #f5c842, #d6a72c)', color: '#080808', fontWeight: 950, fontSize: 16, cursor: 'pointer' }}>Continuar →</button>
+                  )}
                 </div>
               </div>
             )}
@@ -816,10 +984,10 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
                     <PDFViewer
                       key={matActualId + '-' + pdfUrl}
                       url={pdfUrl}
-                      selectedPages={selectedPagesArr}
+                      selectedPages={activeMaterialSelectedPages}
                       themeColor="#f5c842"
                       onTotalPages={() => {}}
-                      totalSelectedPages={selectedPagesArr.length}
+                      totalSelectedPages={activeMaterialSelectedPages.length}
                       activeMaterialIndex={activeMaterialIndex}
                       materialesCount={materiales.length}
                       forcedPage={currentSourcePage}
