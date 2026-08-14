@@ -3,25 +3,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
+import {
+  beginAlaiTurn,
+  completeAlaiTurn,
+  failAlaiTurn,
+  initialAlaiState,
+  recoverInterruptedAlaiState,
+  retryAlaiTurn,
+  type DurableAlaiMessage,
+  type DurableAlaiState,
+} from '../../lib/freeAlaiState';
+import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 
-type Role = 'user' | 'assistant';
-
-interface ChatMessage {
-  id: string;
-  role: Role;
-  content: string;
-  inMaterial?: boolean;
-  outsideMaterialNote?: string;
-  confidence?: 'alta' | 'media' | 'baja';
-  sourceMaterial?: string;
-  sourceMaterialName?: string;
-  sourcePages?: number[];
-  suggestedFollowups?: string[];
-  timestamp?: number;
-}
+type ChatMessage = DurableAlaiMessage;
 
 interface Props {
   materiales: any[];
@@ -35,81 +32,9 @@ interface Props {
   sourceSelection?: SourceSelectionSnapshot;
 }
 
-const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
-
-function normalizePages(value: any): number[] {
-  if (Array.isArray(value)) {
-    return Array.from(new Set(value.map(Number).filter((n) => Number.isFinite(n) && n > 0))).sort((a, b) => a - b);
-  }
-  if (value && typeof value === 'object') {
-    const start = Number(value.start ?? value.from ?? value.startPage ?? value.paginaInicial);
-    const end = Number(value.end ?? value.to ?? value.endPage ?? value.paginaFinal);
-    if (Number.isFinite(start) && Number.isFinite(end) && start > 0 && end >= start) {
-      return Array.from({ length: end - start + 1 }, (_, i) => start + i);
-    }
-  }
-  return [];
-}
-
-function getSelectionPages(item: any): number[] {
-  if (!item) return [];
-  return [
-    item.pages, item.selectedPages, item.paginasSeleccionadas,
-    item.paginas, item.pageNumbers, item.range, item.selection,
-  ].map(normalizePages).find((arr) => arr.length > 0) || [];
-}
-
-function getSelectionText(item: any): string {
-  return String(item?.text || item?.texto || item?.content || item?.contenido || item?.selectedText || item?.rawText || item?.extract || item?.selected?.text || '').trim();
-}
-
-function getIds(item: any): string[] {
-  const nested = item?.material || item?.documento || item?.doc || item?.source || item?.file || null;
-  return [
-    item?.materialId, item?.material_id, item?.documentId, item?.document_id,
-    item?.docId, item?.doc_id, item?.id,
-    nested?.materialId, nested?.material_id, nested?.id,
-  ].filter(Boolean).map((v: any) => String(v));
-}
-
-function findSelectionForMaterial(materiales: any[], mat: any, index: number, seleccion?: any[] | null) {
-  if (!Array.isArray(seleccion) || !seleccion.length) return null;
-  const matIds = getIds(mat);
-  return (
-    seleccion.find((s: any) => Number(s?.materialIndex) === index) ||
-    seleccion.find((s: any) => getIds(s).some((id) => matIds.includes(id))) ||
-    seleccion[index] || null
-  );
-}
-
-function filterTextByPages(fullText: string, pages: number[]): string {
-  if (!fullText || !pages.length) return fullText || '';
-  const sortedPages = Array.from(new Set(pages.map(Number).filter((n) => Number.isFinite(n) && n > 0))).sort((a, b) => a - b);
-  if (!sortedPages.length) return fullText;
-  const result: string[] = [];
-  const markerRegex = /(?:^|\n)\s*(?:\[\s*(?:P[aá]gina|Pagina|Page)\s+(\d+)\s*\]|---\s*(?:p[aá]gina|page)\s*(\d+)\s*---)\s*/gi;
-  const matches = Array.from(fullText.matchAll(markerRegex));
-  if (matches.length > 0) {
-    for (let i = 0; i < matches.length; i++) {
-      const match = matches[i];
-      const page = Number(match[1] || match[2]);
-      if (!sortedPages.includes(page)) continue;
-      const start = (match.index || 0) + match[0].length;
-      const end = i + 1 < matches.length ? (matches[i + 1].index || fullText.length) : fullText.length;
-      const chunk = fullText.slice(start, end).trim();
-      if (chunk) result.push(`[Pagina ${page}]\n${chunk}`);
-    }
-    if (result.length > 0) return result.join('\n\n');
-  }
-  const pageChunks = fullText.split('\f');
-  if (pageChunks.length > 1) {
-    for (const page of sortedPages) {
-      const chunk = pageChunks[page - 1];
-      if (chunk?.trim()) result.push(`[Pagina ${page}]\n${chunk.trim()}`);
-    }
-  }
-  return result.join('\n\n');
-}
+const uid = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+  ? crypto.randomUUID()
+  : Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 function formatPages(pages?: number[]) {
   const clean = Array.from(new Set((pages || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))).sort((a, b) => a - b);
@@ -276,24 +201,11 @@ function highlightKeywords(text: string): React.ReactNode {
   });
 }
 
-export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, onBack, onMasteryEvent, masteryContext, sourceSelection }: Props) {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: uid(),
-      role: 'assistant',
-      content: 'Ya analicé tu material. Pregúntame cualquier cosa del documento y te ayudo a entenderlo a fondo.',
-      inMaterial: true,
-      confidence: 'alta',
-      sourcePages: [],
-      suggestedFollowups: [],
-      timestamp: Date.now(),
-    },
-  ]);
-
-  const [input, setInput] = useState('');
+export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, onBack, masteryContext, sessionId, sourceSelection }: Props) {
+  const [conversation, setConversation] = useState<DurableAlaiState>(() => initialAlaiState());
+  const [continuityReady, setContinuityReady] = useState(false);
   const [materialText, setMaterialText] = useState('');
   const [loadingText, setLoadingText] = useState(true);
-  const [loadingAnswer, setLoadingAnswer] = useState(false);
   const [error, setError] = useState('');
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -306,11 +218,19 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
 
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const mountedRef = useRef(true);
+  const conversationRef = useRef(conversation);
+  const activeAttemptRef = useRef('');
+  const requestControllerRef = useRef<AbortController | null>(null);
+  const sendLockedRef = useRef(false);
   const effectiveSourceSelection = useMemo(
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
   const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
+  const messages = conversation.messages;
+  const input = conversation.draft;
+  const loadingAnswer = conversation.currentTurn?.status === 'sending';
 
   const activeMaterial = materiales[activeMaterialIndex] || materiales[0] || null;
   const activeMaterialId = activeMaterial?.materialId || activeMaterial?.material_id || activeMaterial?.id || '';
@@ -318,18 +238,16 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
   const selectionSequence = useMemo(() => {
     const seq: { materialIndex: number; page: number }[] = [];
     materiales.forEach((mat: any, i: number) => {
-      const sel = findSelectionForMaterial(materiales, mat, i, seleccion);
-      const pages = getSelectionPages(sel);
+      const materialId = String(mat?.materialId || mat?.material_id || mat?.id || '');
+      const pages = effectiveSourceSelection.selectedPages[materialId] || [];
       pages.forEach((page) => seq.push({ materialIndex: i, page }));
     });
     return seq;
-  }, [materiales, seleccion]);
+  }, [materiales, effectiveSourceSelection.fingerprint]);
 
   const activeSelectedPages = useMemo(() => {
-    const sel = findSelectionForMaterial(materiales, activeMaterial, activeMaterialIndex, seleccion);
-    const pages = getSelectionPages(sel);
-    return pages.length ? pages : [];
-  }, [materiales, activeMaterial, activeMaterialIndex, seleccion]);
+    return effectiveSourceSelection.selectedPages[String(activeMaterialId)] || [];
+  }, [effectiveSourceSelection.fingerprint, activeMaterialId]);
 
   const viewerPages = useMemo(() => {
     const src = forcedPage && Number.isFinite(forcedPage) && (activeSelectedPages.length === 0 || activeSelectedPages.includes(forcedPage)) ? [forcedPage] : [];
@@ -350,6 +268,61 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
       pageLabel: pages.length ? formatPages(pages.slice(0, 12)) + (pages.length > 12 ? '…' : '') : 'documento completo',
     };
   }, [materiales.length, materialText.length, selectionSequence]);
+
+  const persistConversation = useCallback((next: DurableAlaiState) => {
+    conversationRef.current = next;
+    setConversation(next);
+    if (continuityReady && sessionId) {
+      writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'alai', next);
+    }
+  }, [continuityReady, sessionId, effectiveSourceSelection.fingerprint]);
+
+  useEffect(() => {
+    const restored = readFreeToolState<DurableAlaiState>(
+      sessionId,
+      effectiveSourceSelection.fingerprint,
+      'alai',
+    );
+    const next = recoverInterruptedAlaiState(restored?.state || initialAlaiState());
+    conversationRef.current = next;
+    setConversation(next);
+    if (restored && next !== restored.state && sessionId) {
+      writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'alai', next);
+    }
+    const restoredMaterialId = next.activeMaterialId;
+    if (restoredMaterialId) {
+      const index = materiales.findIndex((material: any) => String(material?.materialId || material?.material_id || material?.id || '') === restoredMaterialId);
+      if (index >= 0) setActiveMaterialIndex(index);
+    }
+    if (Number.isInteger(next.forcedPage)) setForcedPage(next.forcedPage);
+    setContinuityReady(true);
+  }, [sessionId, effectiveSourceSelection.fingerprint]);
+
+  useEffect(() => {
+    conversationRef.current = conversation;
+  }, [conversation]);
+
+  useEffect(() => {
+    if (!continuityReady || !sessionId) return;
+    const timer = window.setTimeout(() => {
+      writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'alai', conversationRef.current);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [continuityReady, sessionId, effectiveSourceSelection.fingerprint, conversation]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      activeAttemptRef.current = '';
+      requestControllerRef.current?.abort();
+      const current = conversationRef.current;
+      if (current.currentTurn?.status === 'sending' && sessionId) {
+        const recoverable = recoverInterruptedAlaiState(current);
+        writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'alai', recoverable);
+      }
+    };
+  }, [sessionId, effectiveSourceSelection.fingerprint]);
 
   useEffect(() => {
     const t = setTimeout(() => setReady(true), 80);
@@ -420,32 +393,42 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
     setPdfCollapsed(false);
   }, [materiales, isAuthorizedCitation]);
 
-  const sendMessage = useCallback(async (override?: string) => {
-    const text = String(override ?? input).trim();
-    if (!text || loadingAnswer || loadingText) return;
-    const userMsg: ChatMessage = { id: uid(), role: 'user', content: text, timestamp: Date.now() };
-    const nextHistory = [...messages, userMsg];
-    setMessages(nextHistory);
-    setInput('');
-    setLoadingAnswer(true);
+  const runTurn = useCallback(async (turnId: string, attempt: number) => {
+    const stateAtStart = conversationRef.current;
+    const turn = stateAtStart.currentTurn;
+    const userMessage = stateAtStart.messages.find(message => message.id === turn?.userMessageId);
+    if (!turn || turn.id !== turnId || turn.attempt !== attempt || !userMessage) return;
+    const attemptIdentity = `${turnId}:${attempt}`;
+    activeAttemptRef.current = attemptIdentity;
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+    sendLockedRef.current = true;
     setError('');
     try {
       const res = await fetch('/api/alai-studyal-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: text,
+          message: userMessage.content,
           materialText,
-          history: messages.slice(-20).map((m) => ({ role: m.role, content: m.content })),
+          sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
+          history: stateAtStart.messages
+            .filter(message => message.id !== userMessage.id)
+            .slice(-20)
+            .map(message => ({ role: message.role, content: message.content })),
           materia: materia?.nombre || '',
           tema: tema?.nombre || '',
           masteryContext,
         }),
+        signal: controller.signal,
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || `Error ${res.status}`);
+      if (!mountedRef.current || controller.signal.aborted || activeAttemptRef.current !== attemptIdentity) return;
       const assistantMsg: ChatMessage = {
-        id: uid(),
+        id: `${turnId}:assistant`,
+        turnId,
         role: 'assistant',
         content: data.answer || '',
         inMaterial: Boolean(data.inMaterial),
@@ -459,7 +442,9 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
         suggestedFollowups: Array.isArray(data.suggestedFollowups) ? data.suggestedFollowups : [],
         timestamp: Date.now(),
       };
-      setMessages((prev) => [...prev, assistantMsg]);
+      const completed = completeAlaiTurn(conversationRef.current, turnId, attempt, assistantMsg);
+      if (completed === conversationRef.current) return;
+      persistConversation(completed);
 
       const pages = assistantMsg.sourcePages || [];
       if (pages.length === 1) {
@@ -471,24 +456,48 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
         }
         setForcedPage(page);
         setScrollTrigger((x) => x + 1);
+        persistConversation({ ...completed, activeMaterialId: matId || completed.activeMaterialId, forcedPage: page });
       }
-    } catch (e: any) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: uid(),
-          role: 'assistant',
-          content: e?.message || 'ALAI no pudo responder ahora.',
-          inMaterial: false,
-          confidence: 'baja',
-          sourcePages: [],
-          timestamp: Date.now(),
-        },
-      ]);
+    } catch (caught: unknown) {
+      if (controller.signal.aborted || activeAttemptRef.current !== attemptIdentity) return;
+      const message = caught instanceof Error ? caught.message : 'ALAI no pudo responder ahora.';
+      const failed = failAlaiTurn(conversationRef.current, turnId, attempt, message);
+      persistConversation(failed);
     } finally {
-      setLoadingAnswer(false);
+      if (activeAttemptRef.current === attemptIdentity) {
+        activeAttemptRef.current = '';
+        requestControllerRef.current = null;
+        sendLockedRef.current = false;
+      }
     }
-  }, [input, loadingAnswer, loadingText, materialText, messages, materia, tema, materiales, isAuthorizedCitation]);
+  }, [materialText, effectiveSourceSelection.fingerprint, materia, tema, masteryContext, materiales, isAuthorizedCitation, persistConversation]);
+
+  const sendMessage = useCallback((override?: string) => {
+    const text = String(override ?? conversationRef.current.draft).trim();
+    if (!text || sendLockedRef.current || loadingAnswer || loadingText || !continuityReady) return;
+    if (!sessionId) {
+      setError('No se pudo identificar la sesión Free para guardar esta conversación.');
+      return;
+    }
+    sendLockedRef.current = true;
+    const turnId = uid();
+    const next = beginAlaiTurn(conversationRef.current, {
+      turnId,
+      userMessageId: `${turnId}:user`,
+      content: text,
+      timestamp: Date.now(),
+    });
+    persistConversation(next);
+    void runTurn(turnId, 1);
+  }, [loadingAnswer, loadingText, continuityReady, sessionId, persistConversation, runTurn]);
+
+  const retryCurrentTurn = useCallback(() => {
+    const current = conversationRef.current.currentTurn;
+    if (!current || current.status !== 'recoverable' || sendLockedRef.current || loadingText) return;
+    const next = retryAlaiTurn(conversationRef.current, current.id);
+    persistConversation(next);
+    void runTurn(current.id, next.currentTurn?.attempt || current.attempt + 1);
+  }, [loadingText, persistConversation, runTurn]);
 
   return (
     <div className="aal-screen">
@@ -593,6 +602,12 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
               </div>
 
               {error && <div className="aal-error">⚠️ {error}</div>}
+              {conversation.currentTurn?.status === 'recoverable' && (
+                <div className="aal-error" data-testid="alai-recoverable-turn">
+                  ⚠️ {conversation.currentTurn.error || 'La respuesta se interrumpió.'}
+                  <button type="button" onClick={retryCurrentTurn} disabled={loadingText}>Reintentar respuesta</button>
+                </div>
+              )}
 
               {messages.map((msg, idx) => {
                 const isUser = msg.role === 'user';
@@ -697,7 +712,11 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
             <textarea
               ref={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                const next = { ...conversationRef.current, draft: e.target.value };
+                conversationRef.current = next;
+                setConversation(next);
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -1738,9 +1757,13 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
           .aal-right-panel { display: none; }
         }
         @media (max-width: 800px) {
-          .aal-main { grid-template-columns: 1fr; overflow-y: auto; padding: 0 16px 16px; }
+          .aal-screen { width: 100%; max-width: 100vw; overflow-x: hidden; }
+          .aal-main { grid-template-columns: minmax(0, 1fr); overflow-y: auto; overflow-x: hidden; padding: 0 12px 16px; width: 100%; min-width: 0; }
           .aal-pdf-panel { min-height: 360px; }
-          .aal-chat-center { min-height: 520px; }
+          .aal-chat-center { min-height: 520px; min-width: 0; width: 100%; }
+          .aal-input-row { min-width: 0; }
+          .aal-input { min-width: 0; }
+          .aal-bubble { max-width: calc(100% - 42px); }
           .aal-quick-pill { font-size: 11px; padding: 6px 10px; }
         }
       `}</style>

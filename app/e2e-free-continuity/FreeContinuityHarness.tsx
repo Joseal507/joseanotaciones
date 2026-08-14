@@ -5,8 +5,9 @@ import ALAIStudyALQuizzes from '../../components/materias/ALAIStudyALQuizzes';
 import ALAIStudyALExams from '../../components/materias/ALAIStudyALExams';
 import ALAIStudyALCards from '../../components/materias/ALAIStudyALCards';
 import ALAIStudyALRepasar from '../../components/materias/ALAIStudyALRepasar';
+import ALAIStudyALChat from '../../components/materias/ALAIStudyALChat';
 import { buildSourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
-import { getSessionById, upsertSession } from '../../lib/studySessions';
+import { getSessionById, lookupSessionsFromServer, upsertSession } from '../../lib/studySessions';
 
 const sessionId = 'e2e-free-tool-continuity';
 const sourceSelection = buildSourceSelectionSnapshot(
@@ -23,23 +24,32 @@ export default function FreeContinuityHarness() {
   const tool = useMemo(() => {
     if (typeof window === 'undefined') return 'quiz';
     const requested = new URLSearchParams(window.location.search).get('tool');
-    return ['exam', 'flashcards', 'repasar'].includes(requested || '') ? requested : 'quiz';
+    return ['exam', 'flashcards', 'repasar', 'alai'].includes(requested || '') ? requested : 'quiz';
   }, []);
 
   useEffect(() => {
-    const existing = getSessionById(sessionId);
-    if (!existing) {
-      upsertSession({
-        id: sessionId,
-        temaId: 'e2e-free-tema',
-        enfoque: 'teorico',
-        processMode: 'free',
-        materialIds: sourceSelection.materialIds,
-        materialNames: ['Material A', 'Material B'],
-        selectedPages: sourceSelection.selectedPages,
-      });
+    let cancelled = false;
+    async function restore() {
+      let existing = getSessionById(sessionId);
+      if (!existing) {
+        await lookupSessionsFromServer('e2e-free-tema', sessionId);
+        existing = getSessionById(sessionId);
+      }
+      if (!existing) {
+        upsertSession({
+          id: sessionId,
+          temaId: 'e2e-free-tema',
+          enfoque: 'teorico',
+          processMode: 'free',
+          materialIds: sourceSelection.materialIds,
+          materialNames: ['Material A', 'Material B'],
+          selectedPages: sourceSelection.selectedPages,
+        });
+      }
+      if (!cancelled) setReady(true);
     }
-    setReady(true);
+    void restore();
+    return () => { cancelled = true; };
   }, []);
 
   if (!ready) return <div data-testid="free-continuity-loading">Preparando sesión</div>;
@@ -55,5 +65,6 @@ export default function FreeContinuityHarness() {
   if (tool === 'exam') return <ALAIStudyALExams {...shared} userName="Estudiante E2E" />;
   if (tool === 'flashcards') return <ALAIStudyALCards {...shared} />;
   if (tool === 'repasar') return <ALAIStudyALRepasar {...shared} />;
+  if (tool === 'alai') return <ALAIStudyALChat {...shared} />;
   return <ALAIStudyALQuizzes {...shared} />;
 }
