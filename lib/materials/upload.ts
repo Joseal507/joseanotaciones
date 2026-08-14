@@ -21,6 +21,7 @@ export async function uploadMaterials(
   temaId: string,
   materiaId: string,
   onProgress: OnProgress,
+  requestId: string,
 ): Promise<MaterialUI[]> {
   await requireCurrentUserId();
 
@@ -39,6 +40,7 @@ export async function uploadMaterials(
     body: JSON.stringify({
       temaId,
       materiaId,
+      requestId,
       files: files.map(f => ({
         name: f.name,
         size: f.size,
@@ -162,4 +164,3 @@ export function kindEmoji(kind: string): string {
   };
   return map[kind] ?? '📁';
 }
-

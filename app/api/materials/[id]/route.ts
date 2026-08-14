@@ -27,6 +27,10 @@ export async function DELETE(
     const material = await getMaterial(id, user.id);
     if (!material) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
 
+    // Primero retirar la metadata autoritativa. Si R2 falla después queda un
+    // objeto huérfano recuperable, nunca metadata activa apuntando a un asset borrado.
+    await hardDeleteMaterial(id, user.id);
+
     // ─── Borrar de R2 ───
     try {
       await deleteFromR2(material.storage_key);
@@ -34,9 +38,6 @@ export async function DELETE(
     } catch (e: any) {
       console.warn(`⚠️ R2 delete warning: ${e.message}`);
     }
-
-    // ─── Soft delete en DB (cascadea material_texts y material_results) ───
-    await hardDeleteMaterial(id, user.id);
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

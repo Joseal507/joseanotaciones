@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import dynamicImport from 'next/dynamic';
-import { getMaterias, saveMaterias, generateId, Materia, Tema, Apunte, Documento } from '../../lib/storage';
+import { getMaterias, saveMaterias, lookupMateriasDesdeDB, generateId, Materia, Tema, Apunte, Documento } from '../../lib/storage';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
@@ -42,7 +42,7 @@ import {
   type MasteryContext,
   type SessionSummary,
 } from '../../lib/masteryEngine';
-import { getSessionById, syncSessionsFromServer } from '../../lib/studySessions';
+import { getSessionById, getSessionsByTema, syncSessionsFromServer } from '../../lib/studySessions';
 import { hasPersistedAdaptiveArtifacts } from '../../lib/adaptive/resume';
 import { buildSourceSelectionFromMaterials } from '../../lib/adaptive/sourceSelection';
 
@@ -52,6 +52,7 @@ export default function MateriasPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const [materias, setMaterias] = useState<Materia[]>([]);
+  const [materiasRestoreStatus, setMateriasRestoreStatus] = useState<'RESTORING' | 'READY' | 'ERROR'>('RESTORING');
   const [vista, setVista] = useState<'lista' | 'materia' | 'materias' | 'apunte' | 'tema' | 'documento' | 'flashcards' | 'quiz' | 'repasar' | 'analisis' | 'alai' | 'exam'>(() => {
     if (typeof window !== 'undefined') {
       const sp = new URLSearchParams(window.location.search);
@@ -85,6 +86,7 @@ export default function MateriasPage() {
     typeof window !== 'undefined'
       && new URLSearchParams(window.location.search).has('adaptiveSessionId'),
   );
+  const createLocksRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -121,9 +123,9 @@ export default function MateriasPage() {
     const targetTemaId = routeParams.get('temaId') || localStorage.getItem('studyal_open_tema');
     if (!targetTemaId) return;
 
+    if (materiasRestoreStatus !== 'READY') return;
     const findAndOpen = () => {
       try {
-        const materias = getMaterias() || [];
         for (const materia of materias) {
           const tema = (materia.temas || []).find((t: any) => t.id === targetTemaId);
           if (tema) {
@@ -179,14 +181,8 @@ export default function MateriasPage() {
       return false;
     };
 
-    // Intentar inmediatamente y después con reintentos
-    if (!findAndOpen()) {
-      const interval = setInterval(() => {
-        if (findAndOpen()) clearInterval(interval);
-      }, 400);
-      setTimeout(() => clearInterval(interval), 8000);
-    }
-  }, []);
+    findAndOpen();
+  }, [materias, materiasRestoreStatus]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -560,37 +556,6 @@ export default function MateriasPage() {
       setCargando(true);
       try {
         const materiasLocal = getMaterias();
-        if (materiasLocal.length > 0) {
-          setMaterias(materiasLocal);
-
-          const openIdLocal = openParam || localStorage.getItem('josea_open_materia');
-          if (openIdLocal) {
-            const matLocal = materiasLocal.find((m: any) => String(m.id) === String(openIdLocal));
-            if (matLocal) {
-              setMateriaActual(matLocal);
-              setVista(prev => (
-                ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam', 'tema', 'apunte', 'documento'].includes(prev)
-                  ? prev
-                  : 'materia'
-              ));
-              localStorage.removeItem('josea_open_materia');
-            } else {
-              setVista(prev => (
-                ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam', 'tema', 'apunte', 'documento'].includes(prev)
-                  ? prev
-                  : 'materias'
-              ));
-            }
-          } else {
-            setVista(prev => (
-              ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam', 'tema', 'apunte', 'documento'].includes(prev)
-                ? prev
-                : 'materias'
-            ));
-          }
-
-          setCargando(false);
-        }
 
         if (status === 'loading') return;
 
@@ -611,20 +576,16 @@ export default function MateriasPage() {
           localStorage.removeItem('josea_objetivos');
         }
 
-        const res = await fetch('/api/materias', {
-
-        });
-        const data = await res.json();
-
-        if (data.success && data.materias.length > 0) {
-          setMaterias(data.materias);
-          saveMaterias(data.materias);
+        const lookup = await lookupMateriasDesdeDB();
+        if (lookup.status !== 'ERROR') {
+          const restored = lookup.materias;
+          setMaterias(restored);
+          setMateriasRestoreStatus('READY');
           // Auto-abrir materia si viene del home (URL param o localStorage)
           try {
             const openId = openParam || localStorage.getItem('josea_open_materia');
             if (openId) {
-              const allMaterias = data.materias?.length ? data.materias : materiasLocal;
-              const mat = allMaterias.find((m: any) => m.id === openId);
+              const mat = restored.find((m: any) => m.id === openId);
               if (mat) {
                 setMateriaActual(mat);
                 setVista(prev => (
@@ -642,24 +603,11 @@ export default function MateriasPage() {
               localStorage.removeItem('josea_open_materia');
             }
           } catch {}
-        } else if (materiasLocal.length > 0) {
-          await fetch('/api/materias', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ materias: materiasLocal }),
-          });
         } else {
-          await new Promise(r => setTimeout(r, 2000));
-          const res2 = await fetch('/api/materias', {
-
-          });
-          const data2 = await res2.json();
-          if (data2.success && data2.materias.length > 0) {
-            setMaterias(data2.materias);
-            saveMaterias(data2.materias);
-          }
+          // ERROR no equivale a ABSENT. El cache solo mantiene la UI usable;
+          // nunca se sube ni se interpreta como autoridad durable.
+          if (materiasLocal.length > 0) setMaterias(materiasLocal);
+          setMateriasRestoreStatus('ERROR');
         }
       } catch (err) {
         console.error(err);
@@ -715,6 +663,9 @@ export default function MateriasPage() {
   };
 
   const crearMateria = (data: { nombre: string; color: string; emoji: string }) => {
+    const lock = `materia:${data.nombre.trim().toLocaleLowerCase()}`;
+    if (createLocksRef.current.has(lock)) return;
+    createLocksRef.current.add(lock);
     const nueva: Materia = {
       id: generateId(),
       nombre: data.nombre,
@@ -724,9 +675,30 @@ export default function MateriasPage() {
     };
     save([...materias, nueva]);
     setModalMateria(false);
+    setTimeout(() => createLocksRef.current.delete(lock), 1000);
   };
 
-  const eliminarMateria = (id: string) => {
+  const eliminarMateria = async (id: string) => {
+    const target = materias.find(m => m.id === id);
+    if (!target) return;
+    if (target.temas.some(t => t.apuntes.length > 0 || t.documentos.length > 0)) {
+      alert(idioma === 'en'
+        ? 'Remove the notes and materials from this subject before deleting it.'
+        : 'Elimina primero los apuntes y materiales de esta materia.');
+      return;
+    }
+    try {
+      await syncSessionsFromServer();
+      if (target.temas.some(t => getSessionsByTema(t.id).length > 0)) {
+        alert(idioma === 'en'
+          ? 'This subject has study sessions and cannot be deleted safely.'
+          : 'Esta materia tiene sesiones de estudio y no puede eliminarse de forma segura.');
+        return;
+      }
+    } catch {
+      alert(idioma === 'en' ? 'Could not verify dependent sessions.' : 'No se pudieron verificar las sesiones dependientes.');
+      return;
+    }
     if (!confirm(idioma === 'en'
       ? 'Delete this subject and all its content?'
       : '¿Eliminar esta materia y todo su contenido?')) return;
@@ -735,6 +707,9 @@ export default function MateriasPage() {
 
   const crearTema = (data: { nombre: string; color: string }) => {
     if (!materiaActual) return;
+    const lock = `tema:${materiaActual.id}:${data.nombre.trim().toLocaleLowerCase()}`;
+    if (createLocksRef.current.has(lock)) return;
+    createLocksRef.current.add(lock);
     const nuevo: Tema = {
       id: generateId(),
       nombre: data.nombre,
@@ -744,11 +719,32 @@ export default function MateriasPage() {
     };
     actualizarMateria({ ...materiaActual, temas: [...materiaActual.temas, nuevo] });
     setModalTema(false);
+    setTimeout(() => createLocksRef.current.delete(lock), 1000);
   };
 
-  const eliminarTema = (id: string) => {
+  const eliminarTema = async (id: string) => {
     if (!confirm(idioma === 'en' ? 'Delete this topic?' : '¿Eliminar este tema?')) return;
     if (!materiaActual) return;
+    const target = materiaActual.temas.find(t => t.id === id);
+    if (!target) return;
+    if (target.apuntes.length > 0 || target.documentos.length > 0) {
+      alert(idioma === 'en'
+        ? 'Remove the notes and materials from this topic before deleting it.'
+        : 'Elimina primero los apuntes y materiales de este tema.');
+      return;
+    }
+    try {
+      await syncSessionsFromServer(target.id);
+      if (getSessionsByTema(target.id).length > 0) {
+        alert(idioma === 'en'
+          ? 'This topic has study sessions and cannot be deleted safely.'
+          : 'Este tema tiene sesiones de estudio y no puede eliminarse de forma segura.');
+        return;
+      }
+    } catch {
+      alert(idioma === 'en' ? 'Could not verify dependent sessions.' : 'No se pudieron verificar las sesiones dependientes.');
+      return;
+    }
     actualizarMateria({
       ...materiaActual,
       temas: materiaActual.temas.filter(t => t.id !== id),
@@ -876,24 +872,30 @@ const eliminarDocumento = async (id: string) => {
   const materialId = (doc as any)?.materialId;
   if (materialId) {
     try {
-      await fetch(`/api/materials/${materialId}`, {
+      const response = await fetch(`/api/materials/${materialId}`, {
         method: 'DELETE',
         credentials: 'same-origin',
       });
+      if (!response.ok && response.status !== 404) {
+        throw new Error(`DELETE_MATERIAL_${response.status}`);
+      }
     } catch (e) {
       console.warn('Error borrando material nuevo:', e);
+      return;
     }
   }
   // ─── Sistema viejo: borrar por archivoUrl ───
   else if (doc?.archivoUrl && doc.archivoUrl.startsWith('http')) {
     try {
-      await fetch('/api/delete-file', {
+      const response = await fetch('/api/delete-file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ archivoUrl: doc.archivoUrl }),
       });
+      if (!response.ok && response.status !== 404) throw new Error(`DELETE_FILE_${response.status}`);
     } catch (e) {
       console.warn('Error borrando archivo viejo:', e);
+      return;
     }
   }
 

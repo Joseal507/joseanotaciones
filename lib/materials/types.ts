@@ -10,7 +10,7 @@ export type MaterialKind =
   | 'image'
   | 'audio';
 
-export type UploadStatus = 'uploaded' | 'deleted';
+export type UploadStatus = 'pending' | 'uploaded' | 'deleted';
 
 export type TextStatus =
   | 'pending'
@@ -140,6 +140,7 @@ export function formatFileSize(bytes: number): string {
 export interface InitUploadRequest {
   temaId: string;
   materiaId: string;
+  requestId: string;
   files: {
     name: string;
     size: number;

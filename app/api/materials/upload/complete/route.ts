@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../../../lib/auth/options';
 import { objectExists } from '../../../../../lib/materials/storage';
-import { getMaterial } from '../../../../../lib/materials/repository';
+import { getMaterial, markMaterialUploaded } from '../../../../../lib/materials/repository';
 import type { CompleteUploadResponse } from '../../../../../lib/materials/types';
 
 
@@ -37,6 +37,10 @@ export async function POST(req: NextRequest) {
         { error: 'El archivo aún no está disponible. Reintenta en unos segundos.' },
         { status: 409 },
       );
+    }
+    if (material.upload_status !== 'uploaded') {
+      await markMaterialUploaded(material.id, user.id);
+      material.upload_status = 'uploaded';
     }
 
     // ─── Devolver info del material ───

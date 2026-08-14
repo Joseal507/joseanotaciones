@@ -53,7 +53,7 @@ export async function createMaterial(data: {
 }): Promise<Material> {
   const res = await apiPost('/materials/upsert', {
     ...data,
-    upload_status: 'uploaded',
+    upload_status: 'pending',
     text_status: 'pending',
   });
 
@@ -98,6 +98,10 @@ export async function softDeleteMaterial(
   userId: string,
 ): Promise<void> {
   await apiPost('/materials/delete', { id, user_id: userId });
+}
+
+export async function markMaterialUploaded(id: string, userId: string): Promise<void> {
+  await apiPost('/materials/update', { id, user_id: userId, upload_status: 'uploaded' });
 }
 
 // ═══ MATERIAL TEXTS ═══

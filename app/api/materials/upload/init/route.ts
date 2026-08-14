@@ -5,6 +5,7 @@ import { validateFile, sanitizeFileName } from '../../../../../lib/materials/val
 import { generateStorageKey, getPresignedUploadUrl } from '../../../../../lib/materials/storage';
 import { createMaterial } from '../../../../../lib/materials/repository';
 import type { InitUploadRequest, InitUploadResponse } from '../../../../../lib/materials/types';
+import { createHash } from 'crypto';
 
 
 async function getUser() {
@@ -14,8 +15,19 @@ async function getUser() {
 
 export const dynamic = 'force-dynamic';
 
-function makeId() {
-  return 'mat_' + Date.now() + Math.random().toString(36).slice(2, 8);
+function makeId(userId: string, requestId: string, index: number) {
+  return `mat_${createHash('sha256').update(`${userId}:${requestId}:${index}`).digest('hex').slice(0, 24)}`;
+}
+
+async function ownsParent(userId: string, materiaId: string, temaId: string): Promise<boolean> {
+  const api = process.env.STUDYAL_API_URL || '';
+  if (!api) throw new Error('STUDYAL_API_URL no configurado');
+  const response = await fetch(`${api}/materias/by-user?userId=${encodeURIComponent(userId)}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`PARENT_LOOKUP_${response.status}`);
+  const data = await response.json();
+  if (!data.ok) throw new Error(data.error || 'PARENT_LOOKUP_INVALID');
+  const materia = (data.materias || []).find((entry: any) => String(entry?.id) === materiaId);
+  return Boolean(materia && (materia.temas || []).some((entry: any) => String(entry?.id) === temaId));
 }
 
 export async function POST(req: NextRequest) {
@@ -25,11 +37,11 @@ export async function POST(req: NextRequest) {
 
     // ─── Body ───
     const body: InitUploadRequest = await req.json();
-    const { temaId, materiaId, files } = body;
+    const { temaId, materiaId, requestId, files } = body;
 
-    if (!temaId || !materiaId || !files?.length) {
+    if (!temaId || !materiaId || !requestId || !files?.length) {
       return NextResponse.json(
-        { error: 'Faltan parámetros: temaId, materiaId, files' },
+        { error: 'Faltan parámetros: temaId, materiaId, requestId, files' },
         { status: 400 },
       );
     }
@@ -40,17 +52,20 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    if (!(await ownsParent(user.id, String(materiaId), String(temaId)))) {
+      return NextResponse.json({ error: 'Materia/tema no encontrado' }, { status: 404 });
+    }
 
     // ─── Validar + crear presigned URLs ───
     const uploads: InitUploadResponse['uploads'] = [];
 
-    for (const file of files) {
+    for (const [index, file] of files.entries()) {
       const validation = validateFile(file.name, file.size, file.type);
       if (!validation.ok) {
         return NextResponse.json({ error: validation.error }, { status: 400 });
       }
 
-      const materialId = makeId();
+      const materialId = makeId(user.id, requestId, index);
       const safeName = sanitizeFileName(file.name);
       const key = generateStorageKey(user.id, materialId, validation.extension!);
 

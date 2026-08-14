@@ -83,6 +83,15 @@ const isBrowser = () => typeof window !== 'undefined';
 const KEY = 'studyal_materias';
 const KEY_PERFIL = 'studyal_perfil';
 const KEY_LAST_SYNC = 'studyal_last_sync';
+const KEY_REVISION = 'studyal_materias_revision';
+
+export type MateriasLookupResult =
+  | { status: 'FOUND'; materias: Materia[]; revision: number }
+  | { status: 'ABSENT'; materias: []; revision: number }
+  | { status: 'ERROR'; error: string };
+
+let pendingMateriasWrite: Promise<void> = Promise.resolve();
+let lastQueuedSnapshot = '';
 
 // ─── LOCAL STORAGE ───────────────────────────────────────
 
@@ -94,61 +103,110 @@ export const getMaterias = (): Materia[] => {
   } catch { return []; }
 };
 
+const materiasLimpias = (materias: Materia[]) => materias.map(m => ({
+  ...m,
+  temas: m.temas.map(t => ({
+    ...t,
+    documentos: t.documentos.map(d => {
+      const { archivoBase64, archivoUrl, ...resto } = d as any;
+      return resto;
+    }),
+  })),
+}));
+
 export const saveMaterias = (materias: Materia[]) => {
-  if (!isBrowser()) return;
+  if (!isBrowser()) return Promise.resolve();
+  const light = materiasLimpias(materias);
   try {
-    const light = materias.map(m => ({
-      ...m,
-      temas: m.temas.map(t => ({
-        ...t,
-        documentos: t.documentos.map(d => {
-          const { archivoBase64, archivoUrl, ...resto } = d as any;
-          return resto;
-        }),
-      })),
-    }));
     localStorage.setItem(KEY, JSON.stringify(light));
   } catch {
     console.error('localStorage full');
   }
-  // ✅ Sync a Supabase en background
-  syncMateriasToSupabase(materias);
+  const snapshot = JSON.stringify(light);
+  if (snapshot === lastQueuedSnapshot) return pendingMateriasWrite;
+  lastQueuedSnapshot = snapshot;
+  // Serializar los writes evita que una respuesta vieja de autosave llegue
+  // después de una nueva. El CAS del servidor protege también entre tabs.
+  pendingMateriasWrite = pendingMateriasWrite
+    .catch(() => undefined)
+    .then(() => syncMateriasToSupabase(light))
+    .catch((error) => {
+      if (lastQueuedSnapshot === snapshot) lastQueuedSnapshot = '';
+      window.dispatchEvent(new CustomEvent('studyal:materias-persist-error', {
+        detail: { message: error instanceof Error ? error.message : String(error) },
+      }));
+    });
+  return pendingMateriasWrite;
 };
 
 // ─── SUPABASE SYNC ────────────────────────────────────────
 
-export const syncMateriasToSupabase = async (materias: Materia[]) => {
-  try {
-    const res = await fetch('/api/materias', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ materias }),
-    });
-
-    if (res.ok) {
+export const syncMateriasToSupabase = async (materias: Materia[]): Promise<void> => {
+  const canonical = materiasLimpias(materias);
+  let expectedRevision = Number(localStorage.getItem(KEY_REVISION) || 0);
+  let lastError: unknown = new Error('PERSIST_FAILED');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch('/api/materias', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ materias: canonical, expectedRevision }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        // Respuesta perdida tras commit: el retry ve conflicto, pero si el
+        // snapshot durable es idéntico, la operación ya quedó aplicada.
+        if (JSON.stringify(data.materias || []) === JSON.stringify(canonical)) {
+          localStorage.setItem(KEY_REVISION, String(Number(data.revision || expectedRevision + 1)));
+          localStorage.setItem(KEY_LAST_SYNC, new Date().toISOString());
+          return;
+        }
+        window.dispatchEvent(new CustomEvent('studyal:materias-conflict', { detail: data }));
+        throw new Error('MATERIAS_VERSION_CONFLICT');
+      }
+      if (!res.ok || !data.success) throw new Error(data.error || `HTTP_${res.status}`);
+      localStorage.setItem(KEY_REVISION, String(Number(data.revision || expectedRevision + 1)));
       localStorage.setItem(KEY_LAST_SYNC, new Date().toISOString());
+      return;
+    } catch (err) {
+      lastError = err;
+      if (err instanceof Error && err.message === 'MATERIAS_VERSION_CONFLICT') break;
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 150 * (attempt + 1)));
+      expectedRevision = Number(localStorage.getItem(KEY_REVISION) || expectedRevision);
     }
-  } catch (err) {
-    console.error('Sync materias D1 error (non-blocking):', err);
+  }
+  console.error('Sync materias D1 error:', lastError);
+  throw lastError;
+};
+
+export const lookupMateriasDesdeDB = async (): Promise<MateriasLookupResult> => {
+  try {
+    const res = await fetch('/api/materias', { cache: 'no-store' });
+    if (!res.ok) return { status: 'ERROR', error: `HTTP_${res.status}` };
+
+    const data = await res.json();
+    if (!data.success) return { status: 'ERROR', error: data.error || 'INVALID_RESPONSE' };
+    const materias: Materia[] = data.materias || [];
+    const revision = Number(data.revision || 0);
+
+    localStorage.setItem(KEY, JSON.stringify(materias));
+    localStorage.setItem(KEY_REVISION, String(revision));
+    localStorage.setItem(KEY_LAST_SYNC, new Date().toISOString());
+    lastQueuedSnapshot = JSON.stringify(materias);
+    return materias.length
+      ? { status: 'FOUND', materias, revision }
+      : { status: 'ABSENT', materias: [], revision };
+  } catch {
+    return { status: 'ERROR', error: 'NETWORK_ERROR' };
   }
 };
 
 export const cargarMateriasDesdeDB = async (): Promise<Materia[] | null> => {
-  try {
-    const res = await fetch('/api/materias', { cache: 'no-store' });
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    const materias: Materia[] = data.materias || [];
-
-    localStorage.setItem(KEY, JSON.stringify(materias));
-    localStorage.setItem(KEY_LAST_SYNC, new Date().toISOString());
-
-    return materias;
-  } catch {
-    return null;
-  }
+  const result = await lookupMateriasDesdeDB();
+  return result.status === 'ERROR' ? null : result.materias;
 };
+
+export const waitForMateriasPersistence = () => pendingMateriasWrite;
 
 export const getLastSync = (): string | null => {
   if (!isBrowser()) return null;

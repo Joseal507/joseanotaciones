@@ -238,23 +238,35 @@ export default {
       if (url.pathname === "/materias/by-user" && request.method === "GET") {
         const userId = url.searchParams.get("userId")
         if (!userId) return json({ ok: false, error: "userId_required" }, 400)
-        const row = await env.DB.prepare("SELECT datos FROM materias WHERE user_id = ?").bind(userId).first<{ datos?: string }>()
-        return json({ ok: true, materias: safeJson(row?.datos, []) })
+        const row = await env.DB.prepare("SELECT datos, revision FROM materias WHERE user_id = ?").bind(userId).first<{ datos?: string; revision?: number }>()
+        return json({ ok: true, materias: safeJson(row?.datos, []), revision: Number(row?.revision || 0) })
       }
 
       if (url.pathname === "/materias/upsert" && request.method === "POST") {
         const body = await readBody(request)
-        if (!body.user_id) return json({ ok: false, error: "user_id_required" }, 400)
+        if (!body.user_id || !Number.isInteger(body.expected_revision) || body.expected_revision < 0) {
+          return json({ ok: false, error: "user_id_expected_revision_required" }, 400)
+        }
 
-        await env.DB.prepare(`
-          INSERT INTO materias (user_id, datos, updated_at)
-          VALUES (?, ?, datetime('now'))
+        const write = await env.DB.prepare(`
+          INSERT INTO materias (user_id, datos, updated_at, revision)
+          VALUES (?, ?, datetime('now'), 1)
           ON CONFLICT(user_id) DO UPDATE SET
             datos = excluded.datos,
-            updated_at = datetime('now')
-        `).bind(body.user_id, JSON.stringify(body.materias || [])).run()
+            updated_at = datetime('now'),
+            revision = materias.revision + 1
+          WHERE materias.revision = ?
+        `).bind(body.user_id, JSON.stringify(body.materias || []), body.expected_revision).run()
 
-        return json({ ok: true })
+        if (Number(write.meta?.changes || 0) !== 1) {
+          const current = await env.DB.prepare("SELECT datos, revision FROM materias WHERE user_id = ?")
+            .bind(body.user_id).first<{ datos?: string; revision?: number }>()
+          return json({ ok: false, error: "VERSION_CONFLICT", materias: safeJson(current?.datos, []), revision: Number(current?.revision || 0) }, 409)
+        }
+
+        const current = await env.DB.prepare("SELECT revision FROM materias WHERE user_id = ?")
+          .bind(body.user_id).first<{ revision?: number }>()
+        return json({ ok: true, revision: Number(current?.revision || 1) })
       }
 
 
@@ -691,7 +703,7 @@ export default {
         if (!userId) return json({ ok: false, error: "userId_required" }, 400)
 
         if (id) {
-          const material = await env.DB.prepare("SELECT * FROM materials WHERE id = ? AND user_id = ?")
+          const material = await env.DB.prepare("SELECT * FROM materials WHERE id = ? AND user_id = ? AND upload_status != 'deleted'")
             .bind(id, userId).first()
           return json({ ok: true, material: material || null })
         }
@@ -725,7 +737,6 @@ export default {
           )
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
           ON CONFLICT(id) DO UPDATE SET
-            user_id=excluded.user_id,
             tema_id=excluded.tema_id,
             materia_id=excluded.materia_id,
             nombre=excluded.nombre,
@@ -741,6 +752,7 @@ export default {
             content_hash=excluded.content_hash,
             last_error=excluded.last_error,
             updated_at=datetime('now')
+          WHERE materials.user_id = excluded.user_id
         `).bind(
           body.id,
           body.user_id,
@@ -761,13 +773,14 @@ export default {
           body.created_at ?? null
         ).run()
 
-        const material = await env.DB.prepare("SELECT * FROM materials WHERE id = ?").bind(body.id).first()
+        const material = await env.DB.prepare("SELECT * FROM materials WHERE id = ? AND user_id = ?").bind(body.id, body.user_id).first()
+        if (!material) return json({ ok: false, error: "material_owner_conflict" }, 409)
         return json({ ok: true, material })
       }
 
       if (url.pathname === "/materials/update" && request.method === "POST") {
         const body = await readBody(request)
-        if (!body.id) return json({ ok: false, error: "id_required" }, 400)
+        if (!body.id || !body.user_id) return json({ ok: false, error: "id_user_id_required" }, 400)
 
         await env.DB.prepare(`
           UPDATE materials SET
@@ -777,14 +790,15 @@ export default {
             pages_count = COALESCE(?, pages_count),
             last_error = COALESCE(?, last_error),
             updated_at = datetime('now')
-          WHERE id = ?
+          WHERE id = ? AND user_id = ?
         `).bind(
           body.upload_status ?? null,
           body.text_status ?? null,
           body.extracted_chars ?? null,
           body.pages_count ?? null,
           body.last_error ?? null,
-          body.id
+          body.id,
+          body.user_id
         ).run()
 
         return json({ ok: true })

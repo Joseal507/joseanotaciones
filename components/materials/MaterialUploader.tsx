@@ -34,6 +34,11 @@ export default function MaterialUploader({
   const [done, setDone] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const uploadRequestIdRef = useRef(
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `upload_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+  );
   const [modalArchivo, setModalArchivo] = useState<{ nombre: string; tipo: 'pptx' | 'otro' } | null>(null);
 
   // ─── Selección de archivos ───
@@ -98,6 +103,7 @@ export default function MaterialUploader({
         temaId,
         materiaId,
         (p) => setProgress([...p]),
+        uploadRequestIdRef.current,
       );
       setDone(true);
       onUploadComplete(uploaded);
