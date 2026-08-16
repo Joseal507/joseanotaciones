@@ -15,6 +15,7 @@ import {
 } from '../../lib/freeAlaiState';
 import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
+import { freeNavDebug } from '../../lib/debug/freeNavDebug';
 
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 
@@ -227,7 +228,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
-  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection, 'ALAIStudyALChat');
   const messages = conversation.messages;
   const input = conversation.draft;
   const loadingAnswer = conversation.currentTurn?.status === 'sending';
@@ -273,7 +274,10 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
     conversationRef.current = next;
     setConversation(next);
     if (continuityReady && sessionId) {
-      writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'alai', next);
+      const written = writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'alai', next);
+      freeNavDebug('ALAI_PERSIST', { sessionId, fingerprint: effectiveSourceSelection.fingerprint, written: !!written });
+    } else {
+      freeNavDebug('ALAI_PERSIST_SKIPPED', { sessionId, continuityReady });
     }
   }, [continuityReady, sessionId, effectiveSourceSelection.fingerprint]);
 

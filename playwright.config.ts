@@ -24,6 +24,12 @@ export default defineConfig({
     url: 'http://127.0.0.1:3100/e2e-adaptive',
     reuseExistingServer: true,
     timeout: 120_000,
+    // ZERO-PAID-PROVIDER TEST GUARD: only ever set for this Playwright-
+    // spawned local dev server — never present in production. See
+    // instrumentation.ts and lib/alai.ts's assertNoRealProviderCallsInTestMode.
+    env: {
+      STUDYAL_TEST_NO_PROVIDER_CALLS: '1',
+    },
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 })

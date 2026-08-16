@@ -5,6 +5,14 @@ import { Materia, Tema, Apunte, Documento } from "../../lib/storage";
 import StudyALProcess from "./StudyALProcess";
 import StudyALAdaptive from "./StudyALAdaptive";
 import StudyALManual from "./StudyALManual";
+import StudyALManualProcess from "./StudyALManualProcess";
+import ManualLeerMaterial from "./ManualLeerMaterial";
+import ManualAlaiChat from "./ManualAlaiChat";
+import ManualFlashcards from "./ManualFlashcards";
+import ManualQuizzes from "./ManualQuizzes";
+import ManualResumen from "./ManualResumen";
+import ManualExamen from "./ManualExamen";
+import { MANUAL_TOOL_CAPS, type DurableManualTool } from "../../lib/manualToolState";
 import MasteryCoach from "./MasteryCoach";
 import ALAIStudyALCheatCodes from "./ALAIStudyALCheatCodes";
 import ALAIStudyMap from "./ALAIStudyMap";
@@ -23,6 +31,7 @@ import {
 } from "../../lib/studySessions";
 import { resolveAdaptiveResumeTarget } from "../../lib/adaptive/resume";
 import { buildSourceSelectionSnapshot, canonicalizeSelectedPages, mapPageSelectionsToMaterials } from "../../lib/adaptive/sourceSelection";
+import { freeNavDebug, nextFreeNavInstanceId } from "../../lib/debug/freeNavDebug";
 
 const HAND = "'Caveat', cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -37,6 +46,47 @@ const normalizeMaterialIdsFromDocs = (docs: any[] = []) =>
   docs.map(getMaterialKey).filter(Boolean);
 
 const normalizeIdStrict = (v: any) => String(v || "").trim();
+
+// FIX P0: sobrevivir a un refresh de navegador REAL mientras el StudyAL
+// Process hub está abierto. Antes, el hub (openFree=true) solo se sembraba
+// desde freeReturnSeed (memoria in-app, vía returnToFreeProcess) — nunca
+// desde la URL. Un F5 sobre el hub perdía ese estado por completo (a
+// diferencia de cada herramienta individual, que SÍ persiste
+// freeSessionId+freeTool en la URL) y el usuario caía en el mind-map crudo
+// del tema, viendo "0 materiales" hasta volver a hacer clic manualmente.
+function readFreeHubResumeSessionIdFromURL(temaId: string | undefined): string | null {
+  if (typeof window === "undefined" || !temaId) return null;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("temaId") !== temaId) return null;
+  if (params.get("freeTool") !== "hub") return null;
+  return params.get("freeSessionId") || null;
+}
+
+// FIX P0 (segunda parte): además de resumeSessionId/activeSessions/openFree,
+// un refresh real sobre el hub TAMBIÉN reseteaba seleccionResult a null —
+// que es lo único que los wrappers onOpenX (ALAI/Quiz/Repasar/Analisis/
+// Examen, todos a nivel page.tsx) usan para reconstruir su propio
+// sourceSelection. Sin esto, tras un F5, cualquiera de esas 5 herramientas
+// reconstruía "documento completo" en vez de la selección real de la
+// sesión, produciendo un fingerprint que NO coincidía con el de la sesión
+// canónica — writeFreeToolState fallaba silenciosamente (validOwner
+// rechaza) y el progreso de esa herramienta nunca se otorgaba. Study Map/
+// Truquitos no sufren esto porque usan freeSourceSelection directamente,
+// no seleccionResult.
+function readFreeHubResumeSeleccionFromURL(
+  temaId: string | undefined,
+  sessionsForTema: StudySession[],
+): SeleccionResult[] | null {
+  const sessionId = readFreeHubResumeSessionIdFromURL(temaId);
+  if (!sessionId) return null;
+  const session = sessionsForTema.find(s => s.id === sessionId);
+  if (!session?.selectedPages) return null;
+  return session.materialIds.map((materialId, materialIndex) => ({
+    materialId,
+    materialIndex,
+    pages: session.selectedPages![materialId] || [],
+  })) as any;
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Sistema de sesiones unificado v3
@@ -940,6 +990,7 @@ export default function TemaView({
   onOpenExam,
   returnToEnfoque,
   returnSessionId,
+  freeReturnSeed,
   onClearReturnToEnfoque,
   autoOpenAdaptive,
   autoOpenAdaptiveSessionId,
@@ -952,6 +1003,29 @@ export default function TemaView({
 }: any) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // ─── [free-nav-debug] mount/unmount instrumentation (BUG REAL #2, dev-only) ───
+  const freeNavInstanceIdRef = useRef<string>(nextFreeNavInstanceId('TemaView'));
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return;
+    freeNavDebug('MOUNT', {
+      component: 'TemaView',
+      instanceId: freeNavInstanceIdRef.current,
+      temaId: tema?.id || null,
+      returnSessionId: returnSessionId || null,
+      timestamp: Date.now(),
+    });
+    return () => {
+      freeNavDebug('UNMOUNT', {
+        component: 'TemaView',
+        instanceId: freeNavInstanceIdRef.current,
+        temaId: tema?.id || null,
+        timestamp: Date.now(),
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [adaptiveAutoOpenConsumed, setAdaptiveAutoOpenConsumed] = useState(false);
   const [modalArchivo, setModalArchivo] = useState<{
     nombre: string;
@@ -1004,10 +1078,20 @@ export default function TemaView({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   // ── Sesiones de estudio activas en este tema ──
-  const [activeSessions, setActiveSessions] = useState<StudySession[]>([]);
+  // Tool → Process return (freeReturnSeed): sembrar de forma SÍNCRONA desde
+  // localStorage (misma lectura que getSessionsByTema usa en otros lugares
+  // de este archivo) para que `selectedDocs`/`freeSourceSelection` puedan
+  // resolver la sesión reanudada YA en el primer render — sin esto,
+  // activeSessions empieza vacío y StudyAL Process renderizaría sin
+  // materiales hasta que un efecto asíncrono los repueble.
+  const [activeSessions, setActiveSessions] = useState<StudySession[]>(() => (
+    freeReturnSeed || readFreeHubResumeSessionIdFromURL(tema?.id) ? getSessionsByTema(tema?.id || '') : []
+  ));
   const [sessionsRestoring, setSessionsRestoring] = useState(true);
   // ── ID de sesión a reanudar (cuando se hace "seguir estudiando") ──
-  const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
+    const [resumeSessionId, setResumeSessionId] = useState<string | null>(() => (
+    freeReturnSeed ? (freeReturnSeed.sessionId || null) : readFreeHubResumeSessionIdFromURL(tema?.id)
+  ));
   // Ref para el modo elegido — nunca se pisa por guards o re-renders
   const chosenModeRef = useRef<'free' | 'adaptive' | 'manual' | null>(null);
 
@@ -1022,6 +1106,11 @@ export default function TemaView({
   const [showCheatCodes, setShowCheatCodes] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteProgress, setDeleteProgress] = useState({ done: 0, total: 0 });
+  // Sembrado desde freeReturnSeed o desde la URL (refresh real sobre el
+  // hub): el StudyAL Process hub debe estar visible desde el PRIMER
+  // render — el mind-map de TemaView nunca debe pintarse entre Tool y
+  // Process, ni tras un F5 mientras el hub estaba abierto.
+  const [openFree, setOpenFree] = useState(() => !!freeReturnSeed || !!readFreeHubResumeSessionIdFromURL(tema?.id));
 
   const refreshSessions = useCallback(() => {
     if (!tema?.id) return;
@@ -1032,6 +1121,13 @@ export default function TemaView({
     cleanupSessions(tema.id, existingIds);
     setActiveSessions(getSessionsByTema(tema.id));
 
+    if (process.env.NODE_ENV !== 'production') {
+      freeNavDebug('SESSION_GET', {
+        trigger: 'TemaView:refreshSessions (fires on every mount via useEffect([refreshSessions]))',
+        instanceId: freeNavInstanceIdRef.current,
+        temaId: tema.id,
+      });
+    }
     syncSessionsFromServer(tema.id)
       .then((sessions) => {
         cleanupSessions(tema.id, existingIds);
@@ -1043,17 +1139,26 @@ export default function TemaView({
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const activeTool = showStudyMap ? 'studymap' : showCheatCodes ? 'truquitos' : null;
+    // FIX P0: incluir el hub (openFree) mismo — antes solo Study Map y
+    // Truquitos escribían freeSessionId+freeTool en la URL, así que un
+    // refresh mientras el StudyAL Process hub estaba abierto no tenía
+    // forma de restaurar esa sesión.
+    const activeTool = showStudyMap ? 'studymap' : showCheatCodes ? 'truquitos' : openFree ? 'hub' : null;
     const url = new URL(window.location.href);
     if (activeTool && resumeSessionId) {
       url.searchParams.set('temaId', tema?.id || '');
       url.searchParams.set('freeSessionId', resumeSessionId);
       url.searchParams.set('freeTool', activeTool);
+    } else if (url.searchParams.get('freeTool') === 'hub') {
+      // El usuario cerró el hub explícitamente (onClose) — limpiar el marcador
+      // de resume para que un refresh posterior no lo reabra solo.
+      url.searchParams.delete('freeSessionId');
+      url.searchParams.delete('freeTool');
     } else {
       return;
     }
     window.history.replaceState({}, '', `${url.pathname}${url.search}`);
-  }, [showStudyMap, showCheatCodes, resumeSessionId, tema?.id]);
+  }, [showStudyMap, showCheatCodes, openFree, resumeSessionId, tema?.id]);
 
   useEffect(() => {
     refreshSessions();
@@ -1351,9 +1456,11 @@ export default function TemaView({
   }, [zoom]);
 
   const [showEnfoque, setShowEnfoque] = useState(false);
-  const [openFree, setOpenFree] = useState(false);
   const [openAdaptive, setOpenAdaptive] = useState(false);
   const [openManual, setOpenManual] = useState(false);
+  const [manualActiveTool, setManualActiveTool] = useState<DurableManualTool | null>(null);
+  const [manualProgress, setManualProgress] = useState<Partial<Record<DurableManualTool, number>>>({});
+  const [manualSessionId, setManualSessionId] = useState<string | null>(null);
   const [returningToEnfoque, setReturningToEnfoque] = useState(false);
   const [showSeleccion, setShowSeleccion] = useState(false);
   const [enfoqueElegido, setEnfoqueElegido] = useState<"teorico" | "matematico" | "mixto" | "practico" | null>("teorico");
@@ -1361,7 +1468,90 @@ export default function TemaView({
   const [studyMode, setStudyMode] = useState<'free' | 'adaptive' | 'manual'>('free');
   const [seleccionResult, setSeleccionResult] = useState<
     SeleccionResult[] | null
-  >(null);
+  >(() => readFreeHubResumeSeleccionFromURL(tema?.id, activeSessions));
+
+  // ── FIX P0: garantizar sesión Free antes de abrir cualquier herramienta ──
+  // Antes, si el usuario entraba fresh a Free (sin Continue Studying),
+  // varios handlers pasaban sessionId=null a page.tsx → freeToolSessionId=null
+  // → herramientas no persistían nada → warning "No se pudo identificar la
+  // sesión Free" y progreso Free se perdía.
+  const ensureFreeSessionForTool = useCallback((
+    matsSeleccionados: any[],
+    resumeId: string | null,
+  ): string | null => {
+    if (resumeId) return resumeId;
+    if (!tema?.id) return null;
+    try {
+      const matIds = matsSeleccionados
+        .map((m: any) => String(m?.materialId || m?.id || ''))
+        .filter(Boolean);
+      if (matIds.length === 0) return null;
+      const pagesByMat: Record<string, number[]> = {};
+      (seleccionResult || []).forEach((item: any) => {
+        const mid = String(item?.materialId || item?.id || '');
+        const pages = Array.isArray(item?.pages)
+          ? item.pages.map(Number).filter((n: number) => Number.isFinite(n) && n > 0)
+          : [];
+        if (mid && pages.length) pagesByMat[mid] = pages;
+      });
+      const sess = upsertSession({
+        debugCaller: 'TemaView:ensureFreeSessionForTool',
+        temaId: tema.id,
+        enfoque: (enfoqueElegido || 'teorico') as any,
+        processMode: 'free',
+        studyMode: 'free',
+        materialIds: matIds,
+        materialNames: matsSeleccionados
+          .map((m: any) => String(m?.nombre || m?.name || '').trim())
+          .filter(Boolean),
+        selectedPages: Object.keys(pagesByMat).length ? pagesByMat : undefined,
+      } as any);
+      // NO refreshSessions aquí (evita storm de re-renders).
+      // Se refrescará cuando el usuario vuelva al hub.
+      return sess.id;
+    } catch (e) {
+      console.warn('[ensureFreeSessionForTool] fallo:', e);
+      return null;
+    }
+  }, [tema?.id, enfoqueElegido, seleccionResult]);
+
+  // Manual equivalente
+  const ensureManualSessionForTool = useCallback((
+    matsSeleccionados: any[],
+  ): string | null => {
+    if (manualSessionId) return manualSessionId;
+    if (!tema?.id) return null;
+    try {
+      const matIds = matsSeleccionados
+        .map((m: any) => String(m?.materialId || m?.id || ''))
+        .filter(Boolean);
+      if (matIds.length === 0) return null;
+      const pagesByMat: Record<string, number[]> = {};
+      (seleccionResult || []).forEach((item: any) => {
+        const mid = String(item?.materialId || item?.id || '');
+        const pages = Array.isArray(item?.pages)
+          ? item.pages.map(Number).filter((n: number) => Number.isFinite(n) && n > 0)
+          : [];
+        if (mid && pages.length) pagesByMat[mid] = pages;
+      });
+      const sess = upsertSession({
+        temaId: tema.id,
+        enfoque: (enfoqueElegido || 'teorico') as any,
+        processMode: 'manual',
+        studyMode: 'manual',
+        materialIds: matIds,
+        materialNames: matsSeleccionados
+          .map((m: any) => String(m?.nombre || m?.name || '').trim())
+          .filter(Boolean),
+        selectedPages: Object.keys(pagesByMat).length ? pagesByMat : undefined,
+      } as any);
+      setManualSessionId(sess.id);
+      return sess.id;
+    } catch (e) {
+      console.warn('[ensureManualSessionForTool] fallo:', e);
+      return null;
+    }
+  }, [tema?.id, enfoqueElegido, seleccionResult, manualSessionId]);
   const [contextMenu, setContextMenu] = useState<any>(null);
   const [vp, setVp] = useState({ w: 1400, h: 900 });
 
@@ -1790,10 +1980,21 @@ export default function TemaView({
     adaptiveSelectedPages,
   ), [selectedDocs, adaptiveSelectedPages]);
 
-
   // Guard: si la selección actual no coincide con la sesión resumida, limpiar resume viejo
   useEffect(() => {
     if (!resumeSessionId) return;
+
+    // P0 (quota exhaustion redesign): activeSessions starts EMPTY when
+    // localStorage has nothing cached for this tema (quota failure, or a
+    // genuinely cold device) — it only gets populated once refreshSessions()'s
+    // async syncSessionsFromServer() resolves. Without this guard, this
+    // effect ran with that still-empty activeSessions on the very first
+    // render, found no match, and permanently cleared a resumeSessionId
+    // that was correctly restored from the URL — before the server lookup
+    // ever had a chance to prove the session real. Once cleared to null,
+    // the early-return above prevented ever re-checking it against the
+    // later-populated activeSessions.
+    if (sessionsRestoring) return;
 
     const resumeSession = activeSessions.find((s) => s.id === resumeSessionId);
     if (!resumeSession) {
@@ -1827,7 +2028,7 @@ export default function TemaView({
         setStudyMode("free");
       }
     }
-  }, [selectedDocs, seleccionResult, resumeSessionId, activeSessions]);
+  }, [selectedDocs, seleccionResult, resumeSessionId, activeSessions, sessionsRestoring]);
 
 
   useEffect(() => {
@@ -1844,12 +2045,12 @@ export default function TemaView({
 
     requestAnimationFrame(() => {
       const toolMap: Record<string, () => void> = {
-        repasar: () => onOpenRepasar?.(selectedDocs, currentSel as any, resumeSessionId || null),
-        analisis: () => onOpenAnalisis?.(selectedDocs, currentSel as any, resumeSessionId || null),
-        flashcards: () => onOpenFlashcards?.(selectedDocs, currentSel as any, resumeSessionId || null),
-        quiz: () => onOpenQuiz?.(selectedDocs, currentSel as any, resumeSessionId || null),
-        examen: () => onOpenExam?.(selectedDocs, currentSel as any, resumeSessionId || null),
-        alai: () => onOpenAlai?.(selectedDocs, currentSel as any, resumeSessionId || null),
+        repasar: () => onOpenRepasar?.(selectedDocs, currentSel as any, ensureFreeSessionForTool(selectedDocs, resumeSessionId)),
+        analisis: () => onOpenAnalisis?.(selectedDocs, currentSel as any, ensureFreeSessionForTool(selectedDocs, resumeSessionId)),
+        flashcards: () => onOpenFlashcards?.(selectedDocs, currentSel as any, ensureFreeSessionForTool(selectedDocs, resumeSessionId)),
+        quiz: () => onOpenQuiz?.(selectedDocs, currentSel as any, ensureFreeSessionForTool(selectedDocs, resumeSessionId)),
+        examen: () => onOpenExam?.(selectedDocs, currentSel as any, ensureFreeSessionForTool(selectedDocs, resumeSessionId)),
+        alai: () => onOpenAlai?.(selectedDocs, currentSel as any, ensureFreeSessionForTool(selectedDocs, resumeSessionId)),
         studymap: () => setShowStudyMap(true),
         truquitos: () => setShowCheatCodes(true),
       };
@@ -2082,12 +2283,65 @@ export default function TemaView({
     }
   };
 
+  // ── Memoizar el masteryState reconstruido para evitar re-renders infinitos ──
+  // BUG P0/P1 (hook-order crash): este hook estaba declarado DESPUÉS de los
+  // early returns de showCoach/showStudyMap/showCheatCodes. Cuando
+  // cualquiera de esas vistas está activa, el componente retornaba ANTES de
+  // llegar a este useMemo — un render con MENOS hooks que el render anterior
+  // (donde ninguna estaba activa) o siguiente, violando las Reglas de los
+  // Hooks. React lo detecta y crashea con "Rendered fewer hooks than
+  // expected" en cuanto TemaView vuelve a renderizar con un valor distinto
+  // de showStudyMap/showCheatCodes (p.ej. al reabrir la herramienta tras
+  // volver al proceso). TODOS los hooks deben ejecutarse en el mismo orden
+  // en cada render — este debe declararse ANTES de cualquier return
+  // condicional, sin importar dónde se use su resultado.
+  const reconstructedMasteryState = useMemo(() => {
+    if (!resumeSessionId || !openFree) return masteryState;
+    const all = getSessionsByTema(tema?.id || '');
+    let sess: any = all.find(s => s.id === resumeSessionId);
+
+    // Si la sesión clickeada NO tiene adaptiveProgram, buscar OTRA sesión del mismo material
+    // que sí lo tenga (puede haber varias sesiones — usar la que tiene el programa completo).
+    if (!sess?.adaptiveProgram) {
+      const currentMatIds = (sess?.materialIds || []).map(String).sort().join('|');
+      const alternative = all
+        .filter((s: any) => !!s.adaptiveProgram)
+        .filter((s: any) => {
+          const sMatIds = (s.materialIds || []).map(String).sort().join('|');
+          // Match por IDs exactos o solo hay 1 material total (asumir mismo)
+          return sMatIds === currentMatIds || ((s.materialIds || []).length === 1 && (sess?.materialIds || []).length === 1);
+        })
+        .sort((a: any, b: any) => Number(b.lastOpenedAt || 0) - Number(a.lastOpenedAt || 0))[0];
+      if (alternative) {
+        console.log('🔁 [TemaView] Sesión clickeada sin program — usando alternativa:', alternative.id);
+        sess = alternative;
+      }
+    }
+
+    if (sess && (sess as any).adaptiveProgram) {
+      console.log('🔁 [TemaView] Reconstruyendo masteryState desde sesión:', sess.id, '| program sessions:', (sess as any).adaptiveProgram?.sessions?.length, '| style:', (sess as any).processStyle);
+      return {
+        ...(masteryState || {}),
+        processMode: sess.processMode || 'adaptive',
+        adaptiveProgram: (sess as any).adaptiveProgram,
+        processStyle: (sess as any).processStyle,
+        targetScore: (sess as any).targetScore,
+        examDate: (sess as any).examDate,
+        examDateCustom: (sess as any).examDateCustom,
+        materialBlueprint: (sess as any).materialBlueprint,
+        sessionKey: (masteryState as any)?.sessionKey || sess.id,
+      };
+    }
+    return masteryState;
+  }, [resumeSessionId, openFree, tema?.id, masteryState]);
+
   if (showCoach)
     return (
       <MasteryCoach
         materiales={selectedDocs}
         tema={tema}
         materia={materia}
+        sourceSelection={freeSourceSelection}
         masterySnapshot={masterySnapshot}
         onInitMastery={onInitMastery}
         onMasteryUpdate={onMasteryEvent}
@@ -2157,47 +2411,6 @@ export default function TemaView({
       />
     );
 
-  // ── Memoizar el masteryState reconstruido para evitar re-renders infinitos ──
-  const reconstructedMasteryState = useMemo(() => {
-    if (!resumeSessionId || !openFree) return masteryState;
-    const all = getSessionsByTema(tema?.id || '');
-    let sess: any = all.find(s => s.id === resumeSessionId);
-
-    // Si la sesión clickeada NO tiene adaptiveProgram, buscar OTRA sesión del mismo material
-    // que sí lo tenga (puede haber varias sesiones — usar la que tiene el programa completo).
-    if (!sess?.adaptiveProgram) {
-      const currentMatIds = (sess?.materialIds || []).map(String).sort().join('|');
-      const alternative = all
-        .filter((s: any) => !!s.adaptiveProgram)
-        .filter((s: any) => {
-          const sMatIds = (s.materialIds || []).map(String).sort().join('|');
-          // Match por IDs exactos o solo hay 1 material total (asumir mismo)
-          return sMatIds === currentMatIds || ((s.materialIds || []).length === 1 && (sess?.materialIds || []).length === 1);
-        })
-        .sort((a: any, b: any) => Number(b.lastOpenedAt || 0) - Number(a.lastOpenedAt || 0))[0];
-      if (alternative) {
-        console.log('🔁 [TemaView] Sesión clickeada sin program — usando alternativa:', alternative.id);
-        sess = alternative;
-      }
-    }
-
-    if (sess && (sess as any).adaptiveProgram) {
-      console.log('🔁 [TemaView] Reconstruyendo masteryState desde sesión:', sess.id, '| program sessions:', (sess as any).adaptiveProgram?.sessions?.length, '| style:', (sess as any).processStyle);
-      return {
-        ...(masteryState || {}),
-        processMode: sess.processMode || 'adaptive',
-        adaptiveProgram: (sess as any).adaptiveProgram,
-        processStyle: (sess as any).processStyle,
-        targetScore: (sess as any).targetScore,
-        examDate: (sess as any).examDate,
-        examDateCustom: (sess as any).examDateCustom,
-        materialBlueprint: (sess as any).materialBlueprint,
-        sessionKey: (masteryState as any)?.sessionKey || sess.id,
-      };
-    }
-    return masteryState;
-  }, [resumeSessionId, openFree, tema?.id, masteryState]);
-
   // Loader instantáneo cuando venimos desde /sesion con autoOpenAdaptive
   // Evita ver el mapa del tema por un instante antes de abrir el plan
   if (shouldAutoOpenAdaptive && !openAdaptive)
@@ -2237,17 +2450,60 @@ export default function TemaView({
       />
     );
 
-  if (openManual)
+  if (openManual) {
+    // Asegurar sesión Manual al abrir (idempotente)
+    const activeSessionId = manualSessionId || ensureManualSessionForTool(selectedDocs);
+
+    const backToHub = () => setManualActiveTool(null);
+    const closeAll = () => {
+      setManualActiveTool(null);
+      setOpenManual(false);
+      refreshSessions();
+    };
+    const reportProgress = (tool: DurableManualTool) => (pct: number) => {
+      setManualProgress(prev => {
+        const current = prev[tool] || 0;
+        const next = Math.min(MANUAL_TOOL_CAPS[tool], Math.max(current, pct));
+        if (next === current) return prev;
+        return { ...prev, [tool]: next };
+      });
+    };
+
+    const sharedProps = {
+      materiales: selectedDocs,
+      seleccion: Array.isArray(seleccionResult) && seleccionResult.length ? seleccionResult : null,
+      tema,
+      materia,
+      sessionId: activeSessionId,
+      sourceSelection: freeSourceSelection,
+      onBack: backToHub,
+    };
+
+    if (manualActiveTool === 'leer') return <ManualLeerMaterial {...sharedProps} onProgressReport={reportProgress('leer')} />;
+    if (manualActiveTool === 'alai') return <ManualAlaiChat {...sharedProps} onProgressReport={reportProgress('alai')} />;
+    if (manualActiveTool === 'flashcards') return <ManualFlashcards {...sharedProps} onProgressReport={reportProgress('flashcards')} />;
+    if (manualActiveTool === 'quizzes') return <ManualQuizzes {...sharedProps} onProgressReport={reportProgress('quizzes')} />;
+    if (manualActiveTool === 'resumen') return <ManualResumen {...sharedProps} onProgressReport={reportProgress('resumen')} />;
+    if (manualActiveTool === 'examen') return <ManualExamen {...sharedProps} onProgressReport={reportProgress('examen')} />;
+
+    // Sin herramienta activa = mostrar hub triangular
     return (
-      <StudyALManual
+      <StudyALManualProcess
         materiales={selectedDocs}
         temaId={tema?.id}
-        onClose={() => {
-          setOpenManual(false);
-          refreshSessions();
-        }}
+        sessionId={activeSessionId || ''}
+        sourceSelection={freeSourceSelection}
+        onClose={closeAll}
+        onOpenLeer={() => setManualActiveTool('leer')}
+        onOpenAlai={() => setManualActiveTool('alai')}
+        onOpenFlashcards={() => setManualActiveTool('flashcards')}
+        onOpenQuizzes={() => setManualActiveTool('quizzes')}
+        onOpenResumen={() => setManualActiveTool('resumen')}
+        onOpenExamen={() => setManualActiveTool('examen')}
+        progressByTool={manualProgress}
       />
     );
+  }
 
   if (openFree)
     return (
@@ -2445,6 +2701,7 @@ export default function TemaView({
               // Leer el modo real desde la sesión activa que coincida con estos materiales
               const _matchingMode = studyMode || 'free';
               const sess = upsertSession({
+                debugCaller: 'TemaView:onOpenFlashcards',
                 temaId: tema.id,
                 enfoque: enfoqueElegido as any,
                 processMode: _matchingMode,
@@ -2559,7 +2816,7 @@ export default function TemaView({
           onOpenQuiz?.(
             matsSeleccionados,
             normalizedSel.length ? normalizedSel : undefined,
-            resumeSessionId || null,
+            ensureFreeSessionForTool(matsSeleccionados, resumeSessionId),
           );
         }}
         onOpenRepasar={() => {
@@ -2672,6 +2929,7 @@ export default function TemaView({
             if (tema?.id && matIds.length > 0) {
               const _repasarMode = studyMode || 'free';
               const sess = upsertSession({
+                debugCaller: 'TemaView:onOpenRepasar',
                 temaId: tema.id,
                 enfoque: "teorico" as any,
                 processMode: _repasarMode,
@@ -2790,7 +3048,7 @@ export default function TemaView({
           onOpenAlai?.(
             matsSeleccionados,
             normalizedSel.length ? normalizedSel : undefined,
-            resumeSessionId || null,
+            ensureFreeSessionForTool(matsSeleccionados, resumeSessionId),
           );
         }}
         onOpenExam={() => {
@@ -2886,7 +3144,7 @@ export default function TemaView({
           onOpenExam?.(
             matsSeleccionados,
             normalizedSel.length ? normalizedSel : undefined,
-            resumeSessionId || null,
+            ensureFreeSessionForTool(matsSeleccionados, resumeSessionId),
           );
         }}
         onComingSoon={() => {}}
@@ -4919,6 +5177,7 @@ export default function TemaView({
                 } else {
                   // Free y manual: sí guardamos aquí
                   const sess = upsertSession({
+                    debugCaller: 'TemaView:startFree(SeleccionPaginas-confirm)',
                     sessionId: resumeSessionId || undefined,
                     userId: userId || undefined,
                     temaId: tema.id,

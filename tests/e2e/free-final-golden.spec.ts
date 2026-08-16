@@ -612,3 +612,154 @@ test('FREE-FINAL: generación interrumpida queda recoverable, retry produce resu
   await expect(page.getByText('Mapa Golden')).toBeVisible({ timeout: 15000 });
   expect(mapCalls).toBe(2);
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// TEST — MASTERY UPDATE STORM: usar varias herramientas Free no dispara
+// ningún POST /api/mastery/update. Antes de la limpieza (2026), cada una
+// de las 8 herramientas Free reportaba freeModeUse/freeDomainPct en cada
+// render vía onMasteryEvent, produciendo tormentas de cientos de requests.
+// Esas 8 herramientas ya no reportan ningún evento de progreso en absoluto
+// (el progreso de uso vive en lib/freeToolState.ts, derivado de los
+// envelopes durables) — así que generar y navegar entre herramientas Free
+// debe producir EXACTAMENTE 0 llamadas a /api/mastery/update, no solo un
+// número acotado.
+// ═══════════════════════════════════════════════════════════════════
+
+test('FREE-FINAL: generar y navegar entre Study Map, Truquitos y Análisis produce 0 POST /api/mastery/update', async ({ page }) => {
+  const server = { session: null as DurableSession };
+  const calls = await installGoldenRoutes(page, server);
+
+  let masteryUpdateCount = 0;
+  await page.route('**/api/mastery/update', async route => {
+    masteryUpdateCount++;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) });
+  });
+
+  // Generar Study Map, luego navegar a Truquitos, luego a Análisis, y
+  // volver a Study Map — el mismo recorrido multi-herramienta que TEST 5,
+  // ahora también vigilando la tormenta.
+  await page.goto('/e2e-free-continuity?tool=studymap');
+  await expect(page.getByText('Mapa Golden')).toBeVisible({ timeout: 15000 });
+  expect(calls.map).toBe(1);
+
+  await page.goto('/e2e-free-continuity?tool=truquitos');
+  await expect(page.getByText('Regla Golden')).toBeVisible({ timeout: 15000 });
+  expect(calls.cheat).toBe(1);
+
+  await page.goto('/e2e-free-continuity?tool=analysis&level=universidad');
+  await expect(page.getByText('Análisis Golden')).toBeVisible({ timeout: 15000 });
+  expect(calls.analysis).toBe(1);
+
+  await page.goto('/e2e-free-continuity?tool=studymap');
+  await expect(page.getByText('Mapa Golden')).toBeVisible({ timeout: 15000 });
+
+  await page.reload();
+  await expect(page.getByText('Mapa Golden')).toBeVisible({ timeout: 15000 });
+
+  expect(masteryUpdateCount).toBe(0);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// P0 REGRESSION — "documento completo" session identity corruption
+//
+// Real bug: a material with a pre-existing explicit pages-[1,2] Free
+// session, later reopened choosing "documento completo", ended up bound
+// to the WRONG (pages-[1,2]) session — ALAI rejected saving the
+// conversation and Truquitos rejected generation, both with
+// SOURCE_SELECTION_INVALID / "No se pudo identificar la sesión Free".
+// FreeContinuityHarness's ?wholedoc=1 mode reproduces the exact
+// precondition via the real upsertSession() call path (a conflicting
+// pages-[1,2] session is created first, then the whole-document session is
+// requested exactly like TemaView.tsx's ensureFreeSessionForTool does).
+// ═══════════════════════════════════════════════════════════════════
+
+async function installWholeDocRoutes(page: Page, server: { session: DurableSession }) {
+  await page.route('**/api/study-sessions**', async route => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, sessions: server.session ? [server.session] : [] }) });
+    }
+    const payload = route.request().postDataJSON();
+    server.session = payload.session || payload;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) });
+  });
+  await page.route('**/api/enfoques/teorico/start', async route => {
+    const req = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        sourceSelectionFingerprint: req.sourceSelection.fingerprint,
+        totalChars: 40,
+        materials: {
+          'e2e-wholedoc-mat': { materialId: 'e2e-wholedoc-mat', selectedPages: [], text: '[Pagina 1]\nAUTHORIZED_WHOLEDOC_1\n[Pagina 2]\nAUTHORIZED_WHOLEDOC_2', nombre: 'Material Whole Doc', kind: 'pdf', chars: 40 },
+        },
+      }),
+    });
+  });
+  await page.route('**/api/alai-studyal-chat', async route => {
+    const req = route.request().postDataJSON();
+    const question = String(req?.message || '');
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, answer: `Respuesta durable: ${question}`, inMaterial: true, confidence: 'alta', sourceMaterial: 'e2e-wholedoc-mat', sourceMaterialName: 'Material Whole Doc', sourcePages: [], suggestedFollowups: [] }) });
+  });
+  await page.route('**/api/alai-studyal-cheat-codes', async route => {
+    const req = route.request().postDataJSON();
+    if (req.mode === 'variant') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, card: { type: 'analogia', title: 'Variante', content: 'Variante' } }) });
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, cards: [{ id: 'wd-cc1', type: 'regla_oro', title: 'Regla Whole Doc', content: 'Contenido whole doc', difficulty: 3, forgetRisk: 3 }] }) });
+  });
+}
+
+test('P0 REGRESSION: "documento completo" con sesión pages-[1,2] preexistente — ALAI puede guardar la conversación (no SOURCE_SELECTION_INVALID)', async ({ page }) => {
+  const server = { session: null as DurableSession };
+  await installWholeDocRoutes(page, server);
+
+  await page.goto('/e2e-free-continuity?tool=alai&wholedoc=1');
+
+  await page.getByPlaceholder(/Escribe tu pregunta aquí/i).fill('Pregunta whole doc');
+  await page.getByRole('button', { name: 'Enviar' }).click();
+  await expect(page.getByText('Respuesta durable: Pregunta whole doc')).toBeVisible({ timeout: 15000 });
+
+  // The real bug's exact failure text must never appear.
+  await expect(page.getByText('No se pudo identificar la sesión Free para guardar esta conversación')).toHaveCount(0);
+  await expect(page.getByText('SOURCE_SELECTION_INVALID')).toHaveCount(0);
+
+  // Continuity: refresh must restore the same conversation, not lose it.
+  await page.reload();
+  await expect(page.getByText('Pregunta whole doc', { exact: true })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText('Respuesta durable: Pregunta whole doc')).toBeVisible();
+});
+
+test('P0 REGRESSION: "documento completo" con sesión pages-[1,2] preexistente — Truquitos genera (no SOURCE_SELECTION_INVALID)', async ({ page }) => {
+  const server = { session: null as DurableSession };
+  await installWholeDocRoutes(page, server);
+
+  await page.goto('/e2e-free-continuity?tool=truquitos&wholedoc=1');
+
+  await expect(page.getByText('Regla Whole Doc')).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText('No pude generar los Truquitos')).toHaveCount(0);
+  await expect(page.getByText('SOURCE_SELECTION_INVALID')).toHaveCount(0);
+
+  // Continuity: refresh must restore, not regenerate.
+  await page.reload();
+  await expect(page.getByText('Regla Whole Doc')).toBeVisible({ timeout: 15000 });
+});
+
+test('P0 REGRESSION: explicit pages [1,2] session stays isolated from a whole-document request for the same material', async ({ page }) => {
+  const server = { session: null as DurableSession };
+  await installWholeDocRoutes(page, server);
+
+  // Open whole-document ALAI first (creates the pages-[1,2] precondition
+  // session AND the whole-document session, per the harness).
+  await page.goto('/e2e-free-continuity?tool=alai&wholedoc=1');
+  await page.getByPlaceholder(/Escribe tu pregunta aquí/i).fill('Pregunta aislamiento');
+  await page.getByRole('button', { name: 'Enviar' }).click();
+  await expect(page.getByText('Respuesta durable: Pregunta aislamiento')).toBeVisible({ timeout: 15000 });
+
+  // A fresh whole-document ALAI visit must see its OWN conversation, never
+  // leak into (or be replaced by) the pre-existing pages-[1,2] session's
+  // state — the two identities must remain fully distinct.
+  await page.goto('/e2e-free-continuity?tool=alai&wholedoc=1');
+  await expect(page.getByText('Pregunta aislamiento', { exact: true })).toBeVisible({ timeout: 15000 });
+});

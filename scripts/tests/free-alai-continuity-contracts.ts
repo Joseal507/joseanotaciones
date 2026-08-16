@@ -67,13 +67,19 @@ try {
   const component = readFileSync('components/materias/ALAIStudyALChat.tsx', 'utf8');
   const page = readFileSync('app/materias/page.tsx', 'utf8');
   const authorizedSource = readFileSync('lib/materials/authorizedSource.ts', 'utf8');
-  assert.match(component, /useAuthorizedSource\(effectiveSourceSelection\)/); // N/O
+  assert.match(component, /useAuthorizedSource\(effectiveSourceSelection(?:,\s*['"][^'"]+['"])?\)/); // N/O
   assert.match(component, /sourceSelectionFingerprint: effectiveSourceSelection\.fingerprint/);
   assert.doesNotMatch(component, /filtered\s*\|\|\s*fullText|filterTextByPages/); // N
   assert.match(authorizedSource, /AUTHORIZED_SOURCE_MISSING/); // N: fail closed
   assert.match(page, /freeTool === 'alai'/); // U
   assert.match(page, /sourceSelectionFingerprint/); // U
-  assert.doesNotMatch(component, /onMasteryEvent\?\.|useXP|awardXP/); // S/T
+  assert.doesNotMatch(component, /useXP|awardXP/); // T
+  // S (2026 binary use-progress model): ALAI no longer reports any
+  // freeModeUse/freeDomainPct progress event from this component at all —
+  // its contribution to StudyAL Process is derived purely from the durable
+  // envelope (a real user question + a real non-welcome answer), read by
+  // lib/freeToolState.ts's computeFreeProcessProgress.
+  assert.doesNotMatch(component, /freeModeUse|freeDomainPct|freeEvidenceQuality/);
   assert.match(component, /activeAttemptRef/); // J
   assert.match(component, /AbortController/); // G/J
   assert.match(component, /max-width: 100vw/); // V

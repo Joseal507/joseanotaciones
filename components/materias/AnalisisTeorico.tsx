@@ -207,7 +207,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
-  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection, 'AnalisisTeorico');
 
   const analysisRequestKey = `${sessionId || 'missing-session'}::${effectiveSourceSelection.fingerprint}::${nivel}`;
 
@@ -549,6 +549,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
     persistDurableState(updateFreeAnalysisEntry(durableStateRef.current, nivel, { completed }));
   }, [continuityReady, sessionId, nivel, leidas, totalSecciones, persistDurableState]);
 
+
   // ═══ LOADING SCREEN ═══
   if (loading) {
     return (
@@ -618,7 +619,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
             {error}
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
-            <button onClick={onClose} style={btnPrimario}>← volver</button>
+            <button onClick={onClose} style={btnPrimario}>← Volver al proceso</button>
             {durableState.resultsByType[nivel]?.status === 'recoverable' && (
               <button
                 onClick={() => void runAnalysis()}
@@ -658,7 +659,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
         }}
         onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
         onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; }}
-        >← cerrar</button>
+        >← Volver al proceso</button>
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -9,6 +9,7 @@ import { getSessionsByTema } from '../../lib/studySessions';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
+import { freeNavDebug, nextFreeNavInstanceId } from '../../lib/debug/freeNavDebug';
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 const SourceViewer = dynamic(() => import('./FlashcardSourceViewer'), { ssr: false });
 
@@ -2142,13 +2143,35 @@ import { useMasteryReporter } from '../../hooks/useMastery';
 
 export default function ALAIStudyALCards({ materiales, seleccion, tema, materia, sessionId, onBack, onMasteryEvent, masteryContext, sourceSelection }: Props) {
   const color = tema?.color || '#22d3ee';
+
+  // ─── [free-nav-debug] mount/unmount instrumentation (BUG REAL #2, dev-only) ───
+  const freeNavInstanceIdRef = useRef<string>(nextFreeNavInstanceId('ALAIStudyALCards'));
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return;
+    freeNavDebug('MOUNT', {
+      component: 'ALAIStudyALCards',
+      instanceId: freeNavInstanceIdRef.current,
+      sessionId: sessionId || null,
+      timestamp: Date.now(),
+    });
+    return () => {
+      freeNavDebug('UNMOUNT', {
+        component: 'ALAIStudyALCards',
+        instanceId: freeNavInstanceIdRef.current,
+        sessionId: sessionId || null,
+        timestamp: Date.now(),
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [activeMaterialIndex, setActiveMaterialIndex] = useState(0);
   const matActual = materiales[activeMaterialIndex];
   const effectiveSourceSelection = useMemo(
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
-  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection, 'ALAIStudyALCards');
 
   const getSelectionPages = useCallback((item: any): number[] => {
     if (!item) return [];
@@ -2306,6 +2329,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
 
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
   const [generating, setGenerating] = useState(false);
+
   const [cacheLoaded, setCacheLoaded] = useState(false);
   const [generatingStep, setGeneratingStep] = useState('');
   const [generatingProgress, setGeneratingProgress] = useState(0);
@@ -2326,6 +2350,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
   const [continuityReady, setContinuityReady] = useState(false);
   const generationAttemptRef = useRef(0);
   const generationControllerRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
 
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(true);
@@ -2411,26 +2436,53 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
     setContinuityReady(true);
   }, [sessionId, tema?.id, cacheLoaded, effectiveSourceSelection.fingerprint]);
 
+  const latestPersistPayloadRef = useRef<{ sessionId: string; fingerprint: string; state: PersistedFlashcardsState } | null>(null);
   useEffect(() => {
     if (!sessionId || !cacheLoaded || !continuityReady) return;
+    const payload: PersistedFlashcardsState = {
+      cards: flashcards,
+      materialText,
+      rightTab,
+      studyMode,
+      studyOrder,
+      favorites: [...favorites],
+      deckCurrent,
+      deckFlipped,
+      round: roundState,
+      finished: Boolean(roundState?.done || (roundState?.kind === 'rapido' && Number(roundState.index || 0) >= flashcards.length && flashcards.length > 0)),
+    };
+    latestPersistPayloadRef.current = { sessionId, fingerprint: effectiveSourceSelection.fingerprint, state: payload };
     const t = setTimeout(() => {
-      writeFreeToolState<PersistedFlashcardsState>(sessionId, effectiveSourceSelection.fingerprint, 'flashcards', {
-        cards: flashcards,
-        materialText,
-        rightTab,
-        studyMode,
-        studyOrder,
-        favorites: [...favorites],
-        deckCurrent,
-        deckFlipped,
-        round: roundState,
-        finished: Boolean(roundState?.done || (roundState?.kind === 'rapido' && Number(roundState.index || 0) >= flashcards.length && flashcards.length > 0)),
-      });
+      writeFreeToolState<PersistedFlashcardsState>(sessionId, effectiveSourceSelection.fingerprint, 'flashcards', payload);
     }, 250);
+    if (process.env.NODE_ENV !== 'production') {
+      freeNavDebug('WRITE_FREE_TOOL_STATE', {
+        instanceId: freeNavInstanceIdRef.current,
+        sessionId,
+        cardsCount: flashcards.length,
+      });
+    }
     return () => clearTimeout(t);
   }, [flashcards, sessionId, cacheLoaded, continuityReady, materialText, effectiveSourceSelection.fingerprint, rightTab, studyMode, studyOrder, favorites, deckCurrent, deckFlipped, roundState]);
 
+  // Flush the LATEST pending write synchronously on true unmount (e.g. a
+  // fast "Volver al proceso" click) so it can never race the 250ms debounce
+  // above and silently lose state.
   useEffect(() => () => {
+    const pending = latestPersistPayloadRef.current;
+    if (pending) {
+      writeFreeToolState<PersistedFlashcardsState>(pending.sessionId, pending.fingerprint, 'flashcards', pending.state);
+    }
+  }, []);
+
+  useEffect(() => () => {
+    if (process.env.NODE_ENV !== 'production' && generationControllerRef.current && !generationControllerRef.current.signal.aborted) {
+      freeNavDebug('UNMOUNT_ABORTS_IN_FLIGHT_GENERATION', {
+        instanceId: freeNavInstanceIdRef.current,
+        generationId: `${freeNavInstanceIdRef.current}-gen${generationAttemptRef.current}`,
+      });
+    }
+    mountedRef.current = false;
     generationAttemptRef.current += 1;
     generationControllerRef.current?.abort();
   }, []);
@@ -2509,6 +2561,14 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
     generationControllerRef.current?.abort();
     const controller = new AbortController();
     generationControllerRef.current = controller;
+    if (process.env.NODE_ENV !== 'production') {
+      freeNavDebug('GENERATION_START', {
+        instanceId: freeNavInstanceIdRef.current,
+        generationId: `${freeNavInstanceIdRef.current}-gen${attempt}`,
+        attempt,
+        sessionId: sessionId || null,
+      });
+    }
     setGenerating(true);
     setError('');
     setGeneratingStep(
@@ -2570,11 +2630,19 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
       const allResponses = await Promise.all(
         materialBlocks.map(async (block, blockIdx) => {
           setGeneratingStep(`Generando flashcards del material ${blockIdx + 1}/${materialBlocks.length}...`);
+          if (process.env.NODE_ENV !== 'production') {
+            freeNavDebug('PROVIDER_REQUEST_START', {
+              instanceId: freeNavInstanceIdRef.current,
+              generationId: `${freeNavInstanceIdRef.current}-gen${attempt}`,
+              blockIdx, totalBlocks: materialBlocks.length,
+              componentStillMounted: mountedRef.current,
+            });
+          }
           const res = await fetch('/api/alai-studyal-cards', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              
+
             },
             body: JSON.stringify({
               content: block.text,
@@ -2588,6 +2656,17 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
             signal: controller.signal,
           });
           const data = await res.json();
+          if (process.env.NODE_ENV !== 'production') {
+            freeNavDebug('PROVIDER_RESPONSE', {
+              instanceId: freeNavInstanceIdRef.current,
+              generationId: `${freeNavInstanceIdRef.current}-gen${attempt}`,
+              blockIdx,
+              cardsCount: data?.flashcards?.length || 0,
+              aborted: controller.signal.aborted,
+              staleAttempt: generationAttemptRef.current !== attempt,
+              componentStillMounted: mountedRef.current,
+            });
+          }
           if (controller.signal.aborted || generationAttemptRef.current !== attempt) return [];
           if (!data.success || !data.flashcards?.length) {
             console.warn(`⚠️ Material ${blockIdx + 1} sin flashcards:`, data.error);
@@ -2615,15 +2694,57 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
       setGeneratingProgress(100);
       setGeneratingStep(`¡Listo! ${cards.length} flashcards generadas`);
       await new Promise(r => setTimeout(r, 700));
-      if (controller.signal.aborted || generationAttemptRef.current !== attempt) return;
+      if (controller.signal.aborted || generationAttemptRef.current !== attempt) {
+        if (process.env.NODE_ENV !== 'production') {
+          freeNavDebug('SET_FLASHCARDS_SKIPPED_STALE', {
+            instanceId: freeNavInstanceIdRef.current,
+            generationId: `${freeNavInstanceIdRef.current}-gen${attempt}`,
+            cardsCount: cards.length,
+            aborted: controller.signal.aborted,
+            staleAttempt: generationAttemptRef.current !== attempt,
+            componentStillMounted: mountedRef.current,
+          });
+        }
+        return;
+      }
+      if (process.env.NODE_ENV !== 'production') {
+        freeNavDebug('SET_FLASHCARDS', {
+          instanceId: freeNavInstanceIdRef.current,
+          generationId: `${freeNavInstanceIdRef.current}-gen${attempt}`,
+          cardsCount: cards.length,
+          componentStillMounted: mountedRef.current,
+        });
+      }
       setFlashcards(cards);
       setFavorites(new Set());
       setDeckCurrent(0);
       setDeckFlipped(false);
       setRoundState(null);
 
+      // Persist the freshly generated deck SYNCHRONOUSLY (not via the
+      // debounced continuity effect below) so a "Volver al proceso" click
+      // right after generation can never race the debounce and lose the
+      // deck — this is also the moment Flashcards' Free-process cap is
+      // earned (lib/freeToolState.ts reads this same envelope).
+      if (sessionId) {
+        writeFreeToolState<PersistedFlashcardsState>(sessionId, effectiveSourceSelection.fingerprint, 'flashcards', {
+          cards, materialText, rightTab, studyMode, studyOrder,
+          favorites: [], deckCurrent: 0, deckFlipped: false, round: null, finished: false,
+        });
+      }
+
     } catch (e: any) {
-      if (controller.signal.aborted || generationAttemptRef.current !== attempt) return;
+      if (controller.signal.aborted || generationAttemptRef.current !== attempt) {
+        if (process.env.NODE_ENV !== 'production') {
+          freeNavDebug('GENERATION_ABORTED', {
+            instanceId: freeNavInstanceIdRef.current,
+            generationId: `${freeNavInstanceIdRef.current}-gen${attempt}`,
+            error: e?.message || String(e),
+            componentStillMounted: mountedRef.current,
+          });
+        }
+        return;
+      }
       setError(e.message || 'Error al generar flashcards');
     } finally {
       clearInterval(progressInterval);
@@ -2687,7 +2808,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
             (e.currentTarget as HTMLElement).style.color = '#aaa';
             (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.15)';
           }}
-        >← Volver al enfoque</button>
+        >← Volver al proceso</button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ width: 10, height: 10, borderRadius: '50%', background: color, boxShadow: `0 0 12px ${color}` }} />
           <span style={{ fontSize: 26, fontWeight: 700, color: '#fff', fontFamily: HAND, letterSpacing: 0.5 }}>

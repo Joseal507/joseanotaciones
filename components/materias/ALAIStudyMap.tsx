@@ -6,6 +6,7 @@ import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from 
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
 import {
+  abandonFreeStudyMap,
   beginFreeStudyMap,
   completeFreeStudyMap,
   failFreeStudyMap,
@@ -1959,7 +1960,7 @@ const LOAD_STEPS = [
 
 type ViewMode = 'map' | 'cards' | 'outline';
 
-export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onBack, onMasteryEvent, masteryContext, sessionId, sourceSelection }: Props) {
+export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onBack, masteryContext, sessionId, sourceSelection }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mapData, setMapData] = useState<MindMapData | null>(null);
@@ -1980,7 +1981,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
-  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection, 'ALAIStudyMap');
   const fingerprint = effectiveSourceSelection.fingerprint;
   const generationAttemptRef = useRef(0);
   const persistedStateRef = useRef<DurableFreeStudyMapState>(initialFreeStudyMapState());
@@ -2046,6 +2047,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
 
   useEffect(() => {
     let cancelled = false;
+    let startedAttempt: number | null = null;
 
     const run = async () => {
       try {
@@ -2096,6 +2098,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
 
         const started = beginFreeStudyMap(restoredState);
         generationAttemptRef.current = started.attempt;
+        startedAttempt = started.attempt;
         persistState(started);
 
         setLoading(true);
@@ -2126,6 +2129,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
             data.error || 'No se pudo generar el mapa mental.',
           );
           persistState(failed);
+          startedAttempt = null;
           setError(data.error || 'No se pudo generar el mapa mental.');
           setLoading(false);
           return;
@@ -2151,6 +2155,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
           mapa as any,
         );
         persistState(completed);
+        startedAttempt = null;
         applyPersistedState(completed, combinedText);
         setLoading(false);
       } catch (e: any) {
@@ -2160,6 +2165,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
           e?.message || 'Error de conexión',
         );
         persistState(failed);
+        startedAttempt = null;
         if (!cancelled) {
           setError(e?.message || 'Error de conexión');
           setLoading(false);
@@ -2168,7 +2174,14 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
     };
 
     run();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      // This effect invocation started a generation but never reached a
+      // terminal state (React StrictMode double-invoke, or a genuine fast
+      // unmount) — revert the 'generating' write so the next mount starts
+      // clean instead of reporting a false "interrupted" error.
+      if (startedAttempt !== null) persistState(abandonFreeStudyMap(persistedStateRef.current, startedAttempt));
+    };
   }, [
     sessionId,
     fingerprint,
@@ -2260,7 +2273,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
         <div style={{ fontSize: 14, color: 'var(--text-muted)', maxWidth: 420, textAlign: 'center', fontFamily: "'Inter', sans-serif" }}>{error}</div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
           <button onClick={resetAndReload} style={{ padding: '10px 24px', borderRadius: 12, border: '2px solid var(--gold)', background: 'var(--bg-card)', color: 'var(--gold)', fontFamily: "'Inter', sans-serif", fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>↻ Reintentar</button>
-          <button onClick={onBack} style={{ padding: '10px 24px', borderRadius: 12, border: '2px solid var(--text-primary)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif", fontSize: 15, fontWeight: 700, cursor: 'pointer', boxShadow: '3px 4px 0 var(--text-primary)' }}>← Volver</button>
+          <button onClick={onBack} style={{ padding: '10px 24px', borderRadius: 12, border: '2px solid var(--text-primary)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif", fontSize: 15, fontWeight: 700, cursor: 'pointer', boxShadow: '3px 4px 0 var(--text-primary)' }}>← Volver al proceso</button>
         </div>
       </div>
     );

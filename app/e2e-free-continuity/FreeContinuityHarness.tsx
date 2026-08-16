@@ -23,11 +23,30 @@ const materials = [
   { id: 'e2e-free-b', materialId: 'e2e-free-b', nombre: 'Material B' },
 ];
 
+// ── Whole-document scenario (P0 regression harness) ──
+// Reproduces the exact real-world precondition: an explicit pages-[1,2]
+// Free session already exists for a material, and the user then opens
+// Free again choosing "documento completo" for that SAME material. Used
+// via ?wholedoc=1 — a single material, no explicit page selection.
+const wholeDocMaterialId = 'e2e-wholedoc-mat';
+const wholeDocTemaId = 'e2e-wholedoc-tema';
+const wholeDocPagesSelection = buildSourceSelectionSnapshot([wholeDocMaterialId], { [wholeDocMaterialId]: [1, 2] });
+const wholeDocSourceSelection = buildSourceSelectionSnapshot([wholeDocMaterialId], {});
+const wholeDocMaterials = [
+  { id: wholeDocMaterialId, materialId: wholeDocMaterialId, nombre: 'Material Whole Doc' },
+];
+
 type ActiveTool = 'hub' | 'quiz' | 'exam' | 'flashcards' | 'repasar' | 'alai' | 'analysis' | 'studymap' | 'truquitos';
 
 export default function FreeContinuityHarness() {
   const [ready, setReady] = useState(false);
   const [activeTool, setActiveTool] = useState<ActiveTool>('hub');
+  const [wholeDocSessionId, setWholeDocSessionId] = useState<string | null>(null);
+
+  const isWholeDoc = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('wholedoc') === '1';
+  }, []);
 
   const analysisLevel = useMemo(() => {
     if (typeof window === 'undefined') return 'universidad' as const;
@@ -54,6 +73,37 @@ export default function FreeContinuityHarness() {
   useEffect(() => {
     let cancelled = false;
     async function restore() {
+      if (isWholeDoc) {
+        // Reproduce the exact real-bug precondition: an explicit pages-[1,2]
+        // Free session already exists for this material BEFORE the user
+        // opens Free again choosing "documento completo".
+        let pagesSession = getSessionById('e2e-wholedoc-pages-session');
+        if (!pagesSession) {
+          pagesSession = upsertSession({
+            id: 'e2e-wholedoc-pages-session',
+            temaId: wholeDocTemaId,
+            enfoque: 'teorico',
+            processMode: 'free',
+            materialIds: wholeDocPagesSelection.materialIds,
+            materialNames: ['Material Whole Doc'],
+            selectedPages: wholeDocPagesSelection.selectedPages,
+          });
+        }
+        // Now open Free again for "documento completo" — no explicit
+        // selectedPages, exactly like TemaView.tsx's ensureFreeSessionForTool.
+        const wholeDocSession = upsertSession({
+          temaId: wholeDocTemaId,
+          enfoque: 'teorico',
+          processMode: 'free',
+          materialIds: wholeDocSourceSelection.materialIds,
+          materialNames: ['Material Whole Doc'],
+        });
+        if (!cancelled) {
+          setWholeDocSessionId(wholeDocSession.id);
+          setReady(true);
+        }
+        return;
+      }
       let existing = getSessionById(sessionId);
       if (!existing) {
         await lookupSessionsFromServer('e2e-free-tema', sessionId);
@@ -74,21 +124,31 @@ export default function FreeContinuityHarness() {
     }
     void restore();
     return () => { cancelled = true; };
-  }, []);
+  }, [isWholeDoc]);
 
   if (!ready) return <div data-testid="free-continuity-loading">Preparando sesión</div>;
 
   const goBack = () => setActiveTool('hub');
 
-  const shared = {
-    materiales: materials,
-    seleccion: sourceSelection.materials.map(item => ({ materialId: item.materialId, pages: item.selectedPages })),
-    tema: { id: 'e2e-free-tema', nombre: 'Tema E2E' },
-    materia: { id: 'e2e-free-materia', nombre: 'Materia E2E' },
-    sessionId,
-    sourceSelection,
-    onBack: goBack,
-  };
+  const shared = isWholeDoc
+    ? {
+        materiales: wholeDocMaterials,
+        seleccion: wholeDocSourceSelection.materials.map(item => ({ materialId: item.materialId, pages: item.selectedPages })),
+        tema: { id: wholeDocTemaId, nombre: 'Tema E2E Whole Doc' },
+        materia: { id: 'e2e-free-materia', nombre: 'Materia E2E' },
+        sessionId: wholeDocSessionId || '',
+        sourceSelection: wholeDocSourceSelection,
+        onBack: goBack,
+      }
+    : {
+        materiales: materials,
+        seleccion: sourceSelection.materials.map(item => ({ materialId: item.materialId, pages: item.selectedPages })),
+        tema: { id: 'e2e-free-tema', nombre: 'Tema E2E' },
+        materia: { id: 'e2e-free-materia', nombre: 'Materia E2E' },
+        sessionId,
+        sourceSelection,
+        onBack: goBack,
+      };
 
   if (activeTool === 'exam') return <ALAIStudyALExams {...shared} userName="Estudiante E2E" />;
   if (activeTool === 'flashcards') return <ALAIStudyALCards {...shared} />;

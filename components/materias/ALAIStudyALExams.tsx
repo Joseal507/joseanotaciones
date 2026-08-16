@@ -149,6 +149,7 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
   const [genError, setGenError] = useState('');
 
   const [exam, setExam] = useState<GeneratedExam | null>(null);
+
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<any[]>([]);
   const [confidences, setConfidences] = useState<(Confidence | null)[]>([]);
@@ -193,7 +194,7 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
-  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection, 'ALAIStudyALExams');
   const storageKey = useMemo(() => sourceScopedKey('studyal_exam_autosave_v4', effectiveSourceSelection, {
     temaId: tema?.id || tema?.nombre,
     sessionId,
@@ -225,6 +226,7 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
 
   const questions = exam?.questions || [];
   const answeredCount = answers.filter(isAnswered).length;
+
   const progress = questions.length ? Math.round((answeredCount / questions.length) * 100) : 0;
   const mins = String(Math.floor(remainingSeconds / 60)).padStart(2, '0');
   const secs = String(remainingSeconds % 60).padStart(2, '0');
@@ -424,15 +426,17 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
     setContinuityReady(true);
   }, [sessionId, effectiveSourceSelection.fingerprint]);
 
+  const latestPersistPayloadRef = useRef<{ sessionId: string; fingerprint: string; state: PersistedExamState } | null>(null);
   useEffect(() => {
     if (!continuityReady || !sessionId || !exam) return;
+    const state: PersistedExamState = {
+      phase, duration, recommendedMinutes, examMode, adaptive, exam, currentQuestion,
+      answers, confidences, draftAnswer, draftConfidence, marked: [...marked], deadlineAt,
+      paused, remainingSeconds, questionTimes, evaluation, submissionError,
+      pendingSubmissionAnswers, pendingSubmissionConfidences, resultsTab,
+    };
+    latestPersistPayloadRef.current = { sessionId, fingerprint: effectiveSourceSelection.fingerprint, state };
     const timer = window.setTimeout(() => {
-      const state: PersistedExamState = {
-        phase, duration, recommendedMinutes, examMode, adaptive, exam, currentQuestion,
-        answers, confidences, draftAnswer, draftConfidence, marked: [...marked], deadlineAt,
-        paused, remainingSeconds, questionTimes, evaluation, submissionError,
-        pendingSubmissionAnswers, pendingSubmissionConfidences, resultsTab,
-      };
       writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'exam', state);
       try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch {}
     }, 300);
@@ -449,6 +453,16 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
     generationControllerRef.current?.abort();
     evaluationAttemptRef.current += 1;
     evaluationControllerRef.current?.abort();
+  }, []);
+
+  // Flush the LATEST pending write synchronously on true unmount (e.g. a
+  // fast "Volver al proceso" click) so it can never race the 300ms debounce
+  // above and silently lose state.
+  useEffect(() => () => {
+    const pending = latestPersistPayloadRef.current;
+    if (pending) {
+      writeFreeToolState(pending.sessionId, pending.fingerprint, 'exam', pending.state);
+    }
   }, []);
 
   // ─── GENERATE ───────────────────────────────────────────────
@@ -497,6 +511,24 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
       setPendingSubmissionConfidences(null);
       setPhase('exam');
       window.setTimeout(() => paperRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+
+      // Persist the freshly generated exam SYNCHRONOUSLY (not via the
+      // debounced continuity effect) so a "Volver al proceso" click right
+      // after generation can never race the debounce and lose it — this
+      // is also the moment Examen's Free-process cap is earned
+      // (lib/freeToolState.ts reads this same envelope: Boolean(state.exam)).
+      if (sessionId) {
+        writeFreeToolState<PersistedExamState>(sessionId, effectiveSourceSelection.fingerprint, 'exam', {
+          phase: 'exam', duration, recommendedMinutes: data.recommendedMinutes || recommendedMinutes,
+          examMode, adaptive, exam: newExam,
+          currentQuestion: 0, answers: newExam.questions.map(q => defaultAnswerFor(q.type)),
+          confidences: newExam.questions.map(() => null), draftAnswer: defaultAnswerFor(newExam.questions[0]?.type),
+          draftConfidence: null, marked: [], deadlineAt: Date.now() + duration * 60 * 1000,
+          paused: false, remainingSeconds: duration * 60, questionTimes: newExam.questions.map(() => 0),
+          evaluation: null, submissionError: '', pendingSubmissionAnswers: null,
+          pendingSubmissionConfidences: null, resultsTab,
+        });
+      }
     } catch (err: any) {
       if (controller.signal.aborted || generationAttemptRef.current !== attempt) return;
       setGenError(err?.message || 'No se pudo generar el examen.');
@@ -687,7 +719,7 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
       setPendingSubmissionConfidences(null);
       setSubmissionError('');
 
-      // ── Mastery Engine: reportar resultado de Examen ──
+      // ── Mastery Engine: reportar resultado de Examen (Adaptive concept tracking) ──
       try {
         const ev = data.evaluation;
         if (ev) {
@@ -703,8 +735,6 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
             confidence: Math.round((ev.passProbability ?? 0) * 100),
             conceptsIdentified: allConcepts,
             mistakeTypes: ev.weakConcepts?.slice(0, 5) || [],
-            freeModeUse: true,
-            freeDomainPct: 16,
           });
         }
       } catch (_) {}
@@ -775,7 +805,7 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
 
         {/* ═══ SETUP ═══ */}
         {phase === 'setup' && (<>
-          <button onClick={onBack} style={btnSecondary}>← Volver</button>
+          <button onClick={onBack} style={btnSecondary}>← Volver al proceso</button>
 
           <section style={{ border: '1.5px solid rgba(245,200,66,.20)', background: 'linear-gradient(135deg, rgba(33,18,4,.55), rgba(9,9,12,.94))', borderRadius: 22, padding: '32px 36px', margin: '24px 0' }}>
             <div style={{ color: '#f5c842', letterSpacing: 1.6, fontWeight: 900, fontSize: 12 }}>EVALUACIÓN FINAL ADAPTATIVA</div>
@@ -1871,7 +1901,7 @@ function ResultsView({ exam, evaluation, answers, confidences, questionTimes, re
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 28 }}>
         <button onClick={onReset} style={{ padding: 16, borderRadius: 12, border: '1px solid rgba(0,0,0,.14)', background: '#fff', color: '#111', fontWeight: 900, cursor: 'pointer' }}>Repetir examen</button>
-        <button onClick={onBack} style={{ padding: 16, borderRadius: 12, border: 'none', background: '#111', color: '#fff', fontWeight: 900, cursor: 'pointer' }}>Volver al StudyAL Process</button>
+        <button onClick={onBack} style={{ padding: 16, borderRadius: 12, border: 'none', background: '#111', color: '#fff', fontWeight: 900, cursor: 'pointer' }}>← Volver al proceso</button>
       </div>
     </section>
   );

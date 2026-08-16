@@ -400,7 +400,31 @@ function providerTelemetry(
   }));
 }
 
+// ── ZERO-PAID-PROVIDER TEST GUARD ──────────────────────────────────
+// STUDYAL_TEST_NO_PROVIDER_CALLS is set ONLY by playwright.config.ts's
+// webServer.env (a local dev-only Playwright process spawn) — it does not
+// exist in .env, .env.local, .env.production, or any deployed environment,
+// so this can never fire in production and production provider behavior/
+// policy is completely unchanged when unset. When set, it makes the SINGLE
+// canonical provider chokepoint (alai()) fail loudly and immediately,
+// BEFORE any real network call, whenever a Playwright test's route mocks
+// have a gap and a request would otherwise reach a real paid provider
+// (OpenRouter/Groq/etc). This is a server-side backstop independent of
+// per-test page.route() completeness — see tests/e2e/_shared/noPaidProviderGuard.ts
+// for the client-side assertion that also fails the test explicitly.
+function assertNoRealProviderCallsInTestMode() {
+  if (process.env.STUDYAL_TEST_NO_PROVIDER_CALLS === '1') {
+    throw new Error(
+      'STUDYAL_TEST_MODE: blocked a real AI provider call. This route was not ' +
+      'mocked in the current Playwright test — add a page.route() fixture for ' +
+      'the endpoint that triggers alai()/alaiJson() instead of letting the ' +
+      'request reach the real provider.',
+    );
+  }
+}
+
 export async function alai(params: ALAIParams): Promise<ALAIResult> {
+  assertNoRealProviderCallsInTestMode();
   const fallbackAllowed = Boolean(params.fallbackError && shouldFallbackToGroq(params.fallbackError));
   const requestedExclusions = (params.excludeProviders || []).map(value => value.toLowerCase());
   if (requestedExclusions.includes('openrouter') && !fallbackAllowed) {

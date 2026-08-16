@@ -150,6 +150,7 @@ function NodeList({ nodes, renderBlank, renderMathBlank }: { nodes: AcademicNode
 }
 
 function DocumentNodes({ document, renderBlank, renderMathBlank }: { document: AcademicDocument; renderBlank?: BlankRenderer; renderMathBlank?: MathBlankRenderer }) {
+  if (!document) return null
   return <NodeList nodes={document.nodes} renderBlank={renderBlank} renderMathBlank={renderMathBlank} />
 }
 

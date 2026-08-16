@@ -17,6 +17,7 @@ import { getRango, getLogrosObtenidos, LogroStats } from '../../lib/xpSystem';
 import { getObjetivos } from '../../lib/agenda';
 import { getRacha } from '../../lib/racha';
 import { useAuthenticatedStudyALUser } from '../../hooks/useAuthenticatedStudyALUser';
+import StudyLoader from '../../components/StudyLoader';
 
 const HAND = "'Caveat',cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -63,11 +64,7 @@ export default function PerfilPage() {
     getMaterias();
   }, [authStatus, user]);
 
-  if (!perfil) return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <p style={{ fontFamily: HAND, fontSize: 22, color: 'var(--text-faint)', fontStyle: 'italic' }}>~ {tr('cargando')} ~</p>
-    </div>
-  );
+  if (!perfil) return <StudyLoader label="tu perfil" />;
 
   const totalAcertadas = Object.values(perfil.flashcardsAcertadas || {}).reduce((a, b) => a + b, 0);
   const totalFalladas = Object.values(perfil.flashcardsFalladas || {}).reduce((a, b) => a + b, 0);

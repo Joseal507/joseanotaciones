@@ -24,12 +24,17 @@ const formatHora = (hora: string) => {
   return `${hora12}:${String(m).padStart(2, '0')} ${periodo}`;
 };
 
+const HORARIO_FETCH_TIMEOUT_MS = 15000;
+
 export default function HorarioWidget() {
   const router = useRouter();
   const [horario, setHorario] = useState<Horario | null>(null);
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [retryTick, setRetryTick] = useState(0);
   const [ahora, setAhora] = useState(new Date());
   const { idioma } = useIdioma();
   const { user, status: authStatus } = useAuthenticatedStudyALUser();
+  const userId = user?.id ?? null;
 
   const navHorario = () => {
     try { (window as any).__showNavLoader?.('/horario'); } catch {}
@@ -46,17 +51,96 @@ export default function HorarioWidget() {
   };
 
   useEffect(() => {
-    const cargar = async () => {
-      if (!user) return;
-      const h = await getHorarioDB(user.id);
-      setHorario(h);
-    };
-    if (authStatus !== 'loading') cargar();
     const interval = setInterval(() => setAhora(new Date()), 60000);
     return () => clearInterval(interval);
-  }, [authStatus, user]);
+  }, []);
 
-  if (!horario) return (
+  // Dependencia en userId (primitivo estable), no en `user` (objeto nuevo en
+  // cada resolución de useSession, aunque sea el mismo usuario) — de lo
+  // contrario cada refetch/focus de NextAuth dispara un GET /api/horario
+  // nuevo y puede dejar el widget en loops de loading.
+  useEffect(() => {
+    if (authStatus === 'loading') return;
+    if (!userId) { setStatus('idle'); return; }
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), HORARIO_FETCH_TIMEOUT_MS);
+
+    setStatus('loading');
+    getHorarioDB(userId, controller.signal)
+      .then(h => {
+        if (cancelled) return;
+        setHorario(h);
+        setStatus('success');
+      })
+      .catch(err => {
+        if (cancelled || (err as any)?.name === 'AbortError') return;
+        console.error('[HorarioWidget] fetch failed:', err);
+        setStatus('error');
+      })
+      .finally(() => clearTimeout(timeoutId));
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      clearTimeout(timeoutId);
+    };
+  }, [authStatus, userId, retryTick]);
+
+  if (status === 'loading' || status === 'idle') return (
+    <div style={{
+      background: 'var(--bg-card)',
+      border: '2.5px solid var(--text-primary)',
+      borderRadius: 16,
+      padding: '20px 24px',
+      textAlign: 'center',
+      boxShadow: '3px 3px 0 var(--text-primary)',
+    }}>
+      <div style={{ fontSize: 36, marginBottom: 8, animation: 'hwPulse 1.4s ease-in-out infinite' }}>📅</div>
+      <div style={{ fontFamily: BODY, fontSize: 15, color: 'var(--text-faint)', fontStyle: 'italic' }}>
+        ~ {idioma === 'en' ? 'loading schedule' : 'cargando horario'} ~
+      </div>
+      <style>{`
+        @keyframes hwPulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(1.08); }
+        }
+      `}</style>
+    </div>
+  );
+
+  if (status === 'error') return (
+    <div style={{
+      background: 'var(--bg-card)',
+      border: '2.5px solid var(--text-primary)',
+      borderRadius: 16,
+      padding: '20px 24px',
+      textAlign: 'center',
+      boxShadow: '3px 3px 0 var(--text-primary)',
+    }}>
+      <div style={{ fontSize: 36, marginBottom: 8 }}>⚠️</div>
+      <div style={{ fontFamily: HAND, fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', marginBottom: 4 }}>
+        {idioma === 'en' ? "Couldn't load schedule" : 'No se pudo cargar el horario'}
+      </div>
+      <button
+        onClick={() => setRetryTick(t => t + 1)}
+        style={{
+          fontFamily: HAND, fontSize: 17, fontWeight: 900,
+          background: 'var(--gold)', color: '#000',
+          border: '2px solid var(--text-primary)',
+          borderRadius: 10, padding: '8px 20px',
+          cursor: 'pointer', boxShadow: '2px 2px 0 var(--text-primary)',
+        }}
+      >
+        {idioma === 'en' ? '🔄 Retry' : '🔄 Reintentar'}
+      </button>
+    </div>
+  );
+
+  if (!horario) return null;
+
+  if (!Object.values(horario).some(clases => clases.length > 0)) return (
     <div style={{
       background: 'var(--bg-card)',
       border: '2.5px solid var(--text-primary)',

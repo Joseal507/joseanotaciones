@@ -27,11 +27,13 @@ import {
   simulateBrainDecay,
   type CognitiveState,
 } from '../../lib/masteryEngine';
+import type { SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 
 interface Props {
   materiales: any[];
   tema: any;
   materia: any;
+  sourceSelection: SourceSelectionSnapshot | null;
   onClose: () => void;
   onOpenTool: (tool: ToolId) => void;
   masteryState?: MaterialMastery | null;
@@ -347,6 +349,7 @@ export default function MasteryCoach({
   materiales,
   tema,
   materia,
+  sourceSelection,
   onClose,
   onOpenTool,
   masteryState: externalMasteryState,
@@ -431,6 +434,7 @@ export default function MasteryCoach({
   useEffect(() => {
     if (extracting) return;
     if (!materialIds.length) return;
+    if (!sourceSelection || !sourceSelection.materialIds.length) return;
 
     const currentMastery = externalMasteryState || mastery;
     const hasConceptos = currentMastery?.concepts?.length > 0;
@@ -447,26 +451,31 @@ export default function MasteryCoach({
 
   const extractConcepts = useCallback(async () => {
     if (extracting || materialIds.length === 0) return;
+    if (!sourceSelection || sourceSelection.materialIds.length === 0) return;
     setExtracting(true);
 
     try {
       console.log('%c🔍 Coach extrayendo conceptos...', 'background:#38bdf8;color:#000;padding:2px 6px;border-radius:4px;font-weight:900');
 
-      // 1. Cargar el 100% del texto de todos los materiales
+      // 1. Cargar el texto autorizado (respeta selectedPages) de todos los materiales
       const res = await fetch('/api/enfoques/teorico/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ materialIds }),
+        body: JSON.stringify({ sourceSelection }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
-      if (!data.materials || Object.keys(data.materials).length === 0) {
-        console.warn('Coach: sin texto de materiales');
+      if (!res.ok || data?.success !== true || !data.materials || Object.keys(data.materials).length === 0) {
+        console.warn('Coach: sin texto de materiales', data?.error);
+        return;
+      }
+      if (data.sourceSelectionFingerprint !== sourceSelection.fingerprint) {
+        console.warn('Coach: fingerprint de fuente no coincide, descartando respuesta');
         return;
       }
 
-      // 2. Unir el texto completo de todos los materiales
+      // 2. Unir el texto (ya filtrado a las páginas seleccionadas) de todos los materiales
       const fullText = Object.entries(data.materials)
         .map(([id, m]: [string, any]) => {
           const name = m.nombre || id;

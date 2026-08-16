@@ -8,6 +8,7 @@ import { useSession } from 'next-auth/react';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import NavbarMobile from '../../components/NavbarMobile';
 import Leaderboard from '../../components/Leaderboard';
+import StudyLoader from '../../components/StudyLoader';
 
 const HAND = "'Caveat',cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -29,11 +30,7 @@ export default function LeaderboardPage() {
   }, [status, router]);
 
   if (checking) {
-    return (
-      <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ fontFamily: HAND, fontSize: 22, fontStyle: 'italic', color: 'var(--text-muted)' }}>~ cargando ~</p>
-      </div>
-    );
+    return <StudyLoader label="el leaderboard" />;
   }
 
   return (

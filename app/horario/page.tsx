@@ -8,6 +8,7 @@ import { getHorarioDB, saveHorarioDB, Horario, ClaseHorario } from '../../lib/db
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
+import StudyLoader from '../../components/StudyLoader';
 
 const HAND = "'Caveat',cursive";
 const BODY = "'Inter', system-ui, sans-serif";
@@ -25,6 +26,7 @@ HORAS.push('23:00');
 const COLORES = ['#d6b26f', '#8a120c', '#38bdf8', '#f472b6', '#4ade80', '#fb923c', '#a78bfa', '#e879f9'];
 const HORARIO_VACIO: Horario = { lunes: [], martes: [], miercoles: [], jueves: [], viernes: [] };
 const genId = () => Math.random().toString(36).substr(2, 9);
+const HORARIO_FETCH_TIMEOUT_MS = 15000;
 
 const formatHora = (hora: string) => {
   const [h, m] = hora.split(':').map(Number);
@@ -38,6 +40,8 @@ export default function HorarioPage() {
   const [horario, setHorario] = useState<Horario>(HORARIO_VACIO);
   const [userId, setUserId] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
   const [guardando, setGuardando] = useState(false);
   const [modalAbierto, setModalAbierto] = useState(false);
   const [diaSeleccionado, setDiaSeleccionado] = useState<typeof DIAS[number]>('lunes');
@@ -46,6 +50,7 @@ export default function HorarioPage() {
   const isMobile = useIsMobile();
   const { tr, idioma } = useIdioma();
   const { user, status: authStatus } = useAuthenticatedStudyALUser();
+  const authedUserId = user?.id ?? null;
 
   const DIAS_LABELS_I18N = {
     lunes: tr('lunes'), martes: tr('martes'), miercoles: tr('miercoles'),
@@ -67,26 +72,46 @@ export default function HorarioPage() {
   const diaHoy = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'][hoy.getDay()] as typeof DIAS[number];
   const horaActual = `${String(hoy.getHours()).padStart(2, '0')}:${String(hoy.getMinutes()).padStart(2, '0')}`;
 
+  // Dependencia en authedUserId (primitivo estable), no en `user` (objeto
+  // nuevo en cada resolución de useSession, aunque sea el mismo usuario) —
+  // de lo contrario cada refetch/focus de NextAuth dispara un GET
+  // /api/horario nuevo y puede dejar la página en loops de loading.
   useEffect(() => {
-    const cargar = async () => {
-      setCargando(true);
-      try {
-        if (user) {
-          setUserId(user.id);
-          const h = await getHorarioDB(user.id);
-          setHorario(h);
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setCargando(false);
-      }
-    };
-    if (authStatus !== 'loading') cargar();
     if (DIAS.includes(diaHoy as any)) {
       setDiaActivoMobile(diaHoy as typeof DIAS[number]);
     }
-  }, [authStatus, user]);
+
+    if (authStatus === 'loading') return;
+    if (!authedUserId) { setCargando(false); return; }
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), HORARIO_FETCH_TIMEOUT_MS);
+
+    setUserId(authedUserId);
+    setCargando(true);
+    setErrorCarga(false);
+    getHorarioDB(authedUserId, controller.signal)
+      .then(h => {
+        if (cancelled) return;
+        setHorario(h);
+      })
+      .catch(err => {
+        if (cancelled || (err as any)?.name === 'AbortError') return;
+        console.error(err);
+        setErrorCarga(true);
+      })
+      .finally(() => {
+        clearTimeout(timeoutId);
+        if (!cancelled) setCargando(false);
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      clearTimeout(timeoutId);
+    };
+  }, [authStatus, authedUserId, retryTick]);
 
   const guardar = async (nuevoHorario: Horario) => {
     setHorario(nuevoHorario);
@@ -154,9 +179,28 @@ export default function HorarioPage() {
     : null;
 
   if (cargando) {
+    return <StudyLoader label={idioma === 'en' ? 'your schedule' : 'tu horario'} />;
+  }
+
+  if (errorCarga) {
     return (
-      <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ fontFamily: HAND, fontSize: 22, color: 'var(--text-muted)', fontStyle: 'italic' }}>~ {tr('cargandoHorario')} ~</p>
+      <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+        <div style={{ fontSize: 48 }}>⚠️</div>
+        <p style={{ fontFamily: HAND, fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', fontStyle: 'italic', margin: 0 }}>
+          {idioma === 'en' ? "Couldn't load your schedule" : 'No se pudo cargar tu horario'}
+        </p>
+        <button
+          onClick={() => setRetryTick(t => t + 1)}
+          style={{
+            fontFamily: HAND, fontSize: 18, fontWeight: 900,
+            background: 'var(--gold)', color: '#000',
+            border: '2.5px solid var(--text-primary)',
+            borderRadius: 10, padding: '10px 24px',
+            cursor: 'pointer', boxShadow: '3px 3px 0 var(--text-primary)',
+          }}
+        >
+          {idioma === 'en' ? '🔄 Retry' : '🔄 Reintentar'}
+        </button>
       </div>
     );
   }

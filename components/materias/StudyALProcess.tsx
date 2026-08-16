@@ -3,12 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SourceSelectionSnapshot } from "../../lib/adaptive/sourceSelection";
 import { useAuthorizedSource } from "../../lib/materials/useAuthorizedSource";
-import { sourceScopedKey } from "../../lib/materials/authorizedSource";
-import {
-  generateStudyBlocks,
-  buildMasteryContext,
-} from "../../lib/masteryEngine";
 import type { MaterialMastery } from "../../lib/masteryEngine";
+import { getSessionById } from "../../lib/studySessions";
+import { computeFreeProcessProgress, type DurableFreeTool } from "../../lib/freeToolState";
+import { freeNavDebug } from "../../lib/debug/freeNavDebug";
 
 function getDocEmoji(tipo: string) {
   if (tipo === "pdf") return "📄";
@@ -78,8 +76,6 @@ function describeArc(
 export default function StudyALProcess({
   materiales,
   onClose,
-  masterySnapshot,
-  masteryState,
   onOpenFlashcards,
   onOpenQuiz,
   onOpenRepasar,
@@ -95,69 +91,51 @@ export default function StudyALProcess({
   sourceSelection,
 }: Props) {
   const [ready, setReady] = useState(false);
-  const [completed, setCompleted] = useState<Record<string, boolean>>({});
 
-  const sessionKey = useMemo(() => sourceScopedKey(
-    'studyal_process_free',
-    sourceSelection,
-    { sessionId, temaId, userId },
-  ), [sessionId, sourceSelection.fingerprint, temaId, userId]);
-
-  const { result: authorizedSource, status: contentStatus } = useAuthorizedSource(sourceSelection);
+  const { result: authorizedSource, status: contentStatus } = useAuthorizedSource(sourceSelection, 'StudyALProcess');
   const totalChars = authorizedSource?.totalChars || 0;
   const estimatedPages = Math.max(1, Math.round(totalChars / 1600));
-
-  const masteryMatchesSource = (masteryState as any)?.sourceSelectionFingerprint === sourceSelection.fingerprint;
-  const localMasteryState = masteryMatchesSource ? masteryState || null : null;
-  const localMasterySnapshot = masteryMatchesSource ? masterySnapshot || null : null;
-
-  useMemo(
-    () => buildMasteryContext(localMasteryState),
-    [localMasteryState],
-  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => setReady(true), 80);
     return () => window.clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(sessionKey);
-      if (raw) setCompleted(JSON.parse(raw));
-    } catch {}
-  }, [sessionKey]);
+  // ── PROGRESO DE FREE MODE — "¿qué parte del ecosistema Free ya usó el
+  // estudiante para esta selección exacta?" ────────────────────────────
+  // Derivado DIRECTAMENTE de los envelopes durables (StudySession.notes.
+  // freeTools) — la MISMA autoridad que restaura cada herramienta. No hay
+  // contador paralelo: usar exitosamente una herramienta por primera vez
+  // ya escribió su envelope (continuidad), así que el progreso es un
+  // efecto secundario gratuito de esa escritura, no un evento aparte.
+  // Recalculado en cada montaje de StudyALProcess (siempre fresco, nunca
+  // stale) — ver lib/freeToolState.ts para el contrato completo.
+  const session = getSessionById(sessionId);
+  const { totalPercent: progress, byTool } = computeFreeProcessProgress(session);
 
-  const toolsCompletedKey = JSON.stringify(
-    localMasteryState?.toolsCompleted || {},
-  );
+  freeNavDebug('STUDYAL_PROCESS_RENDER', {
+    sessionId,
+    materialesLength: materiales.length,
+    sourceSelectionFingerprint: sourceSelection?.fingerprint,
+    sessionFound: !!session,
+    sessionMaterialIds: session?.materialIds,
+    sessionSelectedPages: session?.selectedPages,
+    sessionFingerprint: session?.sourceSelectionFingerprint,
+    freeToolsKeys: Object.keys(session?.notes?.freeTools || {}),
+    progress,
+    totalChars,
+  });
 
-  const freeProgressKey = JSON.stringify(
-    (localMasteryState as any)?.freeModeProgress || {},
-  );
-
-  useEffect(() => {
-    if (!localMasteryState) return;
-
-    const nextCompleted: Record<string, boolean> = {};
-
-    Object.entries(localMasteryState.toolsCompleted || {}).forEach(
-      ([tool, value]) => {
-        if (value) nextCompleted[tool] = true;
-      },
-    );
-
-    setCompleted(nextCompleted);
-
-    try {
-      localStorage.setItem(sessionKey, JSON.stringify(nextCompleted));
-    } catch {}
-  }, [
-    toolsCompletedKey,
-    freeProgressKey,
-    sessionKey,
-    localMasteryState,
-  ]);
+  // tools[].id usa ids en español; los envelopes usan DurableFreeTool
+  // (inglés para analysis/exam). Un solo mapeo, en un solo lugar.
+  const TOOL_ID_TO_DURABLE: Record<string, DurableFreeTool> = {
+    repasar: 'repasar', analisis: 'analysis', studymap: 'studymap', truquitos: 'truquitos',
+    flashcards: 'flashcards', quiz: 'quiz', examen: 'exam', alai: 'alai',
+  };
+  const completed: Record<string, boolean> = {};
+  for (const [id, durableTool] of Object.entries(TOOL_ID_TO_DURABLE)) {
+    completed[id] = byTool[durableTool];
+  }
 
   const tools = useMemo(
     () => [
@@ -273,28 +251,6 @@ export default function StudyALProcess({
   const completedCount = tools.filter(
     (tool) => completed[tool.id],
   ).length;
-
-  const progress =
-    typeof localMasterySnapshot?.overallMastery === "number"
-      ? localMasterySnapshot.overallMastery
-      : Math.round((completedCount / tools.length) * 100);
-
-  const studyBlocks = localMasterySnapshot
-    ? generateStudyBlocks(
-        localMasteryState as any,
-        localMasterySnapshot as any,
-      )
-    : [];
-
-  const currentBlock = studyBlocks.find(
-    (block: any) => block.isNext,
-  );
-
-  const studyForecast = Array.isArray(
-    localMasterySnapshot?.studyImpactForecast,
-  )
-    ? localMasterySnapshot.studyImpactForecast
-    : [];
 
   const ARC_SPAN = 40;
   const ARROW_RADIUS = CIRCLE.r + 140;
@@ -412,11 +368,7 @@ export default function StudyALProcess({
 
               <div className="sap-donut-text">
                 <strong>{progress}%</strong>
-                <small>
-                  {localMasterySnapshot
-                    ? "Dominio real"
-                    : "Estimado"}
-                </small>
+                <small>Proceso</small>
               </div>
             </div>
           </div>
@@ -594,11 +546,7 @@ export default function StudyALProcess({
 
         <aside className="sap-right">
           <div className="sap-card sap-card-progress">
-            <h4>
-              {localMasterySnapshot
-                ? "Dominio real"
-                : "Dominio estimado"}
-            </h4>
+            <h4>Progreso de estudio</h4>
             <strong className="sap-big-progress">
               {progress}%
             </strong>
@@ -607,28 +555,9 @@ export default function StudyALProcess({
           <div className="sap-card">
             <h4>⭐ Recomendación</h4>
             <p className="sap-card-text">
-              {localMasterySnapshot?.nextAction?.message ||
-                "Usa las herramientas en el orden que necesites."}
+              Usa las herramientas en el orden que necesites.
             </p>
           </div>
-
-          {studyForecast.length > 0 && (
-            <div className="sap-card">
-              <h4>📈 Impacto estimado</h4>
-
-              {studyForecast.map((forecast: any) => (
-                <div
-                  key={forecast.minutes}
-                  className="sap-forecast"
-                >
-                  <span>+{forecast.minutes} min</span>
-                  <strong>
-                    {progress}% → {forecast.expectedMastery}%
-                  </strong>
-                </div>
-              ))}
-            </div>
-          )}
 
           <div className="sap-tip">
             <span>💡</span>

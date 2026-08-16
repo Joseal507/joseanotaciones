@@ -17,6 +17,7 @@ export type AdaptiveLifecycleState =
 import { migrateJourneySessionKinds } from './adaptive/sessionKind';
 import { buildSourceSelectionSnapshot } from './adaptive/sourceSelection';
 import type { PersistedProgramLookup } from './adaptive/programRestore';
+import { freeNavDebug } from './debug/freeNavDebug';
 
 export interface AdaptiveSetup {
   knowledgeLevel: 'never_seen' | 'know_little' | 'want_review' | 'already_know';
@@ -73,6 +74,63 @@ const ADAPTIVE_ARTIFACTS_KEY = 'studyal_adaptive_artifacts_v1';
 const lastPersistedHash = new Map<string, string>();
 const pendingPersistence = new Map<string, { session: StudySession; timer: ReturnType<typeof setTimeout> }>();
 const singleWriteInFlight = new Map<string, Promise<void>>();
+
+// ───────────────────────────────────────────────────────────────
+// authority contract (P0 — localStorage quota exhaustion redesign)
+//
+// SERVER = durable authority (survives everything, cross-device).
+// MEMORY (memoryCache below) = active session state for this runtime —
+// the ONLY thing every read/write in this module actually operates on.
+// LOCALSTORAGE = best-effort cache to survive a page reload — writing to
+// it can fail (quota) without that ever being visible to the session
+// itself: a failed localStorage write must never look like "the session
+// doesn't exist" to findSession/getSessionById/upsertSession.
+//
+// memoryCache is hydrated ONCE per runtime from localStorage (loadAll),
+// then returned BY REFERENCE on every subsequent call — every write
+// function already mutates the object returned by loadAll() in place
+// (`all[id] = updated`), so as of this change those mutations are
+// immediately visible to every other reader in this tab regardless of
+// whether the best-effort localStorage write that follows succeeds.
+let memoryCache: Record<string, StudySession> | null = null;
+// Circuit breaker: once localStorage has failed a pruned retry, stop
+// attempting further writes for the rest of this runtime — memory +
+// server remain fully functional; we just stop paying the cost (and the
+// console noise) of a quota that pruning already proved won't clear.
+let localStorageWriteDisabled = false;
+
+function isQuotaExceededError(error: unknown): boolean {
+  // Duck-typed on purpose (not `instanceof DOMException`): real browsers,
+  // Node's DOMException, and test doubles that simulate quota exhaustion
+  // all agree on `.name`/`.code`, but aren't guaranteed to share a class.
+  if (!error || typeof error !== 'object') return false;
+  const name = (error as { name?: unknown }).name;
+  const code = (error as { code?: unknown }).code;
+  return name === 'QuotaExceededError'
+    || name === 'NS_ERROR_DOM_QUOTA_REACHED'
+    || code === 22
+    || code === 1014;
+}
+
+// Only affects what gets WRITTEN to the localStorage cache — never the
+// live memoryCache object, never the server. Priority to keep: sessions
+// with an unsynced write in flight (server doesn't have the latest yet),
+// then the most recently opened sessions (the active session always has
+// the freshest lastOpenedAt, so it is always kept first).
+function pruneSessionsForQuota(sessions: Record<string, StudySession>): Record<string, StudySession> {
+  const entries = Object.entries(sessions);
+  const unsyncedIds = new Set(
+    entries
+      .map(([id]) => id)
+      .filter(id => pendingPersistence.has(id) || singleWriteInFlight.has(id)),
+  );
+  const unsynced = entries.filter(([id]) => unsyncedIds.has(id));
+  const rest = entries
+    .filter(([id]) => !unsyncedIds.has(id))
+    .sort((a, b) => Number(b[1].lastOpenedAt || 0) - Number(a[1].lastOpenedAt || 0));
+  const KEEP_MOST_RECENT = 5;
+  return Object.fromEntries([...unsynced, ...rest.slice(0, KEEP_MOST_RECENT)]);
+}
 
 // ───────────────────────────────────────────────────────────────
 // helpers
@@ -236,10 +294,15 @@ function normalizeSession(raw: any): StudySession {
   };
 }
 function loadAll(): Record<string, StudySession> {
+  // memoryCache is authoritative for this runtime once hydrated — every
+  // write mutates it in place, so this never needs to re-read localStorage
+  // (which may be stale, quota-broken, or simply behind an in-flight write)
+  // to see the latest state.
+  if (memoryCache) return memoryCache;
   if (typeof window === 'undefined') return {};
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
+    if (!raw) return (memoryCache = {});
     const parsed = JSON.parse(raw);
     let artifacts: Record<string, {
       blueprint?: unknown;
@@ -275,7 +338,7 @@ function loadAll(): Record<string, StudySession> {
       const sess = normalizeSession(mergedValue);
       if (sess.id) normalized[key] = sess;
     }
-    return normalized;
+    return (memoryCache = normalized);
   } catch (loadAllError) {
     // AUDITORÍA DE CICLO DE VIDA (verificación focalizada, punto 4): perder TODAS
     // las sesiones locales es el fallo más severo de esta función — antes no
@@ -284,54 +347,102 @@ function loadAll(): Record<string, StudySession> {
     console.error('[study-sessions] loadAll_failed', JSON.stringify({
       message: loadAllError instanceof Error ? loadAllError.message : String(loadAllError),
     }))
-    return {};
+    return (memoryCache = {});
   }
 }
 
+function buildLightSessions(sessions: Record<string, StudySession>): Record<string, any> {
+  const lightSessions: Record<string, any> = {};
+  for (const [key, session] of Object.entries(sessions)) {
+    lightSessions[key] = {
+      ...session,
+      blueprint: undefined,
+      journey: undefined,
+      sessionContent: undefined,
+    };
+  }
+  return lightSessions;
+}
+
+// Best-effort cache write. The session itself already lives in memoryCache
+// (mutated in place by the caller before this runs) and is being persisted
+// to the server via syncToServer — this function's only job is to keep
+// localStorage warm for a fast reload, and it must never be allowed to make
+// a session look lost. On quota exhaustion: prune obsolete entries from the
+// CACHE PAYLOAD ONLY (never memoryCache, never the server) and retry once;
+// if that still doesn't fit, stop trying for the rest of this runtime.
 function saveAll(sessions: Record<string, StudySession>) {
   if (typeof window === 'undefined') return;
-  try {
-    let previousArtifacts:Record<string,{sessionContent?:Record<string,any>}>= {}
-    try{previousArtifacts=JSON.parse(localStorage.getItem(ADAPTIVE_ARTIFACTS_KEY)||'{}')||{}}catch{previousArtifacts={}}
-    // Guardar versión liviana en localStorage (sin payload pesado)
-      const lightSessions: Record<string, any> = {};
-      for (const [key, session] of Object.entries(sessions)) {
-        lightSessions[key] = {
-          ...session,
-          blueprint: undefined,
-          journey: undefined,
-          sessionContent: undefined,
-        };
-      }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(lightSessions));
-      const adaptiveArtifacts = Object.fromEntries(
-        Object.entries(sessions)
-          .filter(([, session]) =>
-            session.processMode === 'adaptive'
-            && Boolean(session.blueprint || session.journey || session.sessionContent),
-          )
-          .map(([key, session]) => [key, {
-            blueprint: session.blueprint,
-            journey: session.journey,
-            // Un callback async puede terminar con un snapshot anterior al de
-            // otra navegación/prefetch. Merge por número de sesión evita que
-            // guardar N+1 borre un checkpoint N ya válido. Un valor `undefined`
-            // explícito sigue pudiendo invalidar solo su propia clave.
-            sessionContent: {
-              ...(previousArtifacts[key]?.sessionContent || {}),
-              ...Object.fromEntries(Object.entries(session.sessionContent || {}).filter(([, value]) => value !== undefined)),
-            },
-          }]),
-      );
-      localStorage.setItem(ADAPTIVE_ARTIFACTS_KEY, JSON.stringify(adaptiveArtifacts));
-  } catch (saveAllError) {
+  if (localStorageWriteDisabled) return;
+
+  let previousArtifacts: Record<string, { sessionContent?: Record<string, any> }> = {};
+  try { previousArtifacts = JSON.parse(localStorage.getItem(ADAPTIVE_ARTIFACTS_KEY) || '{}') || {}; } catch { previousArtifacts = {}; }
+
+  const writeSessionsKey = (payload: Record<string, StudySession>): true | unknown => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(buildLightSessions(payload)));
+      return true;
+    } catch (error) {
+      return error;
+    }
+  };
+
+  let result = writeSessionsKey(sessions);
+  if (result !== true && isQuotaExceededError(result)) {
+    console.warn('[study-sessions] saveAll_quota_exceeded_pruning', JSON.stringify({
+      totalSessions: Object.keys(sessions).length,
+    }));
+    result = writeSessionsKey(pruneSessionsForQuota(sessions));
+    if (result !== true) {
+      localStorageWriteDisabled = true;
+      console.error('[study-sessions] saveAll_disabled_local_cache', JSON.stringify({
+        reason: 'quota_exceeded_after_pruned_retry',
+        message: 'Disabling local StudySession cache for this runtime; continuing with memory + server authority.',
+      }));
+      return;
+    }
+  } else if (result !== true) {
     // AUDITORÍA DE CICLO DE VIDA (verificación focalizada, punto 4): un fallo aquí
-    // (p.ej. localStorage lleno) descarta silenciosamente la escritura local —
-    // el próximo syncToServer seguirá intentando persistir al servidor igual,
-    // pero antes no había ningún rastro de que la copia local se perdió.
+    // (no-cuota) descarta silenciosamente la escritura local — el próximo
+    // syncToServer seguirá intentando persistir al servidor igual, pero antes
+    // no había ningún rastro de que la copia local se perdió.
     console.error('[study-sessions] saveAll_failed', JSON.stringify({
-      message: saveAllError instanceof Error ? saveAllError.message : String(saveAllError),
+      message: result instanceof Error ? result.message : String(result),
     }))
+    return;
+  }
+
+  try {
+    const adaptiveArtifacts = Object.fromEntries(
+      Object.entries(sessions)
+        .filter(([, session]) =>
+          session.processMode === 'adaptive'
+          && Boolean(session.blueprint || session.journey || session.sessionContent),
+        )
+        .map(([key, session]) => [key, {
+          blueprint: session.blueprint,
+          journey: session.journey,
+          // Un callback async puede terminar con un snapshot anterior al de
+          // otra navegación/prefetch. Merge por número de sesión evita que
+          // guardar N+1 borre un checkpoint N ya válido. Un valor `undefined`
+          // explícito sigue pudiendo invalidar solo su propia clave.
+          sessionContent: {
+            ...(previousArtifacts[key]?.sessionContent || {}),
+            ...Object.fromEntries(Object.entries(session.sessionContent || {}).filter(([, value]) => value !== undefined)),
+          },
+        }]),
+    );
+    localStorage.setItem(ADAPTIVE_ARTIFACTS_KEY, JSON.stringify(adaptiveArtifacts));
+  } catch (artifactsError) {
+    // Adaptive artifacts are a separate, lower-priority cache key (Free
+    // Mode's freeTools data lives in STORAGE_KEY above, already handled).
+    // A quota failure here does not warrant tripping the same circuit
+    // breaker — Adaptive already has its own server-durable persistence.
+    if (!isQuotaExceededError(artifactsError)) {
+      console.error('[study-sessions] saveAll_artifacts_failed', JSON.stringify({
+        message: artifactsError instanceof Error ? artifactsError.message : String(artifactsError),
+      }))
+    }
   }
 }
 
@@ -496,6 +607,7 @@ export function upsertSession(params: {
   masterySnapshot?: any;
   processStyle?: any;
   sessionId?: string;
+  debugCaller?: string;
 }): StudySession {
   const all = loadAll();
   const now = Date.now();
@@ -505,10 +617,33 @@ export function upsertSession(params: {
 
   const mode = (params.processMode || 'free') as ProcessMode;
   const explicitSessionId = String((params as any).sessionId || '').trim();
-  const existing =
-    (explicitSessionId && all[explicitSessionId])
-      ? all[explicitSessionId]
-      : findSession(params.temaId, matIds, mode, params.setupHash, params.selectedPages ? sourceSelection.fingerprint : undefined);
+  // FIX P0: siempre exigir match exacto de sourceSelectionFingerprint al
+  // reutilizar una sesión existente — nunca "params.selectedPages ausente =
+  // no filtrar por fingerprint". sourceSelection ya se computa arriba desde
+  // params.selectedPages || {} (whole-document = fingerprint canónico de []),
+  // así que esto es seguro para whole-document Y para selección explícita.
+  // Antes, omitir selectedPages (el caso real de "documento completo" en
+  // varios call-sites de TemaView) hacía que findSession() ignorara el
+  // fingerprint por completo y reutilizara/fusionara CUALQUIER sesión
+  // existente para el mismo material — aunque tuviera una selección de
+  // páginas explícita distinta — corrompiendo la identidad de sesión.
+  const viaExplicitId = Boolean(explicitSessionId && all[explicitSessionId]);
+  const existing = viaExplicitId
+    ? all[explicitSessionId]
+    : findSession(params.temaId, matIds, mode, params.setupHash, sourceSelection.fingerprint);
+
+  freeNavDebug('SESSION_UPSERT', {
+    caller: params.debugCaller || 'unknown',
+    outcome: existing ? (viaExplicitId ? 'FOUND_VIA_EXPLICIT_ID' : 'FOUND_VIA_FINGERPRINT') : 'CREATE_NEW',
+    resolvedSessionId: existing?.id || null,
+    explicitSessionId: explicitSessionId || null,
+    temaId: params.temaId,
+    processMode: mode,
+    materialIds: matIds,
+    selectedPages: sourceSelection.selectedPages,
+    fingerprint: sourceSelection.fingerprint,
+    candidatesForTema: getSessionsByTema(params.temaId).map(s => ({ id: s.id, materialIds: s.materialIds, fingerprint: s.sourceSelectionFingerprint, processMode: s.processMode })),
+  });
 
   if (existing) {
     const updated: StudySession = {
@@ -657,6 +792,12 @@ export function cleanupSessions(temaId: string, existingMaterialIds: string[]): 
 
     const validMats = s.materialIds.filter(mid => validSet.has(mid));
     if (validMats.length === 0) {
+      freeNavDebug('CLEANUP_SESSIONS_DELETE', {
+        sessionId: id,
+        sessionMaterialIds: s.materialIds,
+        existingMaterialIds,
+        temaId,
+      });
       delete all[id];
       changed = true;
     } else if (validMats.length !== s.materialIds.length) {
@@ -881,10 +1022,16 @@ export async function lookupSessionsFromServer(temaId?: string, sessionId?: stri
       }
     }
 
+    // `all` IS memoryCache (loadAll() returns it by reference and the merge
+    // loop above mutates it in place) — read the result directly from it
+    // instead of re-reading through loadAll()/getSessionById(), which would
+    // previously have gone straight back to localStorage and silently lost
+    // this merge if the best-effort saveAll() below failed on quota.
     saveAll(all);
+    const sessionList = Object.values(all);
     const sessions = sessionId
-      ? [getSessionById(sessionId)].filter(Boolean) as StudySession[]
-      : temaId ? getSessionsByTema(temaId) : Object.values(loadAll());
+      ? sessionList.filter(s => s.id === sessionId)
+      : temaId ? sessionList.filter(s => s.temaId === temaId).sort((a, b) => b.lastOpenedAt - a.lastOpenedAt) : sessionList;
     return { status: sessions.length ? 'FOUND' : 'ABSENT', sessions };
   } catch (syncError) {
     // AUDITORÍA DE CICLO DE VIDA (verificación focalizada, punto 4): degradar a

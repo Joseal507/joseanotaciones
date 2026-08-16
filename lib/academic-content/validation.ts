@@ -201,11 +201,17 @@ export function prepareAcademicContentForDelivery(
   context: AcademicDeliveryContext = {},
 ): { document: AcademicDocument; degraded: boolean; originalHash: string } {
   const { telemetry, ...telemetryContext } = context
-  const source = typeof content === 'string' ? content : academicDocumentText(content)
+  // Callers pass question/flashcard/answer text sourced from JSON (API
+  // responses, restored localStorage/session state) where TypeScript's
+  // `string | AcademicDocument` type is not runtime-enforced — a missing or
+  // stale field can arrive as undefined/null. Treat that as empty content
+  // instead of crashing the whole page on `content.nodes`.
+  const safeContent: string | AcademicDocument = content == null ? '' : content
+  const source = typeof safeContent === 'string' ? safeContent : academicDocumentText(safeContent)
   const originalHash = hashSource(source)
-  const normalized = typeof content === 'string'
-    ? normalizeAcademicContent(content)
-    : { document: content, validation: validateAcademicDocument(content), repaired: false, requiresRegeneration: false }
+  const normalized = typeof safeContent === 'string'
+    ? normalizeAcademicContent(safeContent)
+    : { document: safeContent, validation: validateAcademicDocument(safeContent), repaired: false, requiresRegeneration: false }
   if (normalized.validation.valid) {
     if (normalized.repaired) telemetry?.({ event: 'markdown_repaired', ...telemetryContext, parserVersion: ACADEMIC_PARSER_VERSION, originalHash, repairStrategy: 'structural_parser' })
     return { document: normalized.document, degraded: false, originalHash }

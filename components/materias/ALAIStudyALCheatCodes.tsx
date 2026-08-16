@@ -746,7 +746,6 @@ export default function ALAIStudyALCheatCodes({
   tema,
   materia,
   onBack,
-  onMasteryEvent,
   masteryContext,
   sessionId,
   sourceSelection,
@@ -784,7 +783,7 @@ export default function ALAIStudyALCheatCodes({
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
-  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection, 'ALAIStudyALCheatCodes');
   const fingerprint = effectiveSourceSelection.fingerprint;
 
   const legacyStorageKey = useMemo(

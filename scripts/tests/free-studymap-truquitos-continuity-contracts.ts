@@ -219,16 +219,22 @@ try {
   // W-X: source leakage and isolation checks (static analysis)
   const smComponent = readFileSync('components/materias/ALAIStudyMap.tsx', 'utf8');
   const ccComponent = readFileSync('components/materias/ALAIStudyALCheatCodes.tsx', 'utf8');
-  assert.match(smComponent, /useAuthorizedSource\(effectiveSourceSelection\)/);
-  assert.match(ccComponent, /useAuthorizedSource\(effectiveSourceSelection\)/);
+  assert.match(smComponent, /useAuthorizedSource\(effectiveSourceSelection(?:,\s*['"][^'"]+['"])?\)/);
+  assert.match(ccComponent, /useAuthorizedSource\(effectiveSourceSelection(?:,\s*['"][^'"]+['"])?\)/);
   assert.match(smComponent, /readFreeToolState/);
   assert.match(smComponent, /writeFreeToolState/);
   assert.match(ccComponent, /readFreeToolState/);
   assert.match(ccComponent, /writeFreeToolState/);
 
-  // Y: no XP/mastery on restore
-  assert.doesNotMatch(smComponent, /onMasteryEvent\?\.|useXP|awardXP/);
-  assert.doesNotMatch(ccComponent, /onMasteryEvent\?\.|useXP|awardXP/);
+  // Y: no XP on restore. (2026 binary use-progress model): Study Map /
+  // Truquitos no longer report any freeModeUse/freeDomainPct progress event
+  // from these components at all — their contribution to StudyAL Process is
+  // derived purely from the durable envelope (mapData / cards present),
+  // read by lib/freeToolState.ts's computeFreeProcessProgress.
+  assert.doesNotMatch(smComponent, /useXP|awardXP/);
+  assert.doesNotMatch(ccComponent, /useXP|awardXP/);
+  assert.doesNotMatch(smComponent, /freeModeUse|freeDomainPct|freeEvidenceQuality/);
+  assert.doesNotMatch(ccComponent, /freeModeUse|freeDomainPct|freeEvidenceQuality/);
 
   // Z: ERROR != ABSENT (readFreeToolState returns null only for invalid owner, not for network error)
   const freeToolSrc = readFileSync('lib/freeToolState.ts', 'utf8');

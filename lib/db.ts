@@ -166,17 +166,16 @@ export async function saveAgendaDB(
 }
 
 // ===== HORARIO =====
-export async function getHorarioDB(userId: string): Promise<Horario> {
-  try {
-    void userId;
-    const res = await fetch('/api/horario', { cache: 'no-store', credentials: 'same-origin' });
-    if (!res.ok) return HORARIO_VACIO;
-    const data = await res.json();
-
-    return data?.horario || HORARIO_VACIO;
-  } catch {
-    return HORARIO_VACIO;
-  }
+// Nota: a diferencia de otros getters de este archivo, este NO se traga los
+// errores — el caller necesita distinguir "falló la carga" (mostrar
+// error/retry) de "cargó y está vacío" (mostrar empty state). Ambos callers
+// (HorarioWidget, app/horario/page.tsx) manejan el throw explícitamente.
+export async function getHorarioDB(userId: string, signal?: AbortSignal): Promise<Horario> {
+  void userId;
+  const res = await fetch('/api/horario', { cache: 'no-store', credentials: 'same-origin', signal });
+  if (!res.ok) throw new Error(`HORARIO_FETCH_FAILED:${res.status}`);
+  const data = await res.json();
+  return data?.horario || HORARIO_VACIO;
 }
 
 export async function saveHorarioDB(userId: string, horario: Horario): Promise<void> {

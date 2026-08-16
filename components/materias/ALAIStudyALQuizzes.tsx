@@ -274,6 +274,7 @@ export default function ALAIStudyALQuizzes({
   const [userAnswer, setUserAnswer]     = useState<any>(null);
   const [isLocked, setIsLocked]         = useState(false);
   const [history, setHistory]           = useState<HistoryEntry[]>([]);
+
   const [quizStartTime, setQuizStartTime] = useState(0);
   const [questionStartTime, setQuestionStartTime] = useState(0);
   const [showWordBank, setShowWordBank]  = useState(false);
@@ -289,7 +290,7 @@ export default function ALAIStudyALQuizzes({
     () => (sourceSelection as SourceSelectionSnapshot | undefined) || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
-  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection);
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection, 'ALAIStudyALQuizzes');
 
   useEffect(() => {
     const restored = readFreeToolState<PersistedQuizState>(
@@ -323,24 +324,27 @@ export default function ALAIStudyALQuizzes({
     setContinuityReady(true);
   }, [sessionId, effectiveSourceSelection.fingerprint]);
 
+  const latestPersistPayloadRef = useRef<{ sessionId: string; fingerprint: string; state: PersistedQuizState } | null>(null);
   useEffect(() => {
     if (!continuityReady || !sessionId) return;
+    const payload: PersistedQuizState = {
+      quizState,
+      difficulty,
+      selectedTypes,
+      questionCount,
+      customCount,
+      questions,
+      currentIndex,
+      userAnswer,
+      isLocked,
+      history,
+      quizStartTime,
+      questionStartTime,
+      quizContext,
+    };
+    latestPersistPayloadRef.current = { sessionId, fingerprint: effectiveSourceSelection.fingerprint, state: payload };
     const timer = window.setTimeout(() => {
-      writeFreeToolState<PersistedQuizState>(sessionId, effectiveSourceSelection.fingerprint, 'quiz', {
-        quizState,
-        difficulty,
-        selectedTypes,
-        questionCount,
-        customCount,
-        questions,
-        currentIndex,
-        userAnswer,
-        isLocked,
-        history,
-        quizStartTime,
-        questionStartTime,
-        quizContext,
-      });
+      writeFreeToolState<PersistedQuizState>(sessionId, effectiveSourceSelection.fingerprint, 'quiz', payload);
     }, 250);
     return () => window.clearTimeout(timer);
   }, [
@@ -348,6 +352,16 @@ export default function ALAIStudyALQuizzes({
     difficulty, selectedTypes, questionCount, customCount, questions, currentIndex,
     userAnswer, isLocked, history, quizStartTime, questionStartTime, quizContext,
   ]);
+
+  // Flush the LATEST pending write synchronously on true unmount (e.g. a
+  // fast "Volver al proceso" click) so it can never race the 250ms debounce
+  // above and silently lose state.
+  useEffect(() => () => {
+    const pending = latestPersistPayloadRef.current;
+    if (pending) {
+      writeFreeToolState<PersistedQuizState>(pending.sessionId, pending.fingerprint, 'quiz', pending.state);
+    }
+  }, []);
 
   useEffect(() => () => {
     generationAttemptRef.current += 1;
@@ -646,6 +660,20 @@ texto.slice(0,8000)
         setQuestionStartTime(now);
         setElapsed(0);
         setQuizState('playing');
+
+        // Persist the freshly generated quiz SYNCHRONOUSLY (not via the
+        // debounced continuity effect) so a "Volver al proceso" click right
+        // after generation can never race the debounce and lose it — this
+        // is also the moment Quiz's Free-process cap is earned
+        // (lib/freeToolState.ts reads this same envelope).
+        if (sessionId) {
+          writeFreeToolState<PersistedQuizState>(sessionId, effectiveSourceSelection.fingerprint, 'quiz', {
+            quizState: 'playing', difficulty, selectedTypes, questionCount, customCount,
+            questions: data.quiz, currentIndex: 0, userAnswer: null, isLocked: false,
+            history: [], quizStartTime: now, questionStartTime: now,
+            quizContext: texto.slice(0, 8000),
+          });
+        }
 
       } else {
         setGenError(data.error || 'No se pudieron generar preguntas. Intentá con más páginas.');
@@ -3701,7 +3729,7 @@ function ReviewScreen({
             fontFamily: BODY,
           }}
         >
-          ← Volver
+          ← Volver al proceso
         </button>
       </div>
 

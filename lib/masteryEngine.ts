@@ -106,6 +106,15 @@ export type StudyMode = 'emergency' | 'fast' | 'balanced' | 'mastery';
 export type ExamDate = 'today' | 'tomorrow' | 'this_week' | 'custom' | 'just_studying';
 export type ToolId = 'repasar' | 'analisis' | 'studymap' | 'truquitos' | 'flashcards' | 'quiz' | 'examen' | 'alai';
 
+// NOTE: Free Mode's "use-progress" percentage (¿qué parte del ecosistema
+// Free ya usó el estudiante?) is NOT computed here anymore. It lives in
+// lib/freeToolState.ts's computeFreeProcessProgress(), derived directly
+// from the same durable FreeToolStateEnvelope authority used for continuity
+// restore — a tool contributes its full canonical cap the first time it is
+// used successfully, idempotently, with zero dependency on MaterialMastery.
+// This file's mastery model (concepts/dimensions/toolsCompleted) remains
+// the Adaptive-mode canonical mastery engine and is untouched by Free Mode.
+
 export type CognitiveState =
   | 'sin_exposicion'
   | 'reconoce'
@@ -225,19 +234,6 @@ export interface MaterialMastery {
   // Hashes de contenido generado (anti-repetición)
   contentHashes: string[];
 
-  // ── Modo libre: progreso por uso de herramientas ──
-  // Se acumula por herramienta única usada
-  freeModeProgress?: {
-    repasar: number;
-    analisis: number;
-    studymap: number;
-    truquitos: number;
-    flashcards: number;
-    quiz: number;
-    examen: number;
-    alai: number;
-  };
-
   // Memoria pedagógica
   pedagogicMemory: {
     examplesUsed: string[];
@@ -286,11 +282,6 @@ sourcePages?: number[];
 importance?: number;
 difficulty?: number;
 
-  // ── Modo libre: uso directo de herramienta ──
-  // Si freeModeUse === true, suma freeDomainPct al dominio
-  // sin pasar por la lógica de dimensiones/evidencia
-  freeModeUse?: boolean;
-  freeDomainPct?: number;
 }
 
 // ── Mastery Snapshot ────────────────────────────────────────────
@@ -309,6 +300,8 @@ export interface TopicMasteryScore {
 }
 
 export interface MasterySnapshot {
+  // Modo canónico (Adaptive) y "Dominio estimado" (Free): fuerza/calidad de
+  // la evidencia, NUNCA una simple suma de actividad.
   overallMastery: number;
   understanding: number;
   memory: number;
@@ -466,29 +459,6 @@ export function loadMaterialMastery(sessionKey: string): MaterialMastery | null 
     if (!parsed.weeklyMemory) parsed.weeklyMemory = [];
     if (!parsed.pedagogicMemory) parsed.pedagogicMemory = createEmptyPedagogicMemory();
 
-    // ── Inicializar freeModeProgress si no existe ──
-    if (!parsed.freeModeProgress) {
-      parsed.freeModeProgress = {
-        repasar: 0, analisis: 0, studymap: 0, truquitos: 0,
-        flashcards: 0, quiz: 0, examen: 0, alai: 0,
-      };
-    } else {
-      // ── Reset: solo conservar % de herramientas REALMENTE completadas ──
-      // Esto arregla masteries viejos donde freeModeProgress se contaminó
-      const toolsCompleted = parsed.toolsCompleted || {};
-      const cleanProgress = {
-        repasar: toolsCompleted.repasar ? (parsed.freeModeProgress.repasar || 0) : 0,
-        analisis: toolsCompleted.analisis ? (parsed.freeModeProgress.analisis || 0) : 0,
-        studymap: toolsCompleted.studymap ? (parsed.freeModeProgress.studymap || 0) : 0,
-        truquitos: toolsCompleted.truquitos ? (parsed.freeModeProgress.truquitos || 0) : 0,
-        flashcards: toolsCompleted.flashcards ? (parsed.freeModeProgress.flashcards || 0) : 0,
-        quiz: toolsCompleted.quiz ? (parsed.freeModeProgress.quiz || 0) : 0,
-        examen: toolsCompleted.examen ? (parsed.freeModeProgress.examen || 0) : 0,
-        alai: toolsCompleted.alai ? (parsed.freeModeProgress.alai || 0) : 0,
-      };
-      parsed.freeModeProgress = cleanProgress;
-    }
-
     // ── Migración modo adaptativo ──
     if (parsed.processMode === 'guided') {
       parsed.processMode = 'adaptive';
@@ -530,23 +500,68 @@ export function loadMaterialMastery(sessionKey: string): MaterialMastery | null 
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// FIX P0: separar localStorage (sync, barato) de server sync (debounced,
+// dedupe por hash). Antes, cada saveMaterialMastery hacia 1 POST directo →
+// tormenta de cientos de requests durante Free Mode. Ahora localStorage es
+// autoridad instantanea y el server sync se debouncea por sessionKey +
+// deduplica por hash del payload — mismo estado NO produce nuevo POST.
+// ═══════════════════════════════════════════════════════════════
+
+const serverSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const serverSyncLastHash = new Map<string, string>();
+const SERVER_SYNC_DEBOUNCE_MS = 800;
+
+function computeMasteryHash(mastery: MaterialMastery): string {
+  // Hash barato: solo los campos que importan para persistencia server-side.
+  // Excluye lastUpdated (cambia siempre) y timeline (muy pesado, no critico).
+  const relevant = {
+    toolsCompleted: mastery.toolsCompleted || {},
+    conceptsCount: mastery.concepts?.length || 0,
+  };
+  return JSON.stringify(relevant);
+}
+
+function enqueueMasteryServerSync(mastery: MaterialMastery): void {
+  if (typeof window === 'undefined') return;
+  const key = mastery.sessionKey;
+
+  const nextHash = computeMasteryHash(mastery);
+  const lastHash = serverSyncLastHash.get(key);
+  if (lastHash === nextHash) return; // Dedupe: mismo payload → 0 POST.
+
+  const existingTimer = serverSyncTimers.get(key);
+  if (existingTimer) clearTimeout(existingTimer);
+
+  const timer = setTimeout(() => {
+    serverSyncTimers.delete(key);
+    serverSyncLastHash.set(key, nextHash);
+    fetch('/api/mastery/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionKey: key, masteryData: mastery }),
+    }).catch(() => {
+      // Fallo silencioso: localStorage sigue siendo autoridad primaria.
+      // Limpiamos el hash cache asi el proximo cambio real reintenta.
+      serverSyncLastHash.delete(key);
+    });
+  }, SERVER_SYNC_DEBOUNCE_MS);
+  serverSyncTimers.set(key, timer);
+}
+
 export function saveMaterialMastery(mastery: MaterialMastery): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(mastery.sessionKey, JSON.stringify(mastery));
   } catch {}
+  enqueueMasteryServerSync(mastery);
+}
 
-  // Sync servidor en background
-  if (typeof window !== 'undefined') {
-    fetch('/api/mastery/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionKey: mastery.sessionKey,
-        masteryData: mastery,
-      }),
-    }).catch(() => {});
-  }
+// Export para tests: limpia caches de debounce/dedupe entre runs.
+export function __clearMasteryServerSyncCache(): void {
+  for (const timer of serverSyncTimers.values()) clearTimeout(timer);
+  serverSyncTimers.clear();
+  serverSyncLastHash.clear();
 }
 
 function createEmptyPedagogicMemory(): MaterialMastery['pedagogicMemory'] {
@@ -592,10 +607,6 @@ export function createEmptyMastery(params: {
     weeklyMemory: [],
     contentHashes: [],
     pedagogicMemory: createEmptyPedagogicMemory(),
-    freeModeProgress: {
-      repasar: 0, analisis: 0, studymap: 0, truquitos: 0,
-      flashcards: 0, quiz: 0, examen: 0, alai: 0,
-    },
   };
 }
 
@@ -696,54 +707,6 @@ export function createConcept(
 
 export function processEvent(mastery: MaterialMastery, event: MasteryEvent): MaterialMastery {
   let updated = { ...mastery, lastUpdated: event.timestamp };
-
-  // ── MODO LIBRE — uso de herramienta = % fijo de dominio ──
-  if (event.freeModeUse && event.freeDomainPct) {
-    const currentProgress = updated.freeModeProgress || {
-      repasar: 0, analisis: 0, studymap: 0, truquitos: 0,
-      flashcards: 0, quiz: 0, examen: 0, alai: 0,
-    };
-
-    // Cada herramienta tiene un tope. Solo cuenta la primera vez.
-    const currentPct = currentProgress[event.tool] || 0;
-    const newPct = currentPct >= event.freeDomainPct
-      ? currentPct
-      : event.freeDomainPct;
-
-    updated.freeModeProgress = {
-      ...currentProgress,
-      [event.tool]: newPct,
-    };
-
-    // Marcar tool como completada
-    updated.toolsCompleted = {
-      ...mastery.toolsCompleted,
-      [event.tool]: true,
-    };
-
-    // Actualizar tool data
-    updated.toolsData = {
-      ...mastery.toolsData,
-      [event.tool]: updateToolData(mastery.toolsData[event.tool] || emptyToolData(), event),
-    };
-
-    // Agregar al timeline
-    const totalFree = Object.values(updated.freeModeProgress).reduce((a, b) => a + b, 0);
-    const entry: TimelineEntry = {
-      timestamp: event.timestamp,
-      tool: event.tool,
-      overallMastery: totalFree,
-      dimensions: {
-        understanding: 0, memory: 0, application: 0,
-        explanation: 0, exam: 0,
-      },
-      conceptsUpdated: [],
-    };
-    updated.timeline = [...(mastery.timeline || []).slice(-49), entry];
-
-    return updated;
-  }
-
 
   updated.toolsData = {
     ...mastery.toolsData,
@@ -1175,11 +1138,6 @@ function generateRecommendedTool(concept: ConceptDomain): ToolId {
 export function calculateMasterySnapshot(mastery: MaterialMastery): MasterySnapshot {
   const concepts = mastery.concepts;
 
-  // ── MODO LIBRE — si processMode es 'free' y hay freeModeProgress, usar eso ──
-  if (mastery.processMode === 'free' && mastery.freeModeProgress) {
-    return calculateFromFreeMode(mastery);
-  }
-
   if (concepts.length === 0) {
     return calculateFromToolsOnly(mastery);
   }
@@ -1376,43 +1334,6 @@ function calculateOverallFromDims(
   const partialScore = weightedSum / totalWeight;
   const missingPenalty = 1 - (dimWeights.length - dimsWithEvidence.length) * 0.08;
   return Math.round(partialScore * missingPenalty);
-}
-
-function calculateFromFreeMode(mastery: MaterialMastery): MasterySnapshot {
-  const progress = mastery.freeModeProgress!;
-  const totalFreeDomain = Math.min(100,
-    progress.repasar + progress.analisis + progress.studymap + progress.truquitos +
-    progress.flashcards + progress.quiz + progress.examen + progress.alai
-  );
-
-  return {
-    overallMastery: totalFreeDomain,
-    understanding: 0,
-    memory: 0,
-    application: 0,
-    explanation: 0,
-    exam: 0,
-    dominatedConcepts: [],
-    intermediateConcepts: [],
-    weakConcepts: [],
-    criticalConcepts: [],
-    examReadiness: totalFreeDomain,
-    retention7Days: Math.round(totalFreeDomain * 0.85),
-    retention30Days: Math.round(totalFreeDomain * 0.65),
-    examPassProbability: totalFreeDomain,
-    examExcellentProbability: Math.max(0, totalFreeDomain - 20),
-    studyImpactForecast: [],
-    nextAction: {
-      tool: 'repasar',
-      reason: 'Sigue usando las herramientas para subir tu dominio.',
-      urgency: 'low',
-      conceptFocus: null,
-      estimatedMinutes: 15,
-      message: 'Sigue usando las herramientas para subir tu dominio.',
-    },
-    studyPlan: null,
-    timeline: mastery.timeline || [],
-  };
 }
 
 function calculateFromToolsOnly(mastery: MaterialMastery): MasterySnapshot {

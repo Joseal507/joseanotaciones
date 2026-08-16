@@ -75,7 +75,7 @@ try {
   const component = readFileSync('components/materias/AnalisisTeorico.tsx', 'utf8');
   const page = readFileSync('app/materias/page.tsx', 'utf8');
   const authorizedSource = readFileSync('lib/materials/authorizedSource.ts', 'utf8');
-  assert.match(component, /useAuthorizedSource\(effectiveSourceSelection\)/); // N/O/P
+  assert.match(component, /useAuthorizedSource\(effectiveSourceSelection(?:,\s*['"][^'"]+['"])?\)/); // N/O/P
   assert.match(component, /readFreeToolState<DurableFreeAnalysisState<Analisis>>/); // D/G
   assert.match(component, /AbortController/); // H/K
   assert.match(component, /generationLockedRef/); // J
@@ -84,7 +84,13 @@ try {
   assert.match(page, /freeTool === 'analisis'/); // exact URL restore
   assert.match(page, /lookupSessionByIdFromServer\(freeSessionId, targetTemaId\)/); // Q: typed durable lookup
   assert.match(page, /lookup\.status !== 'FOUND'/); // Q: ERROR is never treated as ABSENT
-  assert.doesNotMatch(component, /onMasteryEvent\?\.|useXP|awardXP/); // R/S
+  assert.doesNotMatch(component, /useXP|awardXP/); // S
+  // R (2026 binary use-progress model): Análisis no longer reports any
+  // freeModeUse/freeDomainPct progress event from this component at all —
+  // its contribution to StudyAL Process is derived purely from the durable
+  // envelope (a completed result in resultsByType), read by
+  // lib/freeToolState.ts's computeFreeProcessProgress.
+  assert.doesNotMatch(component, /freeModeUse|freeDomainPct|freeEvidenceQuality/);
   assert.match(component, /overflow-x: hidden/); // T
   console.log('free-analysis-continuity-contracts: A-T PASS');
 } finally {

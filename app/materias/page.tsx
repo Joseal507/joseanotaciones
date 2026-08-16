@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect, useRef, useMemo} from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback} from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import dynamicImport from 'next/dynamic';
@@ -9,6 +9,7 @@ import { getMaterias, saveMaterias, lookupMateriasDesdeDB, generateId, Materia, 
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
+import StudyLoader from '../../components/StudyLoader';
 const MateriasList = dynamicImport(() => import('../../components/materias/MateriasList'));
 const MateriaView = dynamicImport(() => import('../../components/materias/MateriaView'));
 const TemaView = dynamicImport(() => import('../../components/materias/TemaView'));
@@ -45,6 +46,7 @@ import {
 import { getSessionById, getSessionsByTema, lookupSessionByIdFromServer, syncSessionsFromServer } from '../../lib/studySessions';
 import { hasPersistedAdaptiveArtifacts } from '../../lib/adaptive/resume';
 import { buildSourceSelectionFromMaterials } from '../../lib/adaptive/sourceSelection';
+import { freeNavDebug, freeNavCallsite, nextFreeNavRenderId } from '../../lib/debug/freeNavDebug';
 
 type Vista = 'materias' | 'materia' | 'tema' | 'apunte' | 'documento' | 'flashcards' | 'quiz' | 'repasar' | 'analisis' | 'alai' | 'exam';
 
@@ -78,6 +80,16 @@ export default function MateriasPage() {
   const [examSeleccion, setExamSeleccion] = useState<any[] | null>(null);
   const [returnToEnfoque, setReturnToEnfoque] = useState(false);
   const [returnSessionId, setReturnSessionId] = useState<string | null>(null);
+  // Canonical Tool → StudyAL Process return seed: set synchronously in the
+  // same tick as returnToEnfoque/returnSessionId, so TemaView's very FIRST
+  // render (lazy useState initializers) can already show StudyAL Process —
+  // no intermediate frame of TemaView's own view is ever painted.
+  const [freeReturnSeed, setFreeReturnSeed] = useState<{
+    sessionId: string | null;
+    materiales: any[];
+    seleccion: any;
+    studyMode: 'free';
+  } | null>(null);
 
   const [autoOpenAdaptive, setAutoOpenAdaptive] = useState(false);
   const [autoOpenAdaptiveSessionId, setAutoOpenAdaptiveSessionId] = useState<string | null>(null);
@@ -88,6 +100,79 @@ export default function MateriasPage() {
       && new URLSearchParams(window.location.search).has('adaptiveSessionId'),
   );
   const createLocksRef = useRef(new Set<string>());
+  const cargarRunCountRef = useRef(0);
+  const prevSessionRefForDebug = useRef<typeof session>(undefined);
+  const urlRestoreConsumedRef = useRef(false);
+  const hasBootstrappedRef = useRef(false);
+
+  // ─── [free-nav-debug] instrumentation (BUG REAL #2, dev-only) ───
+  const freeNavRenderId = nextFreeNavRenderId();
+  if (process.env.NODE_ENV !== 'production') {
+    freeNavDebug('RENDER', {
+      renderId: freeNavRenderId,
+      vista,
+      freeToolSessionId,
+      returnSessionId,
+      resumeSessionId: null,
+      temaId: temaActual?.id || null,
+      materiaId: materiaActual?.id || null,
+      selectedMaterialIds: (temaActual?.documentos || []).map((d: any) => d?.materialId || d?.id).filter(Boolean),
+      flashcardsFingerprint: (flashcardsSeleccion && flashcardsMateriales?.length)
+        ? buildSourceSelectionFromMaterials(flashcardsMateriales, flashcardsSeleccion).fingerprint
+        : null,
+    });
+  }
+
+  function setVistaDebug(
+    next: 'lista' | Vista | ((prev: string) => string),
+    reason?: string,
+  ) {
+    if (process.env.NODE_ENV === 'production') {
+      setVista(next as any);
+      return;
+    }
+    const callsite = freeNavCallsite(3);
+    setVista(prev => {
+      const resolved = typeof next === 'function' ? (next as any)(prev) : next;
+      if (resolved !== prev) {
+        freeNavDebug('VIEW_TRANSITION', {
+          old: prev,
+          new: resolved,
+          reason: reason || 'unspecified',
+          callsite,
+          renderId: freeNavRenderId,
+          freeToolSessionId,
+          returnSessionId,
+          temaId: temaActual?.id || null,
+        });
+      }
+      return resolved;
+    });
+  }
+
+  // ─── Canonical Tool → StudyAL Process return (all 8 Free tools) ───
+  // "← Volver al proceso" must be an atomic transition: TemaView must never
+  // visibly render between the Tool and StudyAL Process. Setting
+  // freeReturnSeed synchronously (same tick as returnToEnfoque/
+  // returnSessionId, before vista flips) lets TemaView seed openFree=true
+  // (and the materials/selection StudyAL Process needs) on its very FIRST
+  // render via lazy useState initializers — so it never paints its own
+  // default view first.
+  function returnToFreeProcess(
+    toolId: string,
+    materiales: any[],
+    seleccion: any,
+    toolSessionId: string | null,
+    reason?: string,
+  ) {
+    const sid = toolSessionId || freeToolSessionId;
+    setFreeReturnSeed({ sessionId: sid, materiales, seleccion, studyMode: 'free' });
+    setReturnSessionId(sid);
+    setReturnToEnfoque(true);
+    requestAnimationFrame(() => {
+      setVistaDebug('tema', reason || `${toolId}:onBack:volver-al-proceso`);
+    });
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -120,11 +205,51 @@ export default function MateriasPage() {
   // Auto-abrir tema + adaptativo si viene desde /materias/[tema]/sesion/[N]
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (materiasRestoreStatus !== 'READY') return;
+
+    // Esto es una restauración ÚNICA desde la URL/localStorage al cargar,
+    // no un sync continuo. `materias` está en las deps solo porque el primer
+    // ciclo de carga puede tardar en poblarla — pero un refetch de sesión
+    // (NextAuth refresca en cada visibilitychange/focus) también produce una
+    // referencia nueva de `materias` y volvía a disparar este efecto DENTRO
+    // de una herramienta ya abierta, forzando `setVista('tema')` y tumbando
+    // (unmount) la herramienta activa a mitad de una generación en curso.
+    // Consumir la restauración una sola vez separa "los datos se
+    // refrescaron" de "hay que renavegar" — la navegación explícita del
+    // usuario (o la restauración ya aplicada) tiene precedencia.
+    if (urlRestoreConsumedRef.current) return;
+
+    // BUG REAL #2: consumir el guard AQUÍ — ANTES de leer targetTemaId, no
+    // solo cuando hay match. Otro efecto (URL-sync, más abajo en este
+    // archivo) escribe `?temaId=&freeSessionId=&freeTool=` en la URL en
+    // cuanto el usuario entra a una herramienta Free — vía NAVEGACIÓN
+    // NORMAL, sin pasar nunca por este restore. Si el guard solo se
+    // consumiera al encontrar `targetTemaId`, la primera pasada (URL vacía,
+    // navegación interactiva normal) hacía `return` en el chequeo de abajo
+    // SIN marcar el guard, dejándolo "armado" indefinidamente. Un refetch de
+    // sesión posterior (NextAuth refresca en cada visibilitychange/focus)
+    // volvía a disparar este efecto, ahora sí encontraba `targetTemaId` en
+    // la URL (recién escrita por el otro efecto) y trataba la navegación
+    // interactiva en curso como si fuera un deep-link fresco: rebobinaba a
+    // 'tema' y reabría la herramienta Free como instancia nueva, abortando
+    // cualquier generación en curso. Este efecto solo tiene UNA oportunidad
+    // legítima de restaurar (al primer instante en que `materias` está
+    // READY); si no hay match en ese intento, no existe una restauración
+    // pendiente real.
+    urlRestoreConsumedRef.current = true;
+
     const routeParams = new URLSearchParams(window.location.search);
     const targetTemaId = routeParams.get('temaId') || localStorage.getItem('studyal_open_tema');
     if (!targetTemaId) return;
 
-    if (materiasRestoreStatus !== 'READY') return;
+    if (process.env.NODE_ENV !== 'production') {
+      freeNavDebug('EFFECT_RUN', {
+        effect: 'findAndOpen(temaId-url-restore)',
+        deps: 'materias,materiasRestoreStatus',
+        materiasRefChanged: true,
+        currentVista: vista,
+      });
+    }
     const findAndOpen = () => {
       try {
         for (const materia of materias) {
@@ -132,7 +257,7 @@ export default function MateriasPage() {
           if (tema) {
             setMateriaActual(materia);
             setTemaActual(tema);
-            setVista('tema');
+            setVistaDebug('tema', 'findAndOpen-effect:sync-open-tema(one-shot)');
             const routeSessionId = routeParams.get('adaptiveSessionId');
             const openAdaptive = routeParams.get('adaptiveView') === 'plan'
               || localStorage.getItem('studyal_open_tema_adaptive') === 'true';
@@ -167,7 +292,14 @@ export default function MateriasPage() {
                 if (freeTool === 'analisis') { setAnalisisMateriales(selectedMaterials); setAnalisisSeleccion(restoredSelection); }
                 if (freeTool === 'alai') { setAlaiMateriales(selectedMaterials); setAlaiSeleccion(restoredSelection); }
                 if (freeTool === 'exam') { setExamMateriales(selectedMaterials); setExamSeleccion(restoredSelection); }
-                setVista(freeTool);
+                // Solo aplicar la navegación restaurada si el usuario sigue donde
+                // esta restauración lo dejó (vista==='tema'). Si ya navegó
+                // explícitamente a otra parte mientras el lookup estaba en
+                // vuelo, esa navegación explícita gana — no la pisamos.
+                setVistaDebug(
+                  prev => (prev === 'tema' ? freeTool : prev),
+                  'findAndOpen-effect:async-lookupSessionByIdFromServer-resolved:restore-free-tool(one-shot)',
+                );
               }).catch(() => {
                 // Un fallo durable no autoriza usar todos los materiales como fallback.
               });
@@ -196,7 +328,7 @@ export default function MateriasPage() {
       url.searchParams.set('freeTool', vista);
     } else if (vista === 'tema') {
       const internalTool = url.searchParams.get('freeTool');
-      if (internalTool === 'studymap' || internalTool === 'truquitos') return;
+      if (internalTool === 'studymap' || internalTool === 'truquitos' || internalTool === 'hub') return;
       url.searchParams.delete('freeSessionId');
       url.searchParams.delete('freeTool');
     } else {
@@ -269,7 +401,7 @@ export default function MateriasPage() {
 
     try {
       const materialIds = mastery.sessionKey
-        .replace('studyal_mastery_v1_', '')
+        .replace('studyal_mastery_v2_', '')
         .split('-')
         .filter(Boolean);
 
@@ -438,8 +570,13 @@ export default function MateriasPage() {
       .slice(0, 8);
   };
 
-  // Función que reciben todas las herramientas para reportar eventos
-  const reportMasteryEvent = (event: Omit<MasteryEvent, 'sessionKey'>) => {
+  // Función que reciben todas las herramientas para reportar eventos.
+  // FIX P0: useCallback con deps vacías + short-circuit si processEvent
+  // devuelve la misma identidad de mastery (idempotencia). Antes, cada
+  // render de MateriasPage recreaba esta función → cambio de identidad de
+  // prop `onMasteryEvent` en las 8 herramientas → useEffect de cada tool
+  // detectaba cambio de dep y re-disparaba → tormenta de writes.
+  const reportMasteryEvent = useCallback((event: Omit<MasteryEvent, 'sessionKey'>) => {
     setMasteryState(prev => {
       if (!prev) return prev;
       const fullEvent: MasteryEvent = {
@@ -447,24 +584,15 @@ export default function MateriasPage() {
         sessionKey: prev.sessionKey,
         timestamp: Date.now(),
       };
-      const before = prev;
       const updated = processEvent(prev, fullEvent);
+      // Si processEvent devuelve el mismo objeto (nada cambio), no persistimos
+      // ni recalculamos snapshot ni disparamos re-render.
+      if (updated === prev) return prev;
       saveMaterialMastery(updated);
-      const snap = calculateMasterySnapshot(updated);
-      setMasterySnapshot(snap);
-
-
-      console.log(
-        '%c📈 Mastery Event CENTRAL',
-        'background:#d6b26f;color:#000;padding:2px 6px;border-radius:4px;font-weight:900',
-        event.tool,
-        '| score:', event.score ?? '—',
-        '| concepts:', event.conceptsIdentified?.length || 0,
-        '| overall:', snap.overallMastery,
-      );
+      setMasterySnapshot(calculateMasterySnapshot(updated));
       return updated;
     });
-  };
+  }, []);
 
   const normalizePages = (value: any): number[] => {
     if (Array.isArray(value)) {
@@ -586,13 +714,33 @@ export default function MateriasPage() {
   const { tr, idioma } = useIdioma();
 
   useEffect(() => {
+    if (process.env.NODE_ENV !== 'production') {
+      cargarRunCountRef.current += 1;
+      const sessionChanged = prevSessionRefForDebug.current !== session;
+      freeNavDebug('EFFECT_RUN', {
+        effect: 'cargar(session-bootstrap)',
+        deps: 'status,session,router',
+        runCount: cargarRunCountRef.current,
+        status,
+        sessionRefChanged: sessionChanged,
+        note: sessionChanged ? 'session object identity changed — will call lookupMateriasDesdeDB() and setMaterias() with a NEW array reference' : 'first run',
+      });
+      prevSessionRefForDebug.current = session;
+    }
     const cargar = async () => {
+      // Fase transitoria de NextAuth — todavía no sabemos si hay sesión.
+      // No tocar cargando/hasBootstrappedRef aquí: no es un intento real.
+      if (status === 'loading') return;
 
-      setCargando(true);
+      // Solo mostrar el loading de página completa (que desmonta TODO el
+      // árbol, incluida cualquier herramienta Free abierta y su generación
+      // en curso) en el bootstrap inicial. Este efecto también se re-ejecuta
+      // cada vez que NextAuth refresca `session` en background (focus/
+      // visibilitychange) — eso es un refresco de datos, no una razón para
+      // volver a mostrar el loader ni tirar abajo el árbol montado.
+      if (!hasBootstrappedRef.current) setCargando(true);
       try {
         const materiasLocal = getMaterias();
-
-        if (status === 'loading') return;
 
         const nextUser = session?.user as any;
         if (!nextUser?.id) {
@@ -614,6 +762,13 @@ export default function MateriasPage() {
         const lookup = await lookupMateriasDesdeDB();
         if (lookup.status !== 'ERROR') {
           const restored = lookup.materias;
+          if (process.env.NODE_ENV !== 'production') {
+            freeNavDebug('SET_MATERIAS', {
+              source: 'cargar-effect:lookupMateriasDesdeDB',
+              newArrayRefWillTriggerFindAndOpenEffect: true,
+              count: restored.length,
+            });
+          }
           setMaterias(restored);
           setMateriasRestoreStatus('READY');
           // Auto-abrir materia si viene del home (URL param o localStorage)
@@ -623,13 +778,13 @@ export default function MateriasPage() {
               const mat = restored.find((m: any) => m.id === openId);
               if (mat) {
                 setMateriaActual(mat);
-                setVista(prev => (
+                setVistaDebug(prev => (
                   ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam', 'tema', 'apunte', 'documento'].includes(prev)
                     ? prev
                     : 'materia'
                 ));
               } else {
-                setVista(prev => (
+                setVistaDebug(prev => (
                   ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam', 'tema', 'apunte', 'documento'].includes(prev)
                     ? prev
                     : 'materias'
@@ -650,6 +805,7 @@ export default function MateriasPage() {
         if (materiasLocal.length > 0) setMaterias(materiasLocal);
       } finally {
         setCargando(false);
+        hasBootstrappedRef.current = true;
       }
     };
     cargar();
@@ -806,7 +962,7 @@ export default function MateriasPage() {
     actualizarTema(nuevoTema);
     setApunteActual(nuevo);
     setModalApunte(false);
-    setVista('apunte');
+    setVistaDebug('apunte');
   };
 
   const guardarApunte = (contenido: string) => {
@@ -831,7 +987,7 @@ export default function MateriasPage() {
       ...temaActual,
       apuntes: temaActual.apuntes.filter(a => a.id !== id),
     });
-    setVista('tema');
+    setVistaDebug('tema');
   };
 
   // ─── Nuevo sistema: abrir el uploader modal ───
@@ -1001,45 +1157,21 @@ const eliminarDocumento = async (id: string) => {
 
     if (vista === 'materia' && !materiaActual) {
       try { window.history.replaceState(null, '', '/materias'); } catch {}
-      setVista('materias');
+      setVistaDebug('materias', 'broken-state-guard:vista=materia-without-materiaActual');
       return;
     }
 
     // Si se pierde el tema pero todavía existe materia, vuelve a la materia,
     // no al listado completo. Evita que un enfoque abierto bote al usuario.
     if (vista === 'tema' && materiaActual && !temaActual) {
-      setVista('materia');
+      setVistaDebug('materia', 'broken-state-guard:vista=tema-without-temaActual');
       return;
     }
   }, [cargando, vista, materiaActual, temaActual]);
 
 
   if (cargando) {
-    return (
-      <div style={{
-        minHeight: '100vh',
-        background: 'var(--bg-primary)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexDirection: 'column',
-        gap: 16,
-      }}>
-        <div style={{ fontSize: 56, animation: 'matBounce 1.2s ease-in-out infinite' }}>📚</div>
-        <p style={{
-          fontFamily: "'Caveat',cursive", fontSize: 22, fontStyle: 'italic',
-          color: 'var(--text-muted)', margin: 0,
-        }}>
-          ~ {openParam ? 'abriendo materia' : tr('cargando')} ~
-        </p>
-        <style>{`
-          @keyframes matBounce {
-            0%, 100% { transform: rotate(-5deg) translateY(0); }
-            50% { transform: rotate(5deg) translateY(-8px); }
-          }
-        `}</style>
-      </div>
-    );
+    return <StudyLoader label={openParam ? 'tu materia' : 'tus materias'} />;
   }
 
   return (
@@ -1124,7 +1256,7 @@ const eliminarDocumento = async (id: string) => {
         {(vista === 'lista' || vista === 'materias') && (
           <MateriasList
             materias={materias}
-            onAbrir={(m: any) => { setMateriaActual(m); setVista('materia'); }}
+            onAbrir={(m: any) => { setMateriaActual(m); setVistaDebug('materia'); }}
             onEliminar={eliminarMateria}
             onNueva={() => setModalMateria(true)}
             onReordenar={reordenarMaterias}
@@ -1135,8 +1267,8 @@ const eliminarDocumento = async (id: string) => {
         {vista === 'materia' && materiaActual && (
           <MateriaView
             materia={materiaActual}
-            onBack={() => setVista('materias')}
-            onAbrirTema={(t: any) => { setTemaActual(t); setVista('tema'); setAutoOpenAdaptive(false); }}
+            onBack={() => setVistaDebug('materias')}
+            onAbrirTema={(t: any) => { setTemaActual(t); setVistaDebug('tema'); setAutoOpenAdaptive(false); }}
             onEliminarTema={eliminarTema}
             onNuevoTema={() => setModalTema(true)}
             onActualizarMateria={actualizarMateria}
@@ -1148,11 +1280,11 @@ const eliminarDocumento = async (id: string) => {
             userId={userId}
             materia={materiaActual}
             tema={temaActual}
-            onBack={() => setVista('materias')}
-            onBackMateria={() => setVista('materia')}
+            onBack={() => setVistaDebug('materias')}
+            onBackMateria={() => setVistaDebug('materia')}
             onGoHome={() => ((window as any).__showNavLoader?.('/'), router.push('/'))}
-            onAbrirApunte={(a: any) => { setApunteActual(a); setVista('apunte'); }}
-            onAbrirDocumento={(d: any) => { setDocumentoActual(d); setVista('documento'); }}
+            onAbrirApunte={(a: any) => { setApunteActual(a); setVistaDebug('apunte'); }}
+            onAbrirDocumento={(d: any) => { setDocumentoActual(d); setVistaDebug('documento'); }}
             onEliminarApunte={eliminarApunte}
             onEliminarDocumento={eliminarDocumento}
             onNuevoApunte={() => setModalApunte(true)}
@@ -1161,7 +1293,8 @@ const eliminarDocumento = async (id: string) => {
             onAbrirUploader={() => setShowUploader(true)}
             returnToEnfoque={returnToEnfoque}
             returnSessionId={returnSessionId}
-            onClearReturnToEnfoque={() => { setReturnToEnfoque(false); setReturnSessionId(null); }}
+            freeReturnSeed={freeReturnSeed}
+            onClearReturnToEnfoque={() => { setReturnToEnfoque(false); setReturnSessionId(null); setFreeReturnSeed(null); }}
             autoOpenAdaptive={autoOpenAdaptive}
             autoOpenAdaptiveSessionId={autoOpenAdaptiveSessionId}
             onOpenFlashcards={(mats?: any[], sel?: any[], sessionId?: string | null) => {
@@ -1179,7 +1312,7 @@ const eliminarDocumento = async (id: string) => {
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
-              setVista('flashcards');
+              setVistaDebug('flashcards', 'StudyALProcess-hub:onOpenFlashcards:user-clicked-generate');
             }}
             onOpenQuiz={(mats?: any[], sel?: any[], sessionId?: string | null) => {
               const matsToUse = mats || temaActual?.documentos || [];
@@ -1190,7 +1323,7 @@ const eliminarDocumento = async (id: string) => {
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
-              setVista('quiz');
+              setVistaDebug('quiz');
             }}
             onOpenRepasar={(mats?: any[], sel?: any[], sessionId?: string | null) => {
               const matsToUse = mats || temaActual?.documentos || [];
@@ -1201,7 +1334,7 @@ const eliminarDocumento = async (id: string) => {
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
-              setVista('repasar');
+              setVistaDebug('repasar');
             }}
             onOpenAnalisis={(mats?: any[], sel?: any[], sessionId?: string | null) => {
               const matsToUse = mats || temaActual?.documentos || [];
@@ -1212,7 +1345,7 @@ const eliminarDocumento = async (id: string) => {
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
-              setVista('analisis');
+              setVistaDebug('analisis');
             }}
             onOpenAlai={(mats?: any[], sel?: any[], sessionId?: string | null) => {
               const matsToUse = mats || temaActual?.documentos || [];
@@ -1223,7 +1356,7 @@ const eliminarDocumento = async (id: string) => {
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
-              setVista('alai');
+              setVistaDebug('alai');
             }}
             onOpenExam={(mats?: any[], sel?: any[], sessionId?: string | null) => {
               const matsToUse = mats || temaActual?.documentos || [];
@@ -1235,7 +1368,7 @@ const eliminarDocumento = async (id: string) => {
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
-              setVista('exam');
+              setVistaDebug('exam');
             }}
             onAgregarYoutube={agregarYoutube}
             masteryState={masteryState}
@@ -1251,13 +1384,23 @@ const eliminarDocumento = async (id: string) => {
             apunte={apunteActual}
             materia={materiaActual}
             tema={temaActual}
-            onBack={() => setVista('materias')}
-            onBackMateria={() => setVista('materia')}
-            onBackTema={() => setVista('tema')}
+            onBack={() => setVistaDebug('materias')}
+            onBackMateria={() => setVistaDebug('materia')}
+            onBackTema={() => setVistaDebug('tema')}
             onGuardar={guardarApunte}
           />
         )}
 
+        {vista === 'flashcards' && !(temaActual && materiaActual) && process.env.NODE_ENV !== 'production' && (() => {
+          freeNavDebug('RENDER_GATE_BLOCKED', {
+            gate: 'flashcards',
+            reason: 'vista=flashcards but temaActual/materiaActual falsy — ALAIStudyALCards will NOT mount despite vista being flashcards',
+            temaActualPresent: !!temaActual,
+            materiaActualPresent: !!materiaActual,
+            renderId: freeNavRenderId,
+          });
+          return null;
+        })()}
         {vista === 'flashcards' && temaActual && materiaActual && (
           <ALAIStudyALCards
             materiales={flashcardsMateriales}
@@ -1268,13 +1411,7 @@ const eliminarDocumento = async (id: string) => {
             sourceSelection={flashcardsSource}
             masteryContext={memoizedMasteryContext}
             onMasteryEvent={reportMasteryEvent}
-            onBack={() => {
-              setReturnSessionId(flashcardsSessionId || freeToolSessionId);
-              setReturnToEnfoque(true);
-              requestAnimationFrame(() => {
-                setVista('tema');
-              });
-            }}
+            onBack={() => returnToFreeProcess('flashcards', flashcardsMateriales, flashcardsSeleccion, flashcardsSessionId || freeToolSessionId)}
           />
         )}
 
@@ -1289,13 +1426,9 @@ const eliminarDocumento = async (id: string) => {
             masteryContext={memoizedMasteryContext}
             onMasteryEvent={reportMasteryEvent}
             onBack={() => {
-              setReturnSessionId(freeToolSessionId);
-              setReturnToEnfoque(true);
+              returnToFreeProcess('quiz', quizMateriales, quizSeleccion, freeToolSessionId);
               setQuizMateriales([]);
               setQuizSeleccion(undefined);
-              requestAnimationFrame(() => {
-                setVista('tema');
-              });
             }}
           />
         )}
@@ -1310,13 +1443,7 @@ const eliminarDocumento = async (id: string) => {
             sourceSelection={repasarSource}
             masteryContext={memoizedMasteryContext}
             onMasteryEvent={reportMasteryEvent}
-            onBack={() => {
-              setReturnSessionId(freeToolSessionId);
-              setReturnToEnfoque(true);
-              requestAnimationFrame(() => {
-                setVista('tema');
-              });
-            }}
+            onBack={() => returnToFreeProcess('repasar', repasarMateriales, repasarSeleccion, freeToolSessionId)}
           />
         )}
 
@@ -1330,13 +1457,7 @@ const eliminarDocumento = async (id: string) => {
             sourceSelection={analisisSource}
             masteryContext={memoizedMasteryContext}
             onMasteryEvent={reportMasteryEvent}
-            onClose={() => {
-              setReturnSessionId(freeToolSessionId);
-              setReturnToEnfoque(true);
-              requestAnimationFrame(() => {
-                setVista('tema');
-              });
-            }}
+            onClose={() => returnToFreeProcess('analisis', analisisMateriales, analisisSeleccion, freeToolSessionId)}
           />
         )}
 
@@ -1350,13 +1471,7 @@ const eliminarDocumento = async (id: string) => {
             sourceSelection={alaiSource}
             masteryContext={memoizedMasteryContext}
             onMasteryEvent={reportMasteryEvent}
-            onBack={() => {
-              setReturnSessionId(freeToolSessionId);
-              setReturnToEnfoque(true);
-              requestAnimationFrame(() => {
-                setVista('tema');
-              });
-            }}
+            onBack={() => returnToFreeProcess('alai', alaiMateriales, alaiSeleccion, freeToolSessionId)}
           />
         )}
 
@@ -1372,13 +1487,7 @@ const eliminarDocumento = async (id: string) => {
             userName={(session?.user as any)?.name || (session?.user as any)?.username || ''}
             masteryContext={memoizedMasteryContext}
             onMasteryEvent={reportMasteryEvent}
-            onBack={() => {
-              setReturnSessionId(freeToolSessionId);
-              setReturnToEnfoque(true);
-              requestAnimationFrame(() => {
-                setVista('tema');
-              });
-            }}
+            onBack={() => returnToFreeProcess('examen', examMateriales, examSeleccion, freeToolSessionId)}
           />
         )}
 
@@ -1387,9 +1496,9 @@ const eliminarDocumento = async (id: string) => {
             documento={documentoActual}
             materia={materiaActual}
             tema={temaActual}
-            onBack={() => setVista('materias')}
-            onBackMateria={() => setVista('materia')}
-            onBackTema={() => setVista('tema')}
+            onBack={() => setVistaDebug('materias')}
+            onBackMateria={() => setVistaDebug('materia')}
+            onBackTema={() => setVistaDebug('tema')}
             onActualizar={actualizarDocumento}
           />
         )}

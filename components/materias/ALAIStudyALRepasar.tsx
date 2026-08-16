@@ -231,6 +231,7 @@ import { useMasteryReporter } from '../../hooks/useMastery';
 
 export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materia, onBack, onMasteryEvent, masteryContext, sessionId, sourceSelection }: Props) {
   const [phase, setPhase] = useState<Phase>('preview');
+
   const [notes, setNotes] = useState('');
   const [explanation, setExplanation] = useState('');
   const [mode, setMode] = useState<ExplainMode>('nino');
@@ -254,7 +255,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
-  const { result: authorizedSource, status: contentStatus } = useAuthorizedSource(effectiveSourceSelection);
+  const { result: authorizedSource, status: contentStatus } = useAuthorizedSource(effectiveSourceSelection, 'ALAIStudyALRepasar');
   const totalChars = authorizedSource?.totalChars || 0;
 
   const storageKey = useMemo(() => {
@@ -299,23 +300,38 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
     }
   }, [storageKey, sessionId, effectiveSourceSelection.fingerprint]);
 
+  const latestPersistPayloadRef = useRef<{ sessionId: string; fingerprint: string; state: PersistedRepasarState } | null>(null);
   useEffect(() => {
     if (!continuityReady || !sessionId) return;
+    const payload: PersistedRepasarState = {
+      phase,
+      notes,
+      explanation,
+      mode,
+      attempts,
+      analysis,
+      teachCheck,
+      followUpAnswer,
+      activeRepasarColor,
+    };
+    latestPersistPayloadRef.current = { sessionId, fingerprint: effectiveSourceSelection.fingerprint, state: payload };
     const timer = window.setTimeout(() => {
-      writeFreeToolState<PersistedRepasarState>(sessionId, effectiveSourceSelection.fingerprint, 'repasar', {
-        phase,
-        notes,
-        explanation,
-        mode,
-        attempts,
-        analysis,
-        teachCheck,
-        followUpAnswer,
-        activeRepasarColor,
-      });
+      writeFreeToolState<PersistedRepasarState>(sessionId, effectiveSourceSelection.fingerprint, 'repasar', payload);
     }, 250);
     return () => window.clearTimeout(timer);
   }, [continuityReady, sessionId, effectiveSourceSelection.fingerprint, phase, notes, explanation, mode, attempts, analysis, teachCheck, followUpAnswer, activeRepasarColor]);
+
+  // Flush the LATEST pending write synchronously on true unmount (e.g. a
+  // fast "Volver al proceso" click right after a real phase transition or
+  // generation) so it can never race the 250ms debounce above and silently
+  // lose state — the debounce only exists to coalesce rapid keystrokes, not
+  // to make writes optional.
+  useEffect(() => () => {
+    const pending = latestPersistPayloadRef.current;
+    if (pending) {
+      writeFreeToolState<PersistedRepasarState>(pending.sessionId, pending.fingerprint, 'repasar', pending.state);
+    }
+  }, []);
 
   useEffect(() => () => {
     analysisAttemptRef.current += 1;
@@ -447,8 +463,6 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
           coveragePercent: a.metrics?.coverage ?? a.score ?? 0,
           conceptsIdentified: conceptsCovered,
           mistakeTypes: a.missingConcepts?.slice(0, 5) || [],
-          freeModeUse: true,
-          freeDomainPct: 8,
         });
       } catch (_) {}
     } catch (err: any) {
@@ -600,7 +614,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
             color: 'var(--text-primary)',
             fontSize: 20,
           }}>
-            ← volver al enfoque
+            ← Volver al proceso
           </button>
 
           <div style={{ textAlign: 'center' }}>

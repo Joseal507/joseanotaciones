@@ -290,6 +290,7 @@ export function academicNodeChildren(node: AcademicNode): AcademicNode[] {
 }
 
 export function academicDocumentText(documentValue: AcademicDocument): string {
+  if (!documentValue) return ''
   const renderNodes = (nodes: AcademicNode[]): string => nodes.map((node, index) => {
     const boundary = academicNodeBoundary(nodes[index - 1], node)
     switch (node.type) {

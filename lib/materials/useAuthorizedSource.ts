@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SourceSelectionSnapshot } from '../adaptive/sourceSelection'
 import { fetchAuthorizedSource, type AuthorizedSourceResult } from './authorizedSource'
+import { freeNavDebug, nextFreeNavInstanceId } from '../debug/freeNavDebug'
 
 // In-memory cache por fingerprint. Compartido entre componentes que consumen
 // la misma fuente. Sobrevive unmount/remount rápidos (dev Fast Refresh,
@@ -10,8 +11,12 @@ import { fetchAuthorizedSource, type AuthorizedSourceResult } from './authorized
 const cache = new Map<string, AuthorizedSourceResult>()
 const inFlight = new Map<string, Promise<AuthorizedSourceResult>>()
 
-export function useAuthorizedSource(sourceSelection: SourceSelectionSnapshot | null | undefined) {
+export function useAuthorizedSource(
+  sourceSelection: SourceSelectionSnapshot | null | undefined,
+  consumer: string = 'unknown-consumer',
+) {
   const fingerprint = sourceSelection?.fingerprint || ''
+  const instanceIdRef = useRef<string>(nextFreeNavInstanceId(`useAuthorizedSource:${consumer}`))
   const [result, setResult] = useState<AuthorizedSourceResult | null>(() => {
     return fingerprint ? cache.get(fingerprint) || null : null
   })
@@ -22,6 +27,12 @@ export function useAuthorizedSource(sourceSelection: SourceSelectionSnapshot | n
 
   useEffect(() => {
     if (!sourceSelection || !fingerprint) {
+      if (process.env.NODE_ENV !== 'production') {
+        freeNavDebug('SOURCE_RESOLUTION', {
+          consumer, instanceId: instanceIdRef.current, fingerprint: fingerprint || null,
+          outcome: 'idle-no-source-selection',
+        })
+      }
       setResult(null)
       setStatus('idle')
       setError('')
@@ -31,6 +42,11 @@ export function useAuthorizedSource(sourceSelection: SourceSelectionSnapshot | n
     // Cache hit sincrónico: no refetch, no clear.
     const cached = cache.get(fingerprint)
     if (cached) {
+      if (process.env.NODE_ENV !== 'production') {
+        freeNavDebug('SOURCE_RESOLUTION', {
+          consumer, instanceId: instanceIdRef.current, fingerprint, outcome: 'cache-hit',
+        })
+      }
       setResult(cached)
       setStatus('ready')
       setError('')
@@ -47,6 +63,13 @@ export function useAuthorizedSource(sourceSelection: SourceSelectionSnapshot | n
     // Deduplicacion de requests concurrentes: si otra instancia ya esta
     // pidiendo el mismo fingerprint, comparte la misma promise.
     let promise = inFlight.get(fingerprint)
+    const wasInFlight = !!promise
+    if (process.env.NODE_ENV !== 'production') {
+      freeNavDebug('SOURCE_RESOLUTION', {
+        consumer, instanceId: instanceIdRef.current, fingerprint,
+        outcome: wasInFlight ? 'inflight-hit-dedup' : 'network-fetch-start',
+      })
+    }
     if (!promise) {
       promise = fetchAuthorizedSource(sourceSelection, controller.signal)
         .then(value => {
@@ -63,12 +86,37 @@ export function useAuthorizedSource(sourceSelection: SourceSelectionSnapshot | n
 
     promise
       .then(value => {
-        if (cancelled) return
+        if (cancelled) {
+          if (process.env.NODE_ENV !== 'production') {
+            freeNavDebug('SOURCE_RESOLUTION', {
+              consumer, instanceId: instanceIdRef.current, fingerprint, outcome: 'success-but-instance-unmounted',
+            })
+          }
+          return
+        }
+        if (process.env.NODE_ENV !== 'production') {
+          freeNavDebug('SOURCE_RESOLUTION', {
+            consumer, instanceId: instanceIdRef.current, fingerprint, outcome: 'success',
+          })
+        }
         setResult(value)
         setStatus('ready')
       })
       .catch(fetchError => {
-        if (cancelled || controller.signal.aborted) return
+        if (cancelled || controller.signal.aborted) {
+          if (process.env.NODE_ENV !== 'production') {
+            freeNavDebug('SOURCE_RESOLUTION', {
+              consumer, instanceId: instanceIdRef.current, fingerprint, outcome: 'aborted',
+            })
+          }
+          return
+        }
+        if (process.env.NODE_ENV !== 'production') {
+          freeNavDebug('SOURCE_RESOLUTION', {
+            consumer, instanceId: instanceIdRef.current, fingerprint, outcome: 'error',
+            reason: fetchError instanceof Error ? fetchError.message : String(fetchError),
+          })
+        }
         setError(fetchError instanceof Error ? fetchError.message : String(fetchError))
         setStatus('error')
       })
@@ -78,7 +126,16 @@ export function useAuthorizedSource(sourceSelection: SourceSelectionSnapshot | n
       // Solo abortamos si esta instancia es la unica esperando.
       // Si hay cache o hay otras instancias esperando, dejamos el fetch en curso.
       if (!cache.has(fingerprint) && !inFlight.has(fingerprint)) {
+        if (process.env.NODE_ENV !== 'production') {
+          freeNavDebug('SOURCE_RESOLUTION', {
+            consumer, instanceId: instanceIdRef.current, fingerprint, outcome: 'unmount-aborting-fetch',
+          })
+        }
         controller.abort()
+      } else if (process.env.NODE_ENV !== 'production') {
+        freeNavDebug('SOURCE_RESOLUTION', {
+          consumer, instanceId: instanceIdRef.current, fingerprint, outcome: 'unmount-leaving-fetch-in-flight',
+        })
       }
     }
   }, [fingerprint])
