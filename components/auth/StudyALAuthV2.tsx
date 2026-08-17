@@ -4,14 +4,35 @@ import { useState } from "react"
 import { signIn, signOut, useSession } from "next-auth/react"
 
 export default function StudyALAuthV2() {
-  const [mode, setMode] = useState<"login" | "register">("login")
+  const [mode, setMode] = useState<"login" | "register" | "forgot">("login")
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState("")
+  const [forgotMessage, setForgotMessage] = useState("")
   const { data: session, status } = useSession()
+
+  async function handleForgotSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setFormError("")
+    setForgotMessage("")
+    setSubmitting(true)
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email }),
+      })
+      const data = await res.json().catch(() => ({}))
+      setForgotMessage(data.message || "Si existe una cuenta con ese email, te enviamos un enlace para recuperar tu contraseña.")
+    } catch {
+      setFormError("Error de conexión — intenta de nuevo")
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   async function handleEmailSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -81,115 +102,169 @@ export default function StudyALAuthV2() {
         <div style={card}>
           <div style={tape} />
 
-          <div style={tabs}>
-            <button
-              type="button"
-              onClick={() => setMode("login")}
-              style={mode === "login" ? tabActive : tab}
-            >
-              🔑 Iniciar sesión
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("register")}
-              style={mode === "register" ? tabActive : tab}
-            >
-              ✨ Registrarse
-            </button>
-          </div>
+          {mode !== "forgot" && (
+            <div style={tabs}>
+              <button
+                type="button"
+                onClick={() => setMode("login")}
+                style={mode === "login" ? tabActive : tab}
+              >
+                🔑 Iniciar sesión
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("register")}
+                style={mode === "register" ? tabActive : tab}
+              >
+                ✨ Registrarse
+              </button>
+            </div>
+          )}
 
           <div style={sectionTitleWrap}>
             <span style={line} />
-            <strong>{mode === "login" ? "Entra con tu cuenta" : "Crea tu cuenta"}</strong>
+            <strong>{mode === "login" ? "Entra con tu cuenta" : mode === "register" ? "Crea tu cuenta" : "Recuperar contraseña"}</strong>
             <span style={line} />
           </div>
 
-          <button
-            type="button"
-            onClick={() => signIn("google", { callbackUrl: "/" })}
-            style={googleButton}
-            disabled={status === "loading"}
-          >
-            <span style={googleG}>G</span>
-            {status === "loading" ? "Cargando..." : "Continuar con Google"}
-          </button>
+          {mode === "forgot" ? (
+            <>
+              <p style={muted}>Escribí el email de tu cuenta y te mandamos un enlace para elegir una contraseña nueva.</p>
+              <form onSubmit={handleForgotSubmit} style={form}>
+                <label style={label}>Email</label>
+                <div style={inputWrap}>
+                  <input
+                    style={input}
+                    type="email"
+                    placeholder="tu@email.com"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    autoComplete="email"
+                    required
+                  />
+                  <span>✉️</span>
+                </div>
 
-          <div style={divider}>
-            <span style={dividerLine} />
-            <span style={dot}>o</span>
-            <span style={dividerLine} />
-          </div>
+                {formError && <p style={errorText}>⚠️ {formError}</p>}
+                {forgotMessage && <p style={switchModeText}>✅ {forgotMessage}</p>}
 
-          <form onSubmit={handleEmailSubmit} style={form}>
-            <label style={label}>Email</label>
-            <div style={inputWrap}>
-              <input
-                style={input}
-                type="email"
-                placeholder="tu@email.com"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                autoComplete="email"
-                required
-              />
-              <span>✉️</span>
-            </div>
+                <button type="submit" style={goldButton} disabled={submitting}>
+                  {submitting ? "Enviando..." : "Enviar enlace"}
+                </button>
+              </form>
 
-            <label style={label}>Contraseña</label>
-            <div style={inputWrap}>
-              <input
-                style={input}
-                type={showPassword ? "text" : "password"}
-                placeholder="••••••••"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                autoComplete={mode === "login" ? "current-password" : "new-password"}
-                required
-              />
+              <p style={switchModeText}>
+                <button
+                  type="button"
+                  onClick={() => { setMode("login"); setFormError(""); setForgotMessage("") }}
+                  style={switchModeLink}
+                >
+                  ← Volver a iniciar sesión
+                </button>
+              </p>
+            </>
+          ) : (
+            <>
               <button
                 type="button"
-                onClick={() => setShowPassword(v => !v)}
-                style={eyeButton}
-                aria-label={showPassword ? "Ocultar contraseña" : "Ver contraseña"}
+                onClick={() => signIn("google", { callbackUrl: "/" })}
+                style={googleButton}
+                disabled={status === "loading"}
               >
-                {showPassword ? "🙈" : "👁️"}
+                <span style={googleG}>G</span>
+                {status === "loading" ? "Cargando..." : "Continuar con Google"}
               </button>
-            </div>
 
-            {mode === "register" && (
-              <>
-                <label style={label}>Confirmar contraseña</label>
+              <div style={divider}>
+                <span style={dividerLine} />
+                <span style={dot}>o</span>
+                <span style={dividerLine} />
+              </div>
+
+              <form onSubmit={handleEmailSubmit} style={form}>
+                <label style={label}>Email</label>
+                <div style={inputWrap}>
+                  <input
+                    style={input}
+                    type="email"
+                    placeholder="tu@email.com"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    autoComplete="email"
+                    required
+                  />
+                  <span>✉️</span>
+                </div>
+
+                <label style={label}>Contraseña</label>
                 <div style={inputWrap}>
                   <input
                     style={input}
                     type={showPassword ? "text" : "password"}
                     placeholder="••••••••"
-                    value={confirmPassword}
-                    onChange={e => setConfirmPassword(e.target.value)}
-                    autoComplete="new-password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    autoComplete={mode === "login" ? "current-password" : "new-password"}
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(v => !v)}
+                    style={eyeButton}
+                    aria-label={showPassword ? "Ocultar contraseña" : "Ver contraseña"}
+                  >
+                    {showPassword ? "🙈" : "👁️"}
+                  </button>
                 </div>
-              </>
-            )}
 
-            {formError && <p style={errorText}>⚠️ {formError}</p>}
+                {mode === "register" && (
+                  <>
+                    <label style={label}>Confirmar contraseña</label>
+                    <div style={inputWrap}>
+                      <input
+                        style={input}
+                        type={showPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        value={confirmPassword}
+                        onChange={e => setConfirmPassword(e.target.value)}
+                        autoComplete="new-password"
+                        required
+                      />
+                    </div>
+                  </>
+                )}
 
-            <button type="submit" style={goldButton} disabled={submitting}>
-              🚀🚀 {submitting ? "Cargando..." : mode === "login" ? "Iniciar sesión" : "Crear cuenta"}
-            </button>
-          </form>
+                {mode === "login" && (
+                  <p style={{ ...switchModeText, marginTop: 0, textAlign: "right" }}>
+                    <button
+                      type="button"
+                      onClick={() => { setMode("forgot"); setFormError(""); setForgotMessage("") }}
+                      style={switchModeLink}
+                    >
+                      ¿Olvidaste tu contraseña?
+                    </button>
+                  </p>
+                )}
 
-          <p style={switchModeText}>
-            {mode === "login" ? "¿No tienes cuenta? " : "¿Ya tienes cuenta? "}
-            <button
-              type="button"
-              onClick={() => { setMode(mode === "login" ? "register" : "login"); setFormError("") }}
-              style={switchModeLink}
-            >
-              {mode === "login" ? "Crear cuenta" : "Iniciar sesión"}
-            </button>
-          </p>
+                {formError && <p style={errorText}>⚠️ {formError}</p>}
+
+                <button type="submit" style={goldButton} disabled={submitting}>
+                  🚀🚀 {submitting ? "Cargando..." : mode === "login" ? "Iniciar sesión" : "Crear cuenta"}
+                </button>
+              </form>
+
+              <p style={switchModeText}>
+                {mode === "login" ? "¿No tienes cuenta? " : "¿Ya tienes cuenta? "}
+                <button
+                  type="button"
+                  onClick={() => { setMode(mode === "login" ? "register" : "login"); setFormError("") }}
+                  style={switchModeLink}
+                >
+                  {mode === "login" ? "Crear cuenta" : "Iniciar sesión"}
+                </button>
+              </p>
+            </>
+          )}
         </div>
 
         <p style={safe}>🔒 ~ Tus datos están seguros y encriptados 🔒 ~</p>

@@ -126,6 +126,40 @@ export default {
         return json({ ok: true })
       }
 
+      // ===== PASSWORD RESET TOKENS =====
+      // Only ever receives/returns a hash of the token — the raw token
+      // never reaches this Worker or D1.
+      if (url.pathname === "/password-reset-tokens/create" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.user_id || !body.token_hash || !body.expires_at) {
+          return json({ ok: false, error: "user_id_token_hash_expires_at_required" }, 400)
+        }
+        await env.DB.prepare(`
+          INSERT INTO password_reset_tokens (token_hash, user_id, expires_at)
+          VALUES (?, ?, ?)
+        `).bind(body.token_hash, body.user_id, body.expires_at).run()
+        return json({ ok: true })
+      }
+
+      if (url.pathname === "/password-reset-tokens/by-hash" && request.method === "GET") {
+        const tokenHash = url.searchParams.get("tokenHash")
+        if (!tokenHash) return json({ ok: false, error: "tokenHash_required" }, 400)
+        const row = await env.DB.prepare(
+          "SELECT token_hash, user_id, expires_at, used_at FROM password_reset_tokens WHERE token_hash = ?"
+        ).bind(tokenHash).first()
+        return json({ ok: true, token: row || null })
+      }
+
+      if (url.pathname === "/password-reset-tokens/mark-used" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.token_hash) return json({ ok: false, error: "token_hash_required" }, 400)
+        await env.DB.prepare(`
+          UPDATE password_reset_tokens SET used_at = datetime('now')
+          WHERE token_hash = ? AND used_at IS NULL
+        `).bind(body.token_hash).run()
+        return json({ ok: true })
+      }
+
       if (url.pathname === "/onboarding/complete" && request.method === "POST") {
         const body = await readBody(request)
         if (!body.user_id) return json({ ok: false, error: "user_id_required" }, 400)

@@ -181,6 +181,8 @@ const traducciones = {
   guardarCambios: { es: '💾 Guardar cambios', en: '💾 Save changes' },
   perfilActualizado: { es: '✅ Perfil actualizado correctamente', en: '✅ Profile updated successfully' },
   cambiarContrasena: { es: '🔑 Cambiar contraseña', en: '🔑 Change password' },
+  crearContrasena: { es: '🔑 Crear contraseña', en: '🔑 Create password' },
+  metodoGoogleSolo: { es: 'Tu cuenta usa Google. Podés crear una contraseña para entrar también con email.', en: 'Your account uses Google. You can create a password to also sign in with email.' },
   nuevaContrasena: { es: 'Nueva contraseña', en: 'New password' },
   confirmarContrasena: { es: 'Confirmar contraseña', en: 'Confirm password' },
   noCoinciden: { es: 'Las contraseñas no coinciden', en: 'Passwords do not match' },

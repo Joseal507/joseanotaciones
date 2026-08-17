@@ -65,6 +65,7 @@ export default function SettingsPage() {
   const passwordConfirmRef = useRef<HTMLInputElement>(null);
   const [enviandoReset, setEnviandoReset] = useState(false);
   const [mensajeReset, setMensajeReset] = useState('');
+  const [hasPassword, setHasPassword] = useState<boolean | null>(null);
   const [customName, setCustomName] = useState(settings.customTheme?.name || '');
   const [customColors, setCustomColors] = useState({
     gold: settings.customTheme?.gold || '#d6b26f',
@@ -167,6 +168,14 @@ export default function SettingsPage() {
     };
     cargar();
   }, [session, status, router]);
+
+  useEffect(() => {
+    if (!session?.user) return;
+    fetch('/api/auth/set-password', { cache: 'no-store', credentials: 'same-origin' })
+      .then(res => res.json())
+      .then(data => { if (data?.success) setHasPassword(Boolean(data.hasPassword)); })
+      .catch(() => {});
+  }, [session]);
 
   const updateSettings = async (changes: Partial<AppSettings>) => {
     const nuevas = { ...settings, ...changes };
@@ -307,7 +316,8 @@ export default function SettingsPage() {
         setErrorPassword('❌ ' + (data.error || 'No se pudo guardar la contraseña'));
         return;
       }
-      setMensajePassword('✅ ' + tr('cambiarContrasena'));
+      setMensajePassword('✅ ' + (hasPassword ? tr('cambiarContrasena') : tr('crearContrasena')));
+      setHasPassword(true);
       setPasswordNueva(''); setPasswordConfirm('');
       if (passwordNuevaRef.current) passwordNuevaRef.current.value = '';
       if (passwordConfirmRef.current) passwordConfirmRef.current.value = '';
@@ -322,7 +332,13 @@ export default function SettingsPage() {
     if (!usuario?.email) return;
     setEnviandoReset(true); setMensajeReset('');
     try {
-      setMensajeReset('La recuperación por email se activará en la siguiente fase. Por ahora entra con Google.');
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: usuario.email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setMensajeReset('✅ ' + (data.message || tr('emailEnviado')));
     } catch (err: any) {
       setMensajeReset('❌ Error: ' + err.message);
     } finally {
@@ -755,7 +771,8 @@ export default function SettingsPage() {
           {/* ===== SEGURIDAD ===== */}
           {seccion === 'seguridad' && (
             <>
-              <NotebookCard color="var(--blue)" emoji="🔒" title={tr('cambiarContrasena')} rot={-0.4}>
+              <NotebookCard color="var(--blue)" emoji="🔒" title={hasPassword ? tr('cambiarContrasena') : tr('crearContrasena')} rot={-0.4}>
+                {hasPassword === false && <Texto>{tr('metodoGoogleSolo')}</Texto>}
                 <Field label={tr('nuevaContrasena')}>
                   <div style={{ position: 'relative' }}>
                     <input
@@ -817,7 +834,7 @@ export default function SettingsPage() {
                 <Alert msg={errorPassword} />
                 <Alert msg={mensajePassword} />
                 <PrimaryBtn onClick={cambiarPassword} disabled={guardandoPassword || !passwordNueva || !passwordConfirm} color="var(--blue)">
-                  {guardandoPassword ? '⏳ ' + tr('cargando') : '🔐 ' + tr('cambiarContrasena')}
+                  {guardandoPassword ? '⏳ ' + tr('cargando') : '🔐 ' + (hasPassword ? tr('cambiarContrasena') : tr('crearContrasena'))}
                 </PrimaryBtn>
               </NotebookCard>
 

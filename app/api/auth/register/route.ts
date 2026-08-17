@@ -52,8 +52,8 @@ export async function POST(req: NextRequest) {
     const createData = await createRes.json().catch(() => ({}));
     const userId = createData?.user?.id;
     if (!userId) {
-      console.error('register: users/upsert failed', createRes.status, JSON.stringify(createData));
-      return NextResponse.json({ success: false, error: 'No se pudo crear la cuenta', debug: { step: 'users/upsert', status: createRes.status, body: createData, apiUrl: API } }, { status: 500 });
+      console.error('register: users/upsert failed', createRes.status);
+      return NextResponse.json({ success: false, error: 'No se pudo crear la cuenta' }, { status: 500 });
     }
 
     const credRes = await fetch(`${API}/credentials/upsert`, {
@@ -62,9 +62,8 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({ user_id: userId, password_hash: passwordHash, algo: 'scrypt' }),
     });
     if (!credRes.ok) {
-      const credBody = await credRes.text().catch(() => '');
-      console.error('register: credentials/upsert failed', credRes.status, credBody);
-      return NextResponse.json({ success: false, error: 'No se pudo crear la cuenta', debug: { step: 'credentials/upsert', status: credRes.status, body: credBody } }, { status: 500 });
+      console.error('register: credentials/upsert failed', credRes.status);
+      return NextResponse.json({ success: false, error: 'No se pudo crear la cuenta' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
