@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedStudyALUser } from '../../../../lib/auth/studyalUser';
+import { workerAuthHeaders } from '../../../../lib/worker/auth';
 
-const API = process.env.STUDYAL_API_URL || process.env.NEXT_PUBLIC_STUDYAL_API_URL || '';
+const API = process.env.STUDYAL_API_URL || '';
 
 async function proxy(path: string, init?: RequestInit) {
   if (!API) throw new Error('STUDYAL_API_URL no configurado');
-  const res = await fetch(API + path, { ...init, cache: 'no-store' });
+  const res = await fetch(API + path, { ...init, cache: 'no-store', headers: workerAuthHeaders(init?.headers) });
   const data = await res.json().catch(() => ({}));
   return NextResponse.json(data, { status: res.status });
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../../lib/auth/options';
+import { workerAuthHeaders } from '../../../../lib/worker/auth';
 
 export async function POST(req: NextRequest) {
   try {
@@ -38,10 +39,10 @@ export async function POST(req: NextRequest) {
 
         await fetch(`${studyApiUrl}/study-sessions`, {
           method: 'POST',
-          headers: {
+          headers: workerAuthHeaders({
             'Content-Type': 'application/json',
             'X-API-Key': studyApiKey,
-          },
+          }),
           body: JSON.stringify({
             user_id: userId,
             session_key: sessionKey,
@@ -88,7 +89,7 @@ export async function GET(req: NextRequest) {
         const res = await fetch(
           `${studyApiUrl}/study-sessions?user_id=${encodeURIComponent(userId)}&session_key=${encodeURIComponent(sessionKey)}`,
           {
-            headers: { 'X-API-Key': studyApiKey },
+            headers: workerAuthHeaders({ 'X-API-Key': studyApiKey }),
           }
         );
         if (res.ok) {

@@ -1,9 +1,12 @@
 export interface Env {
   DB: D1Database
   APP_ENV: string
+  WORKER_SHARED_SECRET: string
 }
 
 type AnyBody = Record<string, any>
+
+const WORKER_SECRET_HEADER = "x-studyal-worker-secret"
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -13,6 +16,16 @@ export default {
 
       if (url.pathname === "/health") {
         return json({ ok: true, service: "studyal-api", env: env.APP_ENV })
+      }
+
+      // Server-to-server gate: only the StudyAL Next.js backend may call this
+      // Worker. Everything below is treated as private — the Worker has no
+      // way to verify WHO a caller is on behalf of, so ownership checks
+      // (userId scoping) only mean something once we know the caller is our
+      // own trusted server, not an arbitrary browser.
+      const suppliedSecret = request.headers.get(WORKER_SECRET_HEADER)
+      if (!env.WORKER_SHARED_SECRET || suppliedSecret !== env.WORKER_SHARED_SECRET) {
+        return json({ ok: false, error: "unauthorized" }, 401)
       }
 
       if (url.pathname === "/users/by-email" && request.method === "GET") {
@@ -82,6 +95,35 @@ export default {
         ).run()
 
         return json({ ok: true, user })
+      }
+
+      // ===== PASSWORD CREDENTIALS =====
+      // Transports only hashes, never plaintext. Hashing/verification happens
+      // in the Next.js server (Node crypto.scrypt) — this Worker just stores
+      // and returns whatever encoded hash string it's given.
+      if (url.pathname === "/credentials/by-user" && request.method === "GET") {
+        const userId = url.searchParams.get("userId")
+        if (!userId) return json({ ok: false, error: "userId_required" }, 400)
+        const row = await env.DB.prepare(
+          "SELECT user_id, password_hash, algo FROM password_credentials WHERE user_id = ?"
+        ).bind(userId).first()
+        return json({ ok: true, credential: row || null })
+      }
+
+      if (url.pathname === "/credentials/upsert" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!body.user_id || !body.password_hash) {
+          return json({ ok: false, error: "user_id_password_hash_required" }, 400)
+        }
+        await env.DB.prepare(`
+          INSERT INTO password_credentials (user_id, password_hash, algo, updated_at)
+          VALUES (?, ?, ?, datetime('now'))
+          ON CONFLICT(user_id) DO UPDATE SET
+            password_hash = excluded.password_hash,
+            algo = excluded.algo,
+            updated_at = datetime('now')
+        `).bind(body.user_id, body.password_hash, body.algo || "scrypt").run()
+        return json({ ok: true })
       }
 
       if (url.pathname === "/onboarding/complete" && request.method === "POST") {

@@ -8,8 +8,9 @@ import {
   type XPAction,
   type XPEventRequest,
 } from '@/lib/xpEvents';
+import { workerAuthHeaders } from '@/lib/worker/auth';
 
-const API = process.env.STUDYAL_API_URL || process.env.NEXT_PUBLIC_STUDYAL_API_URL || '';
+const API = process.env.STUDYAL_API_URL || '';
 
 function parseBreakdown(value: unknown): Record<string, number> {
   if (!value) return {};
@@ -19,7 +20,7 @@ function parseBreakdown(value: unknown): Record<string, number> {
 
 async function worker(path: string, init?: RequestInit) {
   if (!API) throw new Error('STUDYAL_API_URL_not_configured');
-  const response = await fetch(`${API}${path}`, { cache: 'no-store', ...init });
+  const response = await fetch(`${API}${path}`, { cache: 'no-store', ...init, headers: workerAuthHeaders(init?.headers) });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data.ok === false) throw new Error(data.error || 'xp_worker_failed');
   return data;

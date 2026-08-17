@@ -9,3 +9,9 @@ APP_ENV = "development"
 binding = "DB"
 database_name = "studyal-dev-db"
 database_id = "18bdfbc0-8ff1-4444-be88-c0f75202373f"
+
+# WORKER_SHARED_SECRET is NOT set here — secrets never belong in a file
+# checked into git. Set it with:
+#   wrangler secret put WORKER_SHARED_SECRET
+# The same value must be set in Vercel as WORKER_SHARED_SECRET (server-only,
+# never NEXT_PUBLIC_*). See the deployment report for exact steps.

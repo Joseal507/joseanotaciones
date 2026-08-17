@@ -1380,7 +1380,7 @@ function Seccion({ id, emoji, titulo, children, setRef, leida, onToggleLeida, on
         borderRadius: 8,
         padding: '24px 28px',
         marginBottom: 32,
-        boxShadow: '0 8px 20px rgba(0,0,0,0.25), 0 2px 4px rgba(0,0,0,0.15)',
+        boxShadow: '4px 5px 0 var(--text-primary), 0 8px 20px rgba(0,0,0,0.2)',
         scrollMarginTop: 24,
       }}
     >

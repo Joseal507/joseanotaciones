@@ -93,113 +93,113 @@ const TYPE_META: Record<
     icon: "🧠",
     label: "Truquito",
     accent: "var(--gold)",
-    bg: "#17141f",
+    bg: `color-mix(in srgb, var(--gold) 16%, var(--bg-card))`,
   },
   ejemplo_click: {
     icon: "💡",
     label: "El ejemplo que hace click",
     accent: "#38bdf8",
-    bg: "#111827",
+    bg: `color-mix(in srgb, #38bdf8 16%, var(--bg-card))`,
   },
-  analogia: { icon: "🪝", label: "Analogía", accent: "#a78bfa", bg: "#1a1328" },
+  analogia: { icon: "🪝", label: "Analogía", accent: "#a78bfa", bg: `color-mix(in srgb, #a78bfa 16%, var(--bg-card))` },
   error_clasico: {
     icon: "⚠️",
     label: "Error clásico",
     accent: "#ef4444",
-    bg: "#231315",
+    bg: `color-mix(in srgb, #ef4444 16%, var(--bg-card))`,
   },
   examen_tip: {
     icon: "🚨",
     label: "Si esto sale en el examen",
     accent: "#fb923c",
-    bg: "#22170f",
+    bg: `color-mix(in srgb, #fb923c 16%, var(--bg-card))`,
   },
   palabras_gatillo: {
     icon: "⚡",
     label: "Palabras gatillo",
     accent: "#4ade80",
-    bg: "#102018",
+    bg: `color-mix(in srgb, #4ade80 16%, var(--bg-card))`,
   },
   no_confundir: {
     icon: "🔀",
     label: "Cómo NO confundirlos",
     accent: "#22d3ee",
-    bg: "#102026",
+    bg: `color-mix(in srgb, #22d3ee 16%, var(--bg-card))`,
   },
   regla_oro: {
     icon: "🎯",
     label: "Regla de oro",
     accent: "#facc15",
-    bg: "#221f11",
+    bg: `color-mix(in srgb, #facc15 16%, var(--bg-card))`,
   },
   solo_una_cosa: {
     icon: "⭐",
     label: "Si solo recuerdas una cosa",
     accent: "#f472b6",
-    bg: "#24121d",
+    bg: `color-mix(in srgb, #f472b6 16%, var(--bg-card))`,
   },
   cadena_logica: {
     icon: "🔗",
     label: "Cadena lógica",
     accent: "#5eead4",
-    bg: "#0f1f20",
+    bg: `color-mix(in srgb, #5eead4 16%, var(--bg-card))`,
   },
   como_piensa_alai: {
     icon: "🧠",
     label: "Cómo lo piensa ALAI",
     accent: "var(--gold)",
-    bg: "#17141f",
+    bg: `color-mix(in srgb, var(--gold) 16%, var(--bg-card))`,
   },
-  combo: { icon: "🎮", label: "Combo", accent: "#f472b6", bg: "#201119" },
+  combo: { icon: "🎮", label: "Combo", accent: "#f472b6", bg: `color-mix(in srgb, #f472b6 16%, var(--bg-card))` },
   dato_inesperado: {
     icon: "🤯",
     label: "Dato inesperado",
     accent: "#4ade80",
-    bg: "#101d13",
+    bg: `color-mix(in srgb, #4ade80 16%, var(--bg-card))`,
   },
   respuesta_perfecta: {
     icon: "📝",
     label: "Cómo responder perfecto",
     accent: "#a3e635",
-    bg: "#17200f",
+    bg: `color-mix(in srgb, #a3e635 16%, var(--bg-card))`,
   },
   trampa_examen: {
     icon: "🎯",
     label: "Trampa del examen",
     accent: "#fb923c",
-    bg: "#23160f",
+    bg: `color-mix(in srgb, #fb923c 16%, var(--bg-card))`,
   },
   feynman: {
     icon: "🪜",
     label: "Método Feynman",
     accent: "#818cf8",
-    bg: "#121629",
+    bg: `color-mix(in srgb, #818cf8 16%, var(--bg-card))`,
   },
   diez_segundos: {
     icon: "🔥",
     label: "En 10 segundos",
     accent: "#fb923c",
-    bg: "#24160f",
+    bg: `color-mix(in srgb, #fb923c 16%, var(--bg-card))`,
   },
   cinco_segundos: {
     icon: "⚡",
     label: "En 5 segundos",
     accent: "#4ade80",
-    bg: "#102114",
+    bg: `color-mix(in srgb, #4ade80 16%, var(--bg-card))`,
   },
   si_yo_fuera_tu: {
     icon: "🧠",
     label: "Si yo fuera tú",
     accent: "var(--gold)",
-    bg: "#17141f",
+    bg: `color-mix(in srgb, var(--gold) 16%, var(--bg-card))`,
   },
-  tesis_central:     { icon: '💬', label: 'Tesis central',               accent: "var(--gold)", bg: '#1a1400' },
-  premisa_clave:     { icon: '🧱', label: 'Premisa clave',               accent: '#38bdf8', bg: '#0a1828' },
-  como_defender:     { icon: '🛡️', label: 'Cómo defender este argumento', accent: '#4ade80', bg: '#0a1a10' },
-  linea_causal:      { icon: '⏩', label: 'Línea causal',                accent: '#fb923c', bg: '#1a0f00' },
-  figura_clave:      { icon: '👤', label: 'Figura clave',                accent: '#a78bfa', bg: '#140a2a' },
-  antes_despues:     { icon: '↔️', label: 'Antes vs Después',            accent: '#22d3ee', bg: '#081820' },
-  momento_decisivo:  { icon: '⚡', label: 'Momento decisivo',            accent: '#ef4444', bg: '#1f0808' },
+  tesis_central:     { icon: '💬', label: 'Tesis central',               accent: "var(--gold)", bg: `color-mix(in srgb, var(--gold) 16%, var(--bg-card))` },
+  premisa_clave:     { icon: '🧱', label: 'Premisa clave',               accent: '#38bdf8', bg: `color-mix(in srgb, #38bdf8 16%, var(--bg-card))` },
+  como_defender:     { icon: '🛡️', label: 'Cómo defender este argumento', accent: '#4ade80', bg: `color-mix(in srgb, #4ade80 16%, var(--bg-card))` },
+  linea_causal:      { icon: '⏩', label: 'Línea causal',                accent: '#fb923c', bg: `color-mix(in srgb, #fb923c 16%, var(--bg-card))` },
+  figura_clave:      { icon: '👤', label: 'Figura clave',                accent: '#a78bfa', bg: `color-mix(in srgb, #a78bfa 16%, var(--bg-card))` },
+  antes_despues:     { icon: '↔️', label: 'Antes vs Después',            accent: '#22d3ee', bg: `color-mix(in srgb, #22d3ee 16%, var(--bg-card))` },
+  momento_decisivo:  { icon: '⚡', label: 'Momento decisivo',            accent: '#ef4444', bg: `color-mix(in srgb, #ef4444 16%, var(--bg-card))` },
 };
 
 function clamp1to5(value: any): 1 | 2 | 3 | 4 | 5 {
@@ -2214,8 +2214,8 @@ export default function ALAIStudyALCheatCodes({
 
         .cc-card-body {
           margin-top: 14px;
-          background: rgba(255,255,255,0.02);
-          border: 1px dashed rgba(255,255,255,0.06);
+          background: color-mix(in srgb, var(--text-primary) 2%, transparent);
+          border: 1px dashed color-mix(in srgb, var(--text-primary) 6%, transparent);
           border-radius: 12px;
           padding: 12px;
         }

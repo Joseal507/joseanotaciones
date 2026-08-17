@@ -283,7 +283,7 @@ function Podio({ top3, myName, onClick }: {
       {/* Base del podio */}
       <div style={{
         height:8,
-        background:'linear-gradient(90deg,transparent 0%,rgba(255,255,255,.15) 50%,transparent 100%)',
+        background:'linear-gradient(90deg,transparent 0%,color-mix(in srgb, var(--text-primary) 15%, transparent) 50%,transparent 100%)',
         borderTop:'2.5px solid var(--border-color)',
         marginTop:0,
       }}/>
@@ -304,20 +304,20 @@ function EntryRow({ entry, rank, isMe, onClick }: {
     <div onClick={onClick} style={{
       display:'flex',alignItems:'center',gap:10,
       padding:'9px 12px',borderRadius:11,
-      background:isMe?'color-mix(in srgb,var(--gold) 16%,var(--bg-card2))':'rgba(255,255,255,.03)',
-      border:isMe?'2.5px solid var(--gold)':'1.5px dashed rgba(255,255,255,.1)',
+      background:isMe?'color-mix(in srgb,var(--gold) 16%,var(--bg-card2))':'color-mix(in srgb, var(--text-primary) 3%, var(--bg-card))',
+      border:isMe?'2.5px solid var(--gold)':'1.5px dashed var(--border-color)',
       boxShadow:isMe?'3px 4px 0 var(--gold)':'none',
       transform:`rotate(${rot}deg)`,
       cursor:'pointer',transition:'all .25s',
     }}
-      onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0) translateX(3px)';if(!isMe)e.currentTarget.style.background='rgba(255,255,255,.06)';}}
-      onMouseLeave={(e:any)=>{e.currentTarget.style.transform=`rotate(${rot}deg)`;if(!isMe)e.currentTarget.style.background='rgba(255,255,255,.03)';}}
+      onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0) translateX(3px)';if(!isMe)e.currentTarget.style.background='color-mix(in srgb, var(--text-primary) 6%, var(--bg-card))';}}
+      onMouseLeave={(e:any)=>{e.currentTarget.style.transform=`rotate(${rot}deg)`;if(!isMe)e.currentTarget.style.background='color-mix(in srgb, var(--text-primary) 3%, var(--bg-card))';}}
     >
       {/* Rank badge */}
       <div style={{
         width:36,height:36,borderRadius:9,
         background:'var(--bg-card2)',border:'2px solid var(--border-color)',
-        boxShadow:'2px 2px 0 rgba(255,255,255,.08)',
+        boxShadow:'2px 2px 0 color-mix(in srgb, var(--text-primary) 8%, transparent)',
         display:'flex',alignItems:'center',justifyContent:'center',
         fontFamily:HAND,fontSize:15,fontWeight:900,color:'var(--text-faint)',
         flexShrink:0,transform:'rotate(-3deg)',
@@ -480,9 +480,9 @@ export default function Leaderboard() {
               {/* Separador */}
               {rest.length>0 && (
                 <div style={{display:'flex',alignItems:'center',gap:10,margin:'12px 0 14px'}}>
-                  <div style={{flex:1,height:1.5,background:'repeating-linear-gradient(90deg,rgba(255,255,255,.2) 0,rgba(255,255,255,.2) 6px,transparent 6px,transparent 12px)'}}/>
+                  <div style={{flex:1,height:1.5,background:'repeating-linear-gradient(90deg,color-mix(in srgb, var(--text-primary) 20%, transparent) 0,color-mix(in srgb, var(--text-primary) 20%, transparent) 6px,transparent 6px,transparent 12px)'}}/>
                   <span style={{fontFamily:HAND,fontSize:14,fontWeight:800,color:'var(--text-faint)',whiteSpace:'nowrap'}}>~ resto del ranking ~</span>
-                  <div style={{flex:1,height:1.5,background:'repeating-linear-gradient(90deg,rgba(255,255,255,.2) 0,rgba(255,255,255,.2) 6px,transparent 6px,transparent 12px)'}}/>
+                  <div style={{flex:1,height:1.5,background:'repeating-linear-gradient(90deg,color-mix(in srgb, var(--text-primary) 20%, transparent) 0,color-mix(in srgb, var(--text-primary) 20%, transparent) 6px,transparent 6px,transparent 12px)'}}/>
                 </div>
               )}
 

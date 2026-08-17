@@ -3,8 +3,9 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
 import { deriveIsProgramComplete } from '../../../lib/adaptive/resume';
 import { sourceSelectionFingerprint } from '../../../lib/adaptive/sourceSelection';
+import { workerAuthHeaders } from '../../../lib/worker/auth';
 
-const API = process.env.STUDYAL_API_URL || process.env.NEXT_PUBLIC_STUDYAL_API_URL || '';
+const API = process.env.STUDYAL_API_URL || '';
 
 async function getUserId() {
   const session = await getServerSession(authOptions);
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
 
     const res = await fetch(
       `${API}/study-sessions/by-user?userId=${encodeURIComponent(userId)}${temaId ? `&temaId=${encodeURIComponent(temaId)}` : ''}`,
-      { cache: 'no-store' }
+      { cache: 'no-store', headers: workerAuthHeaders() }
     );
 
     const json = await res.json();
@@ -207,7 +208,7 @@ export async function POST(req: NextRequest) {
 
     const res = await fetch(`${API}/study-sessions/upsert`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: workerAuthHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify(payload),
     });
 

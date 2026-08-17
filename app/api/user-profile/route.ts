@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedStudyALUser } from '../../../lib/auth/studyalUser';
+import { workerAuthHeaders } from '../../../lib/worker/auth';
 
 const API = process.env.STUDYAL_API_URL || '';
 
@@ -15,6 +16,7 @@ export async function GET(req: NextRequest) {
 
     const res = await fetch(`${API}/profiles/by-user?userId=${encodeURIComponent(user.id)}`, {
       cache: 'no-store',
+      headers: workerAuthHeaders(),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) return NextResponse.json({ success: false, error: json.error || 'Profile unavailable' }, { status: res.status });
@@ -74,7 +76,7 @@ export async function POST(req: NextRequest) {
 
     await fetch(`${API}/profiles/upsert`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: workerAuthHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify(payload),
     });
 
@@ -98,7 +100,7 @@ export async function POST(req: NextRequest) {
 
         await fetch(`${API}/leaderboard/upsert`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: workerAuthHeaders({ 'content-type': 'application/json' }),
           body: JSON.stringify(publicPayload),
         });
       }

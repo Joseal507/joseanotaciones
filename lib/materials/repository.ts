@@ -9,11 +9,13 @@ import type {
   ResultType,
 } from './types';
 
-const API = process.env.STUDYAL_API_URL || process.env.NEXT_PUBLIC_STUDYAL_API_URL || '';
+import { workerAuthHeaders } from '../worker/auth';
+
+const API = process.env.STUDYAL_API_URL || '';
 
 async function apiGet(path: string) {
   if (!API) throw new Error('STUDYAL_API_URL no configurado');
-  const res = await fetch(`${API}${path}`, { cache: 'no-store' });
+  const res = await fetch(`${API}${path}`, { cache: 'no-store', headers: workerAuthHeaders() });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -22,7 +24,7 @@ async function apiPost(path: string, body: any) {
   if (!API) throw new Error('STUDYAL_API_URL no configurado');
   const res = await fetch(`${API}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: workerAuthHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(await res.text());

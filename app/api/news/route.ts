@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
+import { workerAuthHeaders } from '../../../lib/worker/auth';
 
-const API = process.env.STUDYAL_API_URL || process.env.NEXT_PUBLIC_STUDYAL_API_URL || '';
+const API = process.env.STUDYAL_API_URL || '';
 const ADMIN_EMAIL = 'jose.alberto.deobaldia@gmail.com';
 
 async function isAdmin() {
@@ -13,7 +14,7 @@ async function isAdmin() {
 export async function GET() {
   try {
     if (!API) return NextResponse.json({ success: true, news: [] });
-    const res = await fetch(API + '/news', { cache: 'no-store' });
+    const res = await fetch(API + '/news', { cache: 'no-store', headers: workerAuthHeaders() });
     const data = await res.json().catch(() => ({}));
     return NextResponse.json(data, { status: res.status });
   } catch (e: any) {
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const res = await fetch(API + '/news', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: workerAuthHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify({
         ...body,
         autor: 'Joseal',
@@ -53,7 +54,7 @@ export async function DELETE(req: NextRequest) {
     if (!API) throw new Error('STUDYAL_API_URL no configurado');
 
     const id = req.nextUrl.searchParams.get('id');
-    const res = await fetch(API + '/news?id=' + encodeURIComponent(id || ''), { method: 'DELETE' });
+    const res = await fetch(API + '/news?id=' + encodeURIComponent(id || ''), { method: 'DELETE', headers: workerAuthHeaders() });
     const data = await res.json().catch(() => ({}));
     return NextResponse.json(data, { status: res.status });
   } catch (e: any) {

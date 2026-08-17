@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
+import { workerAuthHeaders } from '../../../lib/worker/auth';
 
 const API = process.env.STUDYAL_API_URL || '';
 
@@ -15,7 +16,7 @@ export async function GET() {
       return NextResponse.json({ success: true, data: [] });
     }
 
-    const res = await fetch(`${API}/leaderboard`, { cache: 'no-store' });
+    const res = await fetch(`${API}/leaderboard`, { cache: 'no-store', headers: workerAuthHeaders() });
     const data = await res.json();
 
     return NextResponse.json({
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest) {
     if (API) {
       const res = await fetch(`${API}/leaderboard/upsert`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: workerAuthHeaders({ 'content-type': 'application/json' }),
         body: JSON.stringify(payload),
       });
 

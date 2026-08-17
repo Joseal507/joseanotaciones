@@ -6,6 +6,7 @@ import { generateStorageKey, getPresignedUploadUrl } from '../../../../../lib/ma
 import { createMaterial } from '../../../../../lib/materials/repository';
 import type { InitUploadRequest, InitUploadResponse } from '../../../../../lib/materials/types';
 import { createHash } from 'crypto';
+import { workerAuthHeaders } from '../../../../../lib/worker/auth';
 
 
 async function getUser() {
@@ -22,7 +23,7 @@ function makeId(userId: string, requestId: string, index: number) {
 async function ownsParent(userId: string, materiaId: string, temaId: string): Promise<boolean> {
   const api = process.env.STUDYAL_API_URL || '';
   if (!api) throw new Error('STUDYAL_API_URL no configurado');
-  const response = await fetch(`${api}/materias/by-user?userId=${encodeURIComponent(userId)}`, { cache: 'no-store' });
+  const response = await fetch(`${api}/materias/by-user?userId=${encodeURIComponent(userId)}`, { cache: 'no-store', headers: workerAuthHeaders() });
   if (!response.ok) throw new Error(`PARENT_LOOKUP_${response.status}`);
   const data = await response.json();
   if (!data.ok) throw new Error(data.error || 'PARENT_LOOKUP_INVALID');

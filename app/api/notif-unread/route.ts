@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
+import { workerAuthHeaders } from '../../../lib/worker/auth';
 
-const API = process.env.STUDYAL_API_URL || process.env.NEXT_PUBLIC_STUDYAL_API_URL || '';
+const API = process.env.STUDYAL_API_URL || '';
 
 async function getUser() {
   const session = await getServerSession(authOptions);
@@ -15,7 +16,7 @@ export async function GET() {
     if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     if (!API) return NextResponse.json({ unread: [] });
 
-    const chatsRes = await fetch(`${API}/partner-chats/by-user?userId=${encodeURIComponent(user.id)}`, { cache: 'no-store' });
+    const chatsRes = await fetch(`${API}/partner-chats/by-user?userId=${encodeURIComponent(user.id)}`, { cache: 'no-store', headers: workerAuthHeaders() });
     const chatsData = await chatsRes.json().catch(() => ({}));
     const chats = chatsData?.chats || [];
 
@@ -24,7 +25,7 @@ export async function GET() {
     const groups: Record<string, any[]> = {};
 
     await Promise.all(chats.map(async (chat: any) => {
-      const msgRes = await fetch(`${API}/partner-messages/by-chat?chatId=${encodeURIComponent(chat.id)}`, { cache: 'no-store' });
+      const msgRes = await fetch(`${API}/partner-messages/by-chat?chatId=${encodeURIComponent(chat.id)}`, { cache: 'no-store', headers: workerAuthHeaders() });
       const msgData = await msgRes.json().catch(() => ({}));
       const unread = (msgData?.messages || [])
         .filter((m: any) => m.sender_id !== user.id && !m.read_at && !m.deleted_at)
@@ -38,7 +39,7 @@ export async function GET() {
     const profileMap: Record<string, any> = {};
 
     await Promise.all(senderIds.map(async (id) => {
-      const res = await fetch(`${API}/leaderboard/by-user?userId=${encodeURIComponent(String(id))}`, { cache: 'no-store' });
+      const res = await fetch(`${API}/leaderboard/by-user?userId=${encodeURIComponent(String(id))}`, { cache: 'no-store', headers: workerAuthHeaders() });
       const data = await res.json().catch(() => ({}));
       if (data?.entry) profileMap[String(id)] = data.entry;
     }));

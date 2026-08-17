@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
+import { workerAuthHeaders } from '../../../lib/worker/auth';
 
 const API = process.env.STUDYAL_API_URL || '';
 export const CURRENT_ONBOARDING_VERSION = 3;
@@ -21,7 +22,7 @@ export async function GET() {
       });
     }
 
-    const res = await fetch(`${API}/users/by-email?email=${encodeURIComponent(user.email || '')}`, { cache: 'no-store' });
+    const res = await fetch(`${API}/users/by-email?email=${encodeURIComponent(user.email || '')}`, { cache: 'no-store', headers: workerAuthHeaders() });
     const data = await res.json();
     const remoteUser = data.user || null;
     const version = Number(remoteUser?.onboarding_version || 0);
@@ -64,7 +65,7 @@ export async function POST(req: NextRequest) {
 
     const res = await fetch(`${API}/onboarding/complete`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: workerAuthHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify(payload),
     });
 

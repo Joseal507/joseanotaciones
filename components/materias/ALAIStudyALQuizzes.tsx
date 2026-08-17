@@ -1289,10 +1289,10 @@ texto.slice(0,8000)
                     animation: 'spin 0.9s linear infinite',
                   }}
                 />
-                <div style={{ fontFamily: HAND, fontSize: 34, color: '#fff' }}>
+                <div style={{ fontFamily: HAND, fontSize: 34, color: 'var(--text-primary)' }}>
                   La IA está diseñando tu examen...
                 </div>
-                <div style={{ fontSize: 14, color: '#555' }}>
+                <div style={{ fontSize: 14, color: 'var(--text-faint)' }}>
                   Analizando las páginas seleccionadas
                 </div>
               </motion.div>
@@ -3459,9 +3459,9 @@ function ResultsScreen({
         style={{
           textAlign: 'center',
           padding: '40px 32px 32px',
-          background: 'rgba(255,255,255,0.03)',
+          background: 'color-mix(in srgb, var(--text-primary) 3%, var(--bg-card))',
           borderRadius: 28,
-          border: '1px solid rgba(255,255,255,0.07)',
+          border: '1px solid color-mix(in srgb, var(--text-primary) 7%, transparent)',
         }}
       >
         <div style={{ fontSize: 60, marginBottom: 8 }}>{mot.emoji}</div>
@@ -3480,7 +3480,7 @@ function ResultsScreen({
         <div
           style={{
             fontSize: 20,
-            color: '#aaa',
+            color: 'var(--text-faint)',
             fontFamily: HAND,
             marginBottom: 20,
           }}
@@ -3528,7 +3528,7 @@ function ResultsScreen({
               <div
                 style={{
                   fontSize: 11,
-                  color: '#555',
+                  color: 'var(--text-faint)',
                   fontFamily: BODY,
                   marginTop: 2,
                 }}
@@ -3613,10 +3613,10 @@ function ResultsScreen({
             width: '100%',
             padding: '16px',
             borderRadius: 16,
-            border: '1.5px solid rgba(255,255,255,0.1)',
+            border: '1.5px solid color-mix(in srgb, var(--text-primary) 10%, transparent)',
             cursor: 'pointer',
-            background: 'rgba(255,255,255,0.04)',
-            color: '#ccc',
+            background: 'color-mix(in srgb, var(--text-primary) 4%, var(--bg-card))',
+            color: 'var(--text-secondary)',
             fontWeight: 700,
             fontSize: 15,
             fontFamily: BODY,
@@ -3712,7 +3712,7 @@ function ReviewScreen({
           marginBottom: 24,
         }}
       >
-        <div style={{ fontFamily: HAND, fontSize: 36, color: '#fff' }}>
+        <div style={{ fontFamily: HAND, fontSize: 36, color: 'var(--text-primary)' }}>
           📖 Revisión de respuestas
         </div>
         <button
@@ -3720,9 +3720,9 @@ function ReviewScreen({
           style={{
             padding: '8px 16px',
             borderRadius: 10,
-            border: '1px solid rgba(255,255,255,0.15)',
+            border: '1px solid color-mix(in srgb, var(--text-primary) 15%, transparent)',
             background: 'transparent',
-            color: '#aaa',
+            color: 'var(--text-faint)',
             cursor: 'pointer',
             fontSize: 14,
             fontFamily: BODY,
@@ -3747,9 +3747,9 @@ function ReviewScreen({
             style={{
               padding: '8px 16px',
               borderRadius: 10,
-              border: `1.5px solid ${filter === f.key ? themeColor : 'rgba(255,255,255,0.1)'}`,
+              border: `1.5px solid ${filter === f.key ? themeColor : 'color-mix(in srgb, var(--text-primary) 10%, transparent)'}`,
               background: filter === f.key ? `${themeColor}22` : 'transparent',
-              color: filter === f.key ? themeColor : '#666',
+              color: filter === f.key ? themeColor : 'var(--text-faint)',
               cursor: 'pointer',
               fontSize: 13,
               fontWeight: 700,
@@ -3797,7 +3797,7 @@ function ReviewItem({
   return (
     <div
       style={{
-        background: 'rgba(255,255,255,0.03)',
+        background: 'color-mix(in srgb, var(--text-primary) 3%, var(--bg-card))',
         border: `1px solid ${correct ? '#4ade8033' : '#f8717133'}`,
         borderRadius: 16,
         overflow: 'hidden',
@@ -3839,7 +3839,7 @@ function ReviewItem({
           <div
             style={{
               fontSize: 14,
-              color: '#ddd',
+              color: 'var(--text-primary)',
               fontFamily: BODY,
               fontWeight: 600,
               lineHeight: 1.4,
@@ -3848,12 +3848,12 @@ function ReviewItem({
           >
             {index + 1}. {q.question}
           </div>
-          <div style={{ fontSize: 12, color: '#666', fontFamily: BODY }}>
+          <div style={{ fontSize: 12, color: 'var(--text-faint)', fontFamily: BODY }}>
             {TYPE_META[q.type]?.icon} {TYPE_META[q.type]?.label}
             {q.sourcePage && ` · Pág. ${q.sourcePage}`}
           </div>
         </div>
-        <span style={{ color: '#555', fontSize: 16 }}>{open ? '▲' : '▼'}</span>
+        <span style={{ color: 'var(--text-faint)', fontSize: 16 }}>{open ? '▲' : '▼'}</span>
       </button>
 
       <AnimatePresence>
@@ -3890,10 +3890,10 @@ function ReviewItem({
                 <div
                   style={{
                     padding: '10px 14px',
-                    background: 'rgba(255,255,255,0.04)',
+                    background: 'color-mix(in srgb, var(--text-primary) 4%, var(--bg-card))',
                     borderRadius: 10,
                     fontSize: 13,
-                    color: '#bbb',
+                    color: 'var(--text-secondary)',
                     fontFamily: BODY,
                     lineHeight: 1.5,
                   }}

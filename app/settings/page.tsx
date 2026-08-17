@@ -293,11 +293,21 @@ export default function SettingsPage() {
     const pNueva = passwordNuevaRef.current?.value || passwordNueva;
     const pConfirm = passwordConfirmRef.current?.value || passwordConfirm;
     if (!pNueva || !pConfirm) { setErrorPassword(tr('noCoinciden')); return; }
-    if (pNueva.length < 6) { setErrorPassword('Min 6 chars'); return; }
     if (pNueva !== pConfirm) { setErrorPassword(tr('noCoinciden')); return; }
     setGuardandoPassword(true);
     try {
-      setMensajePassword('El cambio de contraseña por email se activará en la siguiente fase. Por ahora tu acceso principal es Google.');
+      const res = await fetch('/api/auth/set-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ password: pNueva, confirmPassword: pConfirm }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        setErrorPassword('❌ ' + (data.error || 'No se pudo guardar la contraseña'));
+        return;
+      }
+      setMensajePassword('✅ ' + tr('cambiarContrasena'));
       setPasswordNueva(''); setPasswordConfirm('');
       if (passwordNuevaRef.current) passwordNuevaRef.current.value = '';
       if (passwordConfirmRef.current) passwordConfirmRef.current.value = '';
@@ -751,7 +761,7 @@ export default function SettingsPage() {
                     <input
                       ref={passwordNuevaRef}
                       type={showPasswordNueva ? 'text' : 'password'}
-                      placeholder="Min 6"
+                      placeholder="Min 8, letras y números"
                       autoComplete="new-password"
                       onChange={(e: any) => setPasswordNueva(e.target.value)}
                       onKeyDown={(e: any) => e.key === 'Enter' && cambiarPassword()}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { workerAuthHeaders } from '../../../../lib/worker/auth';
 
-const API = process.env.STUDYAL_API_URL || process.env.NEXT_PUBLIC_STUDYAL_API_URL || '';
+const API = process.env.STUDYAL_API_URL || '';
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,7 +9,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const res = await fetch(API + '/comunidad-views/increment', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: workerAuthHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));

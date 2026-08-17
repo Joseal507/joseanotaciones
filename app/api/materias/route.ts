@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
+import { workerAuthHeaders } from '../../../lib/worker/auth';
 
 const API = process.env.STUDYAL_API_URL || '';
 
@@ -58,6 +59,7 @@ export async function GET() {
 
     const res = await fetch(`${API}/materias/by-user?userId=${encodeURIComponent(userId)}`, {
       cache: 'no-store',
+      headers: workerAuthHeaders(),
     });
 
     const json = await res.json().catch(() => ({}));
@@ -95,7 +97,7 @@ export async function POST(request: NextRequest) {
     if (API) {
       const upstream = await fetch(`${API}/materias/upsert`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: workerAuthHeaders({ 'content-type': 'application/json' }),
         body: JSON.stringify({
           user_id: userId,
           materias: materiasLimpias,

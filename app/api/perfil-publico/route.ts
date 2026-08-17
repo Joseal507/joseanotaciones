@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
+import { workerAuthHeaders } from '../../../lib/worker/auth';
 
-const API = process.env.STUDYAL_API_URL || process.env.NEXT_PUBLIC_STUDYAL_API_URL || '';
+const API = process.env.STUDYAL_API_URL || '';
 
 async function getUser() {
   const session = await getServerSession(authOptions);
@@ -11,14 +12,14 @@ async function getUser() {
 
 async function getLeaderboard(): Promise<any[]> {
   if (!API) return [];
-  const res = await fetch(`${API}/leaderboard`, { cache: 'no-store' });
+  const res = await fetch(`${API}/leaderboard`, { cache: 'no-store', headers: workerAuthHeaders() });
   const data = await res.json().catch(() => ({}));
   return data?.data || [];
 }
 
 async function getByUser(userId: string) {
   if (!API) return null;
-  const res = await fetch(`${API}/leaderboard/by-user?userId=${encodeURIComponent(userId)}`, { cache: 'no-store' });
+  const res = await fetch(`${API}/leaderboard/by-user?userId=${encodeURIComponent(userId)}`, { cache: 'no-store', headers: workerAuthHeaders() });
   const data = await res.json().catch(() => ({}));
   return data?.entry || null;
 }
@@ -27,7 +28,7 @@ async function upsert(payload: any) {
   if (!API) throw new Error('STUDYAL_API_URL no configurado');
   const res = await fetch(`${API}/leaderboard/upsert`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: workerAuthHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));

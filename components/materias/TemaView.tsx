@@ -3380,7 +3380,7 @@ export default function TemaView({
             e.currentTarget.style.textShadow = "0 0 8px rgba(245,200,66,0.6)";
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.color = "#fff";
+            e.currentTarget.style.color = "var(--text-primary)";
             e.currentTarget.style.textShadow = "none";
           }}
         >

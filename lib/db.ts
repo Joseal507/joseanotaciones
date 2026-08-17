@@ -193,15 +193,14 @@ export async function saveHorarioDB(userId: string, horario: Horario): Promise<v
 }
 
 // ===== SETTINGS =====
+// Routed through the internal /api/settings — never call the Worker
+// directly from the browser (it has no way to verify who's calling).
 export async function getSettingsDB(userId: string): Promise<any> {
   try {
-    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
-    if (!api) return null;
-
-    const res = await fetch(`${api}/settings/by-user?userId=${encodeURIComponent(userId)}`, { cache: 'no-store' });
+    void userId;
+    const res = await fetch('/api/settings', { cache: 'no-store', credentials: 'same-origin' });
     if (!res.ok) return null;
     const data = await res.json();
-
     return data?.settings || null;
   } catch {
     return null;
@@ -210,18 +209,12 @@ export async function getSettingsDB(userId: string): Promise<any> {
 
 export async function saveSettingsDB(userId: string, settings: any): Promise<void> {
   try {
-    const api = process.env.NEXT_PUBLIC_STUDYAL_API_URL || process.env.STUDYAL_API_URL;
-    if (!api) return;
-
-    const settingsLimpios = {
-      ...settings,
-      fotoPerfil: settings.fotoPerfil?.startsWith('data:') && settings.fotoPerfil.length > 500_000 ? '' : settings.fotoPerfil,
-    };
-
-    await fetch(`${api}/settings/upsert`, {
+    void userId;
+    await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, settings: settingsLimpios }),
+      credentials: 'same-origin',
+      body: JSON.stringify({ settings }),
     });
   } catch (err) {
     console.error('Error guardando settings D1:', err);

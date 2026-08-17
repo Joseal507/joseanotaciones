@@ -6,11 +6,49 @@ import { signIn, signOut, useSession } from "next-auth/react"
 export default function StudyALAuthV2() {
   const [mode, setMode] = useState<"login" | "register">("login")
   const [showPassword, setShowPassword] = useState(false)
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const [formError, setFormError] = useState("")
   const { data: session, status } = useSession()
 
-  function handleEmailSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleEmailSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    alert("El acceso con email se activará en la siguiente fase. Por ahora usa Google.")
+    setFormError("")
+
+    if (mode === "register" && password !== confirmPassword) {
+      setFormError("Las contraseñas no coinciden")
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      if (mode === "register") {
+        const res = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email, password, confirmPassword }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || !data.success) {
+          setFormError(data.error || "No se pudo crear la cuenta")
+          return
+        }
+      }
+
+      const result = await signIn("credentials", { email, password, redirect: false })
+      if (!result || result.error) {
+        setFormError(mode === "login" ? "Email o contraseña incorrectos" : "Cuenta creada, pero no se pudo iniciar sesión — intenta iniciar sesión manualmente")
+        return
+      }
+
+      window.location.href = "/"
+    } catch {
+      setFormError("Error de conexión — intenta de nuevo")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   if (session?.user) {
@@ -85,13 +123,29 @@ export default function StudyALAuthV2() {
           <form onSubmit={handleEmailSubmit} style={form}>
             <label style={label}>Email</label>
             <div style={inputWrap}>
-              <input style={input} type="email" placeholder="tu@email.com" required />
+              <input
+                style={input}
+                type="email"
+                placeholder="tu@email.com"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                autoComplete="email"
+                required
+              />
               <span>✉️</span>
             </div>
 
             <label style={label}>Contraseña</label>
             <div style={inputWrap}>
-              <input style={input} type={showPassword ? "text" : "password"} placeholder="••••••••" required />
+              <input
+                style={input}
+                type={showPassword ? "text" : "password"}
+                placeholder="••••••••"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
+                required
+              />
               <button
                 type="button"
                 onClick={() => setShowPassword(v => !v)}
@@ -102,18 +156,40 @@ export default function StudyALAuthV2() {
               </button>
             </div>
 
-            <button type="submit" style={goldButton}>
-              🚀🚀 {mode === "login" ? "Iniciar sesión" : "Crear cuenta"}
+            {mode === "register" && (
+              <>
+                <label style={label}>Confirmar contraseña</label>
+                <div style={inputWrap}>
+                  <input
+                    style={input}
+                    type={showPassword ? "text" : "password"}
+                    placeholder="••••••••"
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    autoComplete="new-password"
+                    required
+                  />
+                </div>
+              </>
+            )}
+
+            {formError && <p style={errorText}>⚠️ {formError}</p>}
+
+            <button type="submit" style={goldButton} disabled={submitting}>
+              🚀🚀 {submitting ? "Cargando..." : mode === "login" ? "Iniciar sesión" : "Crear cuenta"}
             </button>
           </form>
 
-          <button
-            type="button"
-            onClick={() => alert("Luego conectamos recuperación de contraseña con el sistema de email.")}
-            style={forgot}
-          >
-            🔑 ¿Olvidaste tu contraseña?
-          </button>
+          <p style={switchModeText}>
+            {mode === "login" ? "¿No tienes cuenta? " : "¿Ya tienes cuenta? "}
+            <button
+              type="button"
+              onClick={() => { setMode(mode === "login" ? "register" : "login"); setFormError("") }}
+              style={switchModeLink}
+            >
+              {mode === "login" ? "Crear cuenta" : "Iniciar sesión"}
+            </button>
+          </p>
         </div>
 
         <p style={safe}>🔒 ~ Tus datos están seguros y encriptados 🔒 ~</p>
@@ -348,6 +424,30 @@ const forgot: React.CSSProperties = {
   fontWeight: 800,
   cursor: "pointer",
   fontSize: 15,
+}
+
+const errorText: React.CSSProperties = {
+  color: "#f87171",
+  fontSize: 14,
+  fontWeight: 700,
+  margin: "2px 0 4px",
+}
+
+const switchModeText: React.CSSProperties = {
+  marginTop: 20,
+  color: "rgba(255,255,255,.75)",
+  fontSize: 15,
+}
+
+const switchModeLink: React.CSSProperties = {
+  background: "transparent",
+  border: 0,
+  color: "#d8b566",
+  textDecoration: "underline",
+  fontWeight: 850,
+  cursor: "pointer",
+  fontSize: 15,
+  padding: 0,
 }
 
 const safe: React.CSSProperties = {
