@@ -59,9 +59,15 @@ export async function POST(req: NextRequest) {
     const resetLink = `${origin}/auth/reset-password?token=${token}`;
 
     try {
-      await sendResetPasswordEmail(userData.user.email, resetLink);
+      const result = await sendResetPasswordEmail(userData.user.email, resetLink);
+      console.log('PASSWORD_RESET_EMAIL_SENT', {
+        messageId: result.messageId,
+        accepted: result.acceptedCount,
+        rejected: result.rejectedCount,
+      });
     } catch (err) {
-      console.error('forgot-password: fallo enviando email', err instanceof Error ? err.message : String(err));
+      const code = (err as { code?: string })?.code || 'UNKNOWN';
+      console.error('PASSWORD_RESET_EMAIL_FAILED', code);
     }
 
     return genericResponse();

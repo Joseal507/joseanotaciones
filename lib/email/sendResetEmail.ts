@@ -9,7 +9,13 @@ export function emailConfigured(): boolean {
   return Boolean(GMAIL_USER && GMAIL_PASS);
 }
 
-export async function sendResetPasswordEmail(to: string, resetLink: string): Promise<void> {
+export interface SendResetEmailResult {
+  messageId: string;
+  acceptedCount: number;
+  rejectedCount: number;
+}
+
+export async function sendResetPasswordEmail(to: string, resetLink: string): Promise<SendResetEmailResult> {
   if (!emailConfigured()) {
     throw new Error('GMAIL_APP_PASSWORD no configurado');
   }
@@ -19,7 +25,7 @@ export async function sendResetPasswordEmail(to: string, resetLink: string): Pro
     auth: { user: GMAIL_USER, pass: GMAIL_PASS },
   });
 
-  await transporter.sendMail({
+  const info = await transporter.sendMail({
     from: `"StudyAL" <${GMAIL_USER}>`,
     to,
     subject: '🔑 Recuperar tu contraseña — StudyAL',
@@ -42,4 +48,10 @@ export async function sendResetPasswordEmail(to: string, resetLink: string): Pro
       </div>
     `,
   });
+
+  return {
+    messageId: info.messageId,
+    acceptedCount: info.accepted?.length ?? 0,
+    rejectedCount: info.rejected?.length ?? 0,
+  };
 }
