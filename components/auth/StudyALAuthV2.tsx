@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
-import { signIn, signOut, useSession } from "next-auth/react"
+import { useEffect, useState } from "react"
+import { signIn, useSession } from "next-auth/react"
+import StudyLoader from "@/components/StudyLoader"
 
 export default function StudyALAuthV2() {
   const [mode, setMode] = useState<"login" | "register" | "forgot">("login")
@@ -12,7 +13,15 @@ export default function StudyALAuthV2() {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState("")
   const [forgotMessage, setForgotMessage] = useState("")
+  const [redirecting, setRedirecting] = useState(false)
   const { data: session, status } = useSession()
+
+  useEffect(() => {
+    if (session?.user) {
+      setRedirecting(true)
+      window.location.href = "/"
+    }
+  }, [session?.user])
 
   async function handleForgotSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -64,6 +73,7 @@ export default function StudyALAuthV2() {
         return
       }
 
+      setRedirecting(true)
       window.location.href = "/"
     } catch {
       setFormError("Error de conexión — intenta de nuevo")
@@ -72,25 +82,8 @@ export default function StudyALAuthV2() {
     }
   }
 
-  if (session?.user) {
-    return (
-      <main style={page}>
-        <section style={shell}>
-          <Brand />
-          <div style={card}>
-            <div style={tape} />
-            <h2 style={cardTitle}>Sesión iniciada</h2>
-            <p style={muted}>{session.user.name || session.user.email}</p>
-            <button style={goldButton} onClick={() => { window.location.href = "/" }}>
-              Entrar a StudyAL
-            </button>
-            <button style={forgot} onClick={() => signOut({ callbackUrl: "/auth" })}>
-              Cerrar sesión
-            </button>
-          </div>
-        </section>
-      </main>
-    )
+  if (redirecting || session?.user) {
+    return <StudyLoader label="Inicio" />
   }
 
   return (
@@ -490,17 +483,6 @@ const goldButton: React.CSSProperties = {
   boxShadow: "0 5px 0 rgba(0,0,0,.3)",
 }
 
-const forgot: React.CSSProperties = {
-  marginTop: 20,
-  background: "transparent",
-  border: 0,
-  color: "#fff",
-  textDecoration: "underline",
-  fontWeight: 800,
-  cursor: "pointer",
-  fontSize: 15,
-}
-
 const errorText: React.CSSProperties = {
   color: "#f87171",
   fontSize: 14,
@@ -535,11 +517,6 @@ const safe: React.CSSProperties = {
 const muted: React.CSSProperties = {
   opacity: 0.75,
   marginBottom: 20,
-}
-
-const cardTitle: React.CSSProperties = {
-  fontSize: 28,
-  marginTop: 10,
 }
 
 function float(left: string, top: string): React.CSSProperties {
