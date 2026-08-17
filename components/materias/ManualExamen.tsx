@@ -7,7 +7,7 @@ import {
   writeManualToolState,
 } from "../../lib/manualToolState";
 
-const BODY = "'Plus Jakarta Sans', system-ui, sans-serif";
+const BODY = "var(--font-body)";
 
 interface Props {
   materiales: any[];

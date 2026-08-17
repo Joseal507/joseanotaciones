@@ -14,8 +14,8 @@ const getCssVar = (name: string, fallback = '#d6b26f'): string => {
   } catch { return fallback; }
 };
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 const DAILY_KEY = 'studyal_daily_reward_date';
 
 export function shouldShowDailyReward(): boolean {
@@ -145,7 +145,7 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
       // Texto
       ctx.save();
       ctx.translate(cx,cy); ctx.rotate(mid); ctx.translate(R*0.54,0); ctx.rotate(Math.PI/2);
-      ctx.font='900 17px Caveat, cursive';
+      ctx.font='900 17px "Plus Jakarta Sans", system-ui, sans-serif';
       ctx.textAlign='center'; ctx.textBaseline='middle';
       ctx.fillStyle = p.isNegative ? '#fca5a5' : '#fff';
       ctx.shadowColor = p.isNegative ? 'rgba(239,68,68,0.6)' : `${p.lineColor}88`;
@@ -266,7 +266,7 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
 
         {/* Titulo */}
         <div style={{textAlign:'center',marginBottom:18,marginTop:4}}>
-          <div style={{fontFamily:HAND,fontSize:13,fontWeight:800,color:'rgba(255,255,255,.45)',fontStyle:'italic',marginBottom:4,transform:'rotate(-1deg)',display:'inline-block'}}>
+          <div style={{fontFamily:HAND,fontSize:13,fontWeight:800,color:'rgba(255,255,255,.45)',marginBottom:4,transform:'rotate(-1deg)',display:'inline-block'}}>
             ~ daily reward ~
           </div>
           <h2 style={{margin:0,fontFamily:HAND,fontSize:34,fontWeight:900,color:'#fff',lineHeight:1,transform:'rotate(-1.5deg)',display:'inline-block'}}>
@@ -281,7 +281,7 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
               padding:'5px 12px',borderRadius:8,
               background:`color-mix(in srgb,${tier.color} 20%,transparent)`,
               border:`2px dashed ${tier.color}`,
-              fontFamily:HAND,fontSize:14,fontWeight:900,color:tier.color,fontStyle:'italic',
+              fontFamily:HAND,fontSize:14,fontWeight:900,color:tier.color,
               transform:'rotate(-3deg)',
             }}>{tier.label}</div>
             <div style={{
@@ -330,13 +330,13 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
             transform:'rotate(-.5deg)',
             animation:'resPop .5s cubic-bezier(.34,1.4,.64,1)',
           }}>
-            <div style={{fontFamily:HAND,fontSize:14,fontWeight:800,color:'rgba(255,255,255,.45)',fontStyle:'italic',marginBottom:4}}>~ resultado ~</div>
+            <div style={{fontFamily:HAND,fontSize:14,fontWeight:800,color:'rgba(255,255,255,.45)',marginBottom:4}}>~ resultado ~</div>
             <div style={{
               fontFamily:HAND,fontSize:42,fontWeight:900,
               color:result.isNegative?'#fca5a5':'#fff',lineHeight:1,
               textShadow:`0 0 14px ${result.isNegative?'rgba(239,68,68,.5)':result.lineColor+'66'}`,
             }}>{result.label}</div>
-            <div style={{marginTop:6,fontFamily:HAND,fontSize:15,fontWeight:700,fontStyle:'italic',color:result.isNegative?'#fca5a5':'rgba(255,255,255,.6)'}}>
+            <div style={{marginTop:6,fontFamily:HAND,fontSize:15,fontWeight:700,color:result.isNegative?'#fca5a5':'rgba(255,255,255,.6)'}}>
               {result.isNegative?'~ ¡estudia más! 💪 ~':'~ ¡reclama tu XP! ☘ ~'}
             </div>
           </div>
@@ -368,7 +368,7 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
               flex:1,padding:14,borderRadius:12,
               border:'2px dashed var(--gold)',background:'color-mix(in srgb, var(--gold) 10%, transparent)',
               color:getCssVar('--gold'),fontFamily:HAND,fontSize:20,fontWeight:800,
-              textAlign:'center',fontStyle:'italic',transform:'rotate(-.5deg)',
+              textAlign:'center',transform:'rotate(-.5deg)',
             }}>⏳ ~ girando... ~</div>
           )}
           {phase==='result' && (
@@ -390,7 +390,7 @@ export default function DailyReward({ onClose, onXPGained, onClaim }: Props) {
           )}
         </div>
 
-        <p style={{textAlign:'center',margin:'14px 0 0',fontFamily:HAND,fontSize:13,fontStyle:'italic',color:'rgba(255,255,255,.35)'}}>
+        <p style={{textAlign:'center',margin:'14px 0 0',fontFamily:HAND,fontSize:13,color:'rgba(255,255,255,.35)'}}>
           ~ vuelve mañana por otra recompensa ☘ ~
         </p>
       </div>

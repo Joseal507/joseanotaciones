@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useIdioma } from '../hooks/useIdioma';
 import { signOut, useSession } from 'next-auth/react';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 const ADMIN_EMAIL = 'jose.alberto.deobaldia@gmail.com';
 
 export default function UserMenu() {
@@ -235,7 +235,7 @@ export default function UserMenu() {
                   transform: 'rotate(-1deg)', display: 'inline-block',
                 }}>{nombre}</p>
                 <p style={{
-                  fontFamily: HAND, fontSize: 13, fontStyle: 'italic',
+                  fontFamily: HAND, fontSize: 13,
                   color: 'var(--text-faint)', margin: 0,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>{usuario.email}</p>
@@ -276,7 +276,7 @@ export default function UserMenu() {
                         fontSize: 14,
                         fontWeight: 700,
                         color: 'var(--text-primary)',
-                        fontStyle: 'italic',
+
                         zIndex: 100,
                         animation: 'umDescPop .15s ease',
                         lineHeight: 1.25,

@@ -8,8 +8,8 @@ import SavedModal from './SavedModal';
 import PartnerProfileModal from './PartnerProfileModal';
 import MessageBubble from './MessageBubble';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 export default function ChatView({ partner, miUserId, miInfo, onBack, onChatDeleted, token, isMobile, wallpaper, chatId: initChatId }: {
   partner: PartnerInfo;
@@ -340,7 +340,7 @@ export default function ChatView({ partner, miUserId, miInfo, onBack, onChatDele
           fontFamily: HAND, fontSize: 17, fontWeight: 800,
           color: 'var(--text-primary)',
           boxShadow: '3px 4px 0 var(--gold)',
-          fontStyle: 'italic',
+
         }}>
           📋 ~ copiado ~
         </div>
@@ -411,10 +411,10 @@ export default function ChatView({ partner, miUserId, miInfo, onBack, onChatDele
               color: 'var(--text-primary)', margin: '6px 0 4px',
               transform: 'rotate(-1deg)', display: 'inline-block',
             }}>
-              🖼️ Fondo del chat
+              🖼️ Fondo del cha
             </h3>
             <p style={{
-              fontFamily: BODY, fontSize: 15, fontStyle: 'italic',
+              fontFamily: BODY, fontSize: 15,
               color: 'var(--text-muted)', margin: '0 0 18px',
             }}>
               ~ ambos verán el mismo fondo ~
@@ -514,7 +514,7 @@ export default function ChatView({ partner, miUserId, miInfo, onBack, onChatDele
             </h3>
             {partner.carrera && (
               <p style={{
-                fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+                fontFamily: BODY, fontSize: 13,
                 color: 'var(--text-faint)', margin: '2px 0 0',
               }}>
                 ~ 🎓 {partner.carrera} ~
@@ -581,7 +581,7 @@ export default function ChatView({ partner, miUserId, miInfo, onBack, onChatDele
               ¡Son partners!
             </p>
             <p style={{
-              fontFamily: BODY, fontSize: 17, fontStyle: 'italic',
+              fontFamily: BODY, fontSize: 17,
               color: 'var(--text-muted)', margin: 0,
             }}>
               ~ envía el primer mensaje ~
@@ -638,7 +638,7 @@ export default function ChatView({ partner, miUserId, miInfo, onBack, onChatDele
               <p style={{
                 fontFamily: HAND, fontSize: 14, fontWeight: 800,
                 color: '#38bdf8', margin: 0,
-                fontStyle: 'italic',
+
               }}>
                 ↩️ ~ respondiendo ~
               </p>
@@ -708,7 +708,7 @@ export default function ChatView({ partner, miUserId, miInfo, onBack, onChatDele
                         lineHeight: 1.1,
                       }}>{pf.name}</p>
                       <p style={{
-                        fontFamily: BODY, fontSize: 12, fontStyle: 'italic',
+                        fontFamily: BODY, fontSize: 12,
                         color: 'var(--text-faint)', margin: 0,
                       }}>{fmtSize(pf.size)}</p>
                     </div>

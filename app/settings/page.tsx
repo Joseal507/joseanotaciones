@@ -11,9 +11,10 @@ import NavbarMobile from '../../components/NavbarMobile';
 import { getSettings, saveSettings, applyTheme, limpiarDatosEstudio, AppSettings, DEFAULT_SETTINGS } from '../../lib/settings';
 import { getSettingsDB, saveSettingsDB } from '../../lib/db';
 import BackupManager from '../../components/BackupManager';
+import StudyLoader from '../../components/StudyLoader';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 type Seccion = 'perfil' | 'seguridad' | 'personalizacion' | 'notificaciones' | 'datos' | 'cuenta';
 
@@ -212,7 +213,7 @@ export default function SettingsPage() {
             visible_leaderboard: visibleLeaderboard,
           }),
         });
-        
+
         if (!saveRes.ok) {
           const errData = await saveRes.json().catch(() => ({}));
           throw new Error(errData?.error || 'No se pudo guardar el perfil');
@@ -334,11 +335,7 @@ export default function SettingsPage() {
   };
 
   if (cargando) {
-    return (
-      <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ fontFamily: HAND, fontSize: 22, color: 'var(--text-muted)', fontStyle: 'italic' }}>~ {tr('cargando')} ~</p>
-      </div>
-    );
+    return <StudyLoader label="Settings" />;
   }
 
   const nombre_usuario = nombre || usuario?.user_metadata?.nombre || usuario?.email?.split('@')[0] || 'Usuario';
@@ -474,13 +471,13 @@ export default function SettingsPage() {
               color: 'var(--text-primary)', margin: '0 0 2px', lineHeight: 1.05,
             }}>{nombre_usuario}</p>
             <p style={{
-              fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+              fontFamily: BODY, fontSize: 13,
               color: 'var(--text-faint)', margin: '0 0 8px',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>{usuario?.email}</p>
             <p style={{
               fontFamily: HAND, fontSize: 14, fontWeight: 700,
-              color: 'var(--gold)', fontStyle: 'italic',
+              color: 'var(--gold)',
               margin: 0, cursor: 'pointer',
             }} onClick={() => fotoRef.current?.click()}>
               ~ {tr('cambiarFoto')} ~
@@ -518,7 +515,7 @@ export default function SettingsPage() {
                       lineHeight: 1.1,
                     }}>{s.label}</div>
                     <div style={{
-                      fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+                      fontFamily: BODY, fontSize: 13,
                       color: 'var(--text-faint)',
                     }}>{s.desc}</div>
                   </div>
@@ -563,7 +560,7 @@ export default function SettingsPage() {
                   <p style={{ fontFamily: HAND, fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px' }}>
                     {tr('fotoDePerfil')}
                   </p>
-                  <p style={{ fontFamily: HAND, fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)', margin: '0 0 8px' }}>
+                  <p style={{ fontFamily: HAND, fontSize: 14, color: 'var(--text-muted)', margin: '0 0 8px' }}>
                     ~ JPG, PNG · Max 5MB ~
                   </p>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -698,7 +695,7 @@ export default function SettingsPage() {
                 borderRadius: 12,
               }}>
                 <div style={{
-                  fontFamily: "'Caveat', cursive",
+                  fontFamily: "var(--font-hand)",
                   fontSize: 18,
                   fontWeight: 800,
                   color: 'var(--blue)',
@@ -797,12 +794,12 @@ export default function SettingsPage() {
                     }}
                   />
                   {passwordConfirm && passwordNueva !== passwordConfirm && (
-                    <p style={{ fontFamily: HAND, fontSize: 14, fontStyle: 'italic', color: 'var(--red)', margin: '4px 0 0' }}>
+                    <p style={{ fontFamily: HAND, fontSize: 14, color: 'var(--red)', margin: '4px 0 0' }}>
                       ~ {tr('noCoinciden')} ~
                     </p>
                   )}
                   {passwordConfirm && passwordNueva === passwordConfirm && passwordNueva.length >= 6 && (
-                    <p style={{ fontFamily: HAND, fontSize: 14, fontStyle: 'italic', color: '#4ade80', margin: '4px 0 0' }}>
+                    <p style={{ fontFamily: HAND, fontSize: 14, color: '#4ade80', margin: '4px 0 0' }}>
                       ~ ✓ {tr('coinciden')} ~
                     </p>
                   )}
@@ -855,7 +852,7 @@ export default function SettingsPage() {
                         }}>{lang.label}</p>
                         {active && (
                           <p style={{
-                            fontFamily: HAND, fontSize: 13, fontStyle: 'italic',
+                            fontFamily: HAND, fontSize: 13,
                             color: '#4ade80', margin: '4px 0 0', fontWeight: 700,
                           }}>~ ✓ {tr('activo')} ~</p>
                         )}
@@ -901,7 +898,7 @@ export default function SettingsPage() {
                             margin: '0 0 2px', lineHeight: 1.05,
                           }}>{idioma === 'en' ? tema.labelEn : tema.labelEs}</p>
                           <p style={{
-                            fontFamily: BODY, fontSize: 14, fontStyle: 'italic',
+                            fontFamily: BODY, fontSize: 14,
                             color: 'var(--text-faint)', margin: 0,
                           }}>~ {idioma === 'en' ? tema.descEn : tema.descEs} ~</p>
                         </div>
@@ -930,7 +927,7 @@ export default function SettingsPage() {
                         🎨 {tr('temaPersonalizado').replace('🎨 ', '')}
                       </p>
                       <p style={{
-                        fontFamily: BODY, fontSize: 14, fontStyle: 'italic',
+                        fontFamily: BODY, fontSize: 14,
                         color: 'var(--text-muted)', margin: 0,
                       }}>
                         ~ {tr('temaPersonalizadoDesc')} ~
@@ -962,7 +959,7 @@ export default function SettingsPage() {
                       <div key={c.key} style={{ textAlign: 'center' }}>
                         <label style={{
                           fontFamily: BODY, fontSize: 13, fontWeight: 700,
-                          color: 'var(--text-muted)', fontStyle: 'italic',
+                          color: 'var(--text-muted)',
                           display: 'block', marginBottom: 6,
                         }}>{c.label}</label>
                         <input
@@ -978,7 +975,7 @@ export default function SettingsPage() {
                           }}
                         />
                         <p style={{
-                          fontFamily: BODY, fontSize: 11, fontStyle: 'italic',
+                          fontFamily: BODY, fontSize: 11,
                           color: 'var(--text-faint)', margin: '4px 0 0',
                         }}>{customColors[c.key]}</p>
                       </div>
@@ -1072,7 +1069,7 @@ export default function SettingsPage() {
                       <p style={{ fontFamily: HAND, fontSize: 18, fontWeight: 800, color: 'var(--blue)', margin: '0 0 2px' }}>
                         {tr('activarNotif')}
                       </p>
-                      <p style={{ fontFamily: HAND, fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)', margin: 0 }}>
+                      <p style={{ fontFamily: HAND, fontSize: 14, color: 'var(--text-muted)', margin: 0 }}>
                         ~ {tr('permisoNavegador')} ~
                       </p>
                     </div>
@@ -1100,7 +1097,7 @@ export default function SettingsPage() {
                   <Toggle label={tr('rachaRiesgo')} desc={tr('alertaRacha')} value={settings.notifRacha} onChange={() => updateSettings({ notifRacha: !settings.notifRacha })} color="var(--red)" />
                   <Toggle label={tr('nuevosLogros')} desc={tr('cuandoDesbloqueas')} value={settings.notifLogros} onChange={() => updateSettings({ notifLogros: !settings.notifLogros })} color="var(--gold)" />
                 </div>
-                <p style={{ fontFamily: BODY, fontSize: 14, fontStyle: 'italic', color: 'var(--text-faint)', margin: 0 }}>
+                <p style={{ fontFamily: BODY, fontSize: 14, color: 'var(--text-faint)', margin: 0 }}>
                   ~ {tr('soloNavegador')} ~
                 </p>
               </NotebookCard>
@@ -1130,7 +1127,7 @@ export default function SettingsPage() {
                       transform: `rotate(${i % 2 === 0 ? -0.3 : 0.3}deg)`,
                     }}>
                       <p style={{ fontFamily: HAND, fontSize: 17, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px' }}>{item.label}</p>
-                      <p style={{ fontFamily: HAND, fontSize: 13, fontStyle: 'italic', color: 'var(--text-faint)', margin: 0 }}>~ {item.desc} ~</p>
+                      <p style={{ fontFamily: HAND, fontSize: 13, color: 'var(--text-faint)', margin: 0 }}>~ {item.desc} ~</p>
                     </div>
                   ))}
                 </div>
@@ -1171,7 +1168,7 @@ export default function SettingsPage() {
                       borderRadius: 10,
                       transform: `rotate(${i % 2 === 0 ? -0.3 : 0.3}deg)`,
                     }}>
-                      <span style={{ fontFamily: HAND, fontSize: 16, fontWeight: 700, color: 'var(--text-muted)', fontStyle: 'italic' }}>{item.label}</span>
+                      <span style={{ fontFamily: HAND, fontSize: 16, fontWeight: 700, color: 'var(--text-muted)' }}>{item.label}</span>
                       <span style={{ fontFamily: HAND, fontSize: 16, fontWeight: 800, color: 'var(--text-primary)' }}>{item.value}</span>
                     </div>
                   ))}
@@ -1201,7 +1198,7 @@ export default function SettingsPage() {
                   <h2 style={{
                     fontFamily: HAND, fontSize: 22, fontWeight: 900,
                     color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.35)',
-                    margin: 0, fontStyle: 'italic',
+                    margin: 0,
                   }}>
                     ⚠️ {tr('zonaPeligrosa')}
                   </h2>
@@ -1220,7 +1217,7 @@ export default function SettingsPage() {
                       <p style={{ fontFamily: HAND, fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px' }}>
                         {tr('eliminarCuenta')}
                       </p>
-                      <p style={{ fontFamily: HAND, fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)', margin: 0 }}>
+                      <p style={{ fontFamily: HAND, fontSize: 14, color: 'var(--text-muted)', margin: 0 }}>
                         ~ {tr('eliminaCuenta')} ~
                       </p>
                     </div>
@@ -1276,7 +1273,7 @@ function NotebookCard({ children, color, emoji, title, rot }: {
         <h2 style={{
           fontFamily: HAND, fontSize: 22, fontWeight: 900,
           color: '#000',
-          margin: 0, fontStyle: 'italic',
+          margin: 0,
           transform: 'rotate(-0.5deg)', display: 'inline-block',
         }}>
           {emoji} {title}
@@ -1296,7 +1293,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         fontFamily: HAND, fontSize: 15, fontWeight: 800,
         color: 'var(--text-muted)',
         display: 'block', marginBottom: 6,
-        fontStyle: 'italic',
+
         transform: 'rotate(-0.5deg)', transformOrigin: 'left',
       }}>
         ✏️ {label}
@@ -1357,7 +1354,7 @@ function Select({ value, onChange, children }: any) {
 function Texto({ children }: { children: React.ReactNode }) {
   return (
     <p style={{
-      fontFamily: BODY, fontSize: 17, fontStyle: 'italic',
+      fontFamily: BODY, fontSize: 17,
       color: 'var(--text-muted)', margin: 0,
     }}>
       ~ {children} ~
@@ -1405,7 +1402,7 @@ function Toggle({ label, desc, value, onChange, color }: { label: string; desc: 
           {label}
         </p>
         {desc && (
-          <p style={{ fontFamily: BODY, fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)', margin: 0 }}>
+          <p style={{ fontFamily: BODY, fontSize: 14, color: 'var(--text-muted)', margin: 0 }}>
             ~ {desc} ~
           </p>
         )}

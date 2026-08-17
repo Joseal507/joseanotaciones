@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 
-const HAND = "'Caveat',cursive";
+const HAND = "var(--font-hand)";
 
 interface Props {
   children: React.ReactNode;
@@ -35,7 +35,7 @@ export default function AuthGuard({ children }: Props) {
             display: 'inline-block',
           }}>📚</div>
           <p style={{
-            fontFamily: HAND, fontSize: 22, fontStyle: 'italic',
+            fontFamily: HAND, fontSize: 22,
             color: 'var(--text-muted)', margin: 0,
           }}>
             ~ cargando StudyAL ~

@@ -6,8 +6,8 @@ import { useIdioma } from '../../hooks/useIdioma';
 import RangoDisplay from '../RangoDisplay';
 import { getLevelProgress, getXpInCurrentLevel, getXpNeededForNextLevel, getRango } from '../../lib/xpSystem';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Props {
   objetivos:    ObjetivoAgenda[];
@@ -114,7 +114,7 @@ export default function Objetivos({
                 fontSize: 18,
                 color: 'var(--pink)',
                 marginLeft: 10,
-                fontStyle: 'italic',
+
                 fontWeight: 700,
               }}>
                 ({completados}/{objetivos.length})
@@ -175,7 +175,7 @@ export default function Objetivos({
             <div style={{ fontSize: 56, marginBottom: 12, position: 'relative' }}>🎯</div>
             <p style={{
               fontFamily: HAND, fontSize: 20,
-              color: 'var(--text-faint)', fontStyle: 'italic',
+              color: 'var(--text-faint)',
               margin: '0 0 18px', position: 'relative',
             }}>
               ~ {idioma === 'en' ? 'No goals yet' : 'No hay objetivos todavía'} ~
@@ -226,7 +226,7 @@ export default function Objetivos({
                   </h3>
                   <span style={{
                     fontFamily: BODY, fontSize: 16, fontWeight: 700,
-                    color: 'var(--text-faint)', fontStyle: 'italic',
+                    color: 'var(--text-faint)',
                     marginLeft: 8,
                   }}>
                     {completosCat}/{objs.length}
@@ -316,7 +316,7 @@ export default function Objetivos({
                                 background: 'var(--bg-secondary)',
                                 borderRadius: 5,
                                 border: '1.5px dashed var(--border-color)',
-                                fontStyle: 'italic',
+
                               }}>
                                 {obj.tamaño}
                               </span>
@@ -394,7 +394,7 @@ export default function Objetivos({
               <span style={{
                 fontFamily: HAND, fontSize: 16, fontWeight: 900,
                 color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.4)',
-                fontStyle: 'italic',
+
               }}>
                 {rango.emoji} {idioma === 'en' ? 'Your Progress' : 'Tu Progreso'}
               </span>
@@ -417,7 +417,7 @@ export default function Objetivos({
                 </div>
                 <div style={{
                   fontFamily: BODY, fontSize: 15,
-                  color: 'var(--text-muted)', fontStyle: 'italic',
+                  color: 'var(--text-muted)',
                   marginTop: 2,
                 }}>
                   {idioma === 'en' ? 'Level' : 'Nivel'}
@@ -442,7 +442,7 @@ export default function Objetivos({
               </div>
               <p style={{
                 fontFamily: BODY, fontSize: 13,
-                color: 'var(--text-faint)', fontStyle: 'italic',
+                color: 'var(--text-faint)',
                 margin: '0 0 14px', textAlign: 'center',
               }}>
                 {xpEnNivel}/{xpParaSiguiente} XP → {idioma === 'en' ? 'Lvl' : 'Nivel'} {nivel + 1}
@@ -476,7 +476,7 @@ export default function Objetivos({
                     </div>
                     <div style={{
                       fontFamily: BODY, fontSize: 12, fontWeight: 700,
-                      color: 'var(--text-faint)', fontStyle: 'italic',
+                      color: 'var(--text-faint)',
                       marginTop: 2,
                     }}>
                       {s.label}
@@ -532,7 +532,7 @@ export default function Objetivos({
             <span style={{
               fontFamily: HAND, fontSize: 16, fontWeight: 900,
               color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.3)',
-              fontStyle: 'italic',
+
             }}>
               💡 {idioma === 'en' ? 'XP Guide' : 'Guía de XP'}
             </span>
@@ -578,7 +578,7 @@ export default function Objetivos({
             }}>
               <p style={{
                 fontFamily: HAND, fontSize: 14, fontWeight: 700,
-                color: 'var(--red)', margin: 0, fontStyle: 'italic',
+                color: 'var(--red)', margin: 0,
               }}>
                 ⛔ {idioma === 'en' ? 'Miss deadline = 0 XP' : 'Vence sin completar = 0 XP'}
               </p>

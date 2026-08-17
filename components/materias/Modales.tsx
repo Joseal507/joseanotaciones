@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { COLORES, EMOJIS } from '../../lib/storage';
 import { useIdioma } from '../../hooks/useIdioma';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface ModalProps {
   onClose: () => void;
@@ -50,7 +50,7 @@ export function ModalMateria({ onClose, onConfirm }: ModalProps) {
           }}>{nombre || '...'}</p>
           <p style={{
             fontFamily: BODY, fontSize: 13,
-            color: 'var(--text-muted)', fontStyle: 'italic',
+            color: 'var(--text-muted)',
             margin: '2px 0 0',
           }}>~ preview ~</p>
         </div>
@@ -339,7 +339,7 @@ export function ModalApunte({ onClose, onConfirm, colorTema }: ModalProps & { co
               }}>{s.label}</div>
               <div style={{
                 fontFamily: BODY, fontSize: 12,
-                color: 'var(--text-faint)', fontStyle: 'italic',
+                color: 'var(--text-faint)',
                 marginTop: 2,
               }}>{s.desc}</div>
             </button>
@@ -408,7 +408,7 @@ export function ModalApunte({ onClose, onConfirm, colorTema }: ModalProps & { co
                 bottom: 6, right: 8,
                 fontFamily: HAND, fontSize: 12, fontWeight: 800,
                 color: paperColor === 'dark' ? '#888' : '#666',
-                fontStyle: 'italic',
+
               }}>
                 {PAPER_SIZES.find(s => s.id === paperSize)?.label}
               </div>
@@ -488,7 +488,7 @@ function ModalShell({ children, color, emoji, title, onClose, maxWidth = 480 }: 
             color: '#000',
             margin: 0, lineHeight: 1.1,
             transform: 'rotate(-0.8deg)', display: 'inline-block',
-            fontStyle: 'italic',
+
           }}>
             {emoji} {title}
           </h2>
@@ -522,7 +522,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         fontFamily: HAND, fontSize: 16, fontWeight: 800,
         color: 'var(--text-muted)',
         display: 'block', marginBottom: 6,
-        fontStyle: 'italic',
+
         transform: 'rotate(-0.5deg)', transformOrigin: 'left',
       }}>
         ✏️ {label}

@@ -3,8 +3,8 @@
 import { useRef, useState } from 'react';
 import { getRango, getProgresoRango } from '../lib/xpSystem';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Stats {
   nombre: string; xpTotal: number; flashcards: number;
@@ -67,7 +67,7 @@ export default function PlayerCard({ stats }: { stats: Stats }) {
           }}>
             <div style={{display:'flex',alignItems:'center',gap:5}}>
               <span style={{fontSize:16}}>{rango.emoji}</span>
-              <span style={{fontFamily:HAND,fontSize:15,fontWeight:900,color:'#fff',textShadow:'0 1px 3px rgba(0,0,0,.5)',lineHeight:1,fontStyle:'italic'}}>
+              <span style={{fontFamily:HAND,fontSize:15,fontWeight:900,color:'#fff',textShadow:'0 1px 3px rgba(0,0,0,.5)',lineHeight:1}}>
                 {rango.nombre} {rango.id!=='himmy'?rango.division:''}
               </span>
             </div>
@@ -96,7 +96,7 @@ export default function PlayerCard({ stats }: { stats: Stats }) {
               <div style={{fontFamily:HAND,fontSize:46,fontWeight:900,color:ovrC,lineHeight:.85,textShadow:`0 0 10px ${ovrC}55`,transform:'rotate(-2deg)',display:'inline-block'}}>
                 {ovr}
               </div>
-              <div style={{fontFamily:HAND,fontSize:11,fontWeight:800,color:'var(--text-muted)',fontStyle:'italic',transform:'rotate(-2deg)',display:'inline-block',marginTop:-2,marginLeft:2}}>
+              <div style={{fontFamily:HAND,fontSize:11,fontWeight:800,color:'var(--text-muted)',transform:'rotate(-2deg)',display:'inline-block',marginTop:-2,marginLeft:2}}>
                 OVR
               </div>
             </div>
@@ -108,7 +108,7 @@ export default function PlayerCard({ stats }: { stats: Stats }) {
               {stats.nombre}
             </div>
             {(stats.universidad||stats.carrera)&&(
-              <div style={{fontFamily:BODY,fontSize:11,fontStyle:'italic',color:'var(--text-faint)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+              <div style={{fontFamily:BODY,fontSize:11,color:'var(--text-faint)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
                 {[stats.carrera,stats.universidad].filter(Boolean).join(' · ')}
               </div>
             )}
@@ -137,8 +137,8 @@ export default function PlayerCard({ stats }: { stats: Stats }) {
 
           {/* Footer */}
           <div style={{padding:'3px 10px',background:'var(--bg-secondary)',borderTop:'1.5px dashed var(--border-color)',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
-            <span style={{fontFamily:BODY,fontSize:10,fontWeight:700,color:'var(--text-faint)',fontStyle:'italic'}}>✦ STUDYAL CARD ✦</span>
-            <span style={{fontFamily:BODY,fontSize:11,fontWeight:700,color:'var(--gold)',fontStyle:'italic'}}>voltear →</span>
+            <span style={{fontFamily:BODY,fontSize:10,fontWeight:700,color:'var(--text-faint)'}}>✦ STUDYAL CARD ✦</span>
+            <span style={{fontFamily:BODY,fontSize:11,fontWeight:700,color:'var(--gold)'}}>voltear →</span>
           </div>
         </div>
 
@@ -164,7 +164,7 @@ export default function PlayerCard({ stats }: { stats: Stats }) {
             borderBottom:'2px solid var(--text-primary)',
             textAlign:'center',marginBottom:12,flexShrink:0,
           }}>
-            <span style={{fontFamily:HAND,fontSize:14,fontWeight:800,color:'#fff',textShadow:'0 1px 3px rgba(0,0,0,.5)',fontStyle:'italic'}}>
+            <span style={{fontFamily:HAND,fontSize:14,fontWeight:800,color:'#fff',textShadow:'0 1px 3px rgba(0,0,0,.5)'}}>
               📲 escanea mi perfil
             </span>
           </div>
@@ -189,7 +189,7 @@ export default function PlayerCard({ stats }: { stats: Stats }) {
             </div>
             <div style={{display:'inline-flex',alignItems:'center',gap:5,background:rango.marcoGradient,border:'2px solid var(--text-primary)',boxShadow:'1px 2px 0 var(--text-primary)',borderRadius:7,padding:'2px 10px',transform:'rotate(2deg)'}}>
               <span style={{fontSize:13}}>{rango.emoji}</span>
-              <span style={{fontFamily:HAND,fontSize:13,fontWeight:800,color:'#fff',textShadow:'0 1px 2px rgba(0,0,0,.4)',fontStyle:'italic'}}>
+              <span style={{fontFamily:HAND,fontSize:13,fontWeight:800,color:'#fff',textShadow:'0 1px 2px rgba(0,0,0,.4)'}}>
                 {rango.nombre} {rango.id!=='himmy'?rango.division:''}
               </span>
             </div>
@@ -205,12 +205,12 @@ export default function PlayerCard({ stats }: { stats: Stats }) {
             ].map((s,i)=>(
               <div key={i} style={{background:'var(--bg-secondary)',border:`2px dashed ${s.c}`,borderRadius:8,padding:'4px',textAlign:'center',transform:`rotate(${s.r}deg)`}}>
                 <div style={{fontFamily:HAND,fontSize:16,fontWeight:900,color:s.c,lineHeight:1}}>{s.v}</div>
-                <div style={{fontFamily:HAND,fontSize:10,fontWeight:700,color:'var(--text-faint)',fontStyle:'italic',marginTop:1}}>{s.l}</div>
+                <div style={{fontFamily:HAND,fontSize:10,fontWeight:700,color:'var(--text-faint)',marginTop:1}}>{s.l}</div>
               </div>
             ))}
           </div>
 
-          <p style={{fontFamily:BODY,fontSize:11,color:'var(--text-muted)',margin:'10px 0 0',fontStyle:'italic',textAlign:'center',flexShrink:0}}>
+          <p style={{fontFamily:BODY,fontSize:11,color:'var(--text-muted)',margin:'10px 0 0',textAlign:'center',flexShrink:0}}>
             ~ toca para voltear ~
           </p>
         </div>

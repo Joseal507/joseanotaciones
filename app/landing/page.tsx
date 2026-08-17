@@ -6,8 +6,8 @@ import { useSession } from 'next-auth/react';
 import Footer from '../../components/Footer';
 import { useIsMobile } from '../../hooks/useIsMobile';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -32,7 +32,7 @@ export default function LandingPage() {
         minHeight: '100vh', background: 'var(--bg-primary)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <p style={{ fontFamily: HAND, fontSize: 22, color: 'var(--text-muted)', fontStyle: 'italic' }}>~ cargando ~</p>
+        <p style={{ fontFamily: HAND, fontSize: 22, color: 'var(--text-muted)' }}>~ cargando ~</p>
       </div>
     );
   }
@@ -255,14 +255,14 @@ export default function LandingPage() {
           fontSize: isMobile ? 22 : 30, fontWeight: 700,
           color: 'var(--text-primary)',
           margin: '60px auto 8px',
-          fontStyle: 'italic',
+
           maxWidth: 700,
         }}>
           Tu plataforma de estudio completa
         </p>
         <p style={{
           fontFamily: BODY,
-          fontSize: isMobile ? 17 : 21, fontStyle: 'italic',
+          fontSize: isMobile ? 17 : 21,
           color: 'var(--text-muted)',
           margin: '0 auto 36px',
           maxWidth: 640,
@@ -325,7 +325,7 @@ export default function LandingPage() {
         </div>
 
         <p style={{
-          fontFamily: BODY, fontSize: 16, fontStyle: 'italic',
+          fontFamily: BODY, fontSize: 16,
           color: 'var(--text-faint)', margin: 0,
         }}>
           ~ ✦ 100% gratis · sin tarjeta · sin trucos ✦ ~
@@ -391,7 +391,7 @@ export default function LandingPage() {
                 {f.title}
               </h3>
               <p style={{
-                fontFamily: BODY, fontSize: 15, fontStyle: 'italic',
+                fontFamily: BODY, fontSize: 15,
                 color: 'var(--text-muted)',
                 margin: 0, lineHeight: 1.3,
               }}>
@@ -462,14 +462,14 @@ export default function LandingPage() {
                     color: 'var(--text-primary)', margin: 0, lineHeight: 1.05,
                   }}>{t.name}</p>
                   <p style={{
-                    fontFamily: BODY, fontSize: 14, fontStyle: 'italic',
+                    fontFamily: BODY, fontSize: 14,
                     color: 'var(--text-faint)', margin: '2px 0 0',
                   }}>{t.carrera}</p>
                 </div>
               </div>
 
               <p style={{
-                fontFamily: BODY, fontSize: 18, fontStyle: 'italic',
+                fontFamily: BODY, fontSize: 18,
                 color: 'var(--text-primary)',
                 margin: 0, lineHeight: 1.4,
               }}>
@@ -515,7 +515,7 @@ export default function LandingPage() {
                 {s.value}
               </div>
               <div style={{
-                fontFamily: BODY, fontSize: 17, fontStyle: 'italic',
+                fontFamily: BODY, fontSize: 17,
                 color: 'var(--text-muted)', marginTop: 4,
               }}>
                 ~ {s.label} ~
@@ -561,7 +561,7 @@ export default function LandingPage() {
             ¿Listo para tirar estudio?
           </h2>
           <p style={{
-            fontFamily: HAND, fontSize: 20, fontStyle: 'italic',
+            fontFamily: HAND, fontSize: 20,
             color: 'var(--text-muted)', margin: '8px 0 28px',
           }}>
             ~ únete a miles de estudiantes que ya están usando StudyAL ~
@@ -584,7 +584,7 @@ export default function LandingPage() {
             ✨ Crear cuenta gratis
           </button>
           <p style={{
-            fontFamily: BODY, fontSize: 15, fontStyle: 'italic',
+            fontFamily: BODY, fontSize: 15,
             color: 'var(--text-faint)', margin: '14px 0 0',
           }}>
             ~ toma menos de 1 minuto ⏱️ ~

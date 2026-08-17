@@ -11,7 +11,7 @@ import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
 
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 
-const BODY = "'Inter', system-ui, sans-serif";
+const BODY = "var(--font-body)";
 const SERIF = "'Times New Roman', Georgia, serif";
 
 type QuestionType = 'short_answer' | 'open_response' | 'multiple_choice' | 'true_false' | 'matching' | 'fill_blank' | 'case_application';
@@ -800,18 +800,18 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
 
   // ═══ RENDER ═══
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 999999, background: '#0a0a0c', color: '#f8fafc', fontFamily: BODY, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 999999, background: 'var(--bg-primary)', color: 'var(--text-primary)', fontFamily: BODY, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{ flex: 1, maxWidth: 1400, width: '100%', margin: '0 auto', padding: phase === 'exam' ? '16px 28px 0' : '24px 28px 60px', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: phase === 'exam' ? 'hidden' : 'auto' }}>
 
         {/* ═══ SETUP ═══ */}
         {phase === 'setup' && (<>
           <button onClick={onBack} style={btnSecondary}>← Volver al proceso</button>
 
-          <section style={{ border: '1.5px solid rgba(245,200,66,.20)', background: 'linear-gradient(135deg, rgba(33,18,4,.55), rgba(9,9,12,.94))', borderRadius: 22, padding: '32px 36px', margin: '24px 0' }}>
-            <div style={{ color: '#f5c842', letterSpacing: 1.6, fontWeight: 900, fontSize: 12 }}>EVALUACIÓN FINAL ADAPTATIVA</div>
+          <section style={{ border: '1.5px solid var(--gold-border)', background: 'linear-gradient(135deg, rgba(33,18,4,.55), rgba(9,9,12,.94))', borderRadius: 22, padding: '32px 36px', margin: '24px 0' }}>
+            <div style={{ color: 'var(--gold)', letterSpacing: 1.6, fontWeight: 900, fontSize: 12 }}>EVALUACIÓN FINAL ADAPTATIVA</div>
             <h1 style={{ margin: '12px 0 8px', fontSize: 38, lineHeight: 1, fontWeight: 900 }}>🧠 Examen ALAI</h1>
-            <p style={{ color: 'rgba(255,255,255,.68)', fontSize: 15, lineHeight: 1.65, maxWidth: 760, margin: 0 }}>
-              Examen real que se <strong style={{ color: '#f5c842' }}>adapta a ti</strong>. Si vas bien sube de dificultad. Si fallas en una habilidad, refuerza ahí.
+            <p style={{ color: 'var(--text-faint)', fontSize: 15, lineHeight: 1.65, maxWidth: 760, margin: 0 }}>
+              Examen real que se <strong style={{ color: 'var(--gold)' }}>adapta a ti</strong>. Si vas bien sube de dificultad. Si fallas en una habilidad, refuerza ahí.
               Mide qué tan seguro estás de cada respuesta para detectar dónde crees que sabes pero no sabes.
             </p>
           </section>
@@ -821,13 +821,13 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
               <section style={cardDark}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                   <span style={{ fontSize: 22 }}>📋</span>
-                  <h2 style={{ margin: 0, fontSize: 17, color: '#f5c842', letterSpacing: 1.5, fontWeight: 900 }}>QUÉ EVALÚA</h2>
+                  <h2 style={{ margin: 0, fontSize: 17, color: 'var(--gold)', letterSpacing: 1.5, fontWeight: 900 }}>QUÉ EVALÚA</h2>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
                   {(Object.keys(SKILL_LABEL) as Skill[]).map(s => (
-                    <div key={s} style={{ border: '1px solid rgba(245,200,66,.14)', background: 'rgba(255,255,255,.02)', borderRadius: 12, padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <div key={s} style={{ border: '1px solid var(--gold-dim)', background: 'var(--bg-card)', borderRadius: 12, padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'center' }}>
                       <span style={{ fontSize: 18 }}>{SKILL_ICON[s]}</span>
-                      <div style={{ fontWeight: 900, fontSize: 13, color: '#f5c842' }}>{SKILL_LABEL[s]}</div>
+                      <div style={{ fontWeight: 900, fontSize: 13, color: 'var(--gold)' }}>{SKILL_LABEL[s]}</div>
                     </div>
                   ))}
                 </div>
@@ -839,9 +839,9 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
                   {(['closed', 'open'] as const).map(m => (
                     <button key={m} onClick={() => setExamMode(m)} style={{
                       padding: '14px 16px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
-                      border: examMode === m ? '2px solid #f5c842' : '1px solid rgba(255,255,255,.12)',
-                      background: examMode === m ? 'rgba(245,200,66,.10)' : 'rgba(255,255,255,.03)',
-                      color: examMode === m ? '#f5c842' : 'rgba(255,255,255,.75)',
+                      border: examMode === m ? '2px solid var(--gold)' : '1px solid var(--border-color)',
+                      background: examMode === m ? 'var(--gold-dim)' : 'var(--bg-card)',
+                      color: examMode === m ? 'var(--gold)' : 'var(--text-faint)',
                     }}>
                       <div style={{ fontWeight: 900, fontSize: 14 }}>{m === 'closed' ? '📝 Cerrado' : '📖 Abierto'}</div>
                       <div style={{ fontSize: 11, opacity: .7, marginTop: 2 }}>{m === 'closed' ? 'Sin consultar material' : 'Puedes revisar el material'}</div>
@@ -853,8 +853,8 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
                     <input type="checkbox" checked={adaptive} onChange={e => setAdaptive(e.target.checked)} style={{ width: 18, height: 18, cursor: 'pointer' }} />
                     <div>
-                      <div style={{ fontWeight: 900, fontSize: 13, color: '#f5c842' }}>🤖 Examen adaptativo</div>
-                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,.6)', marginTop: 2 }}>Sube/baja dificultad y refuerza skills débiles</div>
+                      <div style={{ fontWeight: 900, fontSize: 13, color: 'var(--gold)' }}>🤖 Examen adaptativo</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>Sube/baja dificultad y refuerza skills débiles</div>
                     </div>
                   </label>
                 </div>
@@ -865,7 +865,7 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
               <div style={{ marginBottom: 18 }}>
                 <div style={lblSection}>RECOMENDADO POR ALAI</div>
                 <button onClick={() => recommendedMinutes && setDuration(recommendedMinutes)} disabled={!recommendedMinutes}
-                  style={{ width: '100%', padding: '14px 18px', borderRadius: 12, border: duration === recommendedMinutes ? '2px solid #f5c842' : '1.5px solid rgba(245,200,66,.42)', background: duration === recommendedMinutes ? 'linear-gradient(135deg, rgba(245,200,66,.18), rgba(245,200,66,.06))' : 'rgba(245,200,66,.06)', color: '#f5c842', fontWeight: 900, fontSize: 15, cursor: recommendedMinutes ? 'pointer' : 'not-allowed', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  style={{ width: '100%', padding: '14px 18px', borderRadius: 12, border: duration === recommendedMinutes ? '2px solid var(--gold)' : '1.5px solid var(--gold-border)', background: duration === recommendedMinutes ? 'linear-gradient(135deg, var(--gold-dim), rgba(245,200,66,.06))' : 'rgba(245,200,66,.06)', color: 'var(--gold)', fontWeight: 900, fontSize: 15, cursor: recommendedMinutes ? 'pointer' : 'not-allowed', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span>⚡</span>{recommendedMinutes ? `${recommendedMinutes} min · ideal` : 'Analizando...'}
                   </span>
@@ -876,7 +876,7 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
               <div style={lblSection}>DURACIÓN</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
                 {[5, 10, 20, 30, 45, 60].map(d => (
-                  <button key={d} onClick={() => setDuration(d)} style={{ padding: '12px 6px', borderRadius: 10, cursor: 'pointer', border: duration === d ? '2px solid #f5c842' : '1px solid rgba(255,255,255,.12)', background: duration === d ? 'rgba(245,200,66,.10)' : 'rgba(255,255,255,.03)', color: duration === d ? '#f5c842' : 'rgba(255,255,255,.75)', fontWeight: 800, fontSize: 13 }}>{d} min</button>
+                  <button key={d} onClick={() => setDuration(d)} style={{ padding: '12px 6px', borderRadius: 10, cursor: 'pointer', border: duration === d ? '2px solid var(--gold)' : '1px solid var(--border-color)', background: duration === d ? 'var(--gold-dim)' : 'var(--bg-card)', color: duration === d ? 'var(--gold)' : 'var(--text-faint)', fontWeight: 800, fontSize: 13 }}>{d} min</button>
                 ))}
               </div>
 
@@ -892,7 +892,7 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
 
               {genError && <div style={errBox}>{genError}</div>}
 
-              <button onClick={generateExam} disabled={loadingText} style={{ marginTop: 22, width: '100%', padding: 16, borderRadius: 12, border: 'none', background: loadingText ? '#555' : 'linear-gradient(135deg, #f5c842, #d6a72c)', color: '#080808', fontWeight: 950, fontSize: 14, letterSpacing: 1, cursor: loadingText ? 'not-allowed' : 'pointer' }}>
+              <button onClick={generateExam} disabled={loadingText} style={{ marginTop: 22, width: '100%', padding: 16, borderRadius: 12, border: 'none', background: loadingText ? '#555' : 'var(--gold)', color: '#080808', fontWeight: 950, fontSize: 14, letterSpacing: 1, cursor: loadingText ? 'not-allowed' : 'pointer' }}>
                 {loadingText ? 'CARGANDO MATERIAL...' : 'COMENZAR EXAMEN →'}
               </button>
             </div>
@@ -903,24 +903,24 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
         {phase === 'generating' && (
           <section style={{ minHeight: '85vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ textAlign: 'center', marginBottom: 28 }}>
-              <div style={{ color: '#f5c842', letterSpacing: 4, fontWeight: 900, fontSize: 13, marginBottom: 14 }}>STUDYAL · EXAMEN ALAI</div>
+              <div style={{ color: 'var(--gold)', letterSpacing: 4, fontWeight: 900, fontSize: 13, marginBottom: 14 }}>STUDYAL · EXAMEN ALAI</div>
               <h1 style={{ margin: 0, fontSize: 36, fontWeight: 900 }}>ALAI está construyendo tu examen</h1>
-              <p style={{ color: 'rgba(255,255,255,.55)', fontSize: 15, lineHeight: 1.6, marginTop: 14, maxWidth: 580 }}>Extrayendo conceptos, calculando dificultad y generando preguntas adaptativas.</p>
+              <p style={{ color: 'var(--text-faint)', fontSize: 15, lineHeight: 1.6, marginTop: 14, maxWidth: 580 }}>Extrayendo conceptos, calculando dificultad y generando preguntas adaptativas.</p>
             </div>
             <div style={{ position: 'relative', width: 200, height: 200, marginBottom: 40, display: 'grid', placeItems: 'center' }}>
-              <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid transparent', borderTopColor: '#f5c842', borderRightColor: 'rgba(245,200,66,.4)', animation: 'brainSpin 2.5s linear infinite', boxShadow: '0 0 40px rgba(245,200,66,.25)' }} />
+              <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid transparent', borderTopColor: 'var(--gold)', borderRightColor: 'var(--gold-border)', animation: 'brainSpin 2.5s linear infinite', boxShadow: '0 0 40px var(--gold-border)' }} />
               <div style={{ fontSize: 80, animation: 'brainPulse 2s ease-in-out infinite', filter: 'drop-shadow(0 0 18px rgba(245,200,66,.55))' }}>🧠</div>
             </div>
             <div style={{ width: '100%', maxWidth: 820, position: 'relative', marginBottom: 36 }}>
-              <div style={{ position: 'absolute', left: '8%', right: '8%', top: 28, height: 2, background: 'rgba(245,200,66,.18)' }}>
-                <div style={{ height: '100%', width: `${(genStep / (genSteps.length - 1)) * 100}%`, background: 'linear-gradient(90deg, #f5c842, #d6a72c)', transition: 'width .8s ease' }} />
+              <div style={{ position: 'absolute', left: '8%', right: '8%', top: 28, height: 2, background: 'var(--gold-dim)' }}>
+                <div style={{ height: '100%', width: `${(genStep / (genSteps.length - 1)) * 100}%`, background: 'var(--gold)', transition: 'width .8s ease' }} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: `repeat(${genSteps.length}, 1fr)`, gap: 8, position: 'relative' }}>
                 {genSteps.map((step, i) => {
                   const active = i === genStep, done = i < genStep;
                   return (<div key={i} style={{ textAlign: 'center' }}>
-                    <div style={{ width: 56, height: 56, margin: '0 auto', borderRadius: '50%', background: active ? 'linear-gradient(135deg, #f5c842, #d6a72c)' : done ? 'rgba(245,200,66,.18)' : 'rgba(255,255,255,.05)', border: active ? '2px solid #f5c842' : done ? '2px solid rgba(245,200,66,.4)' : '2px solid rgba(255,255,255,.1)', display: 'grid', placeItems: 'center', fontSize: 22, color: active ? '#080808' : done ? '#f5c842' : 'rgba(255,255,255,.4)' }}>{step.icon}</div>
-                    <div style={{ marginTop: 10, fontSize: 12, color: active ? '#f5c842' : done ? 'rgba(255,255,255,.7)' : 'rgba(255,255,255,.4)', fontWeight: active ? 900 : 700 }}>{i + 1}. {step.label}</div>
+                    <div style={{ width: 56, height: 56, margin: '0 auto', borderRadius: '50%', background: active ? 'var(--gold)' : done ? 'var(--gold-dim)' : 'var(--bg-card)', border: active ? '2px solid var(--gold)' : done ? '2px solid var(--gold-border)' : '2px solid var(--border-color)', display: 'grid', placeItems: 'center', fontSize: 22, color: active ? '#080808' : done ? 'var(--gold)' : 'var(--text-faint)' }}>{step.icon}</div>
+                    <div style={{ marginTop: 10, fontSize: 12, color: active ? 'var(--gold)' : done ? 'var(--text-faint)' : 'var(--text-faint)', fontWeight: active ? 900 : 700 }}>{i + 1}. {step.label}</div>
                   </div>);
                 })}
               </div>
@@ -937,14 +937,14 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
             <header style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
               <button onClick={onBack} style={btnSecondary}>← Salir</button>
               <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ color: '#f5c842', fontWeight: 900, letterSpacing: 2, fontSize: 11 }}>STUDYAL · EXAMEN ALAI {adaptive && '· ADAPTATIVO'}</div>
+                <div style={{ color: 'var(--gold)', fontWeight: 900, letterSpacing: 2, fontSize: 11 }}>STUDYAL · EXAMEN ALAI {adaptive && '· ADAPTATIVO'}</div>
                 <div style={{ fontSize: 18, fontWeight: 900, marginTop: 2 }}>{exam.title}</div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => setShowPdf(v => !v)} style={{ padding: '10px 14px', borderRadius: 10, background: showPdf ? 'rgba(245,200,66,.18)' : 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)', color: showPdf ? '#f5c842' : '#fff', cursor: 'pointer', fontWeight: 800, fontSize: 14 }}>
+                <button onClick={() => setShowPdf(v => !v)} style={{ padding: '10px 14px', borderRadius: 10, background: showPdf ? 'var(--gold-dim)' : 'var(--bg-card)', border: '1px solid var(--border-color)', color: showPdf ? 'var(--gold)' : 'var(--text-primary)', cursor: 'pointer', fontWeight: 800, fontSize: 14 }}>
                   📄 {showPdf ? 'Ocultar PDF' : 'Ver PDF'}
                 </button>
-                <button onClick={togglePause} style={{ padding: '10px 14px', borderRadius: 10, background: paused ? 'rgba(245,200,66,.18)' : 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)', color: paused ? '#f5c842' : '#fff', cursor: 'pointer', fontWeight: 800, fontSize: 14 }}>
+                <button onClick={togglePause} style={{ padding: '10px 14px', borderRadius: 10, background: paused ? 'var(--gold-dim)' : 'var(--bg-card)', border: '1px solid var(--border-color)', color: paused ? 'var(--gold)' : 'var(--text-primary)', cursor: 'pointer', fontWeight: 800, fontSize: 14 }}>
                   {paused ? '▶ Reanudar' : '⏸ Pausar'}
                 </button>
               </div>
@@ -954,14 +954,14 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
               <div style={{ position: 'fixed', inset: 0, zIndex: 9999999, background: 'rgba(0,0,0,.88)', display: 'grid', placeItems: 'center' }}>
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: 60 }}>⏸</div>
-                  <h1 style={{ color: '#f5c842' }}>Examen pausado</h1>
+                  <h1 style={{ color: 'var(--gold)' }}>Examen pausado</h1>
                   {submissionError ? (
                     <>
                       <p style={{ color: '#fecaca', maxWidth: 520 }}>{submissionError}</p>
-                      <button onClick={retryEvaluation} style={{ marginTop: 20, padding: '16px 32px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #f5c842, #d6a72c)', color: '#080808', fontWeight: 950, fontSize: 16, cursor: 'pointer' }}>Reintentar corrección</button>
+                      <button onClick={retryEvaluation} style={{ marginTop: 20, padding: '16px 32px', borderRadius: 12, border: 'none', background: 'var(--gold)', color: '#080808', fontWeight: 950, fontSize: 16, cursor: 'pointer' }}>Reintentar corrección</button>
                     </>
                   ) : (
-                    <button onClick={togglePause} style={{ marginTop: 20, padding: '16px 32px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #f5c842, #d6a72c)', color: '#080808', fontWeight: 950, fontSize: 16, cursor: 'pointer' }}>Continuar →</button>
+                    <button onClick={togglePause} style={{ marginTop: 20, padding: '16px 32px', borderRadius: 12, border: 'none', background: 'var(--gold)', color: '#080808', fontWeight: 950, fontSize: 16, cursor: 'pointer' }}>Continuar →</button>
                   )}
                 </div>
               </div>
@@ -994,14 +994,14 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
               {examMode === 'open' && showPdf && pdfUrl && (
                 <div style={{
                   height: '100%',
-                  background: '#1a1a1f',
+                  background: 'var(--bg-card)',
                   borderRadius: 12,
                   overflow: 'hidden',
-                  border: '1px solid rgba(255,255,255,.08)',
+                  border: '1px solid var(--border-color)',
                   display: 'flex', flexDirection: 'column',
                   minHeight: 0,
                 }}>
-                  <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,.06)', fontSize: 11, color: 'rgba(255,255,255,.6)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-color)', fontSize: 11, color: 'var(--text-faint)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span>📄</span>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                       {matActual?.nombre || matActual?.titulo || 'Material'}
@@ -1015,7 +1015,7 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
                       key={matActualId + '-' + pdfUrl}
                       url={pdfUrl}
                       selectedPages={activeMaterialSelectedPages}
-                      themeColor="#f5c842"
+                      themeColor="var(--gold)"
                       onTotalPages={() => {}}
                       totalSelectedPages={activeMaterialSelectedPages.length}
                       activeMaterialIndex={activeMaterialIndex}
@@ -1130,15 +1130,15 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
             </div>
 
             {/* MINIMAP */}
-            <div style={{ maxWidth: 900, margin: '16px auto 0', display: 'flex', flexWrap: 'wrap', gap: 5, justifyContent: 'center', padding: '12px 16px', background: 'rgba(255,255,255,.03)', borderRadius: 12, border: '1px solid rgba(255,255,255,.08)' }}>
+            <div style={{ maxWidth: 900, margin: '16px auto 0', display: 'flex', flexWrap: 'wrap', gap: 5, justifyContent: 'center', padding: '12px 16px', background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border-color)' }}>
               {questions.map((_, i) => {
                 const isCurrent = i === currentQuestion;
                 const isMarked = marked.has(i);
                 const done = isAnswered(answers[i]);
-                const bg = isCurrent ? '#f5c842' : isMarked ? '#f59e0b' : done ? '#16a34a' : 'rgba(255,255,255,.12)';
-                const color = isCurrent || isMarked || done ? '#000' : 'rgba(255,255,255,.5)';
+                const bg = isCurrent ? 'var(--gold)' : isMarked ? '#f59e0b' : done ? '#16a34a' : 'var(--bg-card)';
+                const color = isCurrent || isMarked || done ? '#000' : 'var(--text-faint)';
                 return (
-                  <button key={i} onClick={() => goTo(i)} title={'Pregunta ' + (i + 1)} style={{ width: 28, height: 28, borderRadius: 6, border: isCurrent ? '2px solid #fff' : '1px solid rgba(255,255,255,.08)', background: bg, color, fontWeight: 800, fontSize: 10, cursor: 'pointer', display: 'grid', placeItems: 'center', position: 'relative', flexShrink: 0 }}>
+                  <button key={i} onClick={() => goTo(i)} title={'Pregunta ' + (i + 1)} style={{ width: 28, height: 28, borderRadius: 6, border: isCurrent ? '2px solid var(--text-primary)' : '1px solid var(--border-color)', background: bg, color, fontWeight: 800, fontSize: 10, cursor: 'pointer', display: 'grid', placeItems: 'center', position: 'relative', flexShrink: 0 }}>
                     {i + 1}
                     {isMarked && <span style={{ position: 'absolute', top: -5, right: -5, fontSize: 9 }}>🚩</span>}
                   </button>
@@ -1147,8 +1147,8 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
             </div>
 
             <div style={{ maxWidth: 900, margin: '14px auto 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <button disabled={currentQuestion === 0} onClick={() => goTo(currentQuestion - 1)} style={{ padding: '12px 20px', borderRadius: 10, border: '1px solid rgba(255,255,255,.14)', background: currentQuestion === 0 ? 'rgba(255,255,255,.03)' : 'rgba(255,255,255,.06)', color: currentQuestion === 0 ? 'rgba(255,255,255,.3)' : '#e5e7eb', cursor: currentQuestion === 0 ? 'not-allowed' : 'pointer', fontWeight: 800, fontSize: 13 }}>← Anterior</button>
-              <div style={{ color: 'rgba(255,255,255,.5)', fontSize: 12 }}>{answeredCount}/{questions.length} respondidas</div>
+              <button disabled={currentQuestion === 0} onClick={() => goTo(currentQuestion - 1)} style={{ padding: '12px 20px', borderRadius: 10, border: '1px solid var(--border-color)', background: currentQuestion === 0 ? 'var(--bg-card)' : 'var(--bg-card2)', color: currentQuestion === 0 ? 'var(--text-faint)' : 'var(--text-primary)', cursor: currentQuestion === 0 ? 'not-allowed' : 'pointer', fontWeight: 800, fontSize: 13 }}>← Anterior</button>
+              <div style={{ color: 'var(--text-faint)', fontSize: 12 }}>{answeredCount}/{questions.length} respondidas</div>
             </div>
               </div>
             </div>
@@ -1161,7 +1161,7 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
             <div>
               <div style={{ fontSize: 70, marginBottom: 14, animation: 'brainPulse 1.5s infinite' }}>📝</div>
               <h1 style={{ margin: 0, fontSize: 28 }}>ALAI está corrigiendo tu examen</h1>
-              <p style={{ color: 'rgba(255,255,255,.6)', marginTop: 10 }}>Evaluando {questions.length} preguntas + calibración de confianza.</p>
+              <p style={{ color: 'var(--text-faint)', marginTop: 10 }}>Evaluando {questions.length} preguntas + calibración de confianza.</p>
             </div>
           </section>
         )}
@@ -1324,7 +1324,7 @@ function MatchingRenderer({ q, value, onChange }: { q: ExamQuestion; value: any;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ textAlign: 'center', color: '#666', fontFamily: BODY, fontSize: 12, fontStyle: 'italic' }}>
+      <div style={{ textAlign: 'center', color: '#666', fontFamily: BODY, fontSize: 12 }}>
         Clic en uno de la izquierda y luego en su pareja de la derecha.
       </div>
 
@@ -2041,21 +2041,21 @@ function CalBox({ label, value, color, desc, highlight }: { label: string; value
 // ═══ HELPERS UI ═══
 
 const btnSecondary: any = {
-  background: 'transparent', color: '#f5c842',
-  border: '1.5px solid rgba(245,200,66,.42)',
+  background: 'transparent', color: 'var(--gold)',
+  border: '1.5px solid var(--gold-border)',
   padding: '10px 18px', borderRadius: 10, cursor: 'pointer',
   fontWeight: 700, fontSize: 14,
 };
 
 const cardDark: any = {
-  background: 'linear-gradient(180deg, rgba(20,18,14,.95), rgba(12,11,9,.95))',
-  border: '1.5px solid rgba(245,200,66,.22)',
+  background: 'var(--bg-card)',
+  border: '1.5px solid var(--gold-border)',
   borderRadius: 18, padding: 24,
 };
 
-const lblSection: any = { fontWeight: 900, letterSpacing: 1.3, fontSize: 11, color: 'rgba(255,255,255,.55)', marginBottom: 10 };
-const infoBox: any = { padding: '10px 12px', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 10, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 };
-const errBox: any = { marginTop: 18, padding: 12, borderRadius: 10, background: 'rgba(220,38,38,.10)', border: '1px solid rgba(220,38,38,.32)', color: '#fca5a5', fontWeight: 700, fontSize: 13 };
+const lblSection: any = { fontWeight: 900, letterSpacing: 1.3, fontSize: 11, color: 'var(--text-faint)', marginBottom: 10 };
+const infoBox: any = { padding: '10px 12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 };
+const errBox: any = { marginTop: 18, padding: 12, borderRadius: 10, background: 'rgba(220,38,38,.10)', border: '1px solid rgba(220,38,38,.32)', color: '#dc2626', fontWeight: 700, fontSize: 13 };
 
 function formatAnswer(q: ExamQuestion, ans: any): string {
   if (ans === null || ans === undefined) return '(sin responder)';

@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Materia, Tema, Apunte, Documento } from "../../lib/storage";
+import { hardShadow } from "../../lib/ui/surface";
 import StudyALProcess from "./StudyALProcess";
 import StudyALAdaptive from "./StudyALAdaptive";
 import StudyALManual from "./StudyALManual";
@@ -26,6 +27,8 @@ import {
   getMaterialSessions,
   syncSessionsFromServer,
   lookupSessionByIdFromServer,
+  getSessionById,
+  updateSessionById,
   type StudySession,
   selectSessionForSource,
 } from "../../lib/studySessions";
@@ -33,9 +36,9 @@ import { resolveAdaptiveResumeTarget } from "../../lib/adaptive/resume";
 import { buildSourceSelectionSnapshot, canonicalizeSelectedPages, mapPageSelectionsToMaterials } from "../../lib/adaptive/sourceSelection";
 import { freeNavDebug, nextFreeNavInstanceId } from "../../lib/debug/freeNavDebug";
 
-const HAND = "'Caveat', cursive";
-const BODY = "'Inter', system-ui, sans-serif";
-const HAND_BOLD = "'Caveat', cursive";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
+const HAND_BOLD = "var(--font-hand)";
 
 const getMaterialKey = (doc: any): string =>
   String(doc?.materialId || doc?.id || "");
@@ -500,7 +503,7 @@ function EnfoqueWheel({ onClose, onSelect, color, materialesCount }: any) {
               color: "rgba(255,255,255,0.6)",
               fontFamily: HAND,
               marginTop: 8,
-              fontStyle: "italic",
+
             }}
           >
             elige tu enfoque ↓
@@ -624,7 +627,7 @@ function EnfoqueWheel({ onClose, onSelect, color, materialesCount }: any) {
                     fontSize: 16,
                     color: "rgba(255,255,255,0.55)",
                     fontFamily: HAND,
-                    fontStyle: "italic",
+
                     marginBottom: 16,
                   }}
                 >
@@ -1461,6 +1464,20 @@ export default function TemaView({
   const [manualActiveTool, setManualActiveTool] = useState<DurableManualTool | null>(null);
   const [manualProgress, setManualProgress] = useState<Partial<Record<DurableManualTool, number>>>({});
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
+
+  // Hidratar el progreso del hub triangular desde la sesión durable
+  // (StudySession.notes.manualProgress) en cuanto se conoce el id de sesión
+  // Manual -- sin esto, manualProgress era un useState que arrancaba en {}
+  // en cada mount/refresh y el triángulo mostraba lados apagados aunque las
+  // 6 herramientas ya estuvieran completadas de una sesión anterior.
+  useEffect(() => {
+    if (!manualSessionId) return;
+    const session = getSessionById(manualSessionId);
+    const restored = (session?.notes as any)?.manualProgress;
+    if (restored && typeof restored === 'object') {
+      setManualProgress(prev => ({ ...restored, ...prev }));
+    }
+  }, [manualSessionId]);
   const [returningToEnfoque, setReturningToEnfoque] = useState(false);
   const [showSeleccion, setShowSeleccion] = useState(false);
   const [enfoqueElegido, setEnfoqueElegido] = useState<"teorico" | "matematico" | "mixto" | "practico" | null>("teorico");
@@ -2465,6 +2482,18 @@ export default function TemaView({
         const current = prev[tool] || 0;
         const next = Math.min(MANUAL_TOOL_CAPS[tool], Math.max(current, pct));
         if (next === current) return prev;
+        // Persistir en la misma StudySession que ya guarda manualTools --
+        // no es un segundo sistema de progreso, es la autoridad durable
+        // existente sirviendo también al hub para que sobreviva refresh.
+        if (activeSessionId) {
+          updateSessionById(activeSessionId, session => ({
+            ...session,
+            notes: {
+              ...(session.notes || {}),
+              manualProgress: { ...((session.notes as any)?.manualProgress || {}), [tool]: next },
+            },
+          }));
+        }
         return { ...prev, [tool]: next };
       });
     };
@@ -3158,9 +3187,9 @@ export default function TemaView({
       style={{
         position: "fixed",
         inset: 0,
-        background: "#0a0a0c",
+        background: "var(--bg-primary)",
         overflow: "hidden",
-        color: "#fff",
+        color: "var(--text-primary)",
         fontFamily: HAND,
       }}
     >
@@ -3236,13 +3265,13 @@ export default function TemaView({
             style={{
               width: 16,
               height: 16,
-              border: "2.5px solid #f5c842",
+              border: "2.5px solid var(--gold)",
               borderTopColor: "transparent",
               borderRadius: "50%",
               animation: "spin 0.8s linear infinite",
             }}
           />
-          <span style={{ fontWeight: 700, color: "#f5c842", fontSize: 18 }}>
+          <span style={{ fontWeight: 700, color: "var(--gold)", fontSize: 18 }}>
             cargando...
           </span>
         </div>
@@ -3286,15 +3315,15 @@ export default function TemaView({
           top: 56,
           left: 16,
           zIndex: 1000,
-          background: "#0d0d10",
-          border: "1.5px solid rgba(255,255,255,0.12)",
+          background: "var(--bg-card)",
+          border: "1.5px solid var(--border-color)",
           padding: "6px 16px",
           borderRadius: 30,
           display: "flex",
           alignItems: "center",
           gap: 8,
           fontSize: 17,
-          boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+          boxShadow: hardShadow('var(--border-color)', 2, 3),
           maxWidth: "calc(50vw - 220px)",
           overflow: "hidden",
         }}
@@ -3336,7 +3365,7 @@ export default function TemaView({
             padding: 0,
             margin: 0,
             cursor: "pointer",
-            color: "#fff",
+            color: "var(--text-primary)",
             fontFamily: BODY,
             fontSize: 17,
             fontWeight: 600,
@@ -3347,7 +3376,7 @@ export default function TemaView({
             transition: "color 0.2s, text-shadow 0.2s",
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.color = "#f5c842";
+            e.currentTarget.style.color = "var(--gold)";
             e.currentTarget.style.textShadow = "0 0 8px rgba(245,200,66,0.6)";
           }}
           onMouseLeave={(e) => {
@@ -3501,11 +3530,11 @@ export default function TemaView({
                 style={{
                   fontFamily: HAND,
                   fontSize: 15,
-                  color: isResumeMode ? "#f5c842" : "var(--red)",
-                  fontStyle: "italic",
+                  color: isResumeMode ? "var(--gold)" : "var(--red)",
+
                   opacity: 0.85,
                   textShadow: isResumeMode
-                    ? "0 0 8px #f5c842"
+                    ? "0 0 8px var(--gold)"
                     : "0 0 8px var(--red)",
                   letterSpacing: 0.5,
                 }}
@@ -3626,7 +3655,7 @@ export default function TemaView({
                       : "linear-gradient(135deg, rgba(20,20,25,0.95), rgba(40,15,20,0.95))",
                     color: "#fff",
                     border: isResumeMode
-                      ? "2px solid #f5c842"
+                      ? "2px solid var(--gold)"
                       : "2px solid var(--red)",
                     padding: "12px 24px",
                     borderRadius: 15,
@@ -3725,11 +3754,11 @@ export default function TemaView({
           display: "flex",
           alignItems: "center",
           gap: 4,
-          background: "#0d0d10",
-          border: "1px solid rgba(255,255,255,0.2)",
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-color)",
           padding: 4,
           borderRadius: 10,
-          boxShadow: "0 4px 20px rgba(0,0,0,0.6)",
+          boxShadow: hardShadow('var(--border-color)', 2, 3),
         }}
       >
         <button
@@ -3744,7 +3773,7 @@ export default function TemaView({
             minWidth: 44,
             textAlign: "center",
             fontSize: 14,
-            color: "#fff",
+            color: "var(--text-primary)",
             fontWeight: 600,
             fontFamily: BODY,
           }}
@@ -3778,7 +3807,7 @@ export default function TemaView({
           bottom: 16,
           left: 16,
           zIndex: 200,
-          background: "#0d0d10",
+          background: "var(--bg-card)",
           border: "1px solid rgba(255,255,255,0.15)",
           padding: "6px 14px",
           borderRadius: 10,
@@ -4106,7 +4135,7 @@ export default function TemaView({
                         boxShadow: "0 2px 4px rgba(0,0,0,0.25)",
                         pointerEvents: "none",
                         zIndex: 4,
-                        fontStyle: "italic",
+
                       }}
                     >
                       ~ tema ~
@@ -4464,7 +4493,7 @@ export default function TemaView({
                             fontSize: 13,
                             color: pal.inkSoft,
                             marginTop: 3,
-                            fontStyle: "italic",
+
                             fontWeight: 600,
                             opacity: 0.85,
                           }}
@@ -4537,7 +4566,7 @@ export default function TemaView({
                           fontSize: 12,
                           color: pal.inkSoft,
                           marginTop: 2,
-                          fontStyle: "italic",
+
                           fontWeight: 600,
                           opacity: 0.9,
                           pointerEvents: "none",
@@ -4618,7 +4647,7 @@ export default function TemaView({
                       fontFamily: HAND,
                       padding: "2px 10px",
                       borderRadius: 10,
-                      fontStyle: "italic",
+
                       pointerEvents: "none",
                       zIndex: 5,
                       boxShadow: "0 2px 5px rgba(0,0,0,0.4)",
@@ -4644,12 +4673,12 @@ export default function TemaView({
               position: "absolute",
               left: contextMenu.x,
               top: contextMenu.y,
-              background: "#1a1a1e",
-              border: "1px solid #333",
+              background: "var(--bg-card)",
+              border: "1px solid var(--border-color)",
               borderRadius: 14,
               padding: 6,
               minWidth: 160,
-              boxShadow: "0 10px 40px rgba(0,0,0,0.8)",
+              boxShadow: hardShadow('var(--text-primary)', 2, 3),
             }}
           >
             <button
@@ -4908,7 +4937,7 @@ export default function TemaView({
             background: 'rgba(0,0,0,0.85)',
             backdropFilter: 'blur(18px)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontFamily: "'Caveat', cursive",
+            fontFamily: "var(--font-hand)",
           }}
         >
           <div
@@ -4936,7 +4965,7 @@ export default function TemaView({
               }}>
                 ¿cómo querés estudiar?
               </h2>
-              <div style={{ fontSize: 18, color: 'rgba(255,255,255,0.55)', marginTop: 6, fontStyle: 'italic' }}>
+              <div style={{ fontSize: 18, color: 'rgba(255,255,255,0.55)', marginTop: 6 }}>
                 elegí tu modo ↓
               </div>
             </div>
@@ -4990,16 +5019,16 @@ export default function TemaView({
                       width: 260,
                       minHeight: 320,
                       background: mode.locked
-                        ? 'linear-gradient(160deg, #111114, #0a0a0c)'
+                        ? 'linear-gradient(160deg, var(--bg-card), var(--bg-primary))'
                         : `linear-gradient(160deg, ${mode.color}18, ${mode.color}05)`,
-                      border: `1.5px solid ${mode.locked ? '#333' : mode.color + '88'}`,
+                      border: `1.5px solid ${mode.locked ? 'var(--border-color)' : mode.color + '88'}`,
                       borderRadius: 20,
                       padding: '28px 20px',
                       cursor: mode.locked ? 'not-allowed' : 'pointer',
                       opacity: mode.locked ? 0.55 : 1,
                       display: 'flex', flexDirection: 'column', alignItems: 'center',
                       textAlign: 'center',
-                      fontFamily: "'Caveat', cursive",
+                      fontFamily: "var(--font-hand)",
                       transition: 'all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)',
                       boxShadow: mode.locked
                         ? 'none'
@@ -5023,7 +5052,7 @@ export default function TemaView({
                       position: 'absolute', top: -2, left: '50%',
                       transform: 'translateX(-50%)',
                       width: 55, height: 10,
-                      background: mode.locked ? '#333' : mode.color,
+                      background: mode.locked ? 'var(--border-color)' : mode.color,
                       borderRadius: '0 0 6px 6px',
                       opacity: mode.locked ? 0.4 : 1,
                     }} />
@@ -5053,14 +5082,14 @@ export default function TemaView({
 
                     <div style={{
                       fontSize: 15, color: 'rgba(255,255,255,0.45)',
-                      fontStyle: 'italic', marginBottom: 14,
+                      marginBottom: 14,
                     }}>
                       {mode.sub}
                     </div>
 
                     <div style={{
                       fontSize: 15, color: 'rgba(255,255,255,0.75)',
-                      fontFamily: "'Inter', sans-serif",
+                      fontFamily: "var(--font-body)",
                       lineHeight: 1.4, flex: 1,
                     }}>
                       {mode.desc}
@@ -5072,9 +5101,9 @@ export default function TemaView({
                       borderRadius: 30,
                       background: mode.locked ? 'rgba(255,255,255,0.04)' : mode.color + '22',
                       color: mode.locked ? '#444' : mode.color,
-                      border: `1.5px solid ${mode.locked ? '#333' : mode.color}`,
+                      border: `1.5px solid ${mode.locked ? 'var(--border-color)' : mode.color}`,
                       fontSize: 16, fontWeight: 700,
-                      fontFamily: "'Inter', sans-serif",
+                      fontFamily: "var(--font-body)",
                     }}>
                       {mode.locked ? 'próximamente' : 'empezar →'}
                     </div>
@@ -5090,7 +5119,7 @@ export default function TemaView({
                 border: '1.5px solid rgba(255,255,255,0.25)',
                 padding: '9px 26px', borderRadius: 30,
                 color: 'rgba(255,255,255,0.75)',
-                fontFamily: "'Caveat', cursive",
+                fontFamily: "var(--font-hand)",
                 fontSize: 18, fontWeight: 600,
                 cursor: 'pointer',
                 marginTop: 4,
@@ -5212,17 +5241,13 @@ export default function TemaView({
         />
       )}
 
-      <link
-        href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&display=swap"
-        rel="stylesheet"
-      />
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes shine {
           0% { left: -100%; }
           50%, 100% { left: 150%; }
         }
-        
+
         @keyframes arrowBounce {
           0%, 100% { transform: translateX(0); }
           50% { transform: translateX(6px); }
@@ -5257,7 +5282,7 @@ const zoomBtn: React.CSSProperties = {
   background: "transparent",
   border: "none",
   borderRadius: 6,
-  color: "#fff",
+  color: "var(--text-primary)",
   cursor: "pointer",
   fontSize: 16,
   fontWeight: 700,
@@ -5272,7 +5297,7 @@ const ctxBtn: React.CSSProperties = {
   padding: "10px 14px",
   border: "none",
   background: "transparent",
-  color: "#fff",
+  color: "var(--text-primary)",
   textAlign: "left",
   cursor: "pointer",
   fontWeight: 600,

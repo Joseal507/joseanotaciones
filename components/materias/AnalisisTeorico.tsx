@@ -13,8 +13,8 @@ import {
   type DurableFreeAnalysisState,
 } from '../../lib/freeAnalysisState';
 
-const BODY = "'Inter', system-ui, -apple-system, sans-serif";
-const HAND = BODY;
+const BODY = "var(--font-body)";
+const HAND = "var(--font-hand)";
 
 type NivelEstudio = 'secundaria' | 'universidad' | 'medicina' | 'doctorado';
 
@@ -591,7 +591,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
 
           <div style={{
             fontFamily: BODY, fontSize: 16, color: 'var(--text-faint)',
-            fontStyle: 'italic', marginTop: 14,
+            marginTop: 14,
           }}>
             esto puede tardar unos 15-30 segundos ✨
           </div>
@@ -672,7 +672,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
           </div>
           <div style={{
             fontFamily: BODY, fontSize: 13, color: 'var(--text-muted)',
-            fontStyle: 'italic', display: 'flex', gap: 8, alignItems: 'center',
+            display: 'flex', gap: 8, alignItems: 'center',
           }}>
             <span>análisis de {materiales.length} {materiales.length === 1 ? 'material' : 'materiales'}</span>
             {(analisis as any)?.nivel_detectado && (
@@ -794,7 +794,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
           <div style={{
             marginTop: 18, padding: '10px 12px',
             fontFamily: BODY, fontSize: 13,
-            color: 'var(--text-faint)', fontStyle: 'italic',
+            color: 'var(--text-faint)',
             textAlign: 'center', lineHeight: 1.3,
           }}>
             tip: marca como leído al terminar cada sección 📌
@@ -1352,7 +1352,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
               borderTop: '1.5px dashed color-mix(in srgb, var(--text-primary) 20%, transparent)',
               textAlign: 'center',
               fontFamily: BODY, fontSize: 18, color: 'var(--text-muted)',
-              fontStyle: 'italic',
+
             }}>
               🎉 Clase terminada. Ahora puedes hacer preguntas, flashcards o un quiz. ✨
             </div>

@@ -84,14 +84,25 @@ body {
   gap: 0 !important;
 }
 .brand-study {
-  font-family: 'Brush Script MT', 'Segoe Print', 'Caveat', 'Pacifico', cursive !important;
-  font-weight: normal !important;
-  font-style: italic !important;
+  font-family: var(--font-body) !important;
+  font-weight: 800 !important;
+  font-style: normal !important;
   font-size: 1.15em !important;
   letter-spacing: 0.5px !important;
   color: var(--text-primary) !important;
   line-height: 1 !important;
   margin-right: 2px !important;
+}
+
+/* ===== ÚNICA EXCEPCIÓN DE CURSIVA EN TODO STUDYAL =====
+   Logo "StudyAL" arriba-izquierda del Home (app/page.tsx).
+   Ningún otro nodo del producto puede llevar italic:
+   ni Footer, ni Settings, ni navbars de otras páginas,
+   ni hero, ni loader, ni descripciones. */
+.brand-study-home {
+  font-family: 'Brush Script MT', 'Segoe Print', 'Caveat', 'Pacifico', cursive !important;
+  font-weight: normal !important;
+  font-style: italic !important;
 }
 .brand-al {
   display: inline-flex !important;
@@ -103,9 +114,9 @@ body {
   line-height: 1 !important;
 }
 .brand-study-hero {
-  font-family: 'Brush Script MT', 'Segoe Print', 'Caveat', 'Pacifico', cursive !important;
-  font-weight: normal !important;
-  font-style: italic !important;
+  font-family: var(--font-body) !important;
+  font-weight: 800 !important;
+  font-style: normal !important;
   font-size: 1.3em !important;
   letter-spacing: 0.5px !important;
   color: var(--text-primary) !important;
@@ -122,9 +133,37 @@ body {
   line-height: 1 !important;
 }
 
-/* ===== RESET ABSOLUTO TIPOGRÁFICO DE LECTURA, ESCRITURA Y TÍTULOS ===== */
-body, input, textarea, select, button, p, span, li, td, th, label, small, h1, h2, h3, h4, h5, h6, .hand, .font-hand {
+/* ===== RESET ABSOLUTO TIPOGRÁFICO DE LECTURA, ESCRITURA Y TÍTULOS =====
+   `div` y `a` van incluidos a propósito: sin ellos ~85 <div style={{fontFamily:HAND}}>
+   escapaban el reset y renderizaban en cursiva (Caveat), mientras que los
+   <p>/<span>/<h*> equivalentes sí se normalizaban — misma constante, dos
+   fuentes distintas según la etiqueta. Se excluyen KaTeX y los bloques del
+   editor, que son contenido con tipografía propia. */
+body, input, textarea, select, button, p, span, div, a, li, td, th, label, small, h1, h2, h3, h4, h5, h6, .hand, .font-hand {
   font-family: var(--font-body) !important;
+}
+
+.katex, .katex *,
+.ebloque, .ebloque *,
+[contenteditable], [contenteditable] * {
+  font-family: revert !important;
+}
+
+/* ===== SIN CURSIVA EN LA UI DE STUDYAL =====
+   Red de seguridad para que no reaparezca italic en el chrome del producto.
+   NO es un universal ciego: excluye KaTeX, editor y contenido académico,
+   que conservan su semántica tipográfica propia (énfasis, citas, fórmulas). */
+body, p, span, div, a, li, td, th, label, small, button,
+input, textarea, select, h1, h2, h3, h4, h5, h6 {
+  font-style: normal;
+}
+
+.katex, .katex *,
+.ebloque, .ebloque *,
+[contenteditable], [contenteditable] *,
+.academic-content em, .academic-content i,
+blockquote {
+  font-style: revert;
 }
 
 body {
@@ -402,53 +441,6 @@ html[data-theme="playa"] body {
 .about-teaser-visual > .about-teaser-quote {
   border-radius: var(--r-lg);
 }
-
-/* ═══ FIX MODO OSCURO: TODAS las letras de productos legibles ═══ */
-[data-theme="dark"] .product-card-tag {
-  background: rgba(245, 242, 236, 0.95) !important;
-  color: #1A1A1A !important;
-  font-weight: 700;
-}
-[data-theme="dark"] .product-card-meta { color: var(--sage) !important; }
-[data-theme="dark"] .product-card-title { color: var(--ink) !important; }
-[data-theme="dark"] .product-card-desc { color: var(--muted) !important; }
-[data-theme="dark"] .product-card-link { color: var(--sage) !important; }
-[data-theme="dark"] .leader-card-name { color: var(--sage) !important; }
-[data-theme="dark"] .leader-card-desc { color: var(--muted) !important; }
-[data-theme="dark"] .leader-card-sizes-label { color: var(--muted-soft) !important; }
-[data-theme="dark"] .leader-card-sizes-list,
-[data-theme="dark"] .leader-card-sizes-list--visible { color: var(--ink-soft) !important; opacity: 1 !important; }
-[data-theme="dark"] .leader-card-link { color: var(--sage) !important; }
-[data-theme="dark"] .leader-card-number { background: var(--bg-elev) !important; color: var(--sage) !important; }
-
-[data-theme="dark"] .product-detail-badge {
-  background: rgba(245, 242, 236, 0.95) !important;
-  color: #1A1A1A !important;
-}
-[data-theme="dark"] .product-detail-size-chip { background: var(--bg-soft) !important; color: var(--ink-soft) !important; }
-[data-theme="dark"] .product-detail-size-chip strong { color: var(--sage) !important; }
-[data-theme="dark"] .product-detail-uses { background: var(--bg-soft) !important; }
-[data-theme="dark"] .product-detail-uses-title { color: var(--sage) !important; }
-[data-theme="dark"] .product-detail-uses-list li { color: var(--ink-soft) !important; }
-[data-theme="dark"] .product-detail-uses-list li svg { color: var(--sage) !important; }
-
-[data-theme="dark"] .article-card-date { color: var(--muted) !important; }
-[data-theme="dark"] .article-card-title { color: var(--ink) !important; }
-[data-theme="dark"] .article-card-excerpt { color: var(--muted) !important; }
-
-[data-theme="dark"] .product-nav-card { background: var(--bg-elev) !important; }
-[data-theme="dark"] .product-nav-dir { color: var(--muted) !important; }
-[data-theme="dark"] .product-nav-name { color: var(--ink) !important; }
-[data-theme="dark"] .product-nav-label { color: var(--muted-soft) !important; }
-
-[data-theme="dark"] .article-sidebar-title { color: var(--ink) !important; }
-[data-theme="dark"] .article-sidebar-desc { color: var(--muted) !important; }
-
-[data-theme="dark"] .cb-render-title { color: var(--ink) !important; }
-[data-theme="dark"] .cb-render-body { color: var(--ink-soft) !important; }
-[data-theme="dark"] .cb-render-quote { background: var(--bg-soft) !important; }
-[data-theme="dark"] .cb-render-quote-text { color: var(--ink) !important; }
-[data-theme="dark"] .cb-render-quote-author { color: var(--sage) !important; }
 
 /* ═══ FIX FINAL: botones admin SIEMPRE visibles ═══ */
 .admin-float-edit {

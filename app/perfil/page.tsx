@@ -19,8 +19,8 @@ import { getRacha } from '../../lib/racha';
 import { useAuthenticatedStudyALUser } from '../../hooks/useAuthenticatedStudyALUser';
 import StudyLoader from '../../components/StudyLoader';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 export default function PerfilPage() {
   const router = useRouter();
@@ -64,7 +64,7 @@ export default function PerfilPage() {
     getMaterias();
   }, [authStatus, user]);
 
-  if (!perfil) return <StudyLoader label="tu perfil" />;
+  if (!perfil) return <StudyLoader label="Perfil" />;
 
   const totalAcertadas = Object.values(perfil.flashcardsAcertadas || {}).reduce((a, b) => a + b, 0);
   const totalFalladas = Object.values(perfil.flashcardsFalladas || {}).reduce((a, b) => a + b, 0);
@@ -169,7 +169,7 @@ export default function PerfilPage() {
             onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0deg) translateY(-2px)';e.currentTarget.style.background='color-mix(in srgb,var(--pink) 14%,transparent)';}}
             onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(1.5deg)';e.currentTarget.style.background='transparent';}}
           >
-            🤖 ChapBot
+            🤖 ChapBo
           </button>
         </header>
       )}
@@ -243,7 +243,7 @@ export default function PerfilPage() {
                   padding: '3px 10px',
                   borderRadius: 8,
                   transform: `rotate(${badge.rot}deg)`,
-                  fontStyle: 'italic',
+
                 }}>
                   {badge.txt}
                 </span>
@@ -345,7 +345,7 @@ export default function PerfilPage() {
                   }}>{s.value}</div>
                   <div style={{
                     fontFamily: BODY, fontSize: isMobile ? 12 : 14, fontWeight: 700,
-                    color: 'var(--text-muted)', fontStyle: 'italic',
+                    color: 'var(--text-muted)',
                     marginTop: 4,
                   }}>{s.label}</div>
                 </div>
@@ -370,7 +370,7 @@ export default function PerfilPage() {
                 <span style={{
                   fontFamily: HAND, fontSize: 18, fontWeight: 900,
                   color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.35)',
-                  fontStyle: 'italic',
+
                 }}>
                   {rango.emoji} {tr('progresoXP')}
                 </span>
@@ -382,7 +382,7 @@ export default function PerfilPage() {
                   flexWrap: 'wrap', gap: 12,
                 }}>
                   <span style={{
-                    fontFamily: BODY, fontSize: 17, fontStyle: 'italic',
+                    fontFamily: BODY, fontSize: 17,
                     color: 'var(--text-muted)',
                   }}>
                     ~ {tr('nivel')} {nivel} · {xpEnNivel}/{xpParaSiguiente} XP ~
@@ -405,7 +405,7 @@ export default function PerfilPage() {
                 </div>
                 <div style={{
                   display: 'flex', justifyContent: 'space-between',
-                  fontFamily: BODY, fontSize: 14, fontStyle: 'italic',
+                  fontFamily: BODY, fontSize: 14,
                   color: 'var(--text-faint)',
                 }}>
                   <span>~ {progreso}% {tr('delNivel')} {nivel} ~</span>
@@ -479,7 +479,7 @@ export default function PerfilPage() {
                                 transform: `rotate(${(j % 2 === 0 ? -0.5 : 0.5)}deg)`,
                               }}>
                                 <div style={{ fontFamily: HAND, fontSize: 18, fontWeight: 900, color: stat.c }}>{stat.v}</div>
-                                <div style={{ fontFamily: HAND, fontSize: 12, fontStyle: 'italic', color: 'var(--text-muted)' }}>{stat.l}</div>
+                                <div style={{ fontFamily: HAND, fontSize: 12, color: 'var(--text-muted)' }}>{stat.l}</div>
                               </div>
                             ))}
                           </div>
@@ -615,7 +615,7 @@ function NotebookCard({ children, color, emoji, title, rot }: {
       }}>
         <h2 style={{
           fontFamily: HAND, fontSize: 22, fontWeight: 900,
-          color: '#000', margin: 0, fontStyle: 'italic',
+          color: '#000', margin: 0,
           transform: 'rotate(-0.5deg)', display: 'inline-block',
         }}>
           {emoji} {title}
@@ -631,7 +631,7 @@ function NotebookCard({ children, color, emoji, title, rot }: {
 function Texto({ children }: { children: React.ReactNode }) {
   return (
     <p style={{
-      fontFamily: BODY, fontSize: 17, fontStyle: 'italic',
+      fontFamily: BODY, fontSize: 17,
       color: 'var(--text-muted)', margin: 0, textAlign: 'center',
       padding: '14px 0',
     }}>

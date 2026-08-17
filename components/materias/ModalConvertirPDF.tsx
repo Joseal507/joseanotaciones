@@ -2,8 +2,8 @@
 
 import { useEffect } from 'react';
 
-const HAND = "'Caveat', cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Props {
   fileName: string;
@@ -85,7 +85,7 @@ export default function ModalConvertirPDF({ fileName, fileType, onCerrar }: Prop
           <p style={{
             margin: '8px 0 0',
             fontSize: 14, color: 'var(--text-muted)',
-            fontStyle: 'italic', fontFamily: BODY,
+            fontFamily: BODY,
           }}>
             ~ es súper rápido, te explico ~
           </p>
@@ -162,7 +162,7 @@ export default function ModalConvertirPDF({ fileName, fileType, onCerrar }: Prop
         <div style={{
           fontSize: 12, color: 'var(--text-muted)',
           textAlign: 'center', marginBottom: 22,
-          fontStyle: 'italic',
+
         }}>
           📄 PDF · 📃 Word (.docx) · 🖼️ Imágenes · 📝 Texto
         </div>

@@ -1171,7 +1171,7 @@ const eliminarDocumento = async (id: string) => {
 
 
   if (cargando) {
-    return <StudyLoader label={openParam ? 'tu materia' : 'tus materias'} />;
+    return <StudyLoader label="Materias" />;
   }
 
   return (

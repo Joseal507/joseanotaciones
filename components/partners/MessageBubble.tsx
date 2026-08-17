@@ -4,8 +4,8 @@ import { useState, useRef } from 'react';
 import { Message, PartnerInfo } from './types';
 import { Av, fmtTime, fmtSize } from './helpers';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 export default function MessageBubble({
   msg, esMio, partner, miInfo, isMobile, isSavedMsg,
@@ -62,7 +62,7 @@ export default function MessageBubble({
           transform: 'rotate(-0.5deg)',
         }}>
           <p style={{
-            fontFamily: HAND, fontSize: 15, fontStyle: 'italic',
+            fontFamily: HAND, fontSize: 15,
             color: 'var(--text-faint)', margin: 0,
           }}>
             🚫 ~ eliminado ~
@@ -202,7 +202,7 @@ export default function MessageBubble({
               borderBottom: '1.5px dashed #38bdf855',
               background: 'color-mix(in srgb,#38bdf8 12%,transparent)',
               borderRadius: '4px 10px 10px 4px',
-              fontFamily: HAND, fontSize: 14, fontStyle: 'italic',
+              fontFamily: HAND, fontSize: 14,
               color: 'var(--text-muted)',
               cursor: replyToId ? 'pointer' : 'default',
               transform: 'rotate(-0.4deg)',
@@ -286,7 +286,7 @@ export default function MessageBubble({
             <p style={{
               fontFamily: HAND, fontSize: 14, fontWeight: 800,
               color: esMio ? '#000' : 'var(--text-faint)',
-              fontStyle: 'italic',
+
               margin: '0 0 6px',
             }}>
               🎵 ~ audio ~
@@ -306,7 +306,7 @@ export default function MessageBubble({
                   {msg.file_name}
                 </p>
                 <p style={{
-                  fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+                  fontFamily: BODY, fontSize: 13,
                   color: esMio ? 'rgba(0,0,0,0.6)' : 'var(--text-faint)',
                   margin: 0,
                 }}>
@@ -320,7 +320,7 @@ export default function MessageBubble({
             <p style={{
               fontFamily: HAND, fontSize: 14, fontWeight: 800,
               color: esMio ? '#000' : '#38bdf8',
-              fontStyle: 'italic',
+
               margin: '0 0 4px',
             }}>
               🌐 ~ perfil ~
@@ -351,7 +351,7 @@ export default function MessageBubble({
           alignItems: 'center', gap: 6, margin: '3px 4px 0',
         }}>
           <span style={{
-            fontFamily: BODY, fontSize: 12, fontStyle: 'italic',
+            fontFamily: BODY, fontSize: 12,
             color: 'var(--text-faint)',
           }}>
             ~ {fmtTime(msg.created_at)}{msg.edited_at ? ' · editado' : ''}{esMio && msg.read_at ? ' · ✓✓' : ''} ~

@@ -3,8 +3,8 @@
 import { Asignacion } from '../../lib/agenda';
 import { useIdioma } from '../../hooks/useIdioma';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const MESES_EN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -81,7 +81,7 @@ export default function Calendario({ asignaciones, mes, anio, hoyStr, diaSelecci
         <span style={{
           fontFamily: HAND, fontSize: 16, fontWeight: 800,
           color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.25)',
-          fontStyle: 'italic',
+
         }}>
           ✦ Calendario de estudio ✦
         </span>
@@ -223,7 +223,7 @@ export default function Calendario({ asignaciones, mes, anio, hoyStr, diaSelecci
                 {esHoy && (
                   <span style={{
                     fontFamily: HAND, fontSize: 9, fontWeight: 800,
-                    color: '#000', fontStyle: 'italic',
+                    color: '#000',
                     display: 'block', marginTop: 1, lineHeight: 1,
                   }}>
                     hoy
@@ -284,7 +284,7 @@ export default function Calendario({ asignaciones, mes, anio, hoyStr, diaSelecci
         }}>
           <p style={{
             fontFamily: BODY, fontSize: 14,
-            color: 'var(--text-muted)', fontStyle: 'italic',
+            color: 'var(--text-muted)',
             margin: '0 0 8px',
           }}>
             ~ tipos de asignaciones ~
@@ -332,6 +332,6 @@ function navBtn(side: 'left' | 'right'): React.CSSProperties {
     boxShadow: '3px 3px 0 var(--text-primary)',
     transform: `rotate(${rot}deg)`,
     transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
-    fontStyle: 'italic',
+
   };
 }

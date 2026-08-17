@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSession } from 'next-auth/react';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Notif {
   id: string;
@@ -243,7 +243,7 @@ export default function NotificacionesPanel() {
     out.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
     const top20 = out.slice(0, 20);
 
-    // Detectar notifs nuevas (no leídas, no vistas antes) y emitir toast
+    // Detectar notifs nuevas (no leídas, no vistas antes) y emitir toas
     try {
       const vistasKey = 'studyal_notif_vistas';
       const vistasRaw = localStorage.getItem(vistasKey);
@@ -348,7 +348,7 @@ export default function NotificacionesPanel() {
               color: 'var(--text-primary)', margin: 0, transform: 'rotate(-1deg)',
             }}>
               🔔 Buzón
-              {noLeidas > 0 && <span style={{ marginLeft: 8, fontSize: 14, color: 'var(--red)', fontStyle: 'italic' }}>({noLeidas})</span>}
+              {noLeidas > 0 && <span style={{ marginLeft: 8, fontSize: 14, color: 'var(--red)' }}>({noLeidas})</span>}
             </h3>
             {noLeidas > 0 && (
               <button onClick={marcarTodas} style={{
@@ -362,11 +362,11 @@ export default function NotificacionesPanel() {
 
           <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
             {loading ? (
-              <p style={{ fontFamily: BODY, fontSize: 15, color: 'var(--text-muted)', textAlign: 'center', padding: 24, fontStyle: 'italic' }}>~ cargando... ~</p>
+              <p style={{ fontFamily: BODY, fontSize: 15, color: 'var(--text-muted)', textAlign: 'center', padding: 24 }}>~ cargando... ~</p>
             ) : notifs.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '30px 20px' }}>
                 <div style={{ fontSize: 44, marginBottom: 8 }}>🌟</div>
-                <p style={{ fontFamily: HAND, fontSize: 17, color: 'var(--text-muted)', margin: 0, fontStyle: 'italic' }}>~ todo al día ~</p>
+                <p style={{ fontFamily: HAND, fontSize: 17, color: 'var(--text-muted)', margin: 0 }}>~ todo al día ~</p>
               </div>
             ) : notifs.map((n, i) => (
               <div key={n.id} onClick={() => abrirNotif(n)} style={{
@@ -385,7 +385,7 @@ export default function NotificacionesPanel() {
                     <p style={{ fontFamily: HAND, fontSize: 15, fontWeight: 800, color: n.color, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.titulo}</p>
                     <span style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
                       <span style={{ fontFamily: HAND, fontSize: 10, color: '#fff', background: n.color, borderRadius: 4, padding: '1px 5px', opacity: .85 }}>{TIPO[n.tipo]}</span>
-                      <span style={{ fontFamily: BODY, fontSize: 12, color: 'var(--text-faint)', fontStyle: 'italic' }}>{tiempo(n.fecha)}</span>
+                      <span style={{ fontFamily: BODY, fontSize: 12, color: 'var(--text-faint)' }}>{tiempo(n.fecha)}</span>
                     </span>
                   </div>
                   <p style={{ fontFamily: BODY, fontSize: 13, color: 'var(--text-muted)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>{n.desc}</p>
@@ -398,7 +398,7 @@ export default function NotificacionesPanel() {
           <div style={{ padding: '8px 12px', borderTop: '2px dashed var(--border-color)', textAlign: 'center' }}>
             <button onClick={() => { setAbierto(false); cargar(); }} style={{
               fontFamily: BODY, fontSize: 13, color: 'var(--text-faint)',
-              background: 'transparent', border: 'none', cursor: 'pointer', fontStyle: 'italic',
+              background: 'transparent', border: 'none', cursor: 'pointer',
             }}>↻ actualizar</button>
           </div>
         </div>

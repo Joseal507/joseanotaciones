@@ -6,8 +6,8 @@ import { CalificacionesMateria } from '../../lib/calificaciones';
 import { useIdioma } from '../../hooks/useIdioma';
 import TabCalificaciones from './TabCalificaciones';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Props {
   materia: Materia;
@@ -59,7 +59,7 @@ export default function MateriaView({
             cursor: 'pointer',
             padding: '4px 12px',
             borderRadius: 8,
-            fontStyle: 'italic',
+
             transition: 'all 0.2s',
           }}
           onMouseEnter={(e:any)=>{
@@ -76,7 +76,7 @@ export default function MateriaView({
         <span style={{ color: 'var(--text-faint)', fontSize: 18, fontWeight: 800 }}>›</span>
         <span style={{
           color: materia.color, fontWeight: 800, fontSize: 19,
-          fontFamily: HAND, fontStyle: 'italic',
+          fontFamily: HAND,
         }}>
           {materia.emoji} {materia.nombre}
         </span>
@@ -113,7 +113,7 @@ export default function MateriaView({
             </svg>
             <p style={{
               fontFamily: BODY, fontSize: 16,
-              color: 'var(--text-muted)', fontStyle: 'italic',
+              color: 'var(--text-muted)',
               margin: '4px 0 0',
             }}>
               ~ {materia.temas.length} {tr('temas')} ~
@@ -228,7 +228,7 @@ export default function MateriaView({
               <div style={{ fontSize: 60, marginBottom: 12, position: 'relative' }}>📁</div>
               <p style={{
                 fontFamily: HAND, fontSize: 22,
-                color: 'var(--text-faint)', fontStyle: 'italic',
+                color: 'var(--text-faint)',
                 margin: '0 0 20px', position: 'relative',
               }}>
                 ~ {idioma === 'en' ? 'No topics yet' : 'No hay temas todavía'} ~
@@ -318,13 +318,13 @@ export default function MateriaView({
                           <div style={{ display: 'flex', gap: 14, marginLeft: 22 }}>
                             <span style={{
                               fontFamily: BODY, fontSize: 15, fontWeight: 700,
-                              color: 'var(--text-muted)', fontStyle: 'italic',
+                              color: 'var(--text-muted)',
                             }}>
                               ✏️ {tema.apuntes.length} {idioma === 'en' ? 'notes' : 'apuntes'}
                             </span>
                             <span style={{
                               fontFamily: BODY, fontSize: 15, fontWeight: 700,
-                              color: 'var(--text-muted)', fontStyle: 'italic',
+                              color: 'var(--text-muted)',
                             }}>
                               📄 {tema.documentos.length}
                             </span>

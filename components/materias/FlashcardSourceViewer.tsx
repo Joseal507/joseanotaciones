@@ -96,7 +96,7 @@ export default function FlashcardSourceViewer({ card, materiales, color, onClose
       const Tesseract = (await import('tesseract.js')).default;
       console.log('🔍 Tesseract iniciado…');
 
-      // Crear worker manualmente para tener control de output
+      // Crear worker manualmente para tener control de outpu
       const worker = await Tesseract.createWorker(['spa', 'eng'], 1, {
         logger: (m: any) => {
           if (m.status === 'recognizing text' && typeof m.progress === 'number') {
@@ -701,17 +701,17 @@ export default function FlashcardSourceViewer({ card, materiales, color, onClose
             <span style={{
               background: `${color}18`, border: `1px dashed ${color}55`,
               color, borderRadius: 8, padding: '4px 10px',
-              fontFamily: "'Caveat', cursive", fontSize: 15, fontWeight: 700,
+              fontFamily: "var(--font-hand)", fontSize: 15, fontWeight: 700,
             }}>
               🔍 Fuente
             </span>
             {materialName && (
-              <span style={{ color: '#999', fontFamily: 'Inter, sans-serif', fontSize: 13 }}>
+              <span style={{ color: '#999', fontFamily: "var(--font-body)", fontSize: 13 }}>
                 {materialName}
               </span>
             )}
             {!resolving && resolvedPage > 0 && (
-              <span style={{ color: '#666', fontFamily: "'Caveat', cursive", fontSize: 14 }}>
+              <span style={{ color: '#666', fontFamily: "var(--font-hand)", fontSize: 14 }}>
                 · Pág. {resolvedPage}
               </span>
             )}
@@ -734,10 +734,10 @@ export default function FlashcardSourceViewer({ card, materiales, color, onClose
           background: 'rgba(255,255,255,0.02)',
           borderBottom: '1px solid rgba(255,255,255,0.05)',
         }}>
-          <div style={{ color: '#555', fontSize: 10, fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 4 }}>
+          <div style={{ color: '#555', fontSize: 10, fontFamily: "var(--font-body)", textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 4 }}>
             Pregunta
           </div>
-          <div style={{ color: '#ddd', fontSize: 14, fontFamily: 'Inter, sans-serif', lineHeight: 1.45 }}>
+          <div style={{ color: '#ddd', fontSize: 14, fontFamily: "var(--font-body)", lineHeight: 1.45 }}>
             {card.question}
           </div>
         </div>
@@ -748,7 +748,7 @@ export default function FlashcardSourceViewer({ card, materiales, color, onClose
             <div style={{
               padding: '20px 24px', borderRadius: 14, maxWidth: 500, textAlign: 'center',
               background: 'rgba(251,191,36,0.06)', border: '1.5px dashed rgba(251,191,36,0.3)',
-              color: '#fbbf24', fontFamily: "'Caveat', cursive", fontSize: 16, lineHeight: 1.5,
+              color: '#fbbf24', fontFamily: "var(--font-hand)", fontSize: 16, lineHeight: 1.5,
             }}>
               ⚠️ Esta flashcard fue creada antes de la nueva versión.<br />
               Regenera las flashcards para ver la fuente exacta.
@@ -762,10 +762,10 @@ export default function FlashcardSourceViewer({ card, materiales, color, onClose
                 background: `${color}0d`, border: `1.5px dashed ${color}44`,
                 borderRadius: 12, padding: '12px 16px',
               }}>
-                <div style={{ color, fontSize: 10, fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6, fontWeight: 700 }}>
+                <div style={{ color, fontSize: 10, fontFamily: "var(--font-body)", textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6, fontWeight: 700 }}>
                   📑 Fragmento exacto del material
                 </div>
-                <div style={{ color: '#e8e8ed', fontSize: 14, fontFamily: 'Inter, sans-serif', fontStyle: 'italic', lineHeight: 1.55 }}>
+                <div style={{ color: '#e8e8ed', fontSize: 14, fontFamily: "var(--font-body)", lineHeight: 1.55 }}>
                   "{card.sourceText}"
                 </div>
               </div>
@@ -778,7 +778,7 @@ export default function FlashcardSourceViewer({ card, materiales, color, onClose
                   border: '1px solid rgba(255,255,255,0.08)',
                   borderRadius: 10, padding: '10px 14px',
                   display: 'flex', alignItems: 'center', gap: 10,
-                  fontFamily: 'Inter, sans-serif',
+                  fontFamily: "var(--font-body)",
                 }}>
                   <span style={{ fontSize: 18 }}>📄</span>
                   <div style={{ flex: 1 }}>
@@ -795,18 +795,18 @@ export default function FlashcardSourceViewer({ card, materiales, color, onClose
               )}
 
               {resolving && (
-                <div style={{ padding: 30, color: '#888', fontFamily: "'Caveat', cursive", fontSize: 16 }}>
+                <div style={{ padding: 30, color: '#888', fontFamily: "var(--font-hand)", fontSize: 16 }}>
                   🔍 Buscando fragmento en los materiales…
                 </div>
               )}
 
               {!resolving && loading && !pdfUrl && (
-                <div style={{ padding: 40, color: '#555', fontFamily: "'Caveat', cursive", fontSize: 16 }}>
+                <div style={{ padding: 40, color: '#555', fontFamily: "var(--font-hand)", fontSize: 16 }}>
                   Cargando PDF…
                 </div>
               )}
               {error && (
-                <div style={{ padding: 20, color: '#f87171', fontFamily: "'Caveat', cursive", fontSize: 15, textAlign: 'center' }}>
+                <div style={{ padding: 20, color: '#f87171', fontFamily: "var(--font-hand)", fontSize: 15, textAlign: 'center' }}>
                   ⚠️ {error}
                 </div>
               )}
@@ -828,7 +828,7 @@ export default function FlashcardSourceViewer({ card, materiales, color, onClose
                         flex: 1,
                         color: '#fbbf24',
                         fontSize: 13,
-                        fontFamily: 'Inter, sans-serif',
+                        fontFamily: "var(--font-body)",
                         lineHeight: 1.4,
                       }}>
                         No se pudo resaltar automáticamente. Búscalo en la página {resolvedPage}.
@@ -870,7 +870,7 @@ export default function FlashcardSourceViewer({ card, materiales, color, onClose
                         boxShadow: '0 8px 24px rgba(0,0,0,0.35), 0 2px 6px rgba(0,0,0,0.2)',
                         transform: 'rotate(-1.5deg)',
                         zIndex: 10,
-                        fontFamily: '"Caveat", "Marker Felt", cursive',
+                        fontFamily: "var(--font-hand)",
                         fontSize: 14,
                         lineHeight: 1.4,
                         border: '1px solid rgba(0,0,0,0.1)',
@@ -893,7 +893,7 @@ export default function FlashcardSourceViewer({ card, materiales, color, onClose
                         <div style={{
                           fontSize: 13,
                           color: '#2a2a2a',
-                          fontStyle: 'italic',
+
                           maxHeight: 80,
                           overflow: 'hidden',
                         }}>
@@ -950,7 +950,7 @@ export default function FlashcardSourceViewer({ card, materiales, color, onClose
                         padding: '8px 14px',
                         borderRadius: 10,
                         fontSize: 12,
-                        fontFamily: 'Inter, sans-serif',
+                        fontFamily: "var(--font-body)",
                         fontWeight: 600,
                         display: 'flex', alignItems: 'center', gap: 8,
                         zIndex: 20,

@@ -5,8 +5,8 @@ import { usePomodoroContext } from '../../components/PomodoroProvider';
 import { getMaterias, Materia } from '../../lib/storage';
 import Link from 'next/link';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 export default function PomodoroPage() {
   const {
@@ -130,7 +130,7 @@ export default function PomodoroPage() {
           </svg>
           <p style={{
             margin: '4px 0 0',
-            fontFamily: BODY, fontSize: 15, fontStyle: 'italic',
+            fontFamily: BODY, fontSize: 15,
             color: 'var(--text-muted)',
           }}>
             ~ técnica de concentración ~
@@ -196,7 +196,7 @@ export default function PomodoroPage() {
           }}>
             <h3 style={{
               margin: 0, fontFamily: HAND, fontSize: 22, fontWeight: 900,
-              color: '#000', fontStyle: 'italic',
+              color: '#000',
               transform: 'rotate(-0.8deg)', display: 'inline-block',
             }}>
               ⚙️ Configurar tiempos
@@ -225,7 +225,7 @@ export default function PomodoroPage() {
                   <p style={{
                     margin: '0 0 10px',
                     fontFamily: HAND, fontSize: 16, fontWeight: 800,
-                    color, fontStyle: 'italic',
+                    color,
                   }}>
                     {label}
                   </p>
@@ -259,7 +259,7 @@ export default function PomodoroPage() {
                   </div>
                   <p style={{
                     margin: '6px 0 0',
-                    fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+                    fontFamily: BODY, fontSize: 13,
                     color: 'var(--text-faint)',
                   }}>
                     ~ minutos ~
@@ -485,7 +485,7 @@ export default function PomodoroPage() {
             </p>
             <p style={{
               margin: 0,
-              fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+              fontFamily: BODY, fontSize: 13,
               color: 'var(--text-faint)', fontWeight: 600,
             }}>
               {label}
@@ -620,7 +620,7 @@ export default function PomodoroPage() {
         <p style={{
           margin: 0,
           fontFamily: BODY, fontSize: 18, fontWeight: 600,
-          color: 'var(--text-muted)', fontStyle: 'italic',
+          color: 'var(--text-muted)',
           lineHeight: 1.4,
         }}>
           💡 {fase === 'estudiar'

@@ -9,8 +9,8 @@ import { supabase } from '../../lib/supabase';
 import { getSettings } from '../../lib/settings';
 import AIExhausted from '../../components/AIExhausted';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Mensaje {
   role: 'user' | 'assistant';
@@ -152,7 +152,7 @@ export default function ChapPage() {
           }}>
             <span style={{
               fontFamily: HAND, fontSize: 18, fontWeight: 800,
-              color: accent, fontStyle: 'italic',
+              color: accent,
             }}>
               {renderInline(trimmed)}
             </span>
@@ -347,7 +347,7 @@ export default function ChapPage() {
                   boxShadow: '2px 2px 0 var(--text-primary)',
                   transform: 'rotate(2deg)',
                   transition: 'background 0.4s',
-                  fontStyle: 'italic',
+
                 }}>
                   {esMath ? '✦ ciencias' : '✦ general'}
                 </span>
@@ -356,7 +356,7 @@ export default function ChapPage() {
                 <p style={{
                   fontFamily: BODY, fontSize: 14,
                   color: 'var(--text-muted)', margin: '2px 0 0',
-                  fontStyle: 'italic',
+
                 }}>
                   {esMath
                     ? '~ matemáticas · física · química · paso a paso ~'
@@ -523,7 +523,7 @@ export default function ChapPage() {
               }}>
                 <span style={{
                   fontFamily: HAND, fontSize: 16,
-                  color: themeColor, fontStyle: 'italic',
+                  color: themeColor,
                   marginRight: 4,
                 }}>
                   {idioma === 'en' ? 'thinking' : 'pensando'}
@@ -576,7 +576,7 @@ export default function ChapPage() {
                 </p>
                 <p style={{
                   fontFamily: BODY, fontSize: 14, color: 'var(--text-muted)',
-                  margin: '2px 0 0', fontStyle: 'italic',
+                  margin: '2px 0 0',
                 }}>
                   ~ agrega un mensaje o envía directo ~
                 </p>
@@ -627,7 +627,7 @@ export default function ChapPage() {
                 fontFamily: HAND, fontSize: 14,
                 color: themeColor, fontWeight: 800,
                 display: 'flex', alignItems: 'center',
-                fontStyle: 'italic',
+
                 transform: 'rotate(1deg)',
                 boxShadow: `1px 2px 0 ${themeColor}55`,
                 transition: 'all 0.4s',

@@ -18,6 +18,7 @@ import RachaWidget from '../components/RachaWidget';
 import NotasRapidas from '../components/NotasRapidas';
 import GraficasEstudio from '../components/GraficasEstudio';
 import HorarioWidget from '../components/HorarioWidget';
+import { useDarkMode } from '../hooks/useDarkMode';
 import OnboardingCheck from '../components/OnboardingCheck';
 import Footer from '../components/Footer';
 import PlayerCard from '../components/PlayerCard';
@@ -130,7 +131,7 @@ function HorarioFlecha({ targetId, mob }: { targetId: string; mob: boolean }) {
       maxWidth:'100%',
     }}>
       <div style={{ display:'flex',flexDirection:'column',alignItems:'flex-start',gap:0 }}>
-        <span style={{ fontFamily:BODY,fontSize:mob?16:'clamp(12px,1.2vw,18px)',fontWeight:700,color:'var(--text-muted)',fontStyle:'italic',lineHeight:1 }}>ir a</span>
+        <span style={{ fontFamily:BODY,fontSize:mob?16:'clamp(12px,1.2vw,18px)',fontWeight:700,color:'var(--text-muted)',lineHeight:1 }}>ir a</span>
         <span style={{ fontFamily:BODY,fontSize:mob?28:'clamp(20px,2.2vw,32px)',fontWeight:900,color:'var(--text-primary)',lineHeight:1.1,whiteSpace:'nowrap' }}>📅 horario</span>
       </div>
       <svg width="32" height="50" viewBox="0 0 32 50">
@@ -194,9 +195,9 @@ function CosasPorHacer({ onClick, mob }: { onClick: () => void; mob: boolean }) 
         <path d="M0 2.5Q70 .5 140 3" stroke="var(--red)" strokeWidth="2" fill="none" strokeLinecap="round" opacity=".7"/>
       </svg>
       {loading ? (
-        <p style={{ fontFamily:BODY,fontSize:14,color:'var(--text-faint)',fontStyle:'italic',margin:0 }}>cargando...</p>
+        <p style={{ fontFamily:BODY,fontSize:14,color:'var(--text-faint)',margin:0 }}>cargando...</p>
       ) : tasks.length===0 ? (
-        <p style={{ fontFamily:BODY,fontSize:15,color:'var(--text-faint)',fontStyle:'italic',margin:0 }}>✨ ¡todo al día!</p>
+        <p style={{ fontFamily:BODY,fontSize:15,color:'var(--text-faint)',margin:0 }}>✨ ¡todo al día!</p>
       ) : (
         <ul style={{ listStyle:'none',padding:0,margin:0,display:'flex',flexDirection:'column',gap:5 }}>
           {tasks.map((t,i)=>(
@@ -220,7 +221,7 @@ function FraseChapBot({ onClick, mob, lang }: { onClick: () => void; mob: boolea
       <div style={{
         position:'relative',background:'var(--pink-dim)',padding:'10px 14px',
         borderRadius:'2px 14px 2px 14px',fontFamily:HAND,
-        fontSize:mob?15:18,color:'#831843',fontStyle:'italic',textAlign:'center',
+        fontSize:mob?15:18,color:'#831843',textAlign:'center',
         maxWidth:mob?160:200,transform:'rotate(3deg)',
         boxShadow:'2px 3px 8px rgba(0,0,0,.18)',lineHeight:1.2,fontWeight:700,
       }}>
@@ -254,7 +255,7 @@ function FraseChapBot({ onClick, mob, lang }: { onClick: () => void; mob: boolea
 function TimerButton({ onClick, mob }: { onClick: () => void; mob: boolean }) {
   return (
     <div style={{ display:'flex',flexDirection:'column',alignItems:'center',gap:4 }}>
-      <span style={{ fontFamily:HAND,fontSize:mob?14:16,color:'var(--text-muted)',fontStyle:'italic',transform:'rotate(-2deg)',display:'inline-block' }}>timer ↓</span>
+      <span style={{ fontFamily:HAND,fontSize:mob?14:16,color:'var(--text-muted)',transform:'rotate(-2deg)',display:'inline-block' }}>timer ↓</span>
       <button onClick={onClick} style={{
         width:mob?72:88,height:mob?72:88,borderRadius:'50%',
         background:'color-mix(in srgb,var(--bg-card) 88%,var(--red) 12%)',
@@ -543,9 +544,9 @@ function TopPodio({ onClick, mob, tablet = false }: { onClick: () => void; mob: 
       </div>
 
       {loading ? (
-        <div style={{ height:120,display:'flex',alignItems:'center',justifyContent:'center',color:'#666',fontSize:13,fontStyle:'italic',fontFamily:HAND }}>cargando...</div>
+        <div style={{ height:120,display:'flex',alignItems:'center',justifyContent:'center',color:'#666',fontSize:13,fontFamily:HAND }}>cargando...</div>
       ) : top.length===0 ? (
-        <div style={{ height:120,display:'flex',alignItems:'center',justifyContent:'center',color:'#666',fontSize:13,fontStyle:'italic',fontFamily:HAND,textAlign:'center' }}>sin datos aún<br/>¡a estudiar!</div>
+        <div style={{ height:120,display:'flex',alignItems:'center',justifyContent:'center',color:'#666',fontSize:13,fontFamily:HAND,textAlign:'center' }}>sin datos aún<br/>¡a estudiar!</div>
       ) : (
         <div style={{ display:'flex',justifyContent:'center',alignItems:'flex-end',gap:mob?3:(tablet?1:5),height:mob?150:(tablet?165:170),padding:'0 2px' }}>
           {order.map((idx, vi) => {
@@ -575,7 +576,7 @@ function TopPodio({ onClick, mob, tablet = false }: { onClick: () => void; mob: 
           })}
         </div>
       )}
-      <div style={{ marginTop:6,paddingTop:5,borderTop:'1px dashed #aaa',textAlign:'center',fontFamily:HAND,fontSize:13,color:'#b8860b',fontWeight:700,fontStyle:'italic' }}>
+      <div style={{ marginTop:6,paddingTop:5,borderTop:'1px dashed #aaa',textAlign:'center',fontFamily:HAND,fontSize:13,color:'#b8860b',fontWeight:700 }}>
         ver leaderboard →
       </div>
     </div>
@@ -610,7 +611,7 @@ function MateriasHoja({ materias, onOpen, onCreate, mob, lang }: {
         <span style={{ fontSize:mob?28:38 }}>📚</span>
         <div style={{ display:'flex',flexDirection:'column',alignItems:'flex-start',lineHeight:1 }}>
           <span style={{ fontFamily:HAND,fontSize:mob?32:44,fontWeight:900,color:'var(--text-primary)',lineHeight:1 }}>{lang==='en'?'Subjects':'Materias'}</span>
-          <span style={{ fontFamily:HAND,fontSize:mob?14:16,color:'#888',fontStyle:'italic',marginTop:2 }}>
+          <span style={{ fontFamily:HAND,fontSize:mob?14:16,color:'#888',marginTop:2 }}>
             {tiene ? `${materias.length} ${materias.length===1?'materia':'materias'} · click para abrir` : 'click para crear tu primera'}
           </span>
         </div>
@@ -627,7 +628,7 @@ function MateriasHoja({ materias, onOpen, onCreate, mob, lang }: {
             <div style={{ position:'absolute',top:0,bottom:0,left:mob?28:46,width:1.5,background:'#ef4444',opacity:.45,pointerEvents:'none' }}/>
             {!tiene ? (
               <div style={{ textAlign:'center',padding:'18px 12px' }}>
-                <p style={{ fontFamily:HAND,fontSize:18,color:'#666',margin:'0 0 12px',fontStyle:'italic' }}>~ aún no hay materias ~</p>
+                <p style={{ fontFamily:HAND,fontSize:18,color:'#666',margin:'0 0 12px' }}>~ aún no hay materias ~</p>
                 <button onClick={(e: any)=>{e.stopPropagation();onCreate();}} style={{
                   padding:'10px 22px',borderRadius:10,border:'none',background:'var(--gold)',color:'var(--text-primary)',
                   cursor:'pointer',fontFamily:HAND,fontSize:18,fontWeight:800,
@@ -651,7 +652,7 @@ function MateriasHoja({ materias, onOpen, onCreate, mob, lang }: {
                       <div style={{ width:32,height:32,borderRadius:'50%',background:m.color,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0 }}>{m.emoji}</div>
                       <div style={{ flex:1,minWidth:0 }}>
                         <div style={{ fontFamily:HAND,fontSize:18,fontWeight:700,color:'var(--text-primary)',lineHeight:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{m.nombre}</div>
-                        <div style={{ fontSize:10,color:'#888',fontStyle:'italic' }}>{m.temas.length} temas</div>
+                        <div style={{ fontSize:10,color:'#888' }}>{m.temas.length} temas</div>
                       </div>
                     </div>
                   ))}
@@ -728,10 +729,10 @@ function HorarioTabla({ mob, lang, onConfig }: { mob: boolean; lang: string; onC
         </div>
 
         {loading ? (
-          <div style={{ padding:20,textAlign:'center',fontFamily:HAND,fontSize:15,color:'#888',fontStyle:'italic' }}>cargando...</div>
+          <div style={{ padding:20,textAlign:'center',fontFamily:HAND,fontSize:15,color:'#888' }}>cargando...</div>
         ) : clases.length===0 ? (
           <div style={{ padding:'20px 16px',textAlign:'center' }}>
-            <p style={{ fontFamily:HAND,fontSize:16,color:'#666',margin:'0 0 12px',fontStyle:'italic' }}>~ no hay clases registradas ~</p>
+            <p style={{ fontFamily:HAND,fontSize:16,color:'#666',margin:'0 0 12px' }}>~ no hay clases registradas ~</p>
             <button onClick={onConfig} style={{
               padding:'8px 18px',borderRadius:8,border:'2px solid var(--text-primary)',
               background:'var(--bg-secondary)',color:'var(--text-primary)',cursor:'pointer',fontFamily:HAND,fontSize:16,fontWeight:800,
@@ -748,7 +749,7 @@ function HorarioTabla({ mob, lang, onConfig }: { mob: boolean; lang: string; onC
               }}>
                 <span style={{ fontWeight:700,color:'#b8860b',minWidth:55 }}>{c.hora||c.inicio||'--'}</span>
                 <span style={{ flex:1,fontWeight:600 }}>{c.nombre||c.materia||c.titulo||'(clase)'}</span>
-                {c.aula&&<span style={{ fontSize:12,color:'#666',fontStyle:'italic' }}>{c.aula}</span>}
+                {c.aula&&<span style={{ fontSize:12,color:'#666' }}>{c.aula}</span>}
               </li>
             ))}
           </ul>
@@ -786,7 +787,7 @@ function MiniXPChart({ days = 7, color = 'var(--blue)', xpTotal = 0 }: { days?: 
           <circle key={i} cx={i*stepX} cy={H-(v/max)*H} r="3" fill={color} stroke="var(--bg-card)" strokeWidth="1.5"/>
         ))}
       </svg>
-      <span style={{ fontFamily:BODY,fontSize:13,fontWeight:700,color:'var(--text-faint)',fontStyle:'italic',marginTop:2 }}>~ últimos 7 días ~</span>
+      <span style={{ fontFamily:BODY,fontSize:13,fontWeight:700,color:'var(--text-faint)',marginTop:2 }}>~ últimos 7 días ~</span>
     </div>
   );
 }
@@ -808,8 +809,8 @@ function PosicionPostit({ pos, totalUsers, onClick, mob }: { pos: number; totalU
     >
       <div style={{ fontFamily:HAND,fontSize:mob?18:22,fontWeight:800,color:'var(--text-primary)',marginBottom:2 }}>posición</div>
       <div style={{ fontFamily:HAND,fontSize:mob?38:48,fontWeight:900,color:c,lineHeight:1 }}>#{pos||'?'}</div>
-      <div style={{ fontSize:11,color:'#666',fontStyle:'italic',marginTop:2 }}>de {totalUsers}</div>
-      <div style={{ marginTop:8,fontFamily:HAND,fontSize:14,fontWeight:800,color:c,fontStyle:'italic' }}>
+      <div style={{ fontSize:11,color:'#666',marginTop:2 }}>de {totalUsers}</div>
+      <div style={{ marginTop:8,fontFamily:HAND,fontSize:14,fontWeight:800,color:c }}>
         {bueno?'🔥 insane!':'💪 a mejorar'}
       </div>
     </div>
@@ -904,7 +905,7 @@ function MapaProgreso({ playerStats, myRank, totalUsers, onLeaderboard, mob }: {
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
           <span style={{
             fontFamily: HAND, fontSize: 14, fontWeight: 700,
-            color: 'var(--text-faint)', fontStyle: 'italic',
+            color: 'var(--text-faint)',
             transform: 'rotate(-2deg)',
           }}>
             ✦ tu carta 🎴 ✦
@@ -922,7 +923,7 @@ function MapaProgreso({ playerStats, myRank, totalUsers, onLeaderboard, mob }: {
                 }}>
                   <span style={{
                     fontFamily: BODY, fontSize: 16,
-                    color: 'var(--text-faint)', fontStyle: 'italic',
+                    color: 'var(--text-faint)',
                   }}>
                     ~ cargando ~
                   </span>
@@ -936,7 +937,7 @@ function MapaProgreso({ playerStats, myRank, totalUsers, onLeaderboard, mob }: {
           <PosicionPostit pos={myRank} totalUsers={totalUsers} onClick={onLeaderboard} mob={mob}/>
           <span style={{
             fontFamily: BODY, fontSize: 13,
-            color: 'var(--text-faint)', fontStyle: 'italic',
+            color: 'var(--text-faint)',
             transform: 'rotate(2deg)', marginTop: 2,
           }}>
             leaderboard ↑
@@ -1049,7 +1050,7 @@ function GraficasPanel({ materias, mob, xpTotal }: { materias: Materia[]; mob: b
               display:'flex', alignItems:'center', justifyContent:'space-between',
               gap:12, flexWrap:'wrap', marginBottom:14,
             }}>
-              <p style={{ fontFamily:BODY, fontSize:17, color:'var(--text-muted)', margin:0, fontStyle:'italic' }}>
+              <p style={{ fontFamily:BODY, fontSize:17, color:'var(--text-muted)', margin:0 }}>
                 📈 Tu evolución de XP
               </p>
               <div style={{
@@ -1061,7 +1062,7 @@ function GraficasPanel({ materias, mob, xpTotal }: { materias: Materia[]; mob: b
                 transform:'rotate(1.5deg)',
                 textAlign:'center',
               }}>
-                <div style={{ fontFamily: BODY, fontSize:13, color:'var(--text-muted)', fontStyle:'italic', lineHeight:1 }}>XP total</div>
+                <div style={{ fontFamily: BODY, fontSize:13, color:'var(--text-muted)', lineHeight:1 }}>XP total</div>
                 <div style={{ fontFamily:BODY, fontSize:28, fontWeight:900, color:'var(--blue)', lineHeight:1.1 }}>
                   ⚡ {(xpTotal || 0).toLocaleString()}
                 </div>
@@ -1091,7 +1092,7 @@ function GraficasPanel({ materias, mob, xpTotal }: { materias: Materia[]; mob: b
                 >
                   <div style={{ fontSize:18, lineHeight:1 }}>{s.e}</div>
                   <div style={{ fontFamily:HAND, fontSize:24, fontWeight:900, color:s.c, lineHeight:1 }}>{s.v}</div>
-                  <div style={{ fontFamily:BODY, fontSize:12, color:'var(--text-muted)', fontStyle:'italic' }}>{s.l}</div>
+                  <div style={{ fontFamily:BODY, fontSize:12, color:'var(--text-muted)' }}>{s.l}</div>
                 </div>
               ))}
             </div>
@@ -1102,7 +1103,7 @@ function GraficasPanel({ materias, mob, xpTotal }: { materias: Materia[]; mob: b
 
         {tab==='semanal' && (
           <div>
-            <p style={{ fontFamily:BODY, fontSize:17, color:'var(--text-muted)', margin:'0 0 14px', fontStyle:'italic' }}>
+            <p style={{ fontFamily:BODY, fontSize:17, color:'var(--text-muted)', margin:'0 0 14px' }}>
               📅 XP ganado los últimos 7 días
             </p>
             <BarrasSemanales data={xpDiario} mob={mob}/>
@@ -1111,11 +1112,11 @@ function GraficasPanel({ materias, mob, xpTotal }: { materias: Materia[]; mob: b
 
         {tab==='materia' && (
           <div>
-            <p style={{ fontFamily:BODY, fontSize:17, color:'var(--text-muted)', margin:'0 0 14px', fontStyle:'italic' }}>
+            <p style={{ fontFamily:BODY, fontSize:17, color:'var(--text-muted)', margin:'0 0 14px' }}>
               📚 Contenido por materia (apuntes + documentos + flashcards)
             </p>
             {materias.length === 0 ? (
-              <p style={{ fontFamily:BODY, fontSize:18, color:'var(--text-faint)', fontStyle:'italic', textAlign:'center', padding:30 }}>
+              <p style={{ fontFamily:BODY, fontSize:18, color:'var(--text-faint)', textAlign:'center', padding:30 }}>
                 ~ aún no hay materias ~
               </p>
             ) : (
@@ -1136,7 +1137,7 @@ function LineChartXP({ data, mob }: { data: { fecha: string; xpAcumulado: number
   if (!data.length) {
     return (
       <div style={{ textAlign:'center', padding:30 }}>
-        <p style={{ fontFamily:BODY, fontSize:18, color:'var(--text-faint)', fontStyle:'italic' }}>
+        <p style={{ fontFamily:BODY, fontSize:18, color:'var(--text-faint)' }}>
           ~ empieza a estudiar para ver tu evolución ~
         </p>
       </div>
@@ -1264,7 +1265,7 @@ function BarrasSemanales({ data, mob }: { data: any; mob: any }) {
           border:'2px dashed var(--gold)', borderRadius:10,
           padding:'6px 14px', transform:'rotate(-1deg)',
         }}>
-          <div style={{ fontFamily: BODY, fontSize:13, color:'var(--text-muted)', fontStyle:'italic' }}>total semana</div>
+          <div style={{ fontFamily: BODY, fontSize:13, color:'var(--text-muted)' }}>total semana</div>
           <div style={{ fontFamily:HAND, fontSize:24, fontWeight:900, color:'var(--gold)', lineHeight:1 }}>{totalSemana} XP</div>
         </div>
         <div style={{
@@ -1272,7 +1273,7 @@ function BarrasSemanales({ data, mob }: { data: any; mob: any }) {
           border:'2px dashed var(--blue)', borderRadius:10,
           padding:'6px 14px', transform:'rotate(1deg)',
         }}>
-          <div style={{ fontFamily: BODY, fontSize:13, color:'var(--text-muted)', fontStyle:'italic' }}>promedio/día</div>
+          <div style={{ fontFamily: BODY, fontSize:13, color:'var(--text-muted)' }}>promedio/día</div>
           <div style={{ fontFamily:HAND, fontSize:24, fontWeight:900, color:'var(--blue)', lineHeight:1 }}>{promedio} XP</div>
         </div>
       </div>
@@ -1316,7 +1317,7 @@ function BarrasSemanales({ data, mob }: { data: any; mob: any }) {
                 {d.diaCorto}
               </span>
               {d.esHoy && (
-                <span style={{ fontFamily:HAND, fontSize:11, color:colorHoy, fontStyle:'italic', lineHeight:1 }}>hoy</span>
+                <span style={{ fontFamily:HAND, fontSize:11, color:colorHoy, lineHeight:1 }}>hoy</span>
               )}
             </div>
           );
@@ -1324,7 +1325,7 @@ function BarrasSemanales({ data, mob }: { data: any; mob: any }) {
       </div>
 
       {totalSemana === 0 && (
-        <p style={{ fontFamily:BODY, fontSize:15, color:'var(--text-faint)', fontStyle:'italic', marginTop:10 }}>
+        <p style={{ fontFamily:BODY, fontSize:15, color:'var(--text-faint)', marginTop:10 }}>
           ~ aún no has ganado XP esta semana ~
         </p>
       )}
@@ -1437,7 +1438,7 @@ function RachaPanel({ racha, mejorRacha, diasEstudiados, mob }: { racha:any; mej
           <div style={{ fontFamily:HAND, fontSize:48, fontWeight:900, color:'var(--red)', lineHeight:1 }}>
             {racha}
           </div>
-          <div style={{ fontFamily:BODY, fontSize:14, color:'var(--text-muted)', fontStyle:'italic' }}>
+          <div style={{ fontFamily:BODY, fontSize:14, color:'var(--text-muted)' }}>
             días consecutivos
           </div>
         </div>
@@ -1454,14 +1455,14 @@ function RachaPanel({ racha, mejorRacha, diasEstudiados, mob }: { racha:any; mej
           <div style={{ fontFamily:HAND, fontSize:48, fontWeight:900, color:'var(--gold)', lineHeight:1 }}>
             {mejorRacha}
           </div>
-          <div style={{ fontFamily:BODY, fontSize:14, color:'var(--text-muted)', fontStyle:'italic' }}>
+          <div style={{ fontFamily:BODY, fontSize:14, color:'var(--text-muted)' }}>
             tu récord
           </div>
         </div>
       </div>
 
       <div>
-        <p style={{ fontFamily:BODY, fontSize:17, color:'var(--text-muted)', margin:'0 0 8px', fontStyle:'italic', textAlign:'center' }}>
+        <p style={{ fontFamily:BODY, fontSize:17, color:'var(--text-muted)', margin:'0 0 8px', textAlign:'center' }}>
           📆 Últimos 35 días {' '}
           <span style={{ color:'var(--red)' }}>🔥 = estudiaste</span>
         </p>
@@ -1506,7 +1507,7 @@ function RachaPanel({ racha, mejorRacha, diasEstudiados, mob }: { racha:any; mej
 
       <p style={{
         fontFamily:HAND, fontSize:18, color:'var(--text-muted)',
-        textAlign:'center', margin:0, fontStyle:'italic',
+        textAlign:'center', margin:0,
         transform:'rotate(-0.5deg)',
       }}>
         {racha === 0
@@ -1526,6 +1527,10 @@ export default function Home() {
   const [loading, setLoading]       = useState(false);
 
   const [themeKey, setThemeKey] = useState(0);
+  // Autoridad canónica de light/dark. Antes Home escribía
+  // localStorage['studyal_darkmode'] a mano en dos sitios, duplicando la
+  // lógica del hook y pudiendo desincronizar su estado de React.
+  const { toggle: toggleDarkMode } = useDarkMode();
   const [showDailyReward, setShowDailyReward] = useState(false);
   const [playerStats, setPlayerStats] = useState<any>(null);
   const [myRank, setMyRank]         = useState(0);
@@ -1772,7 +1777,7 @@ export default function Home() {
 
   }, []);
 
-  if (!authChecked) return <StudyLoader label="Inicio" />;
+  if (!authChecked) return <StudyLoader label="StudyAL" />;
 
   /* ═════════ MOBILE ═════════ */
   if (mob) return (
@@ -1804,7 +1809,8 @@ export default function Home() {
               }}/>
             </div>
             <span className="brand-studyal" style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)' }}>
-              <span className="brand-study" style={{ fontSize: '85%', color: 'var(--text-primary)' }}>Study</span><span className="brand-al">AL</span>
+              {/* ÚNICA cursiva permitida en StudyAL: logo arriba-izquierda del Home. */}
+              <span className="brand-study brand-study-home" style={{ fontSize: '85%', color: 'var(--text-primary)' }}>Study</span><span className="brand-al">AL</span>
             </span>
           </div>
 
@@ -1838,14 +1844,7 @@ export default function Home() {
 
             <button
               onClick={()=>{
-                const isLight = document.documentElement.classList.contains('light');
-                if (isLight) {
-                  document.documentElement.classList.remove('light');
-                  try { localStorage.setItem('studyal_darkmode','dark'); } catch {}
-                } else {
-                  document.documentElement.classList.add('light');
-                  try { localStorage.setItem('studyal_darkmode','light'); } catch {}
-                }
+              toggleDarkMode();
                 setThemeKey(k=>k+1);
               }}
               title="Tema"
@@ -1995,14 +1994,7 @@ export default function Home() {
 
           <button
             onClick={()=>{
-              const isLight = document.documentElement.classList.contains('light');
-              if (isLight) {
-                document.documentElement.classList.remove('light');
-                try { localStorage.setItem('studyal_darkmode', 'dark'); } catch {}
-              } else {
-                document.documentElement.classList.add('light');
-                try { localStorage.setItem('studyal_darkmode', 'light'); } catch {}
-              }
+              toggleDarkMode();
               setThemeKey(k=>k+1);
             }}
             title="Cambiar tema"
@@ -2049,7 +2041,7 @@ export default function Home() {
 
           {/* DER */}
           <div style={{ display:'flex',flexDirection:'column',alignItems:'flex-end',gap:8,minWidth:0,maxWidth:'100%',overflow:'visible',position:'relative',zIndex:5 }}>
-            <span style={{ fontFamily:HAND,fontSize:'clamp(14px,1.4vw,18px)',color:'var(--text-muted)',fontStyle:'italic',transform:'rotate(-3deg)',display:'inline-block',marginRight:isTablet?14:30 }}>→ improve</span>
+            <span style={{ fontFamily:HAND,fontSize:'clamp(14px,1.4vw,18px)',color:'var(--text-muted)',transform:'rotate(-3deg)',display:'inline-block',marginRight:isTablet?14:30 }}>→ improve</span>
             <TopPodio onClick={() => nav('/leaderboard','Leaderboard','var(--gold)','🏆')} mob={false} tablet={isTablet}/>
           </div>
         </div>

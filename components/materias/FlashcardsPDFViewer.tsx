@@ -35,7 +35,7 @@ interface Props {
   scrollTrigger?: number;
 }
 
-const BODY = "'Inter', system-ui, sans-serif";
+const BODY = "var(--font-body)";
 
 export default function FlashcardsPDFViewer({
   url,
@@ -457,7 +457,7 @@ export default function FlashcardsPDFViewer({
             }} />
             <div style={{
               fontSize: 13, fontFamily: BODY,
-              color: 'rgba(255,255,255,0.4)', fontStyle: 'italic',
+              color: 'rgba(255,255,255,0.4)',
             }}>Cargando PDF...</div>
           </div>
         )}
@@ -552,7 +552,7 @@ export default function FlashcardsPDFViewer({
                       }} />
                       <div style={{
                         fontSize: 12, fontFamily: BODY,
-                        color: 'rgba(255,255,255,0.35)', fontStyle: 'italic',
+                        color: 'rgba(255,255,255,0.35)',
                       }}>Renderizando página {pageNum}...</div>
                     </div>
                   }

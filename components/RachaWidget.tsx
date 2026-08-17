@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { verificarRacha, cargarRachaDesdeDB, getHoyStr, RachaData } from '../lib/racha';
 import { useIdioma } from '../hooks/useIdioma';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Props {
   compact?: boolean;
@@ -104,7 +104,7 @@ export default function RachaWidget({ compact = false }: Props) {
         <span style={{
           fontFamily: HAND, fontSize: 16, fontWeight: 800,
           color: tieneRacha ? '#000' : 'var(--text-muted)',
-          fontStyle: 'italic',
+
         }}>
           🔥 {idioma === 'en' ? 'Your Streak' : 'Tu racha'}
         </span>
@@ -151,7 +151,7 @@ export default function RachaWidget({ compact = false }: Props) {
               </div>
               <div style={{
                 fontFamily: BODY, fontSize: 15, fontWeight: 700,
-                color: 'var(--text-muted)', fontStyle: 'italic',
+                color: 'var(--text-muted)',
                 marginTop: 2,
               }}>
                 {racha.rachaActual === 1 ? tr('diaRacha') : tr('diasRacha')}
@@ -171,7 +171,7 @@ export default function RachaWidget({ compact = false }: Props) {
           }}>
             <div style={{
               fontFamily: BODY, fontSize: 12, fontWeight: 700,
-              color: 'var(--text-muted)', fontStyle: 'italic',
+              color: 'var(--text-muted)',
               lineHeight: 1,
             }}>
               {tr('mejorRacha')}
@@ -241,7 +241,7 @@ export default function RachaWidget({ compact = false }: Props) {
         }}>
           <p style={{
             fontFamily: BODY, fontSize: 13,
-            color: 'var(--text-muted)', fontStyle: 'italic',
+            color: 'var(--text-muted)',
             margin: '0 0 8px', textAlign: 'center',
           }}>
             ~ últimos 7 días ~
@@ -289,7 +289,7 @@ export default function RachaWidget({ compact = false }: Props) {
         <div>
           <p style={{
             fontFamily: BODY, fontSize: 13,
-            color: 'var(--text-muted)', fontStyle: 'italic',
+            color: 'var(--text-muted)',
             margin: '0 0 6px',
           }}>
             ✨ hitos

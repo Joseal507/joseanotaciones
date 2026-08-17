@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { Asignacion, ObjetivoAgenda, XP_TAMAÑO, TamañoObjetivo, genId } from '../../lib/agenda';
 import { useIdioma } from '../../hooks/useIdioma';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 // ══════════════════════════════════════════════════════════════
 // MODAL ASIGNACIÓN
@@ -144,7 +144,7 @@ export function ModalAsignacion({ materias, fechaInicial, onCrear, onClose }: Mo
                 </span>
                 <span style={{
                   fontFamily: BODY,
-                  fontSize: 14, fontStyle: 'italic',
+                  fontSize: 14,
                   color: 'var(--text-muted)',
                 }}>
                   {t.desc}
@@ -176,7 +176,7 @@ export function ModalAsignacion({ materias, fechaInicial, onCrear, onClose }: Mo
             <p style={{
               margin: 0,
               fontFamily: BODY, fontSize: 14,
-              color: 'var(--text-muted)', fontStyle: 'italic',
+              color: 'var(--text-muted)',
             }}>
               ⛔ {idioma === 'en' ? '0 XP if you miss the deadline' : '0 XP si vence sin completar'}
             </p>
@@ -321,7 +321,7 @@ export function ModalObjetivo({ onCrear, onClose }: ModalObjProps) {
                 }}
               >
                 <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.1 }}>{t.label}</div>
-                <div style={{ fontSize: 14, marginTop: 3, fontWeight: 700, fontStyle: 'italic' }}>⭐ {t.xp} XP</div>
+                <div style={{ fontSize: 14, marginTop: 3, fontWeight: 700 }}>⭐ {t.xp} XP</div>
               </button>
             );
           })}
@@ -442,7 +442,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         color: 'var(--text-muted)',
         display: 'block',
         marginBottom: 6,
-        fontStyle: 'italic',
+
         transform: 'rotate(-0.5deg)',
         transformOrigin: 'left',
       }}>

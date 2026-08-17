@@ -2,8 +2,8 @@
 
 import { PartnerInfo } from './types';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 export function Av({ user, size = 40, onClick }: { user: PartnerInfo; size?: number; onClick?: () => void }) {
   const i = (user.nombre || '?').trim().charAt(0).toUpperCase();

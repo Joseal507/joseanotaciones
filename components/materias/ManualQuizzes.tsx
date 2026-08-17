@@ -7,7 +7,7 @@ import {
   writeManualToolState,
 } from "../../lib/manualToolState";
 
-const BODY = "'Plus Jakarta Sans', system-ui, sans-serif";
+const BODY = "var(--font-body)";
 
 interface Props {
   materiales: any[];
@@ -359,7 +359,7 @@ export default function ManualQuizzes({
                       {isCorrect ? '✓ Correcta' : `✗ Tu respuesta: ${q.opciones[chosen] || '—'} · Correcta: ${q.opciones[q.respuestaCorrectaIndex]}`}
                     </div>
                     {q.explicacion && (
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6, fontStyle: 'italic' }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
                         💡 {q.explicacion}
                       </div>
                     )}

@@ -125,7 +125,7 @@ export default function MaterialUploader({
       padding: 24,
       maxWidth: 560,
       width: '100%',
-      fontFamily: "'Caveat', cursive",
+      fontFamily: "var(--font-hand)",
     }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
@@ -133,7 +133,7 @@ export default function MaterialUploader({
           <h2 style={{ color: '#fff', fontSize: 26, fontWeight: 800, margin: 0 }}>
             📎 Subir material
           </h2>
-          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, margin: '4px 0 0', fontStyle: 'italic' }}>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, margin: '4px 0 0' }}>
             El análisis se hace cuando uses un enfoque
           </p>
         </div>
@@ -283,7 +283,7 @@ export default function MaterialUploader({
               )}
 
               {p.status === 'error' && p.error && (
-                <p style={{ color: '#f87171', fontSize: 12, margin: '4px 0 0', fontStyle: 'italic' }}>
+                <p style={{ color: '#f87171', fontSize: 12, margin: '4px 0 0' }}>
                   {p.error}
                 </p>
               )}
@@ -306,7 +306,7 @@ export default function MaterialUploader({
             color: files.length && !uploading ? '#000' : 'rgba(255,255,255,0.3)',
             fontSize: 18,
             fontWeight: 800,
-            fontFamily: "'Caveat', cursive",
+            fontFamily: "var(--font-hand)",
             cursor: files.length && !uploading ? 'pointer' : 'not-allowed',
             transition: 'all 0.2s ease',
           }}
@@ -328,7 +328,7 @@ export default function MaterialUploader({
               ? 'Algunos archivos fallaron'
               : '¡Material guardado!'}
           </p>
-          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, margin: '0 0 20px', fontStyle: 'italic' }}>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, margin: '0 0 20px' }}>
             {hasErrors
               ? 'Los que subieron correctamente ya están disponibles'
               : 'Se analizará cuando uses un enfoque de estudio'}
@@ -342,7 +342,7 @@ export default function MaterialUploader({
                   border: '1.5px solid rgba(255,255,255,0.2)',
                   background: 'transparent', color: '#fff',
                   fontSize: 16, fontWeight: 700,
-                  fontFamily: "'Caveat', cursive", cursor: 'pointer',
+                  fontFamily: "var(--font-hand)", cursor: 'pointer',
                 }}
               >
                 Cerrar
@@ -358,7 +358,7 @@ export default function MaterialUploader({
                 padding: '10px 24px', borderRadius: 10,
                 border: 'none', background: '#f5c842',
                 color: '#000', fontSize: 16, fontWeight: 800,
-                fontFamily: "'Caveat', cursive", cursor: 'pointer',
+                fontFamily: "var(--font-hand)", cursor: 'pointer',
               }}
             >
               + Subir más

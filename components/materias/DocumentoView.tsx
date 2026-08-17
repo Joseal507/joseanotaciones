@@ -18,7 +18,7 @@ import TabQuiz from './TabQuiz';
 import TabFlashcards from './TabFlashcards';
 import PublicarComunidad from '../PublicarComunidad';
 
-const HAND = "'Caveat',cursive";
+const HAND = "var(--font-hand)";
 
 interface Props {
   documento: Documento;
@@ -327,7 +327,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
                 fontFamily: HAND, fontSize: 26, fontWeight: 900,
                 color: '#000', margin: 0, lineHeight: 1.1,
                 transform: 'rotate(-0.8deg)', display: 'inline-block',
-                fontStyle: 'italic',
+
               }}>
                 💾 {trAny('guardarDeck')}
               </h3>
@@ -337,7 +337,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
               <p style={{
                 fontFamily: HAND, fontSize: 17,
                 color: 'var(--text-muted)', margin: '0 0 16px',
-                fontStyle: 'italic',
+
               }}>
                 ~ {flashcards.length} {trAny('tarjetas')} · "{documento.nombre}" ~
               </p>
@@ -444,7 +444,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
         <span style={breadSep}>›</span>
         <span style={{
           fontSize: 17, fontWeight: 800, color: 'var(--text-primary)',
-          fontStyle: 'italic',
+
         }}>
           {documento.nombre.length > 30 ? documento.nombre.slice(0, 30) + '…' : documento.nombre}
         </span>
@@ -489,7 +489,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 2 }}>
                 <span style={{
                   fontFamily: HAND, fontSize: 14, fontWeight: 700,
-                  color: 'rgba(0,0,0,0.7)', fontStyle: 'italic',
+                  color: 'rgba(0,0,0,0.7)',
                 }}>
                   {documento.fechaSubida}
                 </span>
@@ -524,7 +524,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
               onMouseEnter={(e:any)=>{e.currentTarget.style.transform='rotate(0deg) translateY(-2px)';}}
               onMouseLeave={(e:any)=>{e.currentTarget.style.transform='rotate(-1.5deg)';}}
             >
-              💬 chat
+              💬 cha
             </button>
             <button onClick={analizar} disabled={analizando}
               style={{
@@ -635,7 +635,7 @@ export default function DocumentoView({ documento, materia, tema, onBack, onBack
                     }}>
                       <p style={{
                         fontFamily: HAND, fontSize: 14, fontWeight: 800,
-                        color: 'var(--text-faint)', fontStyle: 'italic',
+                        color: 'var(--text-faint)',
                         margin: '0 0 6px',
                       }}>
                         ✏️ {idioma === 'en' ? 'extracted text' : 'texto extraído'}
@@ -788,7 +788,7 @@ function AnalyzeCTA({ tema, onAnalizar, idioma, esImagen }: { tema: any; onAnali
     }}>
       <p style={{
         fontFamily: HAND, fontSize: 19, fontWeight: 700,
-        color: 'var(--text-muted)', fontStyle: 'italic',
+        color: 'var(--text-muted)',
         margin: '0 0 12px',
       }}>
         🤖 ~ {esImagen
@@ -832,7 +832,7 @@ const breadBtn: React.CSSProperties = {
   fontFamily: HAND, fontSize: 16, fontWeight: 800,
   cursor: 'pointer',
   padding: '4px 10px', borderRadius: 8,
-  fontStyle: 'italic',
+
   transition: 'all 0.2s',
 };
 

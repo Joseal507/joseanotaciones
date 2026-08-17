@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { getNotas, crearNota, eliminarNota, actualizarNota, NotaRapida } from '../lib/notas';
 import { useIdioma } from '../hooks/useIdioma';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 const ROTS = [-3.5, 2.5, -1.8, 3.2, -2.6, 1.4, -3.1, 2.0, -1.2, 2.8];
 function rotForId(id: string) {
@@ -142,7 +142,6 @@ export default function NotasRapidas() {
         .nb-nota-fecha {
           font-family: ${HAND};
           font-size: 12px;
-          font-style: italic;
           color: rgba(40, 30, 20, 0.55);
         }
         .nb-nota-btn {
@@ -201,7 +200,6 @@ export default function NotasRapidas() {
         }
         .nb-input::placeholder {
           color: var(--text-faint);
-          font-style: italic;
         }
         .nb-add-btn {
           padding: 9px 18px;
@@ -254,7 +252,7 @@ export default function NotasRapidas() {
                 fontSize: 16,
                 color: 'var(--gold)',
                 marginLeft: 8,
-                fontStyle: 'italic',
+
                 fontWeight: 700,
               }}>
                 ({notas.length})
@@ -271,7 +269,7 @@ export default function NotasRapidas() {
               fontFamily: HAND,
               fontSize: 16,
               fontWeight: 700,
-              fontStyle: 'italic',
+
               background: 'transparent',
               border: '1.5px dashed var(--text-faint)',
               borderRadius: 8,
@@ -322,7 +320,7 @@ export default function NotasRapidas() {
             fontFamily: HAND,
             fontSize: 18,
             color: 'var(--text-faint)',
-            fontStyle: 'italic',
+
             margin: 0,
           }}>
             ~ {tr('sinNotas')} ~

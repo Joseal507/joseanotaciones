@@ -7,8 +7,8 @@ import { useAuthenticatedStudyALUser } from '../hooks/useAuthenticatedStudyALUse
 import { getHorarioDB, Horario } from '../lib/db';
 import { useIdioma } from '../hooks/useIdioma';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 const DIAS_MAP: { [key: number]: keyof Horario } = {
   1: 'lunes', 2: 'martes', 3: 'miercoles', 4: 'jueves', 5: 'viernes'
@@ -98,7 +98,7 @@ export default function HorarioWidget() {
       boxShadow: '3px 3px 0 var(--text-primary)',
     }}>
       <div style={{ fontSize: 36, marginBottom: 8, animation: 'hwPulse 1.4s ease-in-out infinite' }}>📅</div>
-      <div style={{ fontFamily: BODY, fontSize: 15, color: 'var(--text-faint)', fontStyle: 'italic' }}>
+      <div style={{ fontFamily: BODY, fontSize: 15, color: 'var(--text-faint)' }}>
         ~ {idioma === 'en' ? 'loading schedule' : 'cargando horario'} ~
       </div>
       <style>{`
@@ -206,7 +206,7 @@ export default function HorarioWidget() {
           <p style={{ fontFamily: HAND, fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px', lineHeight: 1.1 }}>
             {idioma === 'en' ? 'Free day!' : '¡Día libre!'}
           </p>
-          <p style={{ fontFamily: BODY, fontSize: 16, color: 'var(--text-muted)', fontStyle: 'italic', margin: '0 0 14px' }}>
+          <p style={{ fontFamily: BODY, fontSize: 16, color: 'var(--text-muted)', margin: '0 0 14px' }}>
             ~ {idioma === 'en' ? 'No classes today. Enjoy!' : 'No hay clases. ¡Descansa!'} ~
           </p>
           <button
@@ -237,7 +237,7 @@ export default function HorarioWidget() {
         <BandaTitulo color="var(--gold)" emoji="📅" texto={idioma === 'en' ? "Today's Schedule" : 'Horario de hoy'} />
         <div style={{ padding: '20px', textAlign: 'center' }}>
           <div style={{ fontSize: 40, marginBottom: 8 }}>🌵</div>
-          <p style={{ fontFamily: BODY, fontSize: 16, color: 'var(--text-faint)', fontStyle: 'italic', margin: '0 0 12px' }}>
+          <p style={{ fontFamily: BODY, fontSize: 16, color: 'var(--text-faint)', margin: '0 0 12px' }}>
             ~ {idioma === 'en' ? 'No classes scheduled today' : 'Sin clases programadas hoy'} ~
           </p>
           <button onClick={navHorario}
@@ -286,7 +286,7 @@ export default function HorarioWidget() {
             </p>
             <p style={{
               fontFamily: BODY, fontSize: 14, color: 'var(--text-faint)',
-              fontStyle: 'italic', margin: '2px 0 0',
+              margin: '2px 0 0',
             }}>
               {ahora.toLocaleTimeString(idioma === 'en' ? 'en-US' : 'es-ES', { hour: '2-digit', minute: '2-digit' })}
             </p>
@@ -330,7 +330,7 @@ export default function HorarioWidget() {
               }}/>
               <span style={{
                 fontFamily: HAND, fontSize: 13, fontWeight: 800,
-                color: claseEnCurso.color, fontStyle: 'italic',
+                color: claseEnCurso.color,
                 textTransform: 'lowercase',
               }}>
                 {idioma === 'en' ? '🔴 happening now!' : '🔴 ¡ahora mismo!'}
@@ -365,7 +365,7 @@ export default function HorarioWidget() {
             <p style={{
               fontFamily: HAND, fontSize: 13, fontWeight: 800,
               color: 'var(--blue)', margin: '0 0 3px',
-              fontStyle: 'italic',
+
             }}>
               ⏰ {idioma === 'en' ? 'next class' : 'próxima clase'} · en {minutosHasta(proximaClase.horaInicio)} min
             </p>
@@ -422,7 +422,7 @@ export default function HorarioWidget() {
                     </p>
                     <p style={{
                       fontFamily: BODY, fontSize: 13, color: 'var(--text-faint)',
-                      fontStyle: 'italic', margin: 0,
+                      margin: 0,
                     }}>
                       {formatHora(clase.horaInicio)} – {formatHora(clase.horaFin)}
                     </p>
@@ -436,7 +436,7 @@ export default function HorarioWidget() {
         {!restoDia.length && !claseEnCurso && !proximaClase && (
           <p style={{
             fontFamily: BODY, fontSize: 17,
-            color: 'var(--text-muted)', fontStyle: 'italic',
+            color: 'var(--text-muted)',
             textAlign: 'center', margin: '8px 0 0',
           }}>
             ✅ ~ {idioma === 'en' ? 'no more classes today' : 'no hay más clases hoy'} ~
@@ -476,7 +476,7 @@ function BandaTitulo({ color, emoji, texto }: { color: string; emoji: string; te
     }}>
       <span style={{
         fontFamily: HAND, fontSize: 16, fontWeight: 800,
-        color: '#000', fontStyle: 'italic',
+        color: '#000',
       }}>
         {emoji} {texto}
       </span>

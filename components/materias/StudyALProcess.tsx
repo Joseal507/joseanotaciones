@@ -146,8 +146,8 @@ export default function StudyALProcess({
         desc: "Comprende las ideas principales del material.",
         emoji: "📖",
         color: "var(--gold)",
-        colorHex: "#d6b26f",
-        tape: "#d6b26f",
+        colorHex: "var(--gold)",
+        tape: "var(--gold)",
         angle: 0,
         action: () => onOpenRepasar?.(),
       },
@@ -218,8 +218,8 @@ export default function StudyALProcess({
         desc: "Simula una evaluación real.",
         emoji: "📝",
         color: "var(--red)",
-        colorHex: "#8a120c",
-        tape: "#8a120c",
+        colorHex: "var(--red)",
+        tape: "var(--red)",
         angle: 270,
         action: () => onOpenExam?.(),
       },
@@ -230,8 +230,8 @@ export default function StudyALProcess({
         desc: "Pregunta y profundiza sobre el material.",
         emoji: "✨",
         color: "var(--gold)",
-        colorHex: "#d6b26f",
-        tape: "#d6b26f",
+        colorHex: "var(--gold)",
+        tape: "var(--gold)",
         angle: 315,
         action: () => onOpenAlai?.(),
       },
@@ -398,7 +398,7 @@ export default function StudyALProcess({
               >
                 <path
                   d="M0,0 L10,5 L0,10 z"
-                  fill="#d6b26f"
+                  fill="var(--gold)"
                 />
               </marker>
 
@@ -615,7 +615,7 @@ export default function StudyALProcess({
         .sap-donut-text{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
         .sap-donut-text strong,.sap-big-progress{font-size:28px;color:var(--gold)}
         .sap-donut-text small{font-size:9px;color:var(--text-faint)}
-        .sap-quote{color:var(--text-faint);font-size:12px;font-style:italic}
+        .sap-quote{color:var(--text-faint);font-size:12px}
         .sap-center{position:relative;width:100%;aspect-ratio:${VB_W}/${VB_H};max-width:820px;margin:auto}
         .sap-circle-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
         .sap-paper-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-1deg);width:180px;min-height:215px;background:repeating-linear-gradient(to bottom,#f5ecd6 0 26px,#ead9b3 26px 27px);color:#1a1a1a;border:2px solid rgba(0,0,0,.3);border-radius:6px;padding:22px 14px;text-align:center;box-shadow:7px 10px 0 rgba(0,0,0,.45);z-index:7}

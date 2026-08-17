@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useMemo } from 'react';
 
-const HAND = "'Caveat', cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 const STICKERS = ['📚', '✏️', '🎯', '💡', '🧠', '⭐', '🔥', '☘️', '🏆', '📝', '🎨', '💪'];
 
 function Doodle({ i }: { i: number }) {
@@ -75,29 +75,7 @@ function ScribbleSpinner() {
 
 export default function StudyLoader({ label = 'Página', mode }: { label?: string; mode?: string }) {
   const clean = (label || 'Página').trim();
-  const messages = useMemo(() => [
-    `Preparando ${clean}...`,
-    `Afinando detalles de ${clean}...`,
-    `Cargando ${clean}...`,
-  ], [clean]);
-
-  const [step, setStep] = useState(0);
-  const [dots, setDots] = useState('');
-
-  useEffect(() => {
-    setStep(0);
-    const iv = setInterval(() => {
-      setStep(s => (s < 2 ? s + 1 : 2));
-    }, 700);
-    return () => clearInterval(iv);
-  }, []);
-
-  useEffect(() => {
-    const iv = setInterval(() => {
-      setDots(d => (d.length >= 3 ? '' : d + '.'));
-    }, 400);
-    return () => clearInterval(iv);
-  }, []);
+  const message = `Cargando ${clean}`;
 
   return (
     <div style={{
@@ -160,15 +138,7 @@ export default function StudyLoader({ label = 'Página', mode }: { label?: strin
           textAlign: 'center', lineHeight: 1.2,
           transform: 'rotate(0.5deg)', zIndex: 2,
         }}>
-          {messages[Math.min(step, 2)]}
-        </p>
-
-        <p style={{
-          fontFamily: HAND, fontSize: 16, fontStyle: 'italic',
-          color: 'var(--text-muted)', margin: 0, zIndex: 2,
-          transform: 'rotate(-0.8deg)',
-        }}>
-          ~ un momento{dots} ~
+          {message}
         </p>
 
         <div style={{

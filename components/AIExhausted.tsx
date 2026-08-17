@@ -123,7 +123,7 @@ export default function AIExhausted({ onClose }: Props) {
 
         <p style={{
           fontSize: '12px', color: 'var(--text-faint)',
-          margin: '0 0 20px', fontStyle: 'italic',
+          margin: '0 0 20px',
         }}>
           {idioma === 'en'
             ? '"Never thought you guys would study this much" - The AI'

@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { Message } from './types';
 import { fmtTime, fmtSize } from './helpers';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 const TABS = [
   { id: 'chat',  emoji: '💬', label: 'Chat' },
@@ -88,12 +88,12 @@ export default function SavedModal({ savedMsgs, onGuardar, onViewImage, onClose 
               fontFamily: HAND, fontSize: 26, fontWeight: 900,
               color: '#000', margin: 0, lineHeight: 1.05,
               transform: 'rotate(-0.8deg)', display: 'inline-block',
-              fontStyle: 'italic',
+
             }}>
               📌 Guardados
             </h3>
             <p style={{
-              fontFamily: HAND, fontSize: 14, fontStyle: 'italic',
+              fontFamily: HAND, fontSize: 14,
               color: 'rgba(0,0,0,0.75)',
               margin: 0,
             }}>
@@ -182,7 +182,7 @@ export default function SavedModal({ savedMsgs, onGuardar, onViewImage, onClose 
                 ~ nada guardado ~
               </p>
               <p style={{
-                fontFamily: BODY, fontSize: 15, fontStyle: 'italic',
+                fontFamily: BODY, fontSize: 15,
                 color: 'var(--text-faint)', margin: 0,
               }}>
                 ~ mantén presionado un mensaje para guardar ~
@@ -213,7 +213,7 @@ export default function SavedModal({ savedMsgs, onGuardar, onViewImage, onClose 
                   }} />
                   <div style={{
                     position: 'absolute', bottom: 6, left: 6,
-                    fontFamily: HAND, fontSize: 12, fontStyle: 'italic',
+                    fontFamily: HAND, fontSize: 12,
                     color: 'rgba(255,255,255,0.9)', fontWeight: 700,
                   }}>
                     {fmtTime(m.created_at)}
@@ -265,7 +265,7 @@ export default function SavedModal({ savedMsgs, onGuardar, onViewImage, onClose 
                         color: 'var(--text-primary)', margin: 0,
                       }}>Mensaje de voz</p>
                       <p style={{
-                        fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+                        fontFamily: BODY, fontSize: 13,
                         color: 'var(--text-faint)', margin: '2px 0 0',
                       }}>~ {fmtTime(m.created_at)} ~</p>
                     </div>
@@ -321,7 +321,7 @@ export default function SavedModal({ savedMsgs, onGuardar, onViewImage, onClose 
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>{m.file_name}</p>
                     <p style={{
-                      fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+                      fontFamily: BODY, fontSize: 13,
                       color: 'var(--text-faint)', margin: 0,
                     }}>~ {fmtSize(m.file_size)} · {fmtTime(m.created_at)} ~</p>
                   </div>
@@ -370,7 +370,7 @@ export default function SavedModal({ savedMsgs, onGuardar, onViewImage, onClose 
                       wordBreak: 'break-word',
                     }}>{m.content}</p>
                     <p style={{
-                      fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+                      fontFamily: BODY, fontSize: 13,
                       color: 'var(--text-faint)', margin: 0,
                     }}>~ {fmtTime(m.created_at)} ~</p>
                   </div>

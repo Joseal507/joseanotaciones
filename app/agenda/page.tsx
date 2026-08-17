@@ -26,8 +26,8 @@ import PendientesSidebar from '../../components/agenda/PendientesSidebar';
 import { ModalAsignacion, ModalObjetivo } from '../../components/agenda/ModalesAgenda';
 import { syncLeaderboard } from '../../lib/syncLeaderboard';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 const hoyISO = () => {
   const h = new Date();
@@ -269,7 +269,7 @@ export default function AgendaPage() {
             boxShadow: '3px 3px 0 var(--text-primary)',
             transform: 'rotate(1.5deg)',
           }}>
-            <div style={{ fontFamily: BODY, fontSize: 12, color: 'var(--text-muted)', fontStyle:'italic', lineHeight: 1 }}>
+            <div style={{ fontFamily: BODY, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1 }}>
               XP total
             </div>
             <div style={{ fontFamily: HAND, fontSize: 22, fontWeight: 900, color: 'var(--gold)', lineHeight: 1.1 }}>

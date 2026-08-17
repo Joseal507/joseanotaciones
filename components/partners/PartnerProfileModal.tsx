@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation';
 import { PartnerInfo, Message } from './types';
 import { Av, getTipoLabel } from './helpers';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 export default function PartnerProfileModal({ partner, savedMsgs, onOpenSaved, onClose }: {
   partner: PartnerInfo;
@@ -98,7 +98,7 @@ export default function PartnerProfileModal({ partner, savedMsgs, onOpenSaved, o
               </h2>
               {partner.descripcion && (
                 <p style={{
-                  fontFamily: BODY, fontSize: 15, fontStyle: 'italic',
+                  fontFamily: BODY, fontSize: 15,
                   color: 'var(--text-muted)',
                   margin: 0, lineHeight: 1.4,
                 }}>
@@ -141,7 +141,7 @@ export default function PartnerProfileModal({ partner, savedMsgs, onOpenSaved, o
                   color: s.c, lineHeight: 1,
                 }}>{s.v}</div>
                 <div style={{
-                  fontFamily: BODY, fontSize: 12, fontStyle: 'italic',
+                  fontFamily: BODY, fontSize: 12,
                   color: 'var(--text-faint)', marginTop: 4,
                 }}>~ {s.l} ~</div>
               </div>
@@ -219,7 +219,7 @@ export default function PartnerProfileModal({ partner, savedMsgs, onOpenSaved, o
                     lineHeight: 1,
                   }}>{item.count}</div>
                   <div style={{
-                    fontFamily: BODY, fontSize: 12, fontStyle: 'italic',
+                    fontFamily: BODY, fontSize: 12,
                     color: 'var(--text-faint)',
                     marginTop: 3,
                   }}>{item.label}</div>
@@ -279,7 +279,7 @@ function InfoPill({ emoji, text, rot }: { emoji: string; text: string; rot: numb
       <span style={{
         fontFamily: HAND, fontSize: 16, fontWeight: 800,
         color: 'var(--text-primary)',
-        fontStyle: 'italic',
+
       }}>{text}</span>
     </div>
   );

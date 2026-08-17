@@ -1,7 +1,7 @@
 'use client';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Props {
   documento: any;
@@ -52,7 +52,7 @@ export default function TabAnalisis({
           {tr('sinAnalisis')}
         </h3>
         <p style={{
-          fontFamily: BODY, fontSize: 18, fontStyle: 'italic',
+          fontFamily: BODY, fontSize: 18,
           color: 'var(--text-muted)', margin: '0 0 4px',
           position: 'relative',
         }}>
@@ -119,7 +119,7 @@ export default function TabAnalisis({
               {recommendedReason && (
                 <p style={{
                   fontFamily: BODY, fontSize: 16,
-                  color: 'var(--text-muted)', fontStyle: 'italic',
+                  color: 'var(--text-muted)',
                   margin: 0, lineHeight: 1.3,
                 }}>
                   ~ {recommendedReason} ~
@@ -392,7 +392,7 @@ function NotebookCard({ children, color, bandaEmoji, bandaTexto, rot }: {
       }}>
         <span style={{
           fontFamily: HAND, fontSize: 16, fontWeight: 800,
-          color: '#000', fontStyle: 'italic',
+          color: '#000',
         }}>
           {bandaEmoji} {bandaTexto}
         </span>

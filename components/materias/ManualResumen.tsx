@@ -10,7 +10,7 @@ import {
 
 const PDFViewer = dynamic(() => import("./FlashcardsPDFViewer"), { ssr: false });
 
-const BODY = "'Plus Jakarta Sans', system-ui, sans-serif";
+const BODY = "var(--font-body)";
 
 interface Props {
   materiales: any[];

@@ -3088,7 +3088,7 @@ export default function SessionPage() {
           )
         })()}
         <div style={{ fontSize: 16, opacity: 0.85, marginBottom: 8 }}>{classContent.sessionTitle}</div>
-        <div style={{ fontSize: 15, opacity: 0.7, marginBottom: 24, fontStyle: "italic" }}><AcademicContent content={classContent.sessionClosing} /></div>
+        <div style={{ fontSize: 15, opacity: 0.7, marginBottom: 24 }}><AcademicContent content={classContent.sessionClosing} /></div>
         <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
           <button onClick={handleReplay} style={{ padding: "12px 20px", background: "rgba(148,163,184,0.15)", color: "#e2e8f0", border: "1px solid rgba(148,163,184,0.3)", borderRadius: 10, fontWeight: 600, cursor: "pointer" }}>🔄 Repetir</button>
           <button onClick={openPlan} style={{ padding: "12px 20px", background: "rgba(59,130,246,0.15)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 10, fontWeight: 600, cursor: "pointer" }}>📋 Plan</button>
@@ -3226,7 +3226,7 @@ export default function SessionPage() {
         <div style={{ marginBottom: 24, paddingBottom: 20, borderBottom: "1px solid rgba(148,163,184,0.15)" }}>
           <h1 style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.2 }}>{classContent.sessionTitle}</h1>
           {skipEvaluation && <div style={{ marginTop: 10, padding: 12, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)", borderRadius: 10, color: "#86efac", fontSize: 14 }}>Sesión sin evaluación.</div>}
-          {currentStepIndex === 0 && <div style={{ fontSize: 15, opacity: 0.85, fontStyle: "italic", marginTop: 8, padding: 12, background: "rgba(59,130,246,0.08)", borderLeft: "3px solid #3b82f6", borderRadius: 4 }}><AcademicContent content={classContent.sessionIntro} /></div>}
+          {currentStepIndex === 0 && <div style={{ fontSize: 15, opacity: 0.85, marginTop: 8, padding: 12, background: "rgba(59,130,246,0.08)", borderLeft: "3px solid #3b82f6", borderRadius: 4 }}><AcademicContent content={classContent.sessionIntro} /></div>}
         </div>
 
         <div style={{ marginBottom: 28 }}>
@@ -3520,7 +3520,7 @@ export default function SessionPage() {
           <div style={{ marginTop: 22 }}>
             {currentQuestion.hint && !userAnswer && !isAnswerReady() && (
               hintRevealed ? (
-                <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12, fontStyle: "italic", display: "flex", gap: 6, alignItems: "center" }}>
+                <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12, display: "flex", gap: 6, alignItems: "center" }}>
                   <span>💡</span>
                   <span>Pista: <AcademicContent content={currentQuestion.hint} inline /></span>
                 </div>
@@ -3535,7 +3535,7 @@ export default function SessionPage() {
                     const attemptKey = currentAttemptKey()
                     if (attemptKey) persistPendingAssistance({ attemptKey, assistanceLevel: "minimal_hint" })
                   }}
-                  style={{ background: "none", border: "none", padding: 0, marginBottom: 12, color: "#64748b", fontSize: 13, fontStyle: "italic", cursor: "pointer", display: "flex", gap: 6, alignItems: "center" }}
+                  style={{ background: "none", border: "none", padding: 0, marginBottom: 12, color: "#64748b", fontSize: 13, cursor: "pointer", display: "flex", gap: 6, alignItems: "center" }}
                 >
                   <span>💡</span><span>Ver pista</span>
                 </button>
@@ -3711,7 +3711,7 @@ export default function SessionPage() {
 
               {/* Hint si falló */}
               {showCorrectAnswer && currentQuestion.hint && (
-                <div style={{ fontSize: 13, color: "#a78bfa", marginBottom: 14, fontStyle: "italic", display: "flex", gap: 6 }}>
+                <div style={{ fontSize: 13, color: "#a78bfa", marginBottom: 14, display: "flex", gap: 6 }}>
                   <span>💡</span>
                   <AcademicContent content={currentQuestion.hint} inline />
                 </div>

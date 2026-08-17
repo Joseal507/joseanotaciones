@@ -10,8 +10,8 @@ import NavbarMobile from '../../components/NavbarMobile';
 import Leaderboard from '../../components/Leaderboard';
 import StudyLoader from '../../components/StudyLoader';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 export default function LeaderboardPage() {
   const router = useRouter();
@@ -30,7 +30,7 @@ export default function LeaderboardPage() {
   }, [status, router]);
 
   if (checking) {
-    return <StudyLoader label="el leaderboard" />;
+    return <StudyLoader label="Leaderboard" />;
   }
 
   return (

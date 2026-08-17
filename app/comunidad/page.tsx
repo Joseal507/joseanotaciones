@@ -16,8 +16,8 @@ import Footer from '@/components/Footer';
 import Link from 'next/link';
 import PublicarComunidad from '@/components/PublicarComunidad';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Post {
   id: string;
@@ -145,7 +145,7 @@ function PostCard({ post, userId, onLike, onGuardar }: { post: Post; userId: str
                   }} />
                   <span style={{
                     fontFamily: HAND, fontSize: 13, fontWeight: 800,
-                    color: 'rgba(255,255,255,0.9)', fontStyle: 'italic',
+                    color: 'rgba(255,255,255,0.9)',
                   }}>
                     {post.materia_nombre}
                   </span>
@@ -203,7 +203,7 @@ function PostCard({ post, userId, onLike, onGuardar }: { post: Post; userId: str
             <span style={{
               fontFamily: HAND, fontSize: 14, fontWeight: 800,
               color: post.materia_color || tipo.color,
-              fontStyle: 'italic',
+
               background: 'var(--bg-card)',
               border: '2px solid var(--text-primary)',
               padding: '2px 10px', borderRadius: 6,
@@ -248,7 +248,7 @@ function PostCard({ post, userId, onLike, onGuardar }: { post: Post; userId: str
                 }} />
                 <span style={{
                   fontFamily: HAND, fontSize: 13, fontWeight: 800,
-                  color: 'var(--text-faint)', fontStyle: 'italic',
+                  color: 'var(--text-faint)',
                 }}>
                   {post.materia_nombre}
                 </span>
@@ -308,7 +308,7 @@ function PostCard({ post, userId, onLike, onGuardar }: { post: Post; userId: str
           </div>
           <span style={{
             fontFamily: BODY, fontSize: 15, fontWeight: 700,
-            color: 'var(--text-muted)', fontStyle: 'italic',
+            color: 'var(--text-muted)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100,
           }}>
             {post.user_nombre}
@@ -543,7 +543,7 @@ export default function ComunidadPage() {
               <path d="M2 3 Q 120 0 238 4" stroke="var(--gold)" strokeWidth="2.5" fill="none" strokeLinecap="round" opacity=".7"/>
             </svg>
             <p style={{
-              fontFamily: BODY, fontSize: 17, fontStyle: 'italic',
+              fontFamily: BODY, fontSize: 17,
               color: 'var(--text-muted)', margin: '6px 0 0',
             }}>
               ~ aprende y comparte con otros estudiantes ~
@@ -611,7 +611,7 @@ export default function ComunidadPage() {
 
           <p style={{
             margin: 0,
-            fontFamily: BODY, fontSize: 15, fontStyle: 'italic',
+            fontFamily: BODY, fontSize: 15,
             color: 'var(--text-muted)',
           }}>
             ~ 📰 feed vertical · scroll para navegar ~
@@ -660,7 +660,7 @@ export default function ComunidadPage() {
                   cursor: 'pointer',
                   boxShadow: active ? '2px 2px 0 var(--blue)' : 'none',
                   transform: active ? `rotate(${i % 2 === 0 ? -1 : 1}deg)` : `rotate(${i % 2 === 0 ? -0.3 : 0.3}deg)`,
-                  fontStyle: 'italic',
+
                   transition: 'all 0.2s',
                 }}>
                 {f.emoji} {f.label}
@@ -678,7 +678,7 @@ export default function ComunidadPage() {
           }}>
             <div style={{ fontSize: 50, animation: 'spin 1.2s linear infinite' }}>⏳</div>
             <p style={{
-              fontFamily: HAND, fontSize: 19, fontStyle: 'italic',
+              fontFamily: HAND, fontSize: 19,
               color: 'var(--text-faint)', margin: 0,
             }}>
               ~ cargando posts ~
@@ -702,7 +702,7 @@ export default function ComunidadPage() {
               No hay posts aquí todavía
             </h2>
             <p style={{
-              fontFamily: BODY, fontSize: 17, fontStyle: 'italic',
+              fontFamily: BODY, fontSize: 17,
               color: 'var(--text-muted)', margin: 0,
             }}>
               ~ {filtro === 'guardados' ? tr('guardaPostes') : tr('seElPrimero')} ~

@@ -10,8 +10,8 @@ import { useIdioma } from '../../hooks/useIdioma';
 import NavbarMobile from '../../components/NavbarMobile';
 import StudyLoader from '../../components/StudyLoader';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 const DIAS = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'] as const;
 
@@ -179,14 +179,14 @@ export default function HorarioPage() {
     : null;
 
   if (cargando) {
-    return <StudyLoader label={idioma === 'en' ? 'your schedule' : 'tu horario'} />;
+    return <StudyLoader label={idioma === 'en' ? 'Schedule' : 'Horario'} />;
   }
 
   if (errorCarga) {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
         <div style={{ fontSize: 48 }}>⚠️</div>
-        <p style={{ fontFamily: HAND, fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', fontStyle: 'italic', margin: 0 }}>
+        <p style={{ fontFamily: HAND, fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
           {idioma === 'en' ? "Couldn't load your schedule" : 'No se pudo cargar tu horario'}
         </p>
         <button
@@ -265,7 +265,7 @@ export default function HorarioPage() {
             {guardando && (
               <span style={{
                 fontFamily: HAND, fontSize: 16,
-                color: 'var(--gold)', fontStyle: 'italic',
+                color: 'var(--gold)',
                 animation: 'nbBlink 1s infinite',
               }}>
                 ✏️ {tr('guardando')}...
@@ -310,7 +310,7 @@ export default function HorarioPage() {
               <p style={{
                 fontFamily: HAND, fontSize: 14, fontWeight: 800,
                 color: claseActual.color, margin: '0 0 2px',
-                fontStyle: 'italic', textTransform: 'lowercase',
+                textTransform: 'lowercase',
               }}>
                 🔴 {tr('enCursoAhora')}
               </p>
@@ -348,7 +348,7 @@ export default function HorarioPage() {
               <p style={{
                 fontFamily: HAND, fontSize: 14, fontWeight: 800,
                 color: 'var(--blue)', margin: '0 0 2px',
-                fontStyle: 'italic', textTransform: 'lowercase',
+                textTransform: 'lowercase',
               }}>
                 {tr('proximaClaseHoy')}
               </p>
@@ -396,7 +396,7 @@ export default function HorarioPage() {
                       transition: 'all 0.25s cubic-bezier(.25,.8,.25,1)',
                     }}>
                     <span>{DIAS_SHORT_I18N[dia]}</span>
-                    <span style={{ fontSize: 12, fontStyle: 'italic', opacity: 0.85 }}>{clases.length} cl</span>
+                    <span style={{ fontSize: 12, opacity: 0.85 }}>{clases.length} cl</span>
                   </button>
                 );
               })}
@@ -459,7 +459,7 @@ export default function HorarioPage() {
               <span style={{
                 fontFamily: HAND, fontSize: 16, fontWeight: 800,
                 color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.3)',
-                fontStyle: 'italic',
+
               }}>
                 📊 {tr('resumenSemanalLabel')}
               </span>
@@ -497,7 +497,7 @@ export default function HorarioPage() {
                       </p>
                       <p style={{
                         fontFamily: BODY, fontSize: 13, color: 'var(--text-faint)',
-                        margin: 0, fontStyle: 'italic',
+                        margin: 0,
                       }}>
                         {clases.length !== 1 ? tr('clasesLabel') : tr('claseLabel')}
                       </p>
@@ -556,7 +556,7 @@ export default function HorarioPage() {
                 margin: 0, lineHeight: 1.1,
                 transform: 'rotate(-0.8deg)', display: 'inline-block',
               }}>
-                {claseEditando ? `✏️ ${tr('editarClaseBtn')}` : `📅 + Nueva clase`} <span style={{ fontSize: 18, fontStyle: 'italic', opacity: 0.95 }}>· {DIAS_LABELS_I18N[diaSeleccionado]}</span>
+                {claseEditando ? `✏️ ${tr('editarClaseBtn')}` : `📅 + Nueva clase`} <span style={{ fontSize: 18, opacity: 0.95 }}>· {DIAS_LABELS_I18N[diaSeleccionado]}</span>
               </h2>
             </div>
 
@@ -720,7 +720,7 @@ function DayCard({ dia, esHoy, clases, label, onAdd, onEdit, onDelete, horaActua
           {esHoy && (
             <p style={{
               fontFamily: HAND, fontSize: 12, fontWeight: 800,
-              color: '#000', margin: 0, fontStyle: 'italic',
+              color: '#000', margin: 0,
             }}>
               ✦ {tr('hoyCap')} ✦
             </p>
@@ -771,7 +771,7 @@ function DayCard({ dia, esHoy, clases, label, onAdd, onEdit, onDelete, horaActua
             <span style={{ fontSize: 28 }}>🌵</span>
             <span style={{
               fontFamily: HAND, fontSize: 15,
-              fontStyle: 'italic',
+
             }}>
               ~ {tr('sinClasesDesktop')} ~
             </span>
@@ -818,7 +818,7 @@ function DayCard({ dia, esHoy, clases, label, onAdd, onEdit, onDelete, horaActua
                 {clase.profesor && (
                   <p style={{
                     fontFamily: BODY, fontSize: 13, color: 'var(--text-muted)',
-                    margin: '0 0 1px', fontStyle: 'italic',
+                    margin: '0 0 1px',
                   }}>
                     👤 {clase.profesor}
                   </p>
@@ -826,7 +826,7 @@ function DayCard({ dia, esHoy, clases, label, onAdd, onEdit, onDelete, horaActua
                 {clase.aula && (
                   <p style={{
                     fontFamily: BODY, fontSize: 13, color: 'var(--text-muted)',
-                    margin: 0, fontStyle: 'italic',
+                    margin: 0,
                   }}>
                     📍 {clase.aula}
                   </p>
@@ -884,7 +884,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         fontFamily: HAND, fontSize: 16, fontWeight: 800,
         color: 'var(--text-muted)',
         display: 'block', marginBottom: 6,
-        fontStyle: 'italic',
+
         transform: 'rotate(-0.5deg)', transformOrigin: 'left',
       }}>
         ✏️ {label}

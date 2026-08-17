@@ -7,8 +7,8 @@ import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 import { sourceScopedKey } from '../../lib/materials/authorizedSource';
 import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
 
-const HAND = "'Caveat', cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 const RepasarViewer = dynamic(() => import('./RepasarViewer'), { ssr: false });
 
@@ -324,7 +324,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
   // Flush the LATEST pending write synchronously on true unmount (e.g. a
   // fast "Volver al proceso" click right after a real phase transition or
   // generation) so it can never race the 250ms debounce above and silently
-  // lose state — the debounce only exists to coalesce rapid keystrokes, not
+  // lose state — the debounce only exists to coalesce rapid keystrokes, no
   // to make writes optional.
   useEffect(() => () => {
     const pending = latestPersistPayloadRef.current;
@@ -622,7 +622,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
               fontFamily: HAND,
               color: 'var(--text-faint)',
               fontSize: 18,
-              fontStyle: 'italic',
+
             }}>
               método activo
             </div>
@@ -795,7 +795,7 @@ export default function ALAIStudyALRepasar({ materiales, seleccion, tema, materi
                       </div>
                     ))}
                     {masteryContext.strongConcepts?.length > 0 && (
-                      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-faint)', fontStyle: 'italic' }}>
+                      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-faint)' }}>
                         ✅ Ya dominas: {masteryContext.strongConcepts.slice(0, 3).join(', ')}
                       </div>
                     )}

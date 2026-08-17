@@ -770,7 +770,7 @@ function MindMap({
                     fontSize={labelFS}
                     fill={textColor}
                     fontWeight={900}
-                    fontFamily="'Inter', system-ui, sans-serif"
+                    fontFamily="var(--font-body)"
                     style={{ pointerEvents: 'none' }}
                   >
                     {line}
@@ -786,7 +786,7 @@ function MindMap({
                     fontSize={descFS}
                     fill={descColor}
                     fontWeight={500}
-                    fontFamily="'Inter', system-ui, sans-serif"
+                    fontFamily="var(--font-body)"
                     style={{ pointerEvents: 'none' }}
                   >
                     {line}
@@ -798,7 +798,7 @@ function MindMap({
                 {n.node.page && (
                   <g transform={`translate(${left + w - 56}, ${top + h - 22})`}>
                     <rect x={0} y={0} width={48} height={16} rx={4} fill={borderColor} opacity={0.85} />
-                    <text x={24} y={11.5} fontSize={10} fill="#fff" fontWeight={800} textAnchor="middle" fontFamily="'Inter', sans-serif">
+                    <text x={24} y={11.5} fontSize={10} fill="#fff" fontWeight={800} textAnchor="middle" fontFamily="var(--font-body)">
                       p.{n.node.page}
                     </text>
                   </g>
@@ -857,7 +857,7 @@ function MindMap({
       {/* Info bottom */}
       <div style={{
         position: 'absolute', bottom: 20, left: 20,
-        fontSize: 12, color: 'var(--text-faint)', fontFamily: "'Inter', sans-serif",
+        fontSize: 12, color: 'var(--text-faint)', fontFamily: "var(--font-body)",
         background: 'color-mix(in srgb, var(--bg-card) 90%, transparent)',
         padding: '6px 12px', borderRadius: 8,
         border: '1px solid var(--border-color2)',
@@ -896,11 +896,11 @@ function CardsView({ data }: { data: MindMapData }) {
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
             <div style={{ fontSize: 40 }}>{data.root.emoji || '🎯'}</div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 26, fontWeight: 900, color: 'var(--gold)', fontFamily: "'Inter', sans-serif", marginBottom: 6 }}>
+              <div style={{ fontSize: 26, fontWeight: 900, color: 'var(--gold)', fontFamily: "var(--font-body)", marginBottom: 6 }}>
                 {data.root.label}
               </div>
               {data.root.description && (
-                <div style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.6, fontFamily: "'Inter', sans-serif" }}>
+                <div style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.6, fontFamily: "var(--font-body)" }}>
                   {data.root.description}
                 </div>
               )}
@@ -931,11 +931,11 @@ function CardsView({ data }: { data: MindMapData }) {
               >
                 <span style={{ fontSize: 24 }}>{branch.emoji || '●'}</span>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: color, fontFamily: "'Inter', sans-serif" }}>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: color, fontFamily: "var(--font-body)" }}>
                     {branch.label}
                   </div>
                   {branch.description && (
-                    <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2, fontFamily: "'Inter', sans-serif" }}>
+                    <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2, fontFamily: "var(--font-body)" }}>
                       {branch.description}
                     </div>
                   )}
@@ -957,11 +957,11 @@ function CardsView({ data }: { data: MindMapData }) {
                         border: `1.5px solid color-mix(in srgb, ${color} 35%, transparent)`,
                         boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
                       }}>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6, fontFamily: "'Inter', sans-serif", lineHeight: 1.3 }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6, fontFamily: "var(--font-body)", lineHeight: 1.3 }}>
                           {leaf.label}
                         </div>
                         {leaf.description && (
-                          <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: details.length || leaf.page ? 10 : 0, fontFamily: "'Inter', sans-serif" }}>
+                          <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: details.length || leaf.page ? 10 : 0, fontFamily: "var(--font-body)" }}>
                             {leaf.description}
                           </div>
                         )}
@@ -973,11 +973,11 @@ function CardsView({ data }: { data: MindMapData }) {
                                 background: `color-mix(in srgb, ${color} 12%, var(--bg-card2))`,
                                 borderLeft: `3px solid ${color}`,
                               }}>
-                                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 1, fontFamily: "'Inter', sans-serif" }}>
+                                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 1, fontFamily: "var(--font-body)" }}>
                                   {d.label}
                                 </div>
                                 {d.description && (
-                                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.4, fontFamily: "'Inter', sans-serif" }}>
+                                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.4, fontFamily: "var(--font-body)" }}>
                                     {d.description}
                                   </div>
                                 )}
@@ -992,7 +992,7 @@ function CardsView({ data }: { data: MindMapData }) {
                             background: `color-mix(in srgb, ${color} 20%, var(--bg-card2))`,
                             border: `1px solid color-mix(in srgb, ${color} 40%, transparent)`,
                             fontSize: 10, fontWeight: 700, color,
-                            fontFamily: "'Inter', sans-serif",
+                            fontFamily: "var(--font-body)",
                           }}>
                             📄 p.{leaf.page}
                           </div>
@@ -1030,11 +1030,11 @@ function OutlineView({ data }: { data: MindMapData }) {
     <div style={{ height: '100%', overflowY: 'auto', background: 'var(--bg-primary)', padding: '24px 32px 60px' }}>
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
         <div style={{ marginBottom: 24, paddingBottom: 16, borderBottom: '3px solid var(--gold)' }}>
-          <div style={{ fontSize: 28, fontWeight: 900, color: 'var(--gold)', fontFamily: "'Inter', sans-serif", marginBottom: 6 }}>
+          <div style={{ fontSize: 28, fontWeight: 900, color: 'var(--gold)', fontFamily: "var(--font-body)", marginBottom: 6 }}>
             {data.root.emoji} {data.root.label}
           </div>
           {data.root.description && (
-            <div style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.5, fontFamily: "'Inter', sans-serif" }}>
+            <div style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.5, fontFamily: "var(--font-body)" }}>
               {data.root.description}
             </div>
           )}
@@ -1046,15 +1046,15 @@ function OutlineView({ data }: { data: MindMapData }) {
           return (
             <div key={branch.id} style={{ marginBottom: 28 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 10, paddingBottom: 8, borderBottom: `2px solid color-mix(in srgb, ${color} 50%, transparent)` }}>
-                <div style={{ fontSize: 14, fontWeight: 900, color, fontFamily: "'Inter', sans-serif", letterSpacing: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 900, color, fontFamily: "var(--font-body)", letterSpacing: 1 }}>
                   {String(bi + 1).padStart(2, '0')}
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif" }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', fontFamily: "var(--font-body)" }}>
                     {branch.emoji} {branch.label}
                   </div>
                   {branch.description && (
-                    <div style={{ fontSize: 13.5, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.5, fontFamily: "'Inter', sans-serif" }}>
+                    <div style={{ fontSize: 13.5, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.5, fontFamily: "var(--font-body)" }}>
                       {branch.description}
                     </div>
                   )}
@@ -1075,11 +1075,11 @@ function OutlineView({ data }: { data: MindMapData }) {
                           display: 'flex', alignItems: 'flex-start', gap: 10,
                         }}
                       >
-                        <span style={{ fontSize: 12, color, fontWeight: 700, minWidth: 28, marginTop: 3, fontFamily: "'Inter', sans-serif" }}>
+                        <span style={{ fontSize: 12, color, fontWeight: 700, minWidth: 28, marginTop: 3, fontFamily: "var(--font-body)" }}>
                           {bi + 1}.{li + 1}
                         </span>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 15.5, fontWeight: 700, color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif", display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ fontSize: 15.5, fontWeight: 700, color: 'var(--text-primary)', fontFamily: "var(--font-body)", display: 'flex', alignItems: 'center', gap: 6 }}>
                             {details.length > 0 && (
                               <span style={{ fontSize: 10, color, transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s', display: 'inline-block' }}>▶</span>
                             )}
@@ -1087,7 +1087,7 @@ function OutlineView({ data }: { data: MindMapData }) {
                             {leaf.page && <span style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 600 }}>· p.{leaf.page}</span>}
                           </div>
                           {leaf.description && (
-                            <div style={{ fontSize: 13.5, color: 'var(--text-muted)', lineHeight: 1.55, marginTop: 4, paddingLeft: details.length > 0 ? 14 : 0, fontFamily: "'Inter', sans-serif" }}>
+                            <div style={{ fontSize: 13.5, color: 'var(--text-muted)', lineHeight: 1.55, marginTop: 4, paddingLeft: details.length > 0 ? 14 : 0, fontFamily: "var(--font-body)" }}>
                               {leaf.description}
                             </div>
                           )}
@@ -1099,11 +1099,11 @@ function OutlineView({ data }: { data: MindMapData }) {
                             <div key={d.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                               <span style={{ color, fontSize: 14, marginTop: 2 }}>•</span>
                               <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 13.5, fontWeight: 700, color, fontFamily: "'Inter', sans-serif" }}>
+                                <div style={{ fontSize: 13.5, fontWeight: 700, color, fontFamily: "var(--font-body)" }}>
                                   {d.label}
                                 </div>
                                 {d.description && (
-                                  <div style={{ fontSize: 12.5, color: 'var(--text-muted)', lineHeight: 1.5, marginTop: 2, fontFamily: "'Inter', sans-serif" }}>
+                                  <div style={{ fontSize: 12.5, color: 'var(--text-muted)', lineHeight: 1.5, marginTop: 2, fontFamily: "var(--font-body)" }}>
                                     {d.description}
                                   </div>
                                 )}
@@ -1152,16 +1152,16 @@ function DetailPanel({ node, onClose }: { node: MapNode | null; onClose: () => v
 
       {node.emoji && <div style={{ fontSize: 40, marginBottom: 10 }}>{node.emoji}</div>}
 
-      <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: "'Inter', sans-serif", fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+      <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: "var(--font-body)", fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
         {node.type === 'root' ? 'Tema Central' : node.type === 'branch' ? 'Categoría' : node.type === 'leaf' ? 'Concepto' : 'Detalle'}
       </div>
 
-      <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif", marginBottom: 12, lineHeight: 1.25 }}>
+      <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--text-primary)', fontFamily: "var(--font-body)", marginBottom: 12, lineHeight: 1.25 }}>
         {node.label}
       </div>
 
       {node.description && (
-        <p style={{ fontSize: 14.5, color: 'var(--text-secondary)', lineHeight: 1.65, fontFamily: "'Inter', sans-serif", margin: '0 0 16px' }}>
+        <p style={{ fontSize: 14.5, color: 'var(--text-secondary)', lineHeight: 1.65, fontFamily: "var(--font-body)", margin: '0 0 16px' }}>
           {node.description}
         </p>
       )}
@@ -1173,7 +1173,7 @@ function DetailPanel({ node, onClose }: { node: MapNode | null; onClose: () => v
           background: `color-mix(in srgb, ${color} 20%, var(--bg-card))`,
           border: `1.5px solid ${color}`,
           fontSize: 13, fontWeight: 700, color: color,
-          fontFamily: "'Inter', sans-serif", marginBottom: 14,
+          fontFamily: "var(--font-body)", marginBottom: 14,
         }}>
           📄 Página {node.page}
         </div>
@@ -1181,7 +1181,7 @@ function DetailPanel({ node, onClose }: { node: MapNode | null; onClose: () => v
 
       {node.children && node.children.length > 0 && (
         <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: 11, color: '#888', fontFamily: "'Inter', sans-serif", fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+          <div style={{ fontSize: 11, color: '#888', fontFamily: "var(--font-body)", fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
             Contiene ({node.children.length})
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1191,12 +1191,12 @@ function DetailPanel({ node, onClose }: { node: MapNode | null; onClose: () => v
                 background: `color-mix(in srgb, ${color} 10%, var(--bg-card2))`,
                 border: `1.5px solid color-mix(in srgb, ${color} 30%, transparent)`,
               }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', fontFamily: "var(--font-body)" }}>
                   {child.emoji && <span style={{ marginRight: 6 }}>{child.emoji}</span>}
                   {child.label}
                 </div>
                 {child.description && (
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.45, fontFamily: "'Inter', sans-serif" }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.45, fontFamily: "var(--font-body)" }}>
                     {child.description}
                   </div>
                 )}
@@ -1332,7 +1332,7 @@ function AlaiMarkdown({ text, color }: { text: string; color: string }) {
           return (
             <div key={bi} style={{
               fontSize, fontWeight: 900, color: 'var(--text-primary)',
-              fontFamily: "'Inter', sans-serif",
+              fontFamily: "var(--font-body)",
               marginTop: bi > 0 ? 6 : 0,
               display: 'flex', alignItems: 'center', gap: 8,
               paddingBottom: 6,
@@ -1347,7 +1347,7 @@ function AlaiMarkdown({ text, color }: { text: string; color: string }) {
           return (
             <p key={bi} style={{
               margin: 0, fontSize: 14, lineHeight: 1.65,
-              color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif",
+              color: 'var(--text-primary)', fontFamily: "var(--font-body)",
             }}>
               {block.lines.map((line, li) => (
                 <span key={li}>
@@ -1373,7 +1373,7 @@ function AlaiMarkdown({ text, color }: { text: string; color: string }) {
                   <li key={li} style={{
                     display: 'flex', gap: 10, alignItems: 'flex-start',
                     fontSize: 14, lineHeight: 1.6, color: 'var(--text-primary)',
-                    fontFamily: "'Inter', sans-serif",
+                    fontFamily: "var(--font-body)",
                   }}>
                     <span style={{
                       minWidth: 22, height: 22, borderRadius: '50%',
@@ -1401,7 +1401,7 @@ function AlaiMarkdown({ text, color }: { text: string; color: string }) {
                 <li key={li} style={{
                   display: 'flex', gap: 10, alignItems: 'flex-start',
                   fontSize: 14, lineHeight: 1.6, color: 'var(--text-primary)',
-                  fontFamily: "'Inter', sans-serif",
+                  fontFamily: "var(--font-body)",
                 }}>
                   <span style={{
                     width: 6, height: 6, borderRadius: '50%',
@@ -1422,7 +1422,7 @@ function AlaiMarkdown({ text, color }: { text: string; color: string }) {
               background: 'var(--bg-card2)',
               borderRadius: '0 8px 8px 0',
               fontSize: 13.5, color: 'var(--text-muted)',
-              fontStyle: 'italic', fontFamily: "'Inter', sans-serif",
+              fontFamily: "var(--font-body)",
               lineHeight: 1.6,
             }}>
               {block.lines.map((line, li) => (
@@ -1440,7 +1440,7 @@ function AlaiMarkdown({ text, color }: { text: string; color: string }) {
             <div key={bi} style={{ overflowX: 'auto' }}>
               <table style={{
                 width: '100%', borderCollapse: 'collapse',
-                fontSize: 12.5, fontFamily: "'Inter', sans-serif",
+                fontSize: 12.5, fontFamily: "var(--font-body)",
                 background: 'var(--bg-card2)', borderRadius: 8, overflow: 'hidden',
                 border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
               }}>
@@ -1724,14 +1724,14 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
     <div>
       <div style={{
         fontSize: 10, fontWeight: 800, color: c || color, letterSpacing: 1.2,
-        textTransform: 'uppercase', fontFamily: "'Inter', sans-serif",
+        textTransform: 'uppercase', fontFamily: "var(--font-body)",
         marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6,
       }}>
         <span style={{ fontSize: 13 }}>{icon}</span> {title}
       </div>
       <div style={{
         fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.65,
-        fontFamily: "'Inter', sans-serif",
+        fontFamily: "var(--font-body)",
       }}>
         {children}
       </div>
@@ -1776,7 +1776,7 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <div style={{
             fontSize: 10, fontWeight: 800, color, letterSpacing: 1.5,
-            textTransform: 'uppercase', fontFamily: "'Inter', sans-serif",
+            textTransform: 'uppercase', fontFamily: "var(--font-body)",
           }}>
             📚 {typeLabel}
           </div>
@@ -1794,7 +1794,7 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
           <div style={{
             display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap',
             marginTop: 8, fontSize: 11, color: 'var(--text-faint)',
-            fontFamily: "'Inter', sans-serif",
+            fontFamily: "var(--font-body)",
           }}>
             {breadcrumb.map((b) => (
               <span key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1802,7 +1802,7 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
                   background: 'transparent', border: 'none',
                   color: b.color || 'var(--text-muted)', cursor: 'pointer',
                   fontSize: 11, fontWeight: 700, padding: '2px 4px',
-                  fontFamily: "'Inter', sans-serif",
+                  fontFamily: "var(--font-body)",
                 }}>
                   {b.emoji} {b.label}
                 </button>
@@ -1814,7 +1814,7 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
 
         <div style={{
           fontSize: 22, fontWeight: 900, color: 'var(--text-primary)',
-          fontFamily: "'Inter', sans-serif", marginTop: 10, lineHeight: 1.2,
+          fontFamily: "var(--font-body)", marginTop: 10, lineHeight: 1.2,
           display: 'flex', alignItems: 'flex-start', gap: 10,
         }}>
           {current.emoji && <span style={{ fontSize: 28, lineHeight: 1 }}>{current.emoji}</span>}
@@ -1828,7 +1828,7 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
             background: `color-mix(in srgb, ${color} 18%, var(--bg-card))`,
             border: `1px solid ${color}`,
             fontSize: 11, fontWeight: 700, color,
-            fontFamily: "'Inter', sans-serif",
+            fontFamily: "var(--font-body)",
           }}>
             📄 Página {current.page}
           </div>
@@ -1853,7 +1853,7 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
               background: 'color-mix(in srgb, var(--gold) 8%, var(--bg-card2))',
               border: '1.5px dashed var(--gold)',
               fontSize: 13, color: 'var(--text-muted)',
-              fontFamily: "'Inter', sans-serif", lineHeight: 1.65,
+              fontFamily: "var(--font-body)", lineHeight: 1.65,
             }}>
               🎯 <strong style={{ color: 'var(--text-primary)' }}>Click en cualquier concepto del mapa</strong> y aquí aparecerá la explicación profunda de ALAI: definición, ejemplo, por qué importa y trucos para recordarlo.
             </div>
@@ -1865,7 +1865,7 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center',
             justifyContent: 'center', gap: 14, padding: '40px 20px',
-            color: 'var(--text-muted)', fontFamily: "'Inter', sans-serif",
+            color: 'var(--text-muted)', fontFamily: "var(--font-body)",
           }}>
             <div style={{
               width: 32, height: 32, borderRadius: '50%',
@@ -1884,7 +1884,7 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
             padding: '14px 16px', borderRadius: 12,
             background: 'rgba(239,68,68,0.1)',
             border: '1.5px solid rgba(239,68,68,0.4)',
-            color: '#fca5a5', fontSize: 13, fontFamily: "'Inter', sans-serif",
+            color: '#fca5a5', fontSize: 13, fontFamily: "var(--font-body)",
           }}>
             ⚠️ {errExp}
           </div>
@@ -1902,7 +1902,7 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
                 background: `color-mix(in srgb, ${color} 8%, var(--bg-card2))`,
                 border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
               }}>
-                <span style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 700, fontFamily: "'Inter', sans-serif" }}>
+                <span style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 700, fontFamily: "var(--font-body)" }}>
                   📄 Fuentes:
                 </span>
                 {explicacion.sourcePages.map((p: number) => (
@@ -1911,7 +1911,7 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
                     background: `color-mix(in srgb, ${color} 18%, var(--bg-card))`,
                     border: `1px solid ${color}`,
                     fontSize: 11, fontWeight: 700, color,
-                    fontFamily: "'Inter', sans-serif",
+                    fontFamily: "var(--font-body)",
                   }}>
                     p.{p}
                   </span>
@@ -1932,7 +1932,7 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
         borderTop: '1px solid var(--border-color2)',
         background: 'var(--bg-card2)',
         fontSize: 11, color: 'var(--text-faint)',
-        fontFamily: "'Inter', sans-serif",
+        fontFamily: "var(--font-body)",
         textAlign: 'center',
         flexShrink: 0,
       }}>
@@ -2240,8 +2240,8 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
       <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 32, zIndex: 9999 }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 56, marginBottom: 8 }}>🗺️</div>
-          <div style={{ fontSize: 28, fontWeight: 900, color: 'var(--gold)', fontFamily: "'Inter', sans-serif" }}>Generando Study Map</div>
-          <div style={{ fontSize: 14, color: 'var(--text-faint)', fontFamily: "'Inter', sans-serif", marginTop: 6 }}>ALAI está leyendo y organizando el 100% del material</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: 'var(--gold)', fontFamily: "var(--font-body)" }}>Generando Study Map</div>
+          <div style={{ fontSize: 14, color: 'var(--text-faint)', fontFamily: "var(--font-body)", marginTop: 6 }}>ALAI está leyendo y organizando el 100% del material</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 320 }}>
           {LOAD_STEPS.map((s, i) => {
@@ -2255,12 +2255,12 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
                 border: active ? '1.5px solid var(--gold)' : '1px solid transparent',
               }}>
                 <span style={{ fontSize: 20, opacity: done ? 0.5 : 1 }}>{done ? '✅' : active ? s.emoji : '⬜'}</span>
-                <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 14, color: active ? 'var(--gold)' : done ? 'var(--text-faint)' : 'var(--text-faint)', fontWeight: active ? 700 : 500, flex: 1 }}>{s.label}</span>
+                <span style={{ fontFamily: "var(--font-body)", fontSize: 14, color: active ? 'var(--gold)' : done ? 'var(--text-faint)' : 'var(--text-faint)', fontWeight: active ? 700 : 500, flex: 1 }}>{s.label}</span>
               </div>
             );
           })}
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-faint)', fontFamily: "'Inter', sans-serif", fontStyle: 'italic' }}>puede tardar 30-60 segundos ✨</div>
+        <div style={{ fontSize: 13, color: 'var(--text-faint)', fontFamily: "var(--font-body)" }}>puede tardar 30-60 segundos ✨</div>
       </div>
     );
   }
@@ -2269,11 +2269,11 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
     return (
       <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, zIndex: 9999, padding: 24 }}>
         <div style={{ fontSize: 48 }}>😅</div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif" }}>No se pudo generar el mapa</div>
-        <div style={{ fontSize: 14, color: 'var(--text-muted)', maxWidth: 420, textAlign: 'center', fontFamily: "'Inter', sans-serif" }}>{error}</div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', fontFamily: "var(--font-body)" }}>No se pudo generar el mapa</div>
+        <div style={{ fontSize: 14, color: 'var(--text-muted)', maxWidth: 420, textAlign: 'center', fontFamily: "var(--font-body)" }}>{error}</div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
-          <button onClick={resetAndReload} style={{ padding: '10px 24px', borderRadius: 12, border: '2px solid var(--gold)', background: 'var(--bg-card)', color: 'var(--gold)', fontFamily: "'Inter', sans-serif", fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>↻ Reintentar</button>
-          <button onClick={onBack} style={{ padding: '10px 24px', borderRadius: 12, border: '2px solid var(--text-primary)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif", fontSize: 15, fontWeight: 700, cursor: 'pointer', boxShadow: '3px 4px 0 var(--text-primary)' }}>← Volver al proceso</button>
+          <button onClick={resetAndReload} style={{ padding: '10px 24px', borderRadius: 12, border: '2px solid var(--gold)', background: 'var(--bg-card)', color: 'var(--gold)', fontFamily: "var(--font-body)", fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>↻ Reintentar</button>
+          <button onClick={onBack} style={{ padding: '10px 24px', borderRadius: 12, border: '2px solid var(--text-primary)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontFamily: "var(--font-body)", fontSize: 15, fontWeight: 700, cursor: 'pointer', boxShadow: '3px 4px 0 var(--text-primary)' }}>← Volver al proceso</button>
         </div>
       </div>
     );
@@ -2295,16 +2295,16 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
         <button onClick={onBack} style={{
           border: '2px solid var(--text-primary)', background: 'var(--bg-card)',
           color: 'var(--text-primary)', borderRadius: 12, padding: '8px 14px',
-          fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: "'Inter', sans-serif",
+          fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: "var(--font-body)",
           boxShadow: '3px 4px 0 var(--text-primary)',
         }}>← volver al proceso</button>
 
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--gold)', fontFamily: "'Inter', sans-serif", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--gold)', fontFamily: "var(--font-body)", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             🗺️ {mapData.title}
           </div>
           {mapData.summary && (
-            <div style={{ fontSize: 12, color: 'var(--text-faint)', fontFamily: "'Inter', sans-serif", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-faint)', fontFamily: "var(--font-body)", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {mapData.summary}
             </div>
           )}
@@ -2325,7 +2325,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
                 padding: '6px 12px', borderRadius: 9, border: 'none',
                 background: view === v.key ? 'var(--gold)' : 'transparent',
                 color: view === v.key ? '#0a0a0c' : 'var(--text-muted)',
-                fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: "'Inter', sans-serif",
+                fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: "var(--font-body)",
               }}>{v.label}</button>
           ))}
         </div>
@@ -2362,7 +2362,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
             border: showGuidedTour ? '1.5px solid var(--gold)' : '1.5px solid var(--border-color2)',
             background: showGuidedTour ? 'color-mix(in srgb, var(--gold) 15%, transparent)' : 'transparent',
             color: showGuidedTour ? 'var(--gold)' : 'var(--text-muted)',
-            fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "'Inter', sans-serif",
+            fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "var(--font-body)",
           }}
         >🔊 Tour</button>
 
@@ -2377,7 +2377,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
             border: '1.5px solid var(--border-color2)',
             background: 'transparent',
             color: 'var(--text-muted)',
-            fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "'Inter', sans-serif",
+            fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "var(--font-body)",
           }}
         >🔁 Regenerar</button>
 
@@ -2387,7 +2387,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
             padding: '5px 12px', borderRadius: 999,
             background: studiedSet.size > 0 ? 'color-mix(in srgb, #10b981 15%, var(--bg-card))' : 'color-mix(in srgb, var(--gold) 15%, var(--bg-card))',
             border: studiedSet.size > 0 ? '1.5px solid #10b981' : '1.5px solid var(--gold)',
-            fontSize: 12, fontWeight: 700, color: studiedSet.size > 0 ? '#10b981' : 'var(--gold)', fontFamily: "'Inter', sans-serif",
+            fontSize: 12, fontWeight: 700, color: studiedSet.size > 0 ? '#10b981' : 'var(--gold)', fontFamily: "var(--font-body)",
           }}>
             {studiedSet.size > 0 && <span>✓</span>}
             {studiedSet.size} / {mapData.totalConcepts + 1}
@@ -2397,7 +2397,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
         <button onClick={handleExport} style={{
           padding: '7px 13px', borderRadius: 10,
           border: '1.5px solid var(--border-color2)', background: 'transparent',
-          color: 'var(--text-muted)', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "'Inter', sans-serif",
+          color: 'var(--text-muted)', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "var(--font-body)",
         }}>{exportMsg || '↓ Exportar'}</button>
       </div>
 
@@ -2504,13 +2504,13 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 180 }}>
                     <div style={{
                       fontSize: 10, color: 'var(--text-faint)', fontWeight: 700,
-                      fontFamily: "'Inter', sans-serif", letterSpacing: 1,
+                      fontFamily: "var(--font-body)", letterSpacing: 1,
                     }}>
                       🔊 LECTURA GUIADA · {tourIndex + 1} / {total}
                     </div>
                     <div style={{
                       fontSize: 13, color: 'var(--text-primary)', fontWeight: 700,
-                      fontFamily: "'Inter', sans-serif", marginTop: 2,
+                      fontFamily: "var(--font-body)", marginTop: 2,
                       maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
                       {current?.emoji} {current?.label}
@@ -2561,15 +2561,15 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
         padding: '8px 20px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-color2)',
         display: 'flex', gap: 16, alignItems: 'center', flexShrink: 0,
       }}>
-        <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: "'Inter', sans-serif" }}>
+        <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: "var(--font-body)" }}>
           {materiales.length} {materiales.length === 1 ? 'material' : 'materiales'}
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>·</div>
-        <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: "'Inter', sans-serif" }}>
+        <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: "var(--font-body)" }}>
           {(mapData.root.children || []).length} ramas
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>·</div>
-        <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: "'Inter', sans-serif", fontStyle: 'italic' }}>
+        <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: "var(--font-body)" }}>
           Generado por ALAI · 100% del contenido
         </div>
       </div>

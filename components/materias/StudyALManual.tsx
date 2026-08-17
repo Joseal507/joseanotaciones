@@ -1,7 +1,7 @@
 "use client";
 
-const HAND = "'Caveat', cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Props {
   materiales: any[];
@@ -33,7 +33,7 @@ export default function StudyALManual({ materiales, temaId, onClose }: Props) {
         </h1>
         <p style={{
           fontSize: 20, color: 'var(--text-muted)',
-          fontStyle: 'italic', marginBottom: 8,
+          marginBottom: 8,
         }}>
           aquí va a estar el modo manual
         </p>

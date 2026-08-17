@@ -10,8 +10,8 @@ import MarcoAvatar from '../../../components/MarcoAvatar';
 import RangoDisplay from '../../../components/RangoDisplay';
 import PlayerCard from '../../../components/PlayerCard';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface PerfilPublico {
   user_id: string;
@@ -211,7 +211,7 @@ function EditModal({ perfil, onSave, onClose }: {
             fontFamily: HAND, fontSize: 26, fontWeight: 900,
             color: '#000', margin: 0, lineHeight: 1.1,
             transform: 'rotate(-0.8deg)', display: 'inline-block',
-            fontStyle: 'italic',
+
           }}>
             ✏️ {tr('editarPerfilPublico')}
           </h2>
@@ -227,7 +227,7 @@ function EditModal({ perfil, onSave, onClose }: {
 
         <div style={{ padding: '20px 28px', overflowY: 'auto', flex: 1 }}>
           <p style={{
-            fontFamily: BODY, fontSize: 15, fontStyle: 'italic',
+            fontFamily: BODY, fontSize: 15,
             color: 'var(--text-muted)', margin: '0 0 18px', textAlign: 'center',
           }}>
             ~ {tr('editarPerfilDesc')} ~
@@ -266,7 +266,7 @@ function EditModal({ perfil, onSave, onClose }: {
                 </button>
                 {fotoPreview && fotoPreview !== perfil.avatar_url && (
                   <p style={{
-                    fontFamily: HAND, fontSize: 14, fontStyle: 'italic',
+                    fontFamily: HAND, fontSize: 14,
                     color: '#16a34a', margin: '4px 0 0', fontWeight: 700,
                   }}>~ ✓ {tr('nuevaFotoLista')} ~</p>
                 )}
@@ -276,7 +276,7 @@ function EditModal({ perfil, onSave, onClose }: {
                       display: 'block', margin: '4px auto 0',
                       background: 'none', border: 'none',
                       color: 'var(--text-faint)',
-                      fontFamily: BODY, fontSize: 14, fontStyle: 'italic',
+                      fontFamily: BODY, fontSize: 14,
                       cursor: 'pointer',
                     }}>
                     ~ {tr('cancelarCambio')} ~
@@ -417,7 +417,7 @@ function EditModal({ perfil, onSave, onClose }: {
                 transform: 'rotate(-0.3deg)',
               }}>
                 <p style={{
-                  fontFamily: HAND, fontSize: 16, fontStyle: 'italic',
+                  fontFamily: HAND, fontSize: 16,
                   color: 'var(--text-muted)', margin: 0,
                 }}>
                   ~ {tipo === 'profesional' ? `💼 ${tr('onbProfesionalInfo')}` : `🧠 ${tr('onbAutodidactaInfo')}`} ~
@@ -616,7 +616,7 @@ export default function PerfilPublicoPage() {
           animation: 'spinUp 0.8s linear infinite',
         }} />
         <p style={{
-          fontFamily: HAND, fontSize: 22, fontStyle: 'italic',
+          fontFamily: HAND, fontSize: 22,
           color: 'var(--text-muted)', margin: 0,
         }}>~ {tr('cargandoPerfil')} ~</p>
       </div>
@@ -645,7 +645,7 @@ export default function PerfilPublicoPage() {
             transform: 'rotate(-1deg)', display: 'inline-block',
           }}>{tr('perfilNoDisponible')}</h2>
           <p style={{
-            fontFamily: HAND, fontSize: 17, fontStyle: 'italic',
+            fontFamily: HAND, fontSize: 17,
             color: 'var(--text-muted)', margin: '4px 0 20px',
           }}>~ {error || tr('perfilPrivado')} ~</p>
           <button onClick={() => ((() => {
@@ -770,7 +770,7 @@ export default function PerfilPublicoPage() {
                   border: '2.5px dashed var(--text-faint)',
                   color: 'var(--text-faint)',
                   fontFamily: HAND, fontSize: 17, fontWeight: 800,
-                  fontStyle: 'italic',
+
                   transform: 'rotate(1deg)',
                 }}>
                   ⏳ {tr('solicitudEnviada')}
@@ -872,7 +872,7 @@ export default function PerfilPublicoPage() {
                 <div style={{ textAlign: 'right' }}>
                   <div style={{
                     fontFamily: HAND, fontSize: 14, fontWeight: 800,
-                    color: 'rgba(255,255,255,0.85)', fontStyle: 'italic',
+                    color: 'rgba(255,255,255,0.85)',
                   }}>
                     {tr('rankingGlobal')}
                   </div>
@@ -959,7 +959,7 @@ export default function PerfilPublicoPage() {
                   transform: 'rotate(-0.3deg)',
                 }}>
                   <p style={{
-                    fontFamily: HAND, fontSize: 18, fontStyle: 'italic',
+                    fontFamily: HAND, fontSize: 18,
                     color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5,
                   }}>
                     "{perfil.descripcion}"
@@ -972,7 +972,7 @@ export default function PerfilPublicoPage() {
                     borderRadius: 12,
                     border: '2.5px dashed var(--border-color)',
                     background: 'transparent', color: 'var(--text-faint)',
-                    fontFamily: HAND, fontSize: 17, fontStyle: 'italic',
+                    fontFamily: HAND, fontSize: 17,
                     cursor: 'pointer', marginBottom: 16,
                     transform: 'rotate(-0.3deg)',
                   }}>
@@ -1002,7 +1002,7 @@ export default function PerfilPublicoPage() {
                     ⚡ {perfil.xp_total || 0} XP Total
                   </span>
                   <span style={{
-                    fontFamily: BODY, fontSize: 14, fontStyle: 'italic',
+                    fontFamily: BODY, fontSize: 14,
                     color: 'var(--text-faint)',
                   }}>
                     ~ {xpEnNivel}/{xpParaSiguiente} XP → Nivel {nivel + 1} ~
@@ -1074,7 +1074,7 @@ export default function PerfilPublicoPage() {
                 color: s.color, lineHeight: 1,
               }}>{s.value}</div>
               <div style={{
-                fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+                fontFamily: BODY, fontSize: 13,
                 color: 'var(--text-faint)', marginTop: 4,
               }}>{s.label}</div>
             </div>
@@ -1166,7 +1166,7 @@ export default function PerfilPublicoPage() {
                 <span style={{
                   fontFamily: HAND, fontSize: 16, fontWeight: 900,
                   color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.35)',
-                  fontStyle: 'italic',
+
                 }}>
                   {rango.emoji} {tr('nivelActualLabel')}
                 </span>
@@ -1199,7 +1199,7 @@ export default function PerfilPublicoPage() {
                         color: s.color,
                       }}>{s.val}</div>
                       <div style={{
-                        fontFamily: BODY, fontSize: 12, fontStyle: 'italic',
+                        fontFamily: BODY, fontSize: 12,
                         color: 'var(--text-faint)',
                       }}>{s.label}</div>
                     </div>
@@ -1221,7 +1221,7 @@ export default function PerfilPublicoPage() {
                 <div>
                   <p style={{
                     fontFamily: HAND, fontSize: 13, fontWeight: 700,
-                    color: 'var(--text-faint)', fontStyle: 'italic',
+                    color: 'var(--text-faint)',
                     margin: '0 0 2px',
                   }}>~ {tr('miembroDesde')} ~</p>
                   <p style={{
@@ -1243,7 +1243,7 @@ export default function PerfilPublicoPage() {
                 transform: 'rotate(0.4deg)',
               }}>
                 <p style={{
-                  fontFamily: HAND, fontSize: 16, fontStyle: 'italic',
+                  fontFamily: HAND, fontSize: 16,
                   color: 'var(--text-muted)', margin: '0 0 10px',
                 }}>
                   ~ {tr('quieresSuperar')} {perfil.nombre.trim()}? ~
@@ -1315,7 +1315,7 @@ export default function PerfilPublicoPage() {
               <div style={{ textAlign: 'center', padding: 32 }}>
                 <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>
                 <p style={{
-                  fontFamily: HAND, fontSize: 16, fontStyle: 'italic',
+                  fontFamily: HAND, fontSize: 16,
                   color: 'var(--text-faint)', margin: 0,
                 }}>~ {tr('cargandoPosts')} ~</p>
               </div>
@@ -1323,7 +1323,7 @@ export default function PerfilPublicoPage() {
               <div style={{ textAlign: 'center', padding: '40px 20px' }}>
                 <div style={{ fontSize: 50, marginBottom: 10 }}>🌵</div>
                 <p style={{
-                  fontFamily: HAND, fontSize: 18, fontStyle: 'italic',
+                  fontFamily: HAND, fontSize: 18,
                   color: 'var(--text-muted)', margin: 0,
                 }}>
                   ~ {esMiPerfil
@@ -1397,7 +1397,7 @@ export default function PerfilPublicoPage() {
                           </span>
                           {post.materia_nombre && (
                             <span style={{
-                              fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+                              fontFamily: BODY, fontSize: 13,
                               color: 'var(--text-faint)',
                             }}>
                               {post.materia_nombre}
@@ -1453,7 +1453,7 @@ export default function PerfilPublicoPage() {
               🔗 {tr('compartirPerfil')}
             </p>
             <p style={{
-              fontFamily: BODY, fontSize: 14, fontStyle: 'italic',
+              fontFamily: BODY, fontSize: 14,
               color: 'var(--text-faint)', margin: 0,
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               maxWidth: 420,
@@ -1515,7 +1515,7 @@ function NotebookCard({ children, color, emoji, title, rot, extra }: {
       }}>
         <h2 style={{
           fontFamily: HAND, fontSize: 22, fontWeight: 900,
-          color: '#000', margin: 0, fontStyle: 'italic',
+          color: '#000', margin: 0,
           transform: 'rotate(-0.5deg)', display: 'inline-block',
         }}>
           {emoji} {title}
@@ -1537,7 +1537,7 @@ function Badge({ children, color, rot }: { children: React.ReactNode; color: str
       background: `color-mix(in srgb,${color} 22%,transparent)`,
       color, border: `1.5px dashed ${color}`,
       fontFamily: HAND, fontSize: 14, fontWeight: 800,
-      fontStyle: 'italic',
+
       transform: `rotate(${rot}deg)`,
       display: 'inline-block',
     }}>
@@ -1554,7 +1554,7 @@ function SmallBadge({ children }: { children: React.ReactNode }) {
       background: 'var(--bg-secondary)',
       padding: '3px 10px', borderRadius: 6,
       border: '1.5px dashed var(--border-color)',
-      fontStyle: 'italic',
+
       textTransform: 'capitalize',
     }}>
       {children}
@@ -1598,7 +1598,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         fontFamily: HAND, fontSize: 15, fontWeight: 800,
         color: 'var(--text-muted)',
         display: 'block', marginBottom: 6,
-        fontStyle: 'italic',
+
         transform: 'rotate(-0.5deg)', transformOrigin: 'left',
       }}>
         ✏️ {label}

@@ -4,8 +4,8 @@ import { useState, useRef } from 'react';
 import { Materia } from '../../lib/storage';
 import { useIdioma } from '../../hooks/useIdioma';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Props {
   materias: Materia[];
@@ -107,7 +107,7 @@ export default function MateriasList({ materias, onAbrir, onEliminar, onNueva, o
                 fontFamily: HAND, fontSize: 26, fontWeight: 900,
                 color: '#000', margin: 0, lineHeight: 1.1,
                 transform: 'rotate(-0.8deg)', display: 'inline-block',
-                fontStyle: 'italic',
+
               }}>
                 ✏️ {idioma === 'en' ? 'Edit Subject' : 'Editar Materia'}
               </h2>
@@ -140,7 +140,7 @@ export default function MateriasList({ materias, onAbrir, onEliminar, onNueva, o
                   }}>{editNombre || '...'}</p>
                   <p style={{
                     fontFamily: BODY, fontSize: 13,
-                    color: 'var(--text-muted)', fontStyle: 'italic',
+                    color: 'var(--text-muted)',
                     margin: '2px 0 0',
                   }}>~ preview ~</p>
                 </div>
@@ -262,7 +262,7 @@ export default function MateriasList({ materias, onAbrir, onEliminar, onNueva, o
             📚 {tr('misMaterias')}
             <span style={{
               fontSize: 22, color: 'var(--gold)',
-              marginLeft: 12, fontStyle: 'italic', fontWeight: 700,
+              marginLeft: 12, fontWeight: 700,
             }}>
               ({materias.length})
             </span>
@@ -273,7 +273,7 @@ export default function MateriasList({ materias, onAbrir, onEliminar, onNueva, o
           {materias.length > 1 && (
             <p style={{
               fontFamily: BODY, fontSize: 16,
-              color: 'var(--text-faint)', fontStyle: 'italic',
+              color: 'var(--text-faint)',
               margin: '6px 0 0',
             }}>
               ~ arrastra para reordenar ↕ ~
@@ -327,7 +327,7 @@ export default function MateriasList({ materias, onAbrir, onEliminar, onNueva, o
           <div style={{ fontSize: 64, marginBottom: 12, position: 'relative' }}>📚</div>
           <p style={{
             fontFamily: HAND, fontSize: 22,
-            color: 'var(--text-faint)', fontStyle: 'italic',
+            color: 'var(--text-faint)',
             margin: '0 0 20px', position: 'relative',
           }}>
             ~ {tr('sinMaterias')} ~
@@ -494,7 +494,7 @@ export default function MateriasList({ materias, onAbrir, onEliminar, onNueva, o
                         </h3>
                         <p style={{
                           fontFamily: BODY, fontSize: 14,
-                          color: 'var(--text-muted)', fontStyle: 'italic',
+                          color: 'var(--text-muted)',
                           margin: 0,
                         }}>
                           {materia.temas.length} {tr('temas')}
@@ -525,7 +525,7 @@ export default function MateriasList({ materias, onAbrir, onEliminar, onNueva, o
                           }}>{s.val}</div>
                           <div style={{
                             fontFamily: BODY, fontSize: 12, fontWeight: 700,
-                            color: 'var(--text-faint)', fontStyle: 'italic',
+                            color: 'var(--text-faint)',
                           }}>{s.label}</div>
                         </div>
                       ))}
@@ -573,7 +573,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         fontFamily: HAND, fontSize: 16, fontWeight: 800,
         color: 'var(--text-muted)',
         display: 'block', marginBottom: 6,
-        fontStyle: 'italic',
+
         transform: 'rotate(-0.5deg)', transformOrigin: 'left',
       }}>
         ✏️ {label}

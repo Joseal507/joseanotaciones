@@ -9,7 +9,7 @@ if (typeof window !== 'undefined' && pdfjs?.GlobalWorkerOptions) {
   pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 }
 
-const BODY = "'Inter', system-ui, sans-serif";
+const BODY = "var(--font-body)";
 
 type Phase = 'preview' | 'lectura' | 'explicar' | 'analisis';
 type Tool = 'draw' | 'erase' | 'note' | 'highlight' | 'underline';

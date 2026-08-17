@@ -9,8 +9,8 @@ import Link from 'next/link';
 import MathText from '@/components/MathText';
 import ApuntePagesViewer from '@/components/comunidad/ApuntePagesViewer';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Post {
   id: string;
@@ -113,7 +113,7 @@ function FlashcardsViewer({ cards }: { cards: { question: string; answer: string
         })}
         <span style={{
           marginLeft: 'auto',
-          fontFamily: BODY, fontSize: 17, fontStyle: 'italic',
+          fontFamily: BODY, fontSize: 17,
           color: 'var(--text-muted)',
         }}>
           ~ {idx + 1} / {cards.length} ~
@@ -147,7 +147,7 @@ function FlashcardsViewer({ cards }: { cards: { question: string; answer: string
           <div style={{
             fontFamily: HAND, fontSize: 16, fontWeight: 800,
             color: flipped ? '#a78bfa' : '#6366f1',
-            fontStyle: 'italic',
+
             marginBottom: 16, letterSpacing: 1,
           }}>
             {flipped ? `💡 ${tr('respuestaUp')}` : `❓ ${tr('preguntaUp')}`}
@@ -160,7 +160,7 @@ function FlashcardsViewer({ cards }: { cards: { question: string; answer: string
           </div>
           {!flipped && (
             <div style={{
-              fontFamily: BODY, fontSize: 14, fontStyle: 'italic',
+              fontFamily: BODY, fontSize: 14,
               color: 'var(--text-faint)', marginTop: 20,
             }}>
               ~ 👆 toca para ver respuesta ~
@@ -180,7 +180,7 @@ function FlashcardsViewer({ cards }: { cards: { question: string; answer: string
           }}>
             <div style={{
               fontFamily: HAND, fontSize: 16, fontWeight: 800,
-              color: '#6366f1', fontStyle: 'italic',
+              color: '#6366f1',
               marginBottom: 10,
             }}>
               ❓ PREGUNTA
@@ -228,7 +228,7 @@ function FlashcardsViewer({ cards }: { cards: { question: string; answer: string
               }}>
                 <div style={{
                   fontFamily: HAND, fontSize: 16, fontWeight: 800,
-                  color: '#a78bfa', fontStyle: 'italic',
+                  color: '#a78bfa',
                   marginBottom: 8,
                 }}>
                   ✓ RESPUESTA CORRECTA
@@ -354,7 +354,7 @@ function QuizViewer({ preguntas, onTerminar }: { preguntas: any[]; onTerminar: (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
         <span style={{
-          fontFamily: BODY, fontSize: 16, fontStyle: 'italic',
+          fontFamily: BODY, fontSize: 16,
           color: 'var(--text-muted)', flexShrink: 0,
         }}>
           ~ Pregunta {idx + 1} / {preguntas.length} ~
@@ -390,7 +390,7 @@ function QuizViewer({ preguntas, onTerminar }: { preguntas: any[]; onTerminar: (
         }}>
           <span style={{
             fontFamily: HAND, fontSize: 16, fontWeight: 800,
-            color: '#000', fontStyle: 'italic',
+            color: '#000',
           }}>
             ❓ Pregunta {idx + 1}
           </span>
@@ -444,7 +444,7 @@ function QuizViewer({ preguntas, onTerminar }: { preguntas: any[]; onTerminar: (
         }}>
           <div style={{
             fontFamily: HAND, fontSize: 17, fontWeight: 800,
-            color: '#16a34a', fontStyle: 'italic',
+            color: '#16a34a',
             marginBottom: 6,
           }}>
             💡 Explicación
@@ -561,12 +561,12 @@ function SeccionComentarios({ postId, userId, userNombre, userAvatar, commentsAc
                 color: 'var(--text-primary)',
               }}>{c.user_nombre}</span>
               <span style={{
-                fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+                fontFamily: BODY, fontSize: 13,
                 color: 'var(--text-faint)', marginLeft: 6,
               }}>{timeAgo(c.created_at)}</span>
               {c.editado && (
                 <span style={{
-                  fontFamily: BODY, fontSize: 12, fontStyle: 'italic',
+                  fontFamily: BODY, fontSize: 12,
                   color: 'var(--text-faint)', marginLeft: 6,
                 }}>~ editado ~</span>
               )}
@@ -579,7 +579,7 @@ function SeccionComentarios({ postId, userId, userNombre, userAvatar, commentsAc
                   background: 'transparent', border: 'none',
                   fontFamily: HAND, fontSize: 14, fontWeight: 800,
                   color: '#a78bfa', cursor: 'pointer',
-                  fontStyle: 'italic',
+
                 }}>
                 ↩ responder
               </button>
@@ -590,7 +590,7 @@ function SeccionComentarios({ postId, userId, userNombre, userAvatar, commentsAc
                   background: 'transparent', border: 'none',
                   fontFamily: HAND, fontSize: 14, fontWeight: 800,
                   color: 'var(--text-muted)', cursor: 'pointer',
-                  fontStyle: 'italic',
+
                 }}>
                 ✏️ editar
               </button>
@@ -601,7 +601,7 @@ function SeccionComentarios({ postId, userId, userNombre, userAvatar, commentsAc
                   background: 'transparent', border: 'none',
                   fontFamily: HAND, fontSize: 14, fontWeight: 800,
                   color: '#ef4444', cursor: 'pointer',
-                  fontStyle: 'italic',
+
                 }}>
                 🗑️ borrar
               </button>
@@ -759,7 +759,7 @@ function SeccionComentarios({ postId, userId, userNombre, userAvatar, commentsAc
           transform: 'rotate(-0.4deg)',
         }}>
           <span style={{
-            fontFamily: HAND, fontSize: 17, fontStyle: 'italic',
+            fontFamily: HAND, fontSize: 17,
             color: 'var(--text-muted)',
           }}>
             🔒 ~ comentarios desactivados por el autor ~
@@ -776,7 +776,7 @@ function SeccionComentarios({ postId, userId, userNombre, userAvatar, commentsAc
         }}>
           <div style={{ fontSize: 44, marginBottom: 8 }}>💭</div>
           <p style={{
-            fontFamily: HAND, fontSize: 19, fontStyle: 'italic',
+            fontFamily: HAND, fontSize: 19,
             color: 'var(--text-muted)', margin: 0,
           }}>
             ~ sé el primero en comentar ~
@@ -826,7 +826,7 @@ function ModalConfirmar({ onConfirmar, onCancelar, borrando }: { onConfirmar: ()
           transform: 'rotate(-1deg)', display: 'inline-block',
         }}>¿Borrar este post?</h3>
         <p style={{
-          fontFamily: HAND, fontSize: 17, fontStyle: 'italic',
+          fontFamily: HAND, fontSize: 17,
           color: 'var(--text-muted)', margin: '8px 0 22px', lineHeight: 1.4,
         }}>
           ~ esta acción no se puede deshacer ~
@@ -916,9 +916,9 @@ function ModalEditar({ post, onGuardar, onCancelar }: { post: Post; onGuardar: (
             fontFamily: HAND, fontSize: 26, fontWeight: 900,
             color: '#000', margin: 0, lineHeight: 1.1,
             transform: 'rotate(-0.8deg)', display: 'inline-block',
-            fontStyle: 'italic',
+
           }}>
-            ✏️ Editar post
+            ✏️ Editar pos
           </h3>
         </div>
 
@@ -926,7 +926,7 @@ function ModalEditar({ post, onGuardar, onCancelar }: { post: Post; onGuardar: (
           <div style={{ marginBottom: 14 }}>
             <label style={{
               fontFamily: HAND, fontSize: 15, fontWeight: 800,
-              color: 'var(--text-muted)', fontStyle: 'italic',
+              color: 'var(--text-muted)',
               display: 'block', marginBottom: 6,
             }}>✏️ Título</label>
             <input value={titulo} onChange={(e: any) => setTitulo(e.target.value)} placeholder="Título del post"
@@ -946,7 +946,7 @@ function ModalEditar({ post, onGuardar, onCancelar }: { post: Post; onGuardar: (
           <div style={{ marginBottom: 22 }}>
             <label style={{
               fontFamily: HAND, fontSize: 15, fontWeight: 800,
-              color: 'var(--text-muted)', fontStyle: 'italic',
+              color: 'var(--text-muted)',
               display: 'block', marginBottom: 6,
             }}>✏️ Descripción (opcional)</label>
             <textarea value={descripcion} onChange={(e: any) => setDescripcion(e.target.value)} placeholder="Descripción del post..." rows={3}
@@ -1115,7 +1115,7 @@ export default function PostPage() {
   if (loading) return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14 }}>
       <div style={{ fontSize: 50, animation: 'spin 1.2s linear infinite' }}>⏳</div>
-      <p style={{ fontFamily: HAND, fontSize: 19, fontStyle: 'italic', color: 'var(--text-faint)', margin: 0 }}>~ cargando post ~</p>
+      <p style={{ fontFamily: HAND, fontSize: 19, color: 'var(--text-faint)', margin: 0 }}>~ cargando post ~</p>
     </div>
   );
 
@@ -1193,7 +1193,7 @@ export default function PostPage() {
             fontFamily: HAND, fontSize: 15, fontWeight: 800,
             transform: 'rotate(2deg)',
             display: 'inline-block', flexShrink: 0,
-            fontStyle: 'italic',
+
           }}>
             {tipoInfo.emoji} {tipoInfo.label}
           </span>
@@ -1268,7 +1268,7 @@ export default function PostPage() {
                       onMouseEnter={(e: any) => (e.currentTarget.style.background = 'var(--bg-secondary)')}
                       onMouseLeave={(e: any) => (e.currentTarget.style.background = 'transparent')}
                     >
-                      ✏️ Editar post
+                      ✏️ Editar pos
                     </button>
                     <div style={{ height: 1, background: 'var(--border-color)', margin: '4px 0' }} />
                     <button onClick={() => { setMenuAbierto(false); setShowBorrar(true); }}
@@ -1283,7 +1283,7 @@ export default function PostPage() {
                       onMouseEnter={(e: any) => (e.currentTarget.style.background = 'color-mix(in srgb,#ef4444 14%,transparent)')}
                       onMouseLeave={(e: any) => (e.currentTarget.style.background = 'transparent')}
                     >
-                      🗑️ Borrar post
+                      🗑️ Borrar pos
                     </button>
                   </div>
                 </>
@@ -1319,7 +1319,7 @@ export default function PostPage() {
               <span style={{ fontSize: 18 }}>{post.materia_emoji}</span>
               <span style={{
                 fontFamily: HAND, fontSize: 16, fontWeight: 800,
-                color: post.materia_color, fontStyle: 'italic',
+                color: post.materia_color,
               }}>
                 {post.materia_nombre}
               </span>
@@ -1337,7 +1337,7 @@ export default function PostPage() {
 
           {post.descripcion && (
             <p style={{
-              fontFamily: BODY, fontSize: 19, fontStyle: 'italic',
+              fontFamily: BODY, fontSize: 19,
               color: 'var(--text-muted)',
               margin: '4px 0 16px', lineHeight: 1.5,
             }}>
@@ -1379,7 +1379,7 @@ export default function PostPage() {
                   textDecoration: 'underline dotted',
                 }}>{post.user_nombre}</div>
                 <div style={{
-                  fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+                  fontFamily: BODY, fontSize: 13,
                   color: 'var(--text-faint)',
                 }}>
                   {new Date(post.created_at).toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })}
@@ -1405,7 +1405,7 @@ export default function PostPage() {
                     color: 'var(--text-primary)',
                   }}>{s.emoji} {s.val}</div>
                   <div style={{
-                    fontFamily: BODY, fontSize: 12, fontStyle: 'italic',
+                    fontFamily: BODY, fontSize: 12,
                     color: 'var(--text-faint)',
                   }}>{s.label}</div>
                 </div>
@@ -1433,7 +1433,7 @@ export default function PostPage() {
             <h3 style={{
               fontFamily: HAND, fontSize: 22, fontWeight: 900,
               color: tipoInfo.color, margin: 0, lineHeight: 1,
-              fontStyle: 'italic',
+
               transform: 'rotate(-0.5deg)', display: 'inline-block',
             }}>
               {tipoInfo.label}
@@ -1453,7 +1453,7 @@ export default function PostPage() {
               {post.contenido?.texto || post.contenido?.contenido || post.descripcion || (
                 <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>
                   <div style={{ fontSize: 40, marginBottom: 8 }}>💬</div>
-                  <p style={{ fontFamily: HAND, fontSize: 19, fontStyle: 'italic', margin: 0 }}>
+                  <p style={{ fontFamily: HAND, fontSize: 19, margin: 0 }}>
                     ~ post de la comunidad StudyAL ~
                   </p>
                 </div>
@@ -1466,7 +1466,7 @@ export default function PostPage() {
               ? <FlashcardsViewer cards={flashcards} />
               : <div style={{ textAlign: 'center', padding: 40 }}>
                   <div style={{ fontSize: 50, marginBottom: 8 }}>🎴</div>
-                  <p style={{ fontFamily: HAND, fontSize: 19, fontStyle: 'italic', color: 'var(--text-muted)', margin: 0 }}>~ no hay flashcards ~</p>
+                  <p style={{ fontFamily: HAND, fontSize: 19, color: 'var(--text-muted)', margin: 0 }}>~ no hay flashcards ~</p>
                 </div>
           )}
 
@@ -1475,7 +1475,7 @@ export default function PostPage() {
               ? <QuizViewer preguntas={quiz} onTerminar={() => registrarEstudiado()} />
               : <div style={{ textAlign: 'center', padding: 40 }}>
                   <div style={{ fontSize: 50, marginBottom: 8 }}>🧠</div>
-                  <p style={{ fontFamily: HAND, fontSize: 19, fontStyle: 'italic', color: 'var(--text-muted)', margin: 0 }}>~ no hay preguntas ~</p>
+                  <p style={{ fontFamily: HAND, fontSize: 19, color: 'var(--text-muted)', margin: 0 }}>~ no hay preguntas ~</p>
                 </div>
           )}
 
@@ -1500,12 +1500,12 @@ export default function PostPage() {
               ) : (
                 <div style={{ textAlign: 'center', padding: 40 }}>
                   <div style={{ fontSize: 50, marginBottom: 8 }}>🎥</div>
-                  <p style={{ fontFamily: HAND, fontSize: 19, fontStyle: 'italic', color: 'var(--text-muted)', margin: 0 }}>~ video no disponible ~</p>
+                  <p style={{ fontFamily: HAND, fontSize: 19, color: 'var(--text-muted)', margin: 0 }}>~ video no disponible ~</p>
                 </div>
               )}
               {post.descripcion && (
                 <p style={{
-                  fontFamily: BODY, fontSize: 17, fontStyle: 'italic',
+                  fontFamily: BODY, fontSize: 17,
                   color: 'var(--text-muted)',
                   margin: '14px 0 0', lineHeight: 1.5,
                 }}>
@@ -1539,7 +1539,7 @@ export default function PostPage() {
                   <StarSelector value={userRating} onChange={handleRating} />
                   {userRating > 0 && (
                     <p style={{
-                      fontFamily: BODY, fontSize: 16, fontStyle: 'italic',
+                      fontFamily: BODY, fontSize: 16,
                       color: 'var(--text-muted)', margin: 0,
                     }}>
                       ~ tu calificación: {userRating} ★ ~
@@ -1547,7 +1547,7 @@ export default function PostPage() {
                   )}
                 </>
               : <p style={{
-                  fontFamily: BODY, fontSize: 17, fontStyle: 'italic',
+                  fontFamily: BODY, fontSize: 17,
                   color: 'var(--text-muted)', margin: 0,
                 }}>
                   ~ inicia sesión para calificar ~
@@ -1569,7 +1569,7 @@ export default function PostPage() {
                     ))}
                   </div>
                   <div style={{
-                    fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+                    fontFamily: BODY, fontSize: 13,
                     color: 'var(--text-faint)',
                   }}>{ratingsCount} calificaciones</div>
                 </div>

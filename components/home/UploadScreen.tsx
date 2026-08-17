@@ -116,7 +116,7 @@ export default function UploadScreen({ file, loading, message, loadingStep, flas
               <p style={{ fontSize: '12px', color: 'var(--text-faint)', margin: 0 }}>
                 📄 PDF · 📃 Word · 📝 TXT · 🖼️ Imágenes
               </p>
-              <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '4px 0 0', fontStyle: 'italic', opacity: 0.7 }}>
+              <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '4px 0 0', opacity: 0.7 }}>
                 ¿Tienes PowerPoint? Conviértelo a PDF primero
               </p>
             </label>

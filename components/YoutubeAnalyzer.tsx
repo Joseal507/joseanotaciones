@@ -551,7 +551,7 @@ export default function YoutubeAnalyzer() {
               <p style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.8, margin: 0 }}>
                 {result.transcript}
                 {result.transcript?.endsWith('...') && (
-                  <span style={{ color: 'var(--text-faint)', fontStyle: 'italic' }}>
+                  <span style={{ color: 'var(--text-faint)' }}>
                     {idioma === 'en' ? ' (preview only)' : ' (vista previa)'}
                   </span>
                 )}

@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { PartnerInfo } from './types';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 // ─── QR MODAL ───
 export function QRModal({ url, onClose }: { url: string; onClose: () => void }) {
@@ -49,7 +49,7 @@ export function QRModal({ url, onClose }: { url: string; onClose: () => void }) 
           📱 Mi Perfil
         </h3>
         <p style={{
-          fontFamily: BODY, fontSize: 16, fontStyle: 'italic',
+          fontFamily: BODY, fontSize: 16,
           color: 'var(--text-muted)', margin: '0 0 18px',
         }}>
           ~ escanea para ir a tu perfil público ~
@@ -166,7 +166,7 @@ export function ReportModal({ partner, token, onClose }: { partner: PartnerInfo;
             fontFamily: HAND, fontSize: 24, fontWeight: 900,
             color: '#fff', margin: 0,
             textShadow: '0 1px 3px rgba(0,0,0,0.35)',
-            fontStyle: 'italic',
+
             transform: 'rotate(-0.8deg)', display: 'inline-block',
           }}>
             🚨 Reportar a {partner.nombre}
@@ -188,7 +188,7 @@ export function ReportModal({ partner, token, onClose }: { partner: PartnerInfo;
             <>
               <p style={{
                 fontFamily: HAND, fontSize: 15, fontWeight: 800,
-                color: 'var(--text-muted)', fontStyle: 'italic',
+                color: 'var(--text-muted)',
                 margin: '0 0 8px',
               }}>
                 ✏️ Motivo:
@@ -219,7 +219,7 @@ export function ReportModal({ partner, token, onClose }: { partner: PartnerInfo;
 
               <p style={{
                 fontFamily: HAND, fontSize: 15, fontWeight: 800,
-                color: 'var(--text-muted)', fontStyle: 'italic',
+                color: 'var(--text-muted)',
                 margin: '0 0 6px',
               }}>
                 ✏️ Detalles (opcional):

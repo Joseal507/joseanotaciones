@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getSession } from 'next-auth/react';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 const SERIF = "'Georgia','Times New Roman',serif";
 const ADMIN_EMAIL = 'jose.alberto.deobaldia@gmail.com';
 
@@ -210,7 +210,7 @@ export default function NewsPage() {
           <h1 style={{ fontFamily: SERIF, fontSize: 'clamp(36px, 6vw, 64px)', fontWeight: 900, color: 'var(--text-primary)', margin: 0, lineHeight: 1, letterSpacing: '-2px', textShadow: '2px 2px 0 var(--gold)' }}>
             THE STUDYAL TIMES
           </h1>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, padding: '6px 12px', borderTop: '2px solid var(--text-primary)', borderBottom: '1px solid var(--text-primary)', fontFamily: SERIF, fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, padding: '6px 12px', borderTop: '2px solid var(--text-primary)', borderBottom: '1px solid var(--text-primary)', fontFamily: SERIF, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap', gap: 8 }}>
             <span>VOL. 1 · No. {news.length}</span>
             <span style={{ fontFamily: BODY, fontSize: 18, color: 'var(--gold)' }}>~ Noticias oficiales ~</span>
             <span>{new Date().toLocaleDateString('es-PA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
@@ -279,7 +279,7 @@ export default function NewsPage() {
                     <p style={{ fontFamily: HAND, fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px' }}>
                       Selecciona imagen o video
                     </p>
-                    <p style={{ fontFamily: HAND, fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)', margin: 0 }}>
+                    <p style={{ fontFamily: HAND, fontSize: 14, color: 'var(--text-muted)', margin: 0 }}>
                       ~ máximo 50MB ~
                     </p>
                   </label>
@@ -335,7 +335,7 @@ export default function NewsPage() {
                 <h2 style={{ fontFamily: HAND, fontSize: 26, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 4px', transform: 'rotate(-1deg)', display: 'inline-block' }}>
                   Verificación admin
                 </h2>
-                <p style={{ fontFamily: HAND, fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)', margin: 0 }}>
+                <p style={{ fontFamily: HAND, fontSize: 14, color: 'var(--text-muted)', margin: 0 }}>
                   ~ confirma que eres tú ~
                 </p>
               </div>
@@ -363,7 +363,7 @@ export default function NewsPage() {
               />
 
               {secretError && (
-                <p style={{ fontFamily: BODY, fontSize: 15, color: '#dc2626', fontStyle: 'italic', textAlign: 'center', margin: '0 0 10px' }}>
+                <p style={{ fontFamily: BODY, fontSize: 15, color: '#dc2626', textAlign: 'center', margin: '0 0 10px' }}>
                   ❌ ~ respuesta incorrecta ~
                 </p>
               )}
@@ -397,12 +397,12 @@ export default function NewsPage() {
         {loading ? (
           <div style={{ textAlign: 'center', padding: '60px 0' }}>
             <div style={{ fontSize: 50, marginBottom: 10 }}>📰</div>
-            <p style={{ fontFamily: HAND, fontSize: 22, fontStyle: 'italic', color: 'var(--text-muted)' }}>~ cargando noticias ~</p>
+            <p style={{ fontFamily: HAND, fontSize: 22, color: 'var(--text-muted)' }}>~ cargando noticias ~</p>
           </div>
         ) : news.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '80px 20px', background: 'var(--bg-card)', border: '2.5px dashed var(--border-color)', borderRadius: 12 }}>
             <div style={{ fontSize: 64, marginBottom: 14 }}>📰</div>
-            <p style={{ fontFamily: HAND, fontSize: 26, color: 'var(--text-muted)', fontStyle: 'italic', margin: 0 }}>
+            <p style={{ fontFamily: HAND, fontSize: 26, color: 'var(--text-muted)', margin: 0 }}>
               ~ aún no hay noticias ~
             </p>
           </div>
@@ -478,7 +478,7 @@ export default function NewsPage() {
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '16px 0' }}>
                   <div style={{ flex: 1, height: 1.5, background: 'var(--text-primary)' }} />
-                  <span style={{ fontFamily: HAND, fontSize: 18, fontWeight: 800, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                  <span style={{ fontFamily: HAND, fontSize: 18, fontWeight: 800, color: 'var(--text-muted)' }}>
                     ~ más noticias ~
                   </span>
                   <div style={{ flex: 1, height: 1.5, background: 'var(--text-primary)' }} />
@@ -507,7 +507,7 @@ export default function NewsPage() {
                         <span style={{ display: 'inline-block', padding: '2px 8px', background: catColor(n.categoria), color: '#fff', fontFamily: SERIF, fontSize: 10, fontWeight: 900, letterSpacing: 1, marginBottom: 6 }}>{catLabel(n.categoria)}</span>
                         <h3 style={{ fontFamily: SERIF, fontSize: 18, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 4px', lineHeight: 1.2 }}>{n.titulo}</h3>
                         <p style={{ fontFamily: SERIF, fontSize: 12, color: 'var(--text-muted)', margin: 0, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.descripcion}</p>
-                        <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px dashed var(--border-color)', fontFamily: BODY, fontSize: 12, color: 'var(--text-faint)', fontStyle: 'italic', display: 'flex', justifyContent: 'space-between' }}>
+                        <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px dashed var(--border-color)', fontFamily: BODY, fontSize: 12, color: 'var(--text-faint)', display: 'flex', justifyContent: 'space-between' }}>
                           <span>✍️ {n.autor}</span>
                           <span>{new Date(n.created_at).toLocaleDateString('es-PA', { month: 'short', day: 'numeric' })}</span>
                         </div>
@@ -543,7 +543,7 @@ export default function NewsPage() {
               <div style={{ padding: '24px 28px' }}>
                 <span style={{ display: 'inline-block', padding: '4px 12px', background: catColor(selectedNews.categoria), color: '#fff', fontFamily: SERIF, fontSize: 11, fontWeight: 900, letterSpacing: 1, marginBottom: 10 }}>{catLabel(selectedNews.categoria)}</span>
                 <h2 style={{ fontFamily: SERIF, fontSize: 32, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px', lineHeight: 1.15 }}>{selectedNews.titulo}</h2>
-                <p style={{ fontFamily: HAND, fontSize: 16, fontStyle: 'italic', color: 'var(--text-muted)', margin: '0 0 16px' }}>
+                <p style={{ fontFamily: HAND, fontSize: 16, color: 'var(--text-muted)', margin: '0 0 16px' }}>
                   por ✍️ {selectedNews.autor} · {new Date(selectedNews.created_at).toLocaleDateString('es-PA', { year: 'numeric', month: 'long', day: 'numeric' })}
                 </p>
                 <p style={{ fontFamily: SERIF, fontSize: 17, lineHeight: 1.5, color: 'var(--text-primary)', margin: '0 0 18px', fontWeight: 600 }}>{selectedNews.descripcion}</p>

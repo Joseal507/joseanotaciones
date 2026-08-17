@@ -573,7 +573,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
                   key={`${activeMaterialIndex}-${activeMaterialId}-${pdfUrl}`}
                   url={pdfUrl}
                   selectedPages={viewerPages}
-                  themeColor="#d6b26f"
+                  themeColor="var(--gold)"
                   onTotalPages={setNumPages}
                   totalSelectedPages={totalSelectedPages}
                   activeMaterialIndex={activeMaterialIndex}
@@ -1315,7 +1315,6 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
           font-size: 11px;
           color: var(--red);
           font-weight: 800;
-          font-style: italic;
         }
 
         .aal-msg-actions {
@@ -1427,11 +1426,9 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
           font-size: 14px;
           line-height: 1.5;
           font-family: inherit;
-          font-style: italic;
         }
         .aal-input::placeholder {
           color: var(--text-faint);
-          font-style: italic;
         }
         .aal-send-btn {
           width: 40px; height: 40px;

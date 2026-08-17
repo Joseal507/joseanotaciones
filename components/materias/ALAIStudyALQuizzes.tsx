@@ -73,8 +73,8 @@ interface PersistedQuizState {
   quizContext: string;
 }
 
-const BODY = "'Plus Jakarta Sans', system-ui, sans-serif";
-const HAND = BODY;
+const BODY = "var(--font-body)";
+const HAND = "var(--font-hand)";
 
 // ─── Helpers de color ─────────────────────────────────────────
 const DIFF_COLOR: Record<Difficulty, string> = {
@@ -257,7 +257,7 @@ export default function ALAIStudyALQuizzes({
   sourceSelection,
   sessionId,
 }: any) {
-  const themeColor = '#d6b26f'; // StudyAL gold - identidad Quiz
+  const themeColor = 'var(--gold)'; // StudyAL gold - identidad Quiz
 
   // ── Setup ──────────────────────────────────────────────────
   const [quizState, setQuizState] = useState<QuizState>('setup');
@@ -1186,7 +1186,7 @@ texto.slice(0,8000)
                   borderRadius: '50%',
                   animation: 'spin 0.8s linear infinite',
                 }} />
-                <div style={{ fontSize: 14, fontFamily: BODY, fontStyle: 'italic' }}>
+                <div style={{ fontSize: 14, fontFamily: BODY }}>
                   Cargando PDF...
                 </div>
               </div>
@@ -1219,7 +1219,7 @@ texto.slice(0,8000)
                 color: '#555',
               }}>
                 <div style={{ fontSize: 36 }}>📄</div>
-                <div style={{ fontSize: 14, fontFamily: BODY, fontStyle: 'italic' }}>
+                <div style={{ fontSize: 14, fontFamily: BODY }}>
                   No se pudo cargar el material
                 </div>
               </div>
@@ -2449,7 +2449,6 @@ const SAQ_STYLES = `
   .saq-action-hint {
     color: var(--text-faint);
     font-size: 12px;
-    font-style: italic;
   }
 
   /* Responsive playing */

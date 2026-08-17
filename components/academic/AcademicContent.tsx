@@ -69,7 +69,7 @@ function MathNode({ node, renderMathBlank }: { node: Extract<AcademicNode, { typ
     // LaTeX (caso patológico no cubierto por generación/validación, o
     // contenido legacy/restaurado) NUNCA debe mostrar delimitadores $/{/}
     // literales ni crashear la página — se degrada a un aviso explícito.
-    return <span role="math" aria-label="Fórmula no disponible" style={{ opacity: 0.7, fontStyle: 'italic' }}>⚠️ Fórmula no disponible</span>
+    return <span role="math" aria-label="Fórmula no disponible" style={{ opacity: 0.7 }}>⚠️ Fórmula no disponible</span>
   }
   const Component = node.display ? 'div' : 'span'
   return <Component role="math" onClick={onClick} style={{ overflowX: 'auto', cursor: onClick ? 'pointer' : undefined }} dangerouslySetInnerHTML={{ __html: html }} />

@@ -3,8 +3,8 @@
 import { Asignacion, ObjetivoAgenda } from '../../lib/agenda';
 import { useIdioma } from '../../hooks/useIdioma';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Props {
   asignaciones: Asignacion[];
@@ -140,7 +140,7 @@ export default function PendientesSidebar({
           }}>
             <span style={{
               fontFamily: HAND, fontSize: 14, fontWeight: 800,
-              color: '#000', fontStyle: 'italic',
+              color: '#000',
             }}>
               📅 día seleccionado
             </span>
@@ -164,7 +164,7 @@ export default function PendientesSidebar({
             {asignaciones.filter(a => a.fecha === diaSeleccionado).length === 0 ? (
               <p style={{
                 fontFamily: BODY, fontSize: 16,
-                color: 'var(--text-faint)', fontStyle: 'italic',
+                color: 'var(--text-faint)',
                 margin: 0, textAlign: 'center', padding: '8px 0',
               }}>
                 ~ {tr('sinAsignaciones')} ~
@@ -272,7 +272,7 @@ export default function PendientesSidebar({
           <span style={{
             fontFamily: HAND, fontSize: 16, fontWeight: 800,
             color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.3)',
-            fontStyle: 'italic',
+
           }}>
             🔥 {tr('proximasAsig')}
           </span>
@@ -282,7 +282,7 @@ export default function PendientesSidebar({
           {proximas.length === 0 ? (
             <p style={{
               fontFamily: BODY, fontSize: 16,
-              color: 'var(--text-faint)', fontStyle: 'italic',
+              color: 'var(--text-faint)',
               margin: 0, textAlign: 'center', padding: '12px 0',
             }}>
               ~ {tr('sinPendientes')} ~
@@ -332,7 +332,7 @@ export default function PendientesSidebar({
                       <p style={{
                         fontFamily: BODY, fontSize: 12, fontWeight: 600,
                         color: 'var(--text-faint)',
-                        margin: 0, fontStyle: 'italic',
+                        margin: 0,
                       }}>
                         {a.materia}
                       </p>
@@ -376,7 +376,7 @@ export default function PendientesSidebar({
           <span style={{
             fontFamily: HAND, fontSize: 16, fontWeight: 800,
             color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.3)',
-            fontStyle: 'italic',
+
           }}>
             🎯 {tr('objetivosPendientes')}
           </span>
@@ -388,7 +388,7 @@ export default function PendientesSidebar({
               <div style={{ fontSize: 30, marginBottom: 4 }}>✨</div>
               <p style={{
                 fontFamily: BODY, fontSize: 16,
-                color: 'var(--text-faint)', fontStyle: 'italic',
+                color: 'var(--text-faint)',
                 margin: 0,
               }}>
                 ~ {tr('todoCompletado')} ~
@@ -433,7 +433,7 @@ export default function PendientesSidebar({
               {objetivos.filter(o => !o.completado).length > 5 && (
                 <p style={{
                   fontFamily: BODY, fontSize: 14,
-                  color: 'var(--text-faint)', fontStyle: 'italic',
+                  color: 'var(--text-faint)',
                   margin: '6px 0 0', textAlign: 'center',
                 }}>
                   ~ +{objetivos.filter(o => !o.completado).length - 5} {idioma === 'en' ? 'more pending' : 'más pendientes'} ~

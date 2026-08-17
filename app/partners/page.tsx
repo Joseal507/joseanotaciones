@@ -13,8 +13,8 @@ import { Av, fmtTime } from '../../components/partners/helpers';
 import { QRModal, ReportModal } from '../../components/partners/Modals';
 import ChatView from '../../components/partners/ChatView';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 export default function PartnersPage() {
   const router = useRouter();
@@ -432,14 +432,14 @@ export default function PartnersPage() {
               </div>
               <div style={{ flex: 1, overflowY: 'auto' }}>
                 {cargando ? (
-                  <p style={{ textAlign: 'center', padding: 40, fontFamily: BODY, fontSize: 19, fontStyle: 'italic', color: 'var(--text-faint)' }}>
+                  <p style={{ textAlign: 'center', padding: 40, fontFamily: BODY, fontSize: 19, color: 'var(--text-faint)' }}>
                     ~ ⏳ cargando ~
                   </p>
                 ) : chatsFiltrados.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '40px 20px' }}>
                     <div style={{ fontSize: 50, marginBottom: 10 }}>💬</div>
                     <p style={{
-                      fontFamily: HAND, fontSize: 18, fontStyle: 'italic',
+                      fontFamily: HAND, fontSize: 18,
                       color: 'var(--text-faint)', margin: '0 0 14px',
                     }}>
                       ~ {busqChat ? tr('sinResultados') : tr('sinChats')} ~
@@ -499,7 +499,7 @@ export default function PartnersPage() {
                           lineHeight: 1,
                         }}>{chat.partner.nombre}</span>
                         <span style={{
-                          fontFamily: BODY, fontSize: 12, fontStyle: 'italic',
+                          fontFamily: BODY, fontSize: 12,
                           color: 'var(--text-faint)',
                           marginLeft: 8, flexShrink: 0,
                         }}>{fmtTime(chat.last_message_at)}</span>
@@ -550,7 +550,7 @@ export default function PartnersPage() {
                 <div style={{ textAlign: 'center', padding: '40px 20px' }}>
                   <div style={{ fontSize: 50, marginBottom: 10 }}>👥</div>
                   <p style={{
-                    fontFamily: HAND, fontSize: 18, fontStyle: 'italic',
+                    fontFamily: HAND, fontSize: 18,
                     color: 'var(--text-faint)', margin: '0 0 14px',
                   }}>
                     ~ sin partners aún ~
@@ -585,7 +585,7 @@ export default function PartnersPage() {
                     }}>{p.partner.nombre}</p>
                     {p.partner.carrera && (
                       <p style={{
-                        fontFamily: HAND, fontSize: 13, fontStyle: 'italic',
+                        fontFamily: HAND, fontSize: 13,
                         color: 'var(--gold)', margin: 0,
                       }}>~ 🎓 {p.partner.carrera} ~</p>
                     )}
@@ -643,7 +643,7 @@ export default function PartnersPage() {
                 <div style={{ textAlign: 'center', padding: 40 }}>
                   <div style={{ fontSize: 50, marginBottom: 10 }}>📬</div>
                   <p style={{
-                    fontFamily: HAND, fontSize: 18, fontStyle: 'italic',
+                    fontFamily: HAND, fontSize: 18,
                     color: 'var(--text-faint)', margin: 0,
                   }}>~ sin solicitudes ~</p>
                 </div>
@@ -654,7 +654,7 @@ export default function PartnersPage() {
                       <p style={{
                         fontFamily: HAND, fontSize: 16, fontWeight: 900,
                         color: '#a78bfa', margin: '14px 16px 8px',
-                        fontStyle: 'italic',
+
                         transform: 'rotate(-1deg)', display: 'inline-block',
                       }}>
                         📥 {idioma === 'en' ? 'Received' : 'Recibidas'}
@@ -672,7 +672,7 @@ export default function PartnersPage() {
                               color: 'var(--text-primary)', margin: '0 0 1px',
                             }}>{s.partner.nombre}</p>
                             <p style={{
-                              fontFamily: BODY, fontSize: 12, fontStyle: 'italic',
+                              fontFamily: BODY, fontSize: 12,
                               color: 'var(--text-faint)', margin: 0,
                             }}>~ {fmtTime(s.created_at)} ~</p>
                           </div>
@@ -705,7 +705,7 @@ export default function PartnersPage() {
                       <p style={{
                         fontFamily: HAND, fontSize: 16, fontWeight: 900,
                         color: 'var(--text-faint)', margin: '14px 16px 8px',
-                        fontStyle: 'italic',
+
                         transform: 'rotate(-1deg)', display: 'inline-block',
                       }}>
                         📤 {idioma === 'en' ? 'Sent' : 'Enviadas'}
@@ -724,7 +724,7 @@ export default function PartnersPage() {
                               color: 'var(--text-primary)', margin: '0 0 1px',
                             }}>{s.partner.nombre}</p>
                             <p style={{
-                              fontFamily: BODY, fontSize: 12, fontStyle: 'italic',
+                              fontFamily: BODY, fontSize: 12,
                               color: 'var(--text-faint)', margin: 0,
                             }}>~ ⏳ pendiente ~</p>
                           </div>
@@ -767,7 +767,7 @@ export default function PartnersPage() {
                   }}
                 />
                 <p style={{
-                  fontFamily: BODY, fontSize: 13, fontStyle: 'italic',
+                  fontFamily: BODY, fontSize: 13,
                   color: 'var(--text-faint)', margin: '6px 0 0',
                 }}>
                   {buscando ? '~ ⏳ buscando ~' : busqueda ? `~ ${listaUsuarios.length} resultados ~` : `~ 🌍 ${todosUsers.length} usuarios ~`}
@@ -792,7 +792,7 @@ export default function PartnersPage() {
                         }}>{u.nombre}</p>
                         {u.carrera && (
                           <p style={{
-                            fontFamily: HAND, fontSize: 13, fontStyle: 'italic',
+                            fontFamily: HAND, fontSize: 13,
                             color: 'var(--blue)', margin: 0,
                           }}>~ 🎓 {u.carrera} ~</p>
                         )}
@@ -837,7 +837,7 @@ export default function PartnersPage() {
                           border: '1.5px dashed var(--text-faint)',
                           color: 'var(--text-faint)',
                           fontFamily: HAND, fontSize: 14, fontWeight: 800,
-                          fontStyle: 'italic',
+
                           transform: 'rotate(-1deg)',
                         }}>⏳</span>
                       )}
@@ -896,7 +896,7 @@ export default function PartnersPage() {
                     Selecciona una conversación
                   </p>
                   <p style={{
-                    fontFamily: BODY, fontSize: 16, fontStyle: 'italic',
+                    fontFamily: BODY, fontSize: 16,
                     color: 'var(--text-muted)', margin: '0 0 20px',
                   }}>
                     ~ o busca nuevos partners ~

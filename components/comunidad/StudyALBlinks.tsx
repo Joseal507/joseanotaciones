@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Post {
   id: string;
@@ -380,7 +380,7 @@ export default function StudyALBlinks({
       }}>
         <div style={{ fontSize: 50, animation: 'spinBlink 1.2s linear infinite' }}>⏳</div>
         <p style={{
-          fontFamily: HAND, fontSize: 20, fontStyle: 'italic',
+          fontFamily: HAND, fontSize: 20,
           color: 'rgba(255,255,255,0.75)', margin: 0,
         }}>
           ~ cargando Blinks ~
@@ -604,7 +604,7 @@ export default function StudyALBlinks({
                     }}>{post.user_nombre}</div>
                     <div style={{
                       color: 'rgba(255,255,255,0.65)',
-                      fontFamily: HAND, fontSize: 14, fontStyle: 'italic',
+                      fontFamily: HAND, fontSize: 14,
                     }}>
                       ~ hace {tiempoAtras(post.created_at)} ~
                     </div>
@@ -619,7 +619,7 @@ export default function StudyALBlinks({
                     boxShadow: '2px 2px 0 rgba(0,0,0,0.4)',
                     padding: '3px 10px', borderRadius: 8,
                     fontFamily: HAND, fontSize: 14, fontWeight: 800,
-                    fontStyle: 'italic',
+
                     transform: 'rotate(-2deg)',
                     display: 'inline-block',
                   }}>
@@ -633,7 +633,7 @@ export default function StudyALBlinks({
                       border: '2px dashed rgba(255,255,255,0.35)',
                       padding: '3px 10px', borderRadius: 8,
                       fontFamily: HAND, fontSize: 14, fontWeight: 700,
-                      fontStyle: 'italic',
+
                       transform: 'rotate(1.5deg)',
                       display: 'inline-block',
                     }}>
@@ -658,7 +658,7 @@ export default function StudyALBlinks({
                 {post.descripcion && (
                   <p style={{
                     color: 'rgba(255,255,255,0.85)',
-                    fontFamily: BODY, fontSize: 17, fontStyle: 'italic',
+                    fontFamily: BODY, fontSize: 17,
                     lineHeight: 1.4,
                     margin: '0 0 12px',
                     textShadow: '0 1px 4px rgba(0,0,0,0.6)',
@@ -693,7 +693,7 @@ export default function StudyALBlinks({
                       e.currentTarget.style.background='rgba(0,0,0,0.5)';
                     }}
                   >
-                    📖 Ver post
+                    📖 Ver pos
                   </button>
                 </Link>
               </div>
@@ -750,7 +750,7 @@ export default function StudyALBlinks({
                   </div>
                   <div style={{
                     color: '#fff',
-                    fontFamily: HAND, fontSize: 12, fontStyle: 'italic',
+                    fontFamily: HAND, fontSize: 12,
                     marginTop: 4, textAlign: 'center',
                     textShadow: '0 1px 3px rgba(0,0,0,0.7)',
                   }}>

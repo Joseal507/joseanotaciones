@@ -17,8 +17,8 @@ if (typeof window !== 'undefined') {
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-const HAND = "'Caveat', cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Material {
   id: string;
@@ -366,7 +366,7 @@ export default function SeleccionPaginas({
               transform: 'rotate(-0.5deg)',
               display: 'inline-block',
             }}>📑 Selecciona partes</h1>
-            <div style={{ fontFamily: HAND, fontSize: 17, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+            <div style={{ fontFamily: HAND, fontSize: 17, color: 'var(--text-muted)' }}>
               ~ enfoque {enfoqueEmoji} {enfoqueLabel} ~
             </div>
           </div>
@@ -387,7 +387,7 @@ export default function SeleccionPaginas({
           <div style={{ fontSize: 28, fontWeight: 900, color: themeColor, lineHeight: 1 }}>
             {totalSeleccionadas}
           </div>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
             de {totalPaginasTodos} partes
           </div>
         </div>
@@ -528,7 +528,7 @@ function MaterialSection({
           }}>{material.nombre}</h2>
           <div style={{
             fontFamily: BODY, fontSize: 15,
-            color: 'var(--text-muted)', fontStyle: 'italic',
+            color: 'var(--text-muted)',
             marginTop: 2,
           }}>
             ~ {tipoLabel}{total > 0 ? ` · ${total} ${unidadPlural}` : ''} ~
@@ -857,7 +857,7 @@ function SlideThumb({ pagina }: { pagina: PaginaExtraida }) {
           <div style={{
             flex: 1, display: 'flex',
             alignItems: 'center', justifyContent: 'center',
-            color: '#cbd5e1', fontSize: 10, fontStyle: 'italic',
+            color: '#cbd5e1', fontSize: 10,
           }}>
             Diapositiva {pagina.numero}
           </div>
@@ -955,7 +955,7 @@ function PageThumb({ pagina }: { pagina: PaginaExtraida }) {
         textOverflow: 'ellipsis',
         whiteSpace: 'pre-wrap',
       }}>
-        {pagina.texto || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>(sin texto)</span>}
+        {pagina.texto || <span style={{ color: '#94a3b8' }}>(sin texto)</span>}
       </div>
     </div>
   );
@@ -1028,8 +1028,9 @@ async function extraerPptxClient(buffer: ArrayBuffer): Promise<PaginaExtraida[]>
             const m = t.match(/<a:t[^>]*>([\s\S]*?)<\/a:t>/);
             return m?.[1] || '';
           })
-          .map(t => t
-            .replace(/&amp;/g, '&')
+          .map(t =>
+            t
+              .replace(/&amp;/g, '&')
             .replace(/&lt;/g, '<')
             .replace(/&gt;/g, '>')
             .replace(/&quot;/g, '"')
@@ -1114,7 +1115,7 @@ function CenterMsg({ emoji, title, sub }: { emoji: string; title: string; sub?: 
     <div style={{ textAlign: 'center', padding: 60, fontFamily: HAND }}>
       <div style={{ fontSize: 50, marginBottom: 12 }}>{emoji}</div>
       <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 6 }}>{title}</div>
-      {sub && <div style={{ fontSize: 16, color: 'var(--text-muted)', fontStyle: 'italic', maxWidth: 500, margin: '0 auto' }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 16, color: 'var(--text-muted)', maxWidth: 500, margin: '0 auto' }}>{sub}</div>}
     </div>
   );
 }

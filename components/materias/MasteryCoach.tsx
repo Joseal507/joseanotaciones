@@ -105,7 +105,7 @@ function RadialProgress({ value, size = 80, color, label }: {
           style={{ transition: 'stroke-dashoffset 0.8s cubic-bezier(0.4,0,0.2,1)' }}
         />
         <text x={size/2} y={size/2 + 1} textAnchor="middle" dominantBaseline="middle"
-          fill={color} fontSize={size > 70 ? 16 : 13} fontWeight={900} fontFamily="Inter,sans-serif">
+          fill={color} fontSize={size > 70 ? 16 : 13} fontWeight={900} fontFamily="var(--font-body)">
           {value}%
         </text>
       </svg>
@@ -206,7 +206,7 @@ function TimelineChart({ timeline }: { timeline: any[] }) {
                 title={`${toolEmojis[entry.tool] || '📚'} ${entry.overallMastery}%`}
                 style={{
                   width: '100%', height, borderRadius: '3px 3px 0 0',
-                  background: `linear-gradient(to top, #d6b26f, #f59e0b)`,
+                  background: `linear-gradient(to top, var(--gold), #f59e0b)`,
                   boxShadow: '0 0 6px rgba(214,178,111,0.4)',
                   transition: 'height 0.5s ease',
                 }}
@@ -277,7 +277,7 @@ function DiagnosisPanel({ snapshot, mastery, onOpenTool }: {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
         {[
-          { label: 'Dominio alcanzado', value: snapshot.overallMastery, color: '#d6b26f' },
+          { label: 'Dominio alcanzado', value: snapshot.overallMastery, color: 'var(--gold)' },
           { label: 'Para el examen', value: Math.round(snapshot.examReadiness), color: '#fbbf24' },
           { label: 'Retención 7 días', value: snapshot.retention7Days, color: '#38bdf8' },
         ].map(({ label, value, color }) => (
@@ -589,7 +589,7 @@ export default function MasteryCoach({
       background: 'var(--bg-primary)',
       color: 'var(--text-primary)',
       display: 'flex', flexDirection: 'column',
-      fontFamily: "'Inter', system-ui, sans-serif",
+      fontFamily: "var(--font-body)",
       overflow: 'hidden',
       opacity: ready ? 1 : 0,
       transform: ready ? 'none' : 'translateY(8px)',

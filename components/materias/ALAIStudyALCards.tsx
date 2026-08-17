@@ -10,6 +10,7 @@ import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from 
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
 import { freeNavDebug, nextFreeNavInstanceId } from '../../lib/debug/freeNavDebug';
+import { RADIUS, inkBorder, hardShadow } from '../../lib/ui/surface';
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 const SourceViewer = dynamic(() => import('./FlashcardSourceViewer'), { ssr: false });
 
@@ -87,8 +88,8 @@ const dedupe = (cards: any[]) => {
   });
 };
 
-const HAND = "'Patrick Hand', cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 function cleanFlashcardText(text: string): string {
   if (!text) return '';
@@ -140,12 +141,12 @@ function NotebookCard({
     >
       <div style={{
         minHeight: large ? 340 : 220,
-        backgroundColor: '#0f1117',
-        borderRadius: 14,
-        border: `1px solid ${isAnswer ? color + '44' : 'rgba(255,255,255,0.06)'}`,
+        backgroundColor: 'var(--bg-card)',
+        borderRadius: RADIUS.card,
+        border: isAnswer ? `1px solid ${color}44` : inkBorder(1, 'var(--border-color)'),
         boxShadow: isAnswer
-          ? `0 12px 32px rgba(0,0,0,0.5), 0 0 20px ${color}22, inset 0 0 0 1px ${color}11`
-          : '0 8px 24px rgba(0,0,0,0.4)',
+          ? hardShadow(color, 3, 4)
+          : hardShadow('var(--border-color)', 2, 3),
         padding: large ? '30px 38px 24px 78px' : '24px 24px 20px 62px',
         display: 'flex', flexDirection: 'column',
         overflow: 'hidden',
@@ -154,8 +155,8 @@ function NotebookCard({
           to bottom,
           transparent 0,
           transparent ${large ? 38 : 30}px,
-          rgba(255,255,255,0.04) ${large ? 38 : 30}px,
-          rgba(255,255,255,0.04) ${large ? 39 : 31}px,
+          color-mix(in srgb, var(--text-primary) 6%, transparent) ${large ? 38 : 30}px,
+          color-mix(in srgb, var(--text-primary) 6%, transparent) ${large ? 39 : 31}px,
           transparent ${large ? 39 : 31}px
         )`,
         backgroundSize: `100% ${large ? 39 : 31}px`,
@@ -167,7 +168,6 @@ function NotebookCard({
           left: large ? 56 : 46, top: 0, bottom: 0,
           width: 1.5,
           background: 'linear-gradient(to bottom, transparent 0%, rgba(239, 68, 68, 0.5) 8%, rgba(239, 68, 68, 0.5) 92%, transparent 100%)',
-          boxShadow: '0 0 6px rgba(239, 68, 68, 0.25)',
         }} />
         <div style={{
           position: 'absolute',
@@ -180,8 +180,8 @@ function NotebookCard({
             <div key={i} style={{
               width: large ? 14 : 10, height: large ? 14 : 10,
               borderRadius: '50%',
-              background: '#0a0a0c',
-              boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.04)',
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border-color)',
             }} />
           ))}
         </div>
@@ -193,15 +193,15 @@ function NotebookCard({
             ? `linear-gradient(135deg, ${color} 0%, ${color}dd 100%)`
             : 'linear-gradient(135deg, #ffffff 0%, #f0f0f0 100%)',
           border: `2px solid ${isAnswer ? color : '#2a2a2a'}`,
-          borderRadius: 8,
+          borderRadius: RADIUS.chip,
           fontFamily: BODY,
           fontSize: large ? 15 : 13,
           fontWeight: 800,
           color: isAnswer ? '#000' : '#1a1a1a',
           transform: isAnswer ? 'rotate(1deg)' : 'rotate(-1deg)',
           boxShadow: isAnswer
-            ? `2px 3px 0 rgba(0,0,0,0.4), 0 0 16px ${color}66`
-            : '2px 3px 0 rgba(0,0,0,0.35)',
+            ? hardShadow(color, 2, 3)
+            : hardShadow('rgba(0,0,0,.35)', 2, 3),
           marginBottom: large ? 24 : 18,
           marginLeft: large ? -4 : -2,
           letterSpacing: '0.5px',
@@ -222,10 +222,9 @@ function NotebookCard({
             fontFamily: BODY,
             fontSize: large ? 26 : 18,
             lineHeight: 1.5,
-            color: isAnswer ? '#ffffff' : '#e8e8ed',
+            color: 'var(--text-primary)',
             fontWeight: 500,
             width: '100%',
-            textShadow: isAnswer ? `0 1px 2px rgba(0,0,0,0.3)` : 'none',
           }}>
             <MathText text={cleanFlashcardText(card ? (isAnswer ? card.answer : card.question) : '')} />
           </div>
@@ -233,7 +232,7 @@ function NotebookCard({
         {large && (
           <div style={{
             textAlign: 'center', fontFamily: BODY, fontSize: 13,
-            color: 'rgba(255,255,255,0.25)', marginTop: 10,
+            color: 'var(--text-faint)', marginTop: 10,
             letterSpacing: '0.5px',
           }}>
             ~ ← → flechas · espacio voltear ~
@@ -260,7 +259,7 @@ function DashedButton({
       disabled={disabled}
       style={{
         padding: '9px 18px',
-        borderRadius: 12,
+        borderRadius: RADIUS.control,
         border: `1.5px dashed ${color}`,
         background: active ? `${color}33` : 'transparent',
         color: color,
@@ -273,7 +272,7 @@ function DashedButton({
         gap: 6,
         transition: 'all 0.2s ease',
         opacity: disabled ? 0.4 : 1,
-        boxShadow: active ? `0 4px 16px ${color}33` : 'none',
+        boxShadow: active ? hardShadow(color, 2, 3) : 'none',
         letterSpacing: '0.3px',
       }}
       onMouseEnter={(e) => {
@@ -325,9 +324,9 @@ function CardMenu({
       {open && (
         <div style={{
           position: 'absolute', right: 0, top: 38,
-          background: '#1a1a22', border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: 12, padding: 6, minWidth: 180,
-          boxShadow: '0 12px 40px rgba(0,0,0,0.6)', zIndex: 50,
+          background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+          borderRadius: RADIUS.control, padding: 6, minWidth: 180,
+          boxShadow: hardShadow('var(--text-primary)', 2, 3), zIndex: 50,
           display: 'flex', flexDirection: 'column',
         }}>
           {[
@@ -346,14 +345,14 @@ function CardMenu({
               disabled={item.disabled}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-                padding: '9px 11px', borderRadius: 8, border: 'none',
+                padding: '9px 11px', borderRadius: RADIUS.chip, border: 'none',
                 background: 'transparent',
-                color: item.danger ? '#ef4444' : item.disabled ? '#444' : '#ddd',
+                color: item.danger ? '#ef4444' : item.disabled ? 'var(--text-faint)' : 'var(--text-primary)',
                 fontSize: 13, cursor: item.disabled ? 'default' : 'pointer',
                 textAlign: 'left', fontFamily: BODY,
               }}
               onMouseEnter={(e) => {
-                if (!item.disabled) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)';
+                if (!item.disabled) (e.currentTarget as HTMLElement).style.background = 'var(--bg-card2)';
               }}
               onMouseLeave={(e) => {
                 (e.currentTarget as HTMLElement).style.background = 'transparent';
@@ -361,7 +360,7 @@ function CardMenu({
             >
               <span style={{ fontSize: 14 }}>{item.icon}</span>
               {item.label}
-              {item.disabled && <span style={{ marginLeft: 'auto', fontSize: 10, color: '#555' }}>pronto</span>}
+              {item.disabled && <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-faint)' }}>pronto</span>}
             </button>
           ))}
         </div>
@@ -412,7 +411,7 @@ function NumberedPagination({
           return (
             <span key={`dots-${idx}`} style={{
               display: 'inline-flex', alignItems: 'center',
-              padding: '0 6px', color: '#555', fontFamily: BODY, fontSize: 14,
+              padding: '0 6px', color: 'var(--text-faint)', fontFamily: BODY, fontSize: 14,
             }}>···</span>
           );
         }
@@ -701,7 +700,7 @@ function DeckView({
             📖 Leer esta
           </DashedButton>
         </div>
-        <div style={{ fontSize: 14, fontFamily: BODY, color: '#999', fontStyle: 'italic' }}>
+        <div style={{ fontSize: 14, fontFamily: BODY, color: 'var(--text-faint)' }}>
           ~ {cards.length} {cards.length === 1 ? 'tarjeta' : 'tarjetas'} ~
         </div>
       </div>
@@ -760,7 +759,7 @@ function DeckView({
             cursor: current === 0 ? 'default' : 'pointer',
           }}
         >← Anterior</button>
-        <div style={{ fontFamily: BODY, fontSize: 13, color: '#666' }}>
+        <div style={{ fontFamily: BODY, fontSize: 13, color: 'var(--text-faint)' }}>
           {safeCurrent + 1} de {visibleCards.length}
         </div>
         <button
@@ -828,7 +827,7 @@ function ScrollList({
       <div style={{
         padding: '14px 20px',
         borderBottom: '1px solid rgba(255,255,255,0.04)',
-        background: '#0a0a0c',
+        background: 'var(--bg-primary)',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <div style={{
@@ -930,7 +929,7 @@ function EditModal({ card, color, onSave, onClose }: {
         background: '#13131a', border: `1px solid ${color}33`, borderRadius: 20,
         padding: 28, width: '100%', maxWidth: 520, boxShadow: `0 0 80px ${color}22`,
       }}>
-        <div style={{ fontSize: 24, fontWeight: 800, color: '#fff', fontFamily: HAND, marginBottom: 20 }}>
+        <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', fontFamily: HAND, marginBottom: 20 }}>
           ✏️ Editar flashcard
         </div>
         <div style={{ marginBottom: 16 }}>
@@ -942,7 +941,7 @@ function EditModal({ card, color, onSave, onClose }: {
             style={{
               width: '100%', background: 'rgba(255,255,255,0.05)',
               border: `1px solid ${color}33`, borderRadius: 10,
-              padding: '10px 12px', color: '#fff', fontSize: 14,
+              padding: '10px 12px', color: 'var(--text-primary)', fontSize: 14,
               fontFamily: BODY, resize: 'vertical', outline: 'none', boxSizing: 'border-box',
             }}
           />
@@ -956,7 +955,7 @@ function EditModal({ card, color, onSave, onClose }: {
             style={{
               width: '100%', background: 'rgba(255,255,255,0.05)',
               border: `1px solid ${color}33`, borderRadius: 10,
-              padding: '10px 12px', color: '#fff', fontSize: 14,
+              padding: '10px 12px', color: 'var(--text-primary)', fontSize: 14,
               fontFamily: BODY, resize: 'vertical', outline: 'none', boxSizing: 'border-box',
             }}
           />
@@ -1228,7 +1227,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
       border: '1px solid rgba(214,178,111,0.2)',
       borderRadius: 10,
     }}>
-      <div style={{ fontSize: 11, color: '#888', fontWeight: 700, marginBottom: 8, fontFamily: BODY }}>
+      <div style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 700, marginBottom: 8, fontFamily: BODY }}>
         ¿Qué tan seguro estabas ANTES de ver la respuesta?
       </div>
       <div style={{ display: 'flex', gap: 6 }}>
@@ -1243,9 +1242,9 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
             onClick={() => setUserConfidence(val)}
             style={{
               flex: 1, padding: '6px 4px', borderRadius: 8, cursor: 'pointer',
-              border: `1.5px solid ${userConfidence === val ? '#d6b26f' : 'rgba(255,255,255,0.1)'}`,
+              border: `1.5px solid ${userConfidence === val ? 'var(--gold)' : 'rgba(255,255,255,0.1)'}`,
               background: userConfidence === val ? 'rgba(214,178,111,0.2)' : 'transparent',
-              color: userConfidence === val ? '#d6b26f' : '#666',
+              color: userConfidence === val ? 'var(--gold)' : 'var(--text-faint)',
               fontSize: 10, fontWeight: 700, fontFamily: BODY,
               transition: 'all 0.15s ease',
             }}
@@ -1268,15 +1267,15 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
     );
     return (
       <div style={{
-        position: 'fixed', inset: 0, background: '#0a0a0c',
+        position: 'fixed', inset: 0, background: 'var(--bg-primary)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         gap: 28, zIndex: 3000, padding: 24,
       }}>
         <div style={{ fontSize: 64 }}>🎉</div>
-        <div style={{ fontSize: 36, fontWeight: 800, color: '#fff', fontFamily: HAND }}>
+        <div style={{ fontSize: 36, fontWeight: 800, color: 'var(--text-primary)', fontFamily: HAND }}>
           ¡Dominaste el mazo!
         </div>
-        <div style={{ fontSize: 15, color: '#888', fontFamily: BODY }}>
+        <div style={{ fontSize: 15, color: 'var(--text-faint)', fontFamily: BODY }}>
           Aprendiste {cards.length} {cards.length === 1 ? 'flashcard' : 'flashcards'}
         </div>
         <div style={{ display: 'flex', gap: 24, marginTop: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -1295,7 +1294,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
               <div style={{ fontSize: 36, fontWeight: 900, color: s.col, fontFamily: BODY, lineHeight: 1 }}>
                 {s.val}
               </div>
-              <div style={{ fontSize: 13, color: '#aaa', fontFamily: BODY, marginTop: 4 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-faint)', fontFamily: BODY, marginTop: 4 }}>
                 {s.label}
               </div>
             </div>
@@ -1323,16 +1322,16 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
 
   if (readOnly) {
     return (
-      <div style={{ position: 'fixed', inset: 0, background: '#0a0a0c', display: 'flex', flexDirection: 'column', zIndex: 3000 }}>
+      <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', zIndex: 3000 }}>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)',
         }}>
           <button onClick={onClose} style={{
-            background: 'none', border: 'none', color: '#888',
+            background: 'none', border: 'none', color: 'var(--text-faint)',
             fontSize: 15, cursor: 'pointer', fontFamily: BODY, fontWeight: 700,
           }}>← Salir</button>
-          <div style={{ fontSize: 18, color: '#aaa', fontFamily: HAND }}>📖 Leer</div>
+          <div style={{ fontSize: 18, color: 'var(--text-faint)', fontFamily: HAND }}>📖 Leer</div>
           <div style={{ width: 60 }} />
         </div>
         <div style={{
@@ -1343,7 +1342,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
             card={current.card} color={color}
             flipped={revealed} onFlip={() => setRevealed(r => !r)} large
           />
-          <div style={{ fontSize: 14, color: '#666', fontFamily: BODY, fontStyle: 'italic' }}>
+          <div style={{ fontSize: 14, color: 'var(--text-faint)', fontFamily: BODY }}>
             Toca la tarjeta para voltear
           </div>
         </div>
@@ -1431,16 +1430,16 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#0a0a0c', display: 'flex', flexDirection: 'column', zIndex: 3000 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', zIndex: 3000 }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '14px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)',
       }}>
         <button onClick={onClose} style={{
-          background: 'none', border: 'none', color: '#888',
+          background: 'none', border: 'none', color: 'var(--text-faint)',
           fontSize: 15, cursor: 'pointer', fontFamily: BODY, fontWeight: 700,
         }}>← Salir</button>
-        <div style={{ fontSize: 18, color: '#aaa', fontFamily: HAND }}>🧠 Repite y Aprende</div>
+        <div style={{ fontSize: 18, color: 'var(--text-faint)', fontFamily: HAND }}>🧠 Repite y Aprende</div>
         <div style={{ fontSize: 15, fontWeight: 700, color: color, fontFamily: BODY }}>
           {totalMastered}/{totalCards}
         </div>
@@ -1472,7 +1471,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
               fontFamily: BODY, fontSize: 16, fontWeight: 800,
               color: s.col, lineHeight: 1,
             }}>{s.val}</span>
-            <span style={{ fontSize: 12, color: '#aaa', fontFamily: BODY }}>{s.label}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-faint)', fontFamily: BODY }}>{s.label}</span>
           </div>
         ))}
         {current.correctStreak > 0 && (
@@ -1518,7 +1517,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
                 width: '100%', padding: '14px 16px', borderRadius: 12,
                 border: `1.5px solid ${color}44`,
                 background: 'rgba(255,255,255,0.04)',
-                color: '#fff', fontFamily: BODY, fontSize: 15,
+                color: 'var(--text-primary)', fontFamily: BODY, fontSize: 15,
                 outline: 'none', resize: 'vertical', boxSizing: 'border-box',
                 lineHeight: 1.5,
               }}
@@ -1579,7 +1578,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
                 {userAnswer.trim() && (
                   <div>
                     <div style={{
-                      fontSize: 11, color: '#888', fontFamily: BODY,
+                      fontSize: 11, color: 'var(--text-faint)', fontFamily: BODY,
                       marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1.5,
                       fontWeight: 700,
                     }}>
@@ -1588,7 +1587,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
                     <div style={{
                       fontSize: 14, color: '#ddd', fontFamily: BODY,
                       padding: '10px 14px', background: 'rgba(0,0,0,0.3)',
-                      borderRadius: 8, fontStyle: 'italic',
+                      borderRadius: 8,
                       border: '1px solid rgba(255,255,255,0.05)',
                     }}>"{userAnswer}"</div>
                   </div>
@@ -1596,14 +1595,14 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
                 {evaluation.analisis && (
                   <div>
                     <div style={{
-                      fontSize: 11, color: '#888', fontFamily: BODY,
+                      fontSize: 11, color: 'var(--text-faint)', fontFamily: BODY,
                       marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1.5,
                       fontWeight: 700,
                     }}>
                       🔍 Análisis
                     </div>
                     <div style={{
-                      fontSize: 14, color: '#e8e8ed', fontFamily: BODY,
+                      fontSize: 14, color: 'var(--text-faint)', fontFamily: BODY,
                       lineHeight: 1.6,
                     }}>
                       {evaluation.analisis}
@@ -1626,7 +1625,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
                       ✅ Respuesta correcta
                     </div>
                     <div style={{
-                      fontSize: 15, color: '#fff', fontFamily: BODY,
+                      fontSize: 15, color: 'var(--text-primary)', fontFamily: BODY,
                       lineHeight: 1.6, fontWeight: 500,
                     }}>
                       <MathText text={cleanFlashcardText(evaluation.respuestaCorrecta)} />
@@ -1636,14 +1635,14 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
                 {evaluation.explicacion && (
                   <div>
                     <div style={{
-                      fontSize: 11, color: '#888', fontFamily: BODY,
+                      fontSize: 11, color: 'var(--text-faint)', fontFamily: BODY,
                       marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1.5,
                       fontWeight: 700,
                     }}>
                       💡 ¿Por qué?
                     </div>
                     <div style={{
-                      fontSize: 14, color: '#e8e8ed', fontFamily: BODY,
+                      fontSize: 14, color: 'var(--text-faint)', fontFamily: BODY,
                       lineHeight: 1.6,
                     }}>
                       {evaluation.explicacion}
@@ -1843,13 +1842,13 @@ function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle', in
 
     return (
       <div style={{
-        position: 'fixed', inset: 0, background: '#0a0a0c',
+        position: 'fixed', inset: 0, background: 'var(--bg-primary)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         gap: 28, zIndex: 3000, padding: 24,
       }}>
         <div style={{ fontSize: 64 }}>⚡</div>
-        <div style={{ fontSize: 36, fontWeight: 800, color: '#fff', fontFamily: HAND }}>¡Repaso completado!</div>
-        <div style={{ fontSize: 15, color: '#888', fontFamily: BODY }}>Repasaste {shuffledCards.length} flashcards una vez</div>
+        <div style={{ fontSize: 36, fontWeight: 800, color: 'var(--text-primary)', fontFamily: HAND }}>¡Repaso completado!</div>
+        <div style={{ fontSize: 15, color: 'var(--text-faint)', fontFamily: BODY }}>Repasaste {shuffledCards.length} flashcards una vez</div>
         <div style={{ display: 'flex', gap: 24, marginTop: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
           {[
             { val: counts.correct, label: 'correctas', col: '#4ade80', icon: '✓' },
@@ -1863,7 +1862,7 @@ function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle', in
             }}>
               <div style={{ fontSize: 20, color: s.col }}>{s.icon}</div>
               <div style={{ fontSize: 36, fontWeight: 900, color: s.col, fontFamily: BODY, lineHeight: 1 }}>{s.val}</div>
-              <div style={{ fontSize: 13, color: '#aaa', fontFamily: BODY, marginTop: 4 }}>{s.label}</div>
+              <div style={{ fontSize: 13, color: 'var(--text-faint)', fontFamily: BODY, marginTop: 4 }}>{s.label}</div>
             </div>
           ))}
         </div>
@@ -1882,13 +1881,13 @@ function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle', in
   if (!card) return null;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#0a0a0c', display: 'flex', flexDirection: 'column', zIndex: 3000 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', zIndex: 3000 }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '14px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)',
       }}>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', fontSize: 15, cursor: 'pointer', fontFamily: BODY, fontWeight: 700 }}>← Salir</button>
-        <div style={{ fontSize: 18, color: '#aaa', fontFamily: HAND }}>⚡ Repaso Rápido</div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontSize: 15, cursor: 'pointer', fontFamily: BODY, fontWeight: 700 }}>← Salir</button>
+        <div style={{ fontSize: 18, color: 'var(--text-faint)', fontFamily: HAND }}>⚡ Repaso Rápido</div>
         <div style={{ fontSize: 15, fontWeight: 700, color, fontFamily: BODY }}>{index + 1}/{shuffledCards.length}</div>
       </div>
       <div style={{ height: 4, background: 'rgba(255,255,255,0.05)' }}>
@@ -1908,7 +1907,7 @@ function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle', in
               style={{
                 width: '100%', padding: '14px 16px', borderRadius: 12,
                 border: '1.5px solid ' + color + '44', background: 'rgba(255,255,255,0.04)',
-                color: '#fff', fontFamily: BODY, fontSize: 15,
+                color: 'var(--text-primary)', fontFamily: BODY, fontSize: 15,
                 outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5,
               }}
             />
@@ -1940,28 +1939,28 @@ function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle', in
                 </div>
                 {userAnswer.trim() && (
                   <div>
-                    <div style={{ fontSize: 11, color: '#888', fontFamily: BODY, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>✍️ Tu respuesta</div>
-                    <div style={{ fontSize: 14, color: '#ddd', fontFamily: BODY, padding: '10px 14px', background: 'rgba(0,0,0,0.3)', borderRadius: 8, fontStyle: 'italic', border: '1px solid rgba(255,255,255,0.05)' }}>"{userAnswer}"</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: BODY, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>✍️ Tu respuesta</div>
+                    <div style={{ fontSize: 14, color: '#ddd', fontFamily: BODY, padding: '10px 14px', background: 'rgba(0,0,0,0.3)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.05)' }}>"{userAnswer}"</div>
                   </div>
                 )}
                 {evaluation.analisis && (
                   <div>
-                    <div style={{ fontSize: 11, color: '#888', fontFamily: BODY, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>🔍 Análisis</div>
-                    <div style={{ fontSize: 14, color: '#e8e8ed', fontFamily: BODY, lineHeight: 1.6 }}>{evaluation.analisis}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: BODY, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>🔍 Análisis</div>
+                    <div style={{ fontSize: 14, color: 'var(--text-faint)', fontFamily: BODY, lineHeight: 1.6 }}>{evaluation.analisis}</div>
                   </div>
                 )}
                 {evaluation.respuestaCorrecta && (
                   <div style={{ padding: '12px 14px', background: (nivelColors[evaluation.nivel] || color) + '15', border: '1.5px solid ' + (nivelColors[evaluation.nivel] || color) + '55', borderRadius: 10 }}>
                     <div style={{ fontSize: 11, color: nivelColors[evaluation.nivel] || color, fontFamily: BODY, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>✅ Respuesta correcta</div>
-                    <div style={{ fontSize: 15, color: '#fff', fontFamily: BODY, lineHeight: 1.6, fontWeight: 500 }}>
+                    <div style={{ fontSize: 15, color: 'var(--text-primary)', fontFamily: BODY, lineHeight: 1.6, fontWeight: 500 }}>
                       <MathText text={cleanFlashcardText(evaluation.respuestaCorrecta)} />
                     </div>
                   </div>
                 )}
                 {evaluation.explicacion && (
                   <div>
-                    <div style={{ fontSize: 11, color: '#888', fontFamily: BODY, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>💡 ¿Por qué?</div>
-                    <div style={{ fontSize: 14, color: '#e8e8ed', fontFamily: BODY, lineHeight: 1.65 }}>{evaluation.explicacion}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: BODY, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>💡 ¿Por qué?</div>
+                    <div style={{ fontSize: 14, color: 'var(--text-faint)', fontFamily: BODY, lineHeight: 1.65 }}>{evaluation.explicacion}</div>
                   </div>
                 )}
                 {evaluation.consejo && (
@@ -2005,10 +2004,10 @@ function StudySelector({ color, onSelect, onClose }: {
         background: '#13131a', border: `1px solid ${color}33`, borderRadius: 24,
         padding: 32, maxWidth: 420, width: '90%', boxShadow: `0 0 80px ${color}22`,
       }}>
-        <div style={{ fontSize: 26, fontWeight: 800, color: '#fff', fontFamily: HAND, marginBottom: 8 }}>
+        <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-primary)', fontFamily: HAND, marginBottom: 8 }}>
           ¿Cómo quieres estudiar?
         </div>
-        <div style={{ fontSize: 15, color: '#888', fontFamily: HAND, marginBottom: 22 }}>Elige tu modo</div>
+        <div style={{ fontSize: 15, color: 'var(--text-faint)', fontFamily: HAND, marginBottom: 22 }}>Elige tu modo</div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, justifyContent: 'center' }}>
           {([
             { key: 'bucle', icon: '🔀', label: 'Aleatorio' },
@@ -2056,7 +2055,7 @@ function StudySelector({ color, onSelect, onClose }: {
               <div style={{ fontSize: 32 }}>{opt.icon}</div>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: opt.col, fontFamily: BODY }}>{opt.title}</div>
-                <div style={{ fontSize: 13, color: '#aaa', fontFamily: BODY, marginTop: 2 }}>{opt.desc}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-faint)', fontFamily: BODY, marginTop: 2 }}>{opt.desc}</div>
               </div>
             </button>
           ))}
@@ -2065,7 +2064,7 @@ function StudySelector({ color, onSelect, onClose }: {
           onClick={onClose}
           style={{
             marginTop: 16, width: '100%', padding: '10px', borderRadius: 10, border: 'none',
-            background: 'transparent', color: '#666', cursor: 'pointer', fontFamily: BODY, fontSize: 14,
+            background: 'transparent', color: 'var(--text-faint)', cursor: 'pointer', fontFamily: BODY, fontSize: 14,
           }}
         >Cancelar</button>
       </div>
@@ -2092,13 +2091,13 @@ function EmptyGenerate({ color, onGenerate, generating, numPages, selectedPages,
       }}>🎴</div>
       <div>
         <div style={{
-          fontSize: 28, fontWeight: 800, color: '#fff',
+          fontSize: 28, fontWeight: 800, color: 'var(--text-primary)',
           fontFamily: HAND, marginBottom: 6,
         }}>
           Todavía no hay flashcards
         </div>
         <div style={{
-          fontSize: 15, color: '#888', fontFamily: BODY,
+          fontSize: 15, color: 'var(--text-faint)', fontFamily: BODY,
           maxWidth: 360, lineHeight: 1.4,
         }}>
           La IA va a analizar el <strong style={{ color: color }}>100%</strong> del material seleccionado y generar flashcards de toda esa selección
@@ -2108,7 +2107,7 @@ function EmptyGenerate({ color, onGenerate, generating, numPages, selectedPages,
         padding: '10px 16px', borderRadius: 10,
         background: 'rgba(255,255,255,0.03)',
         border: '1.5px dashed rgba(255,255,255,0.15)',
-        fontSize: 14, color: '#aaa', fontFamily: BODY, fontStyle: 'italic',
+        fontSize: 14, color: 'var(--text-faint)', fontFamily: BODY,
       }}>
         {selectedPages.length > 0
           ? (materialesCount > 1
@@ -2783,39 +2782,39 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: '#0a0a0c',
+      position: 'fixed', inset: 0, background: 'var(--bg-primary)',
       display: 'flex', flexDirection: 'column', fontFamily: BODY,
     }}>
       {/* HEADER */}
       <div style={{
-        flexShrink: 0, background: 'rgba(255,255,255,0.02)',
+        flexShrink: 0, background: 'var(--bg-card)',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px',
       }}>
         <button
           onClick={onBack}
           style={{
             display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px',
-            borderRadius: 10, border: '1.5px dashed rgba(255,255,255,0.15)',
-            background: 'transparent', color: '#aaa',
+            borderRadius: RADIUS.control, border: '1.5px dashed var(--border-color)',
+            background: 'transparent', color: 'var(--text-faint)',
             fontFamily: BODY, fontSize: 14, fontWeight: 700, cursor: 'pointer',
             transition: 'all 0.2s',
           }}
           onMouseEnter={e => {
-            (e.currentTarget as HTMLElement).style.color = '#fff';
-            (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.3)';
+            (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)';
+            (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color2)';
           }}
           onMouseLeave={e => {
-            (e.currentTarget as HTMLElement).style.color = '#aaa';
-            (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.15)';
+            (e.currentTarget as HTMLElement).style.color = 'var(--text-faint)';
+            (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)';
           }}
         >← Volver al proceso</button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: color, boxShadow: `0 0 12px ${color}` }} />
-          <span style={{ fontSize: 26, fontWeight: 700, color: '#fff', fontFamily: HAND, letterSpacing: 0.5 }}>
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: color, border: inkBorder(1.5, 'var(--text-primary)') }} />
+          <span style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', fontFamily: HAND, letterSpacing: 0.5 }}>
             StudyAL cards
           </span>
-          <span style={{ fontSize: 14, color: '#555', fontFamily: BODY }}>·</span>
-          <span style={{ fontSize: 16, color: '#888', fontFamily: HAND }}>{tema?.nombre}</span>
+          <span style={{ fontSize: 14, color: 'var(--text-faint)', fontFamily: BODY }}>·</span>
+          <span style={{ fontSize: 16, color: 'var(--text-faint)', fontFamily: HAND }}>{tema?.nombre}</span>
         </div>
         <div style={{ width: 160 }} />
       </div>
@@ -2823,9 +2822,9 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
         {/* TABS */}
         <div style={{
-          display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)',
+          display: 'flex', borderBottom: '1px solid var(--border-color)',
           flexShrink: 0, padding: '0 24px',
-          background: 'rgba(255,255,255,0.01)',
+          background: 'var(--bg-card2)',
         }}>
           {[
             { key: 'material' as const, label: '📘 Material', count: 0 },
@@ -2837,7 +2836,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
               style={{
                 padding: '14px 22px', background: 'none', border: 'none',
                 borderBottom: `2.5px solid ${rightTab === tab.key ? color : 'transparent'}`,
-                color: rightTab === tab.key ? '#fff' : '#666',
+                color: rightTab === tab.key ? 'var(--text-primary)' : 'var(--text-faint)',
                 fontFamily: BODY, fontSize: 15,
                 fontWeight: rightTab === tab.key ? 700 : 500,
                 cursor: 'pointer',
@@ -2847,7 +2846,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
               {tab.label}
               {tab.count > 0 && (
                 <span style={{
-                  background: `${color}33`, color: color, borderRadius: 10,
+                  background: `${color}33`, color: color, borderRadius: RADIUS.control,
                   padding: '2px 9px', fontSize: 13, fontWeight: 800,
                 }}>{tab.count}</span>
               )}
@@ -2855,7 +2854,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
           ))}
           {materiales.length > 1 && (
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, paddingRight: 8 }}>
-              <span style={{ fontSize: 13, color: '#666', fontFamily: BODY, fontStyle: 'italic' }}>Material:</span>
+              <span style={{ fontSize: 13, color: 'var(--text-faint)', fontFamily: BODY }}>Material:</span>
               <select
                 value={activeMaterialIndex}
                 onChange={e => {
@@ -2891,14 +2890,14 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
               {pdfLoading ? (
                 <div style={{
                   flex: 1, display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', gap: 12, color: '#555',
+                  alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--text-faint)',
                 }}>
                   <div style={{
                     width: 32, height: 32, border: `3px solid ${color}33`,
                     borderTop: `3px solid ${color}`, borderRadius: '50%',
                     animation: 'spin 0.8s linear infinite',
                   }} />
-                  <div style={{ fontSize: 14, fontFamily: BODY, fontStyle: 'italic' }}>Cargando PDF...</div>
+                  <div style={{ fontSize: 14, fontFamily: BODY }}>Cargando PDF...</div>
                 </div>
               ) : pdfUrl ? (
                 <PDFViewer
@@ -2920,10 +2919,10 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
               ) : (
                 <div style={{
                   flex: 1, display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', gap: 12, color: '#555',
+                  alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--text-faint)',
                 }}>
                   <div style={{ fontSize: 36 }}>📄</div>
-                  <div style={{ fontSize: 14, fontFamily: BODY, fontStyle: 'italic' }}>No se pudo cargar el material</div>
+                  <div style={{ fontSize: 14, fontFamily: BODY }}>No se pudo cargar el material</div>
                 </div>
               )}
             </div>
@@ -3003,10 +3002,10 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
               fontSize: 42, animation: 'float 2s ease-in-out infinite',
             }}>🤖</div>
             <div style={{ textAlign: 'center', maxWidth: 360 }}>
-              <div style={{ fontSize: 28, fontWeight: 800, color: '#fff', fontFamily: HAND, marginBottom: 8 }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-primary)', fontFamily: HAND, marginBottom: 8 }}>
                 Analizando tu material
               </div>
-              <div style={{ fontSize: 16, color: '#aaa', fontFamily: BODY, minHeight: 22, fontStyle: 'italic' }}>
+              <div style={{ fontSize: 16, color: 'var(--text-faint)', fontFamily: BODY, minHeight: 22 }}>
                 {generatingStep}
               </div>
             </div>
@@ -3020,7 +3019,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
                 transition: 'width 0.5s ease', boxShadow: `0 0 12px ${color}`,
               }} />
             </div>
-            <div style={{ fontSize: 14, color: '#666', fontFamily: BODY, fontStyle: 'italic' }}>
+            <div style={{ fontSize: 14, color: 'var(--text-faint)', fontFamily: BODY }}>
               {Math.round(generatingProgress)}% completado
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>

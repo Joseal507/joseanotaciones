@@ -92,7 +92,7 @@ const TYPE_META: Record<
   cheat_code: {
     icon: "🧠",
     label: "Truquito",
-    accent: "#d6b26f",
+    accent: "var(--gold)",
     bg: "#17141f",
   },
   ejemplo_click: {
@@ -147,7 +147,7 @@ const TYPE_META: Record<
   como_piensa_alai: {
     icon: "🧠",
     label: "Cómo lo piensa ALAI",
-    accent: "#d6b26f",
+    accent: "var(--gold)",
     bg: "#17141f",
   },
   combo: { icon: "🎮", label: "Combo", accent: "#f472b6", bg: "#201119" },
@@ -190,10 +190,10 @@ const TYPE_META: Record<
   si_yo_fuera_tu: {
     icon: "🧠",
     label: "Si yo fuera tú",
-    accent: "#d6b26f",
+    accent: "var(--gold)",
     bg: "#17141f",
   },
-  tesis_central:     { icon: '💬', label: 'Tesis central',               accent: '#d6b26f', bg: '#1a1400' },
+  tesis_central:     { icon: '💬', label: 'Tesis central',               accent: "var(--gold)", bg: '#1a1400' },
   premisa_clave:     { icon: '🧱', label: 'Premisa clave',               accent: '#38bdf8', bg: '#0a1828' },
   como_defender:     { icon: '🛡️', label: 'Cómo defender este argumento', accent: '#4ade80', bg: '#0a1a10' },
   linea_causal:      { icon: '⏩', label: 'Línea causal',                accent: '#fb923c', bg: '#1a0f00' },
@@ -1367,7 +1367,7 @@ export default function ALAIStudyALCheatCodes({
                   key={`${activeMaterialIndex}-${activeMaterialId}-${pdfUrl}`}
                   url={pdfUrl}
                   selectedPages={viewerPages}
-                  themeColor="#d6b26f"
+                  themeColor="var(--gold)"
                   onTotalPages={setNumPages}
                   totalSelectedPages={totalSelectedPages}
                   activeMaterialIndex={activeMaterialIndex}

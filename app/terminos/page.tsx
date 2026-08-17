@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 const SECCIONES = [
   { n:1, t:'Introducción', c:`Bienvenido a StudyAL. Estos Términos y Condiciones ("Términos") regulan el acceso y uso de la plataforma, sitio web, aplicaciones y servicios relacionados ofrecidos por StudyAL ("StudyAL", "la Plataforma", "nosotros" o "nuestro").\n\nAl acceder, registrarse o utilizar StudyAL, el usuario acepta quedar legalmente vinculado por estos Términos y por nuestra Política de Privacidad. Si el usuario no está de acuerdo con alguna parte de estos Términos, deberá abstenerse de utilizar la Plataforma.\n\nStudyAL es una plataforma educativa diseñada para ayudar a estudiantes mediante herramientas de organización académica, inteligencia artificial, recursos educativos y funcionalidades de colaboración.` },
@@ -50,7 +50,7 @@ export default function TerminosPage() {
             <path d="M2 4 Q 160 0 318 5" stroke="var(--gold)" strokeWidth="3" fill="none" strokeLinecap="round" opacity=".7"/>
           </svg>
           <p style={{
-            fontFamily:BODY,fontSize:18,fontStyle:'italic',
+            fontFamily:BODY,fontSize:18,
             color:'var(--text-muted)',marginTop:12,
           }}>
             ~ Última actualización: 4 de mayo de 2026 ~

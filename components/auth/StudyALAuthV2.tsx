@@ -182,7 +182,7 @@ const title: React.CSSProperties = {
 const subtitle: React.CSSProperties = {
   margin: "8px 0 28px",
   opacity: 0.68,
-  fontStyle: "italic",
+
   fontSize: 16,
 }
 
@@ -354,7 +354,7 @@ const safe: React.CSSProperties = {
   fontSize: 14,
   opacity: 0.55,
   marginTop: 28,
-  fontStyle: "italic",
+
 }
 
 const muted: React.CSSProperties = {

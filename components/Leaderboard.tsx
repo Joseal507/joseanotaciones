@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { syncLeaderboard } from '../lib/syncLeaderboard';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface LeaderEntry {
   user_id: string; nombre: string; xp_total: number;
@@ -39,7 +39,7 @@ function Modal({ entry, rank, onClose }: { entry: LeaderEntry; rank: number; onC
       `}</style>
       <div onClick={(e: any) =>e.stopPropagation()} style={{
         width:'100%',maxWidth:400,
-        background:'#0f0f14',border:`2.5px solid ${color}`,
+        background:'var(--bg-card)',border:`2.5px solid ${color}`,
         borderRadius:18,overflow:'hidden',
         boxShadow:`5px 6px 0 ${color}, 0 20px 60px rgba(0,0,0,.6)`,
         transform:'rotate(-1deg)',
@@ -51,7 +51,7 @@ function Modal({ entry, rank, onClose }: { entry: LeaderEntry; rank: number; onC
         {/* Header grad */}
         <div style={{
           height:90,position:'relative',
-          background:`linear-gradient(135deg,${color} 0%,color-mix(in srgb,${color} 35%,#0f0f14) 100%)`,
+          background:`linear-gradient(135deg,${color} 0%,color-mix(in srgb,${color} 35%,var(--bg-card)) 100%)`,
           borderBottom:`2px solid ${color}`,
           display:'flex',alignItems:'center',justifyContent:'center',
         }}>
@@ -72,10 +72,10 @@ function Modal({ entry, rank, onClose }: { entry: LeaderEntry; rank: number; onC
         <div style={{display:'flex',justifyContent:'center',marginTop:-38,marginBottom:10}}>
           <div style={{
             width:76,height:76,borderRadius:'50%',
-            border:'3px solid #fff',background:'#1a1a1f',
+            border:'3px solid var(--text-primary)',background:'var(--bg-card2)',
             boxShadow:`3px 4px 0 ${color}`,
             overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',
-            fontFamily:HAND,fontSize:34,fontWeight:900,color:'#fff',
+            fontFamily:HAND,fontSize:34,fontWeight:900,color:'var(--text-primary)',
             transform:'rotate(-4deg)',position:'relative',zIndex:2,
           }}>
             {entry.avatar_url
@@ -85,16 +85,16 @@ function Modal({ entry, rank, onClose }: { entry: LeaderEntry; rank: number; onC
         </div>
 
         <div style={{padding:'0 20px 20px'}}>
-          <h2 style={{fontFamily:HAND,fontSize:28,fontWeight:900,color:'#fff',margin:'0 0 12px',textAlign:'center',transform:'rotate(-1deg)'}}>
+          <h2 style={{fontFamily:HAND,fontSize:28,fontWeight:900,color:'var(--text-primary)',margin:'0 0 12px',textAlign:'center',transform:'rotate(-1deg)'}}>
             {entry.nombre}
           </h2>
 
           {/* Info */}
-          <div style={{background:'rgba(255,255,255,.04)',border:'2px dashed rgba(255,255,255,.12)',borderRadius:10,padding:'10px 12px',marginBottom:12,display:'flex',flexDirection:'column',gap:7,transform:'rotate(-.4deg)'}}>
+          <div style={{background:'var(--bg-card2)',border:'2px dashed var(--border-color)',borderRadius:10,padding:'10px 12px',marginBottom:12,display:'flex',flexDirection:'column',gap:7,transform:'rotate(-.4deg)'}}>
             {entry.carrera && <Row emoji="📚" label="Carrera" val={entry.carrera} c={color}/>}
-            {entry.universidad && <Row emoji="🏫" label="Universidad" val={entry.universidad} c="#fff"/>}
-            {entry.tipo_estudiante && <Row emoji="🎓" label="Tipo" val={entry.tipo_estudiante==='universitario'?'Universitario':'Bachillerato'} c="#fff"/>}
-            {entry.created_at && <Row emoji="📅" label="Registro" val={fmtFecha(entry.created_at)} c="#fff"/>}
+            {entry.universidad && <Row emoji="🏫" label="Universidad" val={entry.universidad} c="var(--text-primary)"/>}
+            {entry.tipo_estudiante && <Row emoji="🎓" label="Tipo" val={entry.tipo_estudiante==='universitario'?'Universitario':'Bachillerato'} c="var(--text-primary)"/>}
+            {entry.created_at && <Row emoji="📅" label="Registro" val={fmtFecha(entry.created_at)} c="var(--text-primary)"/>}
           </div>
 
           {/* Stats */}
@@ -108,7 +108,7 @@ function Modal({ entry, rank, onClose }: { entry: LeaderEntry; rank: number; onC
               {l:'Puesto',   v:medal,                        e:'',  c:color,      r:1.5},
             ].map((s,i)=>(
               <div key={i} style={{
-                background:`color-mix(in srgb,${s.c} 14%,#1a1a1f)`,
+                background:`color-mix(in srgb,${s.c} 14%,var(--bg-card2))`,
                 border:`2px dashed ${s.c}`,borderRadius:9,
                 padding:'7px 4px',textAlign:'center',
                 transform:`rotate(${s.r}deg)`,
@@ -119,22 +119,22 @@ function Modal({ entry, rank, onClose }: { entry: LeaderEntry; rank: number; onC
               >
                 {s.e&&<div style={{fontSize:13,marginBottom:1}}>{s.e}</div>}
                 <div style={{fontFamily:HAND,fontSize:19,fontWeight:900,color:s.c,lineHeight:1}}>{s.v}</div>
-                <div style={{fontFamily:HAND,fontSize:10,fontStyle:'italic',color:'rgba(255,255,255,.45)',marginTop:2}}>{s.l}</div>
+                <div style={{fontFamily:HAND,fontSize:10,color:'var(--text-faint)',marginTop:2}}>{s.l}</div>
               </div>
             ))}
           </div>
 
-          <div style={{display:'flex',gap:8,paddingTop:10,borderTop:'1.5px dashed rgba(255,255,255,.12)'}}>
+          <div style={{display:'flex',gap:8,paddingTop:10,borderTop:'1.5px dashed var(--border-color)'}}>
             <button onClick={()=>{ onClose(); if(typeof window!=='undefined'){ router.push(`/u/${entry.user_id}`); } }} style={{
               flex:1,padding:11,borderRadius:10,
-              border:'2.5px solid #fff',background:color,color:'#000',
+              border:'2.5px solid var(--text-primary)',background:color,color:'#000',
               fontFamily:HAND,fontSize:18,fontWeight:800,cursor:'pointer',
               boxShadow:'3px 4px 0 rgba(255,255,255,.2)',transform:'rotate(-1deg)',
             }}>🌐 Ver Perfil</button>
             <button onClick={onClose} style={{
               padding:'11px 16px',borderRadius:10,
-              border:'2px dashed rgba(255,255,255,.25)',background:'transparent',
-              color:'rgba(255,255,255,.5)',fontFamily:HAND,fontSize:17,fontWeight:800,
+              border:'2px dashed var(--border-color)',background:'transparent',
+              color:'var(--text-faint)',fontFamily:HAND,fontSize:17,fontWeight:800,
               cursor:'pointer',transform:'rotate(1deg)',
             }}>✕</button>
           </div>
@@ -149,7 +149,7 @@ function Row({emoji,label,val,c}:{emoji:string;label:string;val:string;c:string}
     <div style={{display:'flex',alignItems:'center',gap:8}}>
       <span style={{fontSize:16}}>{emoji}</span>
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontFamily:HAND,fontSize:11,fontWeight:700,color:'rgba(255,255,255,.4)',textTransform:'uppercase',letterSpacing:.5}}>{label}</div>
+        <div style={{fontFamily:HAND,fontSize:11,fontWeight:700,color:'var(--text-faint)',textTransform:'uppercase',letterSpacing:.5}}>{label}</div>
         <div style={{fontFamily:HAND,fontSize:16,fontWeight:800,color:c,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{val}</div>
       </div>
     </div>
@@ -179,7 +179,7 @@ function Podio({ top3, myName, onClick }: {
     <div style={{padding:'32px 0 0',marginBottom:16,position:'relative'}}>
       {/* Título */}
       <div style={{textAlign:'center',marginBottom:20}}>
-        <span style={{fontFamily:HAND,fontSize:13,fontWeight:800,color:'rgba(255,255,255,.4)',fontStyle:'italic',display:'block',transform:'rotate(-1deg)'}}>~ top 3 estudiantes ~</span>
+        <span style={{fontFamily:HAND,fontSize:13,fontWeight:800,color:'var(--text-faint)',display:'block',transform:'rotate(-1deg)'}}>~ top 3 estudiantes ~</span>
       </div>
 
       {/* Podio */}
@@ -221,12 +221,12 @@ function Podio({ top3, myName, onClick }: {
               {/* Avatar */}
               <div style={{
                 width:avSize,height:avSize,borderRadius:'50%',
-                background:`color-mix(in srgb,${color} 40%,#1a1a1f)`,
-                border:'3px solid #fff',
-                boxShadow:`3px 4px 0 #000, 0 0 18px ${color}66`,
+                background:`color-mix(in srgb,${color} 40%,var(--bg-card2))`,
+                border:'3px solid var(--text-primary)',
+                boxShadow:`3px 4px 0 var(--text-primary), 0 0 18px ${color}66`,
                 overflow:'hidden',
                 display:'flex',alignItems:'center',justifyContent:'center',
-                fontFamily:HAND,fontSize:isCenter?30:24,fontWeight:900,color:'#fff',
+                fontFamily:HAND,fontSize:isCenter?30:24,fontWeight:900,color:'var(--text-primary)',
                 marginBottom:8,transform:'rotate(-3deg)',position:'relative',
               }}>
                 {entry.avatar_url
@@ -236,10 +236,10 @@ function Podio({ top3, myName, onClick }: {
                   <span style={{
                     position:'absolute',top:-7,right:-7,
                     background:'var(--gold)',color:'#000',
-                    border:'2px solid #000',borderRadius:5,
+                    border:'2px solid var(--text-primary)',borderRadius:5,
                     fontFamily:HAND,fontSize:10,fontWeight:900,
                     padding:'1px 5px',
-                    boxShadow:'1px 1px 0 #000',
+                    boxShadow:'1px 1px 0 var(--text-primary)',
                     transform:'rotate(8deg)',
                   }}>TÚ</span>
                 )}
@@ -248,7 +248,7 @@ function Podio({ top3, myName, onClick }: {
               {/* Nombre */}
               <p style={{
                 fontFamily:HAND,fontSize:isCenter?17:15,fontWeight:900,
-                color:'#fff',margin:'0 0 2px',lineHeight:1.05,
+                color:'var(--text-primary)',margin:'0 0 2px',lineHeight:1.05,
                 textAlign:'center',maxWidth:'100%',
                 overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',
                 textShadow:`0 0 10px ${color}66`,
@@ -257,7 +257,7 @@ function Podio({ top3, myName, onClick }: {
               {/* XP */}
               <p style={{
                 fontFamily:HAND,fontSize:isCenter?15:13,fontWeight:800,
-                color:color,fontStyle:'italic',margin:'0 0 10px',
+                color:color,margin:'0 0 10px',
                 textShadow:`0 0 8px ${color}44`,
               }}>⚡ {entry.xp_total.toLocaleString()}</p>
 
@@ -265,9 +265,9 @@ function Podio({ top3, myName, onClick }: {
               <div style={{
                 width:'100%',height:h,
                 background:`linear-gradient(180deg,${color} 0%,color-mix(in srgb,${color} 50%,#000) 100%)`,
-                border:'2.5px solid #fff',borderBottom:'none',
+                border:'2.5px solid var(--text-primary)',borderBottom:'none',
                 borderRadius:'10px 10px 0 0',
-                boxShadow:`inset 0 2px 0 rgba(255,255,255,.35),3px 0 0 #000`,
+                boxShadow:`inset 0 2px 0 rgba(255,255,255,.35),3px 0 0 var(--text-primary)`,
                 display:'flex',alignItems:'center',justifyContent:'center',
                 fontFamily:HAND,fontSize:isCenter?56:44,fontWeight:900,
                 color:'rgba(0,0,0,.35)',
@@ -284,7 +284,7 @@ function Podio({ top3, myName, onClick }: {
       <div style={{
         height:8,
         background:'linear-gradient(90deg,transparent 0%,rgba(255,255,255,.15) 50%,transparent 100%)',
-        borderTop:'2.5px solid rgba(255,255,255,.2)',
+        borderTop:'2.5px solid var(--border-color)',
         marginTop:0,
       }}/>
 
@@ -304,7 +304,7 @@ function EntryRow({ entry, rank, isMe, onClick }: {
     <div onClick={onClick} style={{
       display:'flex',alignItems:'center',gap:10,
       padding:'9px 12px',borderRadius:11,
-      background:isMe?'color-mix(in srgb,var(--gold) 16%,#1a1a1f)':'rgba(255,255,255,.03)',
+      background:isMe?'color-mix(in srgb,var(--gold) 16%,var(--bg-card2))':'rgba(255,255,255,.03)',
       border:isMe?'2.5px solid var(--gold)':'1.5px dashed rgba(255,255,255,.1)',
       boxShadow:isMe?'3px 4px 0 var(--gold)':'none',
       transform:`rotate(${rot}deg)`,
@@ -316,19 +316,19 @@ function EntryRow({ entry, rank, isMe, onClick }: {
       {/* Rank badge */}
       <div style={{
         width:36,height:36,borderRadius:9,
-        background:'#1a1a1f',border:'2px solid rgba(255,255,255,.2)',
+        background:'var(--bg-card2)',border:'2px solid var(--border-color)',
         boxShadow:'2px 2px 0 rgba(255,255,255,.08)',
         display:'flex',alignItems:'center',justifyContent:'center',
-        fontFamily:HAND,fontSize:15,fontWeight:900,color:'rgba(255,255,255,.45)',
+        fontFamily:HAND,fontSize:15,fontWeight:900,color:'var(--text-faint)',
         flexShrink:0,transform:'rotate(-3deg)',
       }}>#{rank}</div>
 
       {/* Avatar */}
       <div style={{
         width:40,height:40,borderRadius:'50%',
-        background:'rgba(255,255,255,.08)',border:'2px solid rgba(255,255,255,.2)',
+        background:'var(--bg-card2)',border:'2px solid var(--border-color)',
         overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',
-        fontFamily:HAND,fontSize:16,fontWeight:900,color:'#fff',
+        fontFamily:HAND,fontSize:16,fontWeight:900,color:'var(--text-primary)',
         flexShrink:0,transform:'rotate(-4deg)',
       }}>
         {entry.avatar_url
@@ -339,13 +339,13 @@ function EntryRow({ entry, rank, isMe, onClick }: {
       {/* Info */}
       <div style={{flex:1,minWidth:0}}>
         <div style={{display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
-          <p style={{fontFamily:HAND,fontSize:17,fontWeight:900,color:'#fff',margin:0,lineHeight:1.05,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+          <p style={{fontFamily:HAND,fontSize:17,fontWeight:900,color:'var(--text-primary)',margin:0,lineHeight:1.05,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
             {entry.nombre}
           </p>
-          {isMe && <span style={{fontFamily:HAND,fontSize:11,fontWeight:900,background:'var(--gold)',color:'#000',border:'1.5px solid #000',borderRadius:4,padding:'1px 6px',transform:'rotate(-2deg)',flexShrink:0}}>TÚ</span>}
+          {isMe && <span style={{fontFamily:HAND,fontSize:11,fontWeight:900,background:'var(--gold)',color:'#000',border:'1.5px solid var(--text-primary)',borderRadius:4,padding:'1px 6px',transform:'rotate(-2deg)',flexShrink:0}}>TÚ</span>}
         </div>
-        {entry.carrera && <p style={{fontFamily:HAND,fontSize:12,fontWeight:700,color:'rgba(255,255,255,.4)',fontStyle:'italic',margin:'1px 0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>📚 {entry.carrera}</p>}
-        <div style={{display:'flex',gap:7,fontFamily:HAND,fontSize:11,fontWeight:700,color:'rgba(255,255,255,.35)'}}>
+        {entry.carrera && <p style={{fontFamily:HAND,fontSize:12,fontWeight:700,color:'var(--text-faint)',margin:'1px 0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>📚 {entry.carrera}</p>}
+        <div style={{display:'flex',gap:7,fontFamily:HAND,fontSize:11,fontWeight:700,color:'var(--text-faint)'}}>
           <span>🎴 {entry.flashcards_estudiadas}</span>
           <span>🔥 {entry.racha_actual}</span>
           <span>🎯 {entry.precision_global}%</span>
@@ -363,7 +363,7 @@ function EntryRow({ entry, rank, isMe, onClick }: {
         <p style={{fontFamily:HAND,fontSize:18,fontWeight:900,color:'var(--gold)',margin:0,lineHeight:1}}>
           {entry.xp_total.toLocaleString()}
         </p>
-        <p style={{fontFamily:HAND,fontSize:10,fontStyle:'italic',color:'color-mix(in srgb, var(--gold) 60%, transparent)',margin:0}}>XP</p>
+        <p style={{fontFamily:HAND,fontSize:10,color:'color-mix(in srgb, var(--gold) 60%, transparent)',margin:0}}>XP</p>
       </div>
     </div>
   );
@@ -416,7 +416,7 @@ export default function Leaderboard() {
       {selected && <Modal entry={selected.entry} rank={selected.rank} onClose={()=>setSelected(null)}/>}
 
       <div style={{
-        background:'#0f0f14',
+        background:'var(--bg-card)',
         border:'2.5px solid var(--gold)',
         borderRadius:16,
         boxShadow:'5px 6px 0 var(--gold)',
@@ -430,23 +430,23 @@ export default function Leaderboard() {
         <div style={{
           background:'linear-gradient(135deg,var(--gold) 0%,#ff8c00 55%,#ef4444 100%)',
           padding:'14px 20px',
-          borderBottom:'2.5px solid #fff',
+          borderBottom:'2.5px solid var(--text-primary)',
           display:'flex',justifyContent:'space-between',alignItems:'center',
           gap:10,flexWrap:'wrap',
         }}>
           <div>
-            <h3 style={{fontFamily:HAND,fontSize:30,fontWeight:900,color:'#fff',margin:0,lineHeight:1,textShadow:'0 2px 6px rgba(0,0,0,.35)',fontStyle:'italic',transform:'rotate(-1deg)',display:'inline-block'}}>
+            <h3 style={{fontFamily:HAND,fontSize:30,fontWeight:900,color:'var(--text-primary)',margin:0,lineHeight:1,textShadow:'0 2px 6px rgba(0,0,0,.35)',transform:'rotate(-1deg)',display:'inline-block'}}>
               🏆 Leaderboard
             </h3>
-            <p style={{fontFamily:HAND,fontSize:14,fontStyle:'italic',color:'rgba(255,255,255,.85)',margin:'2px 0 0',textShadow:'0 1px 3px rgba(0,0,0,.3)'}}>
+            <p style={{fontFamily:HAND,fontSize:14,color:'var(--text-faint)',margin:'2px 0 0',textShadow:'0 1px 3px rgba(0,0,0,.3)'}}>
               ~ top estudiantes
               {myRank&&<strong> · #{myRank}</strong>} ~
             </p>
           </div>
           <button onClick={handleSync} disabled={syncing} style={{
             padding:'6px 14px',borderRadius:9,
-            border:'2.5px solid #fff',background:'rgba(255,255,255,.95)',
-            color:'#000',fontFamily:HAND,fontSize:16,fontWeight:800,
+            border:'2.5px solid var(--text-primary)',background:'var(--bg-card2)',
+            color:'var(--text-primary)',fontFamily:HAND,fontSize:16,fontWeight:800,
             cursor:syncing?'not-allowed':'pointer',
             boxShadow:'2px 3px 0 rgba(0,0,0,.2)',transform:'rotate(3deg)',
             transition:'all .25s',
@@ -457,20 +457,20 @@ export default function Leaderboard() {
           </button>
         </div>
 
-        <div style={{padding:'0 16px 20px',position:'relative',background:'#0f0f14'}}>
+        <div style={{padding:'0 16px 20px',position:'relative',background:'var(--bg-card)'}}>
           {/* Margen rojo cuaderno */}
           <div style={{position:'absolute',top:0,bottom:0,left:38,width:1.5,background:'#ef4444',opacity:.15,pointerEvents:'none'}}/>
 
           {loading ? (
             <div style={{textAlign:'center',padding:'50px 0'}}>
               <div style={{fontSize:40,marginBottom:8,animation:'spin 1.2s linear infinite'}}>⏳</div>
-              <p style={{fontFamily:HAND,fontSize:18,fontStyle:'italic',color:'rgba(255,255,255,.4)',margin:0}}>~ cargando ranking ~</p>
+              <p style={{fontFamily:HAND,fontSize:18,color:'var(--text-faint)',margin:0}}>~ cargando ranking ~</p>
               <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
             </div>
           ) : entries.length===0 ? (
             <div style={{textAlign:'center',padding:'40px 20px'}}>
               <div style={{fontSize:56,marginBottom:8}}>🏆</div>
-              <p style={{fontFamily:HAND,fontSize:22,fontStyle:'italic',color:'rgba(255,255,255,.35)',margin:0}}>~ ¡sé el primero! ~</p>
+              <p style={{fontFamily:HAND,fontSize:22,color:'var(--text-faint)',margin:0}}>~ ¡sé el primero! ~</p>
             </div>
           ) : (
             <>
@@ -481,7 +481,7 @@ export default function Leaderboard() {
               {rest.length>0 && (
                 <div style={{display:'flex',alignItems:'center',gap:10,margin:'12px 0 14px'}}>
                   <div style={{flex:1,height:1.5,background:'repeating-linear-gradient(90deg,rgba(255,255,255,.2) 0,rgba(255,255,255,.2) 6px,transparent 6px,transparent 12px)'}}/>
-                  <span style={{fontFamily:HAND,fontSize:14,fontWeight:800,color:'rgba(255,255,255,.3)',fontStyle:'italic',whiteSpace:'nowrap'}}>~ resto del ranking ~</span>
+                  <span style={{fontFamily:HAND,fontSize:14,fontWeight:800,color:'var(--text-faint)',whiteSpace:'nowrap'}}>~ resto del ranking ~</span>
                   <div style={{flex:1,height:1.5,background:'repeating-linear-gradient(90deg,rgba(255,255,255,.2) 0,rgba(255,255,255,.2) 6px,transparent 6px,transparent 12px)'}}/>
                 </div>
               )}
@@ -497,7 +497,7 @@ export default function Leaderboard() {
             </>
           )}
 
-          <p style={{fontFamily:HAND,fontSize:13,fontStyle:'italic',color:'rgba(255,255,255,.25)',margin:'18px 0 0',textAlign:'center'}}>
+          <p style={{fontFamily:HAND,fontSize:13,color:'var(--text-faint)',margin:'18px 0 0',textAlign:'center'}}>
             ~ toca cualquier estudiante para ver más ~
           </p>
         </div>

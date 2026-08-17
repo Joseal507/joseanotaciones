@@ -194,7 +194,7 @@ export default function FlashcardEditor({ flashcards, onSave, onClose, temaColor
                         Pregunta
                       </p>
                       <p style={{ fontSize: '13px', color: '#ddd', margin: 0, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>
-                        {card.question || <span style={{ color: '#444', fontStyle: 'italic' }}>Sin pregunta</span>}
+                        {card.question || <span style={{ color: '#444' }}>Sin pregunta</span>}
                       </p>
                     </div>
 
@@ -205,7 +205,7 @@ export default function FlashcardEditor({ flashcards, onSave, onClose, temaColor
                         Respuesta
                       </p>
                       <p style={{ fontSize: '13px', color: '#bbb', margin: 0, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>
-                        {card.answer || <span style={{ color: '#444', fontStyle: 'italic' }}>Sin respuesta</span>}
+                        {card.answer || <span style={{ color: '#444' }}>Sin respuesta</span>}
                       </p>
                     </div>
                   </div>

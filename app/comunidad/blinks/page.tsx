@@ -9,8 +9,8 @@ import NavbarMobile from '@/components/NavbarMobile';
 import UserMenu from '@/components/UserMenu';
 import StudyALBlinks from '@/components/comunidad/StudyALBlinks';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 export default function BlinksPage() {
   const router = useRouter();
@@ -43,7 +43,7 @@ export default function BlinksPage() {
       }}>
         <div style={{ fontSize: 50, animation: 'spinBlink 1.2s linear infinite' }}>⏳</div>
         <p style={{
-          fontFamily: HAND, fontSize: 22, fontStyle: 'italic',
+          fontFamily: HAND, fontSize: 22,
           color: 'rgba(255,255,255,0.75)', margin: 0,
         }}>
           ~ cargando Blinks ~

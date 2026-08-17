@@ -2,8 +2,8 @@
 import React from 'react';
 import MathText from '../MathText';
 
-const HAND = "'Caveat',cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Props {
   flashcards: any[];
@@ -134,7 +134,7 @@ export default function TabFlashcards({
           {tr('noHayFlashcards')}
         </h3>
         <p style={{
-          fontFamily: BODY, fontSize: 17, fontStyle: 'italic',
+          fontFamily: BODY, fontSize: 17,
           color: 'var(--text-muted)', margin: '0 0 18px',
           position: 'relative',
         }}>
@@ -184,7 +184,7 @@ export default function TabFlashcards({
             </p>
             {recommendedReason && (
               <p style={{
-                fontFamily: BODY, fontSize: 14, fontStyle: 'italic',
+                fontFamily: BODY, fontSize: 14,
                 color: 'var(--text-faint)', margin: '2px 0 0',
               }}>
                 ~ {recommendedReason} ~
@@ -217,7 +217,7 @@ export default function TabFlashcards({
         </div>
         <span style={{
           fontFamily: BODY, fontSize: 16, fontWeight: 700,
-          color: 'var(--text-faint)', fontStyle: 'italic',
+          color: 'var(--text-faint)',
         }}>
           ~ {flashcards.length} {tr('tarjetas')} ~
         </span>
@@ -301,7 +301,7 @@ export default function TabFlashcards({
                 boxShadow: '2px 2px 0 var(--text-primary)',
                 padding: '3px 12px', borderRadius: 6,
                 fontFamily: HAND, fontSize: 15, fontWeight: 800,
-                fontStyle: 'italic',
+
                 transform: 'rotate(-3deg)',
               }}>
                 ✏️ {tr('pregunta')}
@@ -327,7 +327,7 @@ export default function TabFlashcards({
 
               <p style={{
                 fontFamily: BODY, fontSize: 14,
-                color: 'var(--text-faint)', fontStyle: 'italic',
+                color: 'var(--text-faint)',
                 margin: '14px 0 0', position: 'absolute', bottom: 14,
               }}>
                 {isMobile ? '~ toca para ver respuesta ~' : (idioma === 'en' ? '← → keys · Space to flip' : '~ ← → flechas · espacio voltear ~')}
@@ -380,7 +380,7 @@ export default function TabFlashcards({
                 boxShadow: '2px 2px 0 var(--text-primary)',
                 padding: '3px 12px', borderRadius: 6,
                 fontFamily: HAND, fontSize: 15, fontWeight: 800,
-                fontStyle: 'italic',
+
                 textShadow: '0 1px 2px rgba(0,0,0,0.3)',
                 transform: 'rotate(-3deg)',
               }}>
@@ -454,7 +454,7 @@ export default function TabFlashcards({
       {!isMobile && (
         <p style={{
           textAlign: 'center',
-          fontFamily: BODY, fontSize: 14, fontStyle: 'italic',
+          fontFamily: BODY, fontSize: 14,
           color: 'var(--text-faint)', margin: '10px 0 0',
         }}>
           ~ ⌨️ ← → para navegar · espacio para voltear ~
@@ -480,14 +480,14 @@ export default function TabFlashcards({
         }}>
           <span style={{
             fontFamily: HAND, fontSize: 16, fontWeight: 800,
-            color: '#000', fontStyle: 'italic',
+            color: '#000',
           }}>
             ➕ {tr('anadirMas')}
           </span>
         </div>
         <div style={{ padding: '16px 20px' }}>
           <p style={{
-            fontFamily: BODY, fontSize: 15, fontStyle: 'italic',
+            fontFamily: BODY, fontSize: 15,
             color: 'var(--text-faint)', margin: '0 0 12px',
             textAlign: 'center',
           }}>
@@ -550,7 +550,7 @@ export default function TabFlashcards({
           )}
 
           <p style={{
-            fontFamily: BODY, fontSize: 14, fontStyle: 'italic',
+            fontFamily: BODY, fontSize: 14,
             color: 'var(--text-faint)',
             margin: '10px 0 0', textAlign: 'center',
           }}>

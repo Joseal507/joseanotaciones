@@ -14,6 +14,7 @@ import { generateStudyPlan, type LegacyStudyPlan } from "../../lib/adaptive/plan
 import { roleBadge } from "../../lib/adaptive/narrativeFormatter";
 import type { LearningJourney } from "../../lib/adaptive/journeyBuilder";
 import { GenerationAttemptTracker } from "../../lib/adaptive/generationAttemptTracker";
+import { RADIUS, hardShadow } from "../../lib/ui/surface";
 import {
   adaptiveSessionRoute,
   getAdaptiveLifecycleState,
@@ -31,8 +32,8 @@ import {
 import { buildSourceSelectionSnapshot, hasExplicitPageSelection } from "../../lib/adaptive/sourceSelection";
 import { computeSessionDependencyFingerprint, sharedSessionPreparationRequests } from "../../lib/adaptive/sessionPrefetch";
 
-const HAND = "'Caveat', cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Props {
   materiales: any[];
@@ -83,20 +84,20 @@ const examStyleOptions = [
   { id: "no_idea", label: "No tengo idea", emoji: "🤷" },
 ];
 
-function cardStyle(active: boolean, color = "#38bdf8") {
+function cardStyle(active: boolean, color = "var(--blue)") {
   return {
     border: "2px solid " + (active ? color : "var(--border-color)"),
     background: active
-      ? "linear-gradient(135deg, " + color + "22, var(--bg-card))"
+      ? "color-mix(in srgb, " + color + " 14%, var(--bg-card))"
       : "var(--bg-card)",
     color: active ? color : "var(--text-primary)",
-    borderRadius: 18,
+    borderRadius: RADIUS.card,
     padding: "16px 18px",
     cursor: "pointer",
     fontWeight: 900,
     fontFamily: BODY,
     textAlign: "left" as const,
-    boxShadow: active ? "0 0 0 4px " + color + "18" : "none",
+    boxShadow: active ? hardShadow(color, 3, 4) : "none",
     transition: "all .18s ease",
     display: "flex",
     alignItems: "center",
@@ -938,7 +939,7 @@ export default function StudyALAdaptive({
     return (
       <div style={{
         position: "fixed", inset: 0, zIndex: 9999,
-        background: "radial-gradient(circle at 20% 10%, rgba(56,189,248,.14), transparent 28%), linear-gradient(135deg, var(--bg-primary), color-mix(in srgb, var(--bg-primary) 78%, #000))",
+        background: "radial-gradient(circle at 20% 10%, color-mix(in srgb, var(--blue) 14%, transparent), transparent 28%), linear-gradient(135deg, var(--bg-primary), color-mix(in srgb, var(--bg-primary) 78%, #000))",
         color: "var(--text-primary)",
         display: "flex", flexDirection: "column",
         fontFamily: BODY,
@@ -952,13 +953,13 @@ export default function StudyALAdaptive({
           background: "color-mix(in srgb, var(--bg-card) 90%, transparent)",
         }}>
           <div>
-            <div style={{ fontFamily: HAND, fontSize: 20, color: "#38bdf8" }}>🤖 modo adaptativo</div>
-            <h1 style={{ margin: "4px 0 0", fontSize: 36, fontFamily: HAND, fontWeight: 900, color: "#fff" }}>
+            <div style={{ fontFamily: HAND, fontSize: 20, color: "var(--blue)" }}>🤖 modo adaptativo</div>
+            <h1 style={{ margin: "4px 0 0", fontSize: 36, fontFamily: HAND, fontWeight: 900, color: "var(--text-primary)" }}>
               {cleanMaterialName}
             </h1>
           </div>
           <button onClick={onClose} style={{
-            padding: "12px 24px", background: "#38bdf8", color: "#000",
+            padding: "12px 24px", background: "var(--blue)", color: "#000",
             border: "2px solid var(--text-primary)", borderRadius: 14,
             fontFamily: HAND, fontSize: 20, fontWeight: 800, cursor: "pointer",
           }}>← volver al mapa</button>
@@ -980,10 +981,10 @@ export default function StudyALAdaptive({
             <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
               style={{
                 padding: "12px 20px",
-                background: activeTab === tab.id ? "rgba(56,189,248,.15)" : "transparent",
+                background: activeTab === tab.id ? "color-mix(in srgb, var(--blue) 15%, transparent)" : "transparent",
                 border: "none",
-                borderBottom: activeTab === tab.id ? "2px solid #38bdf8" : "2px solid transparent",
-                color: activeTab === tab.id ? "#38bdf8" : "var(--text-muted)",
+                borderBottom: activeTab === tab.id ? "2px solid var(--blue)" : "2px solid transparent",
+                color: activeTab === tab.id ? "var(--blue)" : "var(--text-muted)",
                 fontFamily: BODY, fontSize: 13, fontWeight: 800,
                 cursor: "pointer", transition: "all .2s",
                 display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
@@ -1000,13 +1001,13 @@ export default function StudyALAdaptive({
           {/* TAB: PERFIL */}
           {activeTab === "perfil" && (
             <div style={{ maxWidth: 700, margin: "0 auto", display: "grid", gap: 16 }}>
-              <div style={{ background: "var(--bg-card)", border: "1.5px solid var(--border-color)", borderRadius: 20, padding: 24 }}>
-                <div style={{ fontFamily: HAND, fontSize: 28, color: "#38bdf8", marginBottom: 16 }}>yo soy este</div>
+              <div style={{ background: "var(--bg-card)", border: "1.5px solid var(--border-color)", borderRadius: 14, padding: 24 }}>
+                <div style={{ fontFamily: HAND, fontSize: 28, color: "var(--blue)", marginBottom: 16 }}>yo soy este</div>
                 {profileLoading ? (
                   <div style={{ color: "var(--text-muted)" }}>Cargando perfil...</div>
                 ) : (
                   <div style={{ display: "grid", gap: 12 }}>
-                    <div style={{ fontSize: 28, fontFamily: HAND, fontWeight: 900, color: "#fff" }}>{userSummary.nombre}</div>
+                    <div style={{ fontSize: 28, fontFamily: HAND, fontWeight: 900, color: "var(--text-primary)" }}>{userSummary.nombre}</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                       {[
                         { label: "👤 " + userSummary.tipo, show: !!userSummary.tipo },
@@ -1021,8 +1022,8 @@ export default function StudyALAdaptive({
                   </div>
                 )}
               </div>
-              <div style={{ background: "var(--bg-card)", border: "1.5px solid var(--border-color)", borderRadius: 20, padding: 24 }}>
-                <div style={{ fontFamily: HAND, fontSize: 24, color: "#38bdf8", marginBottom: 12 }}>material seleccionado</div>
+              <div style={{ background: "var(--bg-card)", border: "1.5px solid var(--border-color)", borderRadius: 14, padding: 24 }}>
+                <div style={{ fontFamily: HAND, fontSize: 24, color: "var(--blue)", marginBottom: 12 }}>material seleccionado</div>
                 <div style={{ display: "grid", gap: 8 }}>
                   {materialNames.map((name, i) => (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "var(--bg-secondary)", borderRadius: 12, fontSize: 14, fontWeight: 700 }}>
@@ -1037,8 +1038,8 @@ export default function StudyALAdaptive({
           {/* TAB: SETUP */}
           {activeTab === "setup" && (
             <div style={{ maxWidth: 700, margin: "0 auto" }}>
-              <div style={{ background: "var(--bg-card)", border: "1.5px solid var(--border-color)", borderRadius: 20, padding: 24 }}>
-                <div style={{ fontFamily: HAND, fontSize: 28, color: "#38bdf8", marginBottom: 16 }}>así quise hacer mi setup para este material</div>
+              <div style={{ background: "var(--bg-card)", border: "1.5px solid var(--border-color)", borderRadius: 14, padding: 24 }}>
+                <div style={{ fontFamily: HAND, fontSize: 28, color: "var(--blue)", marginBottom: 16 }}>así quise hacer mi setup para este material</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
                   {[
                     ["Conocimiento inicial", knowledgeLabels[setup.knowledgeLevel] || setup.knowledgeLevel],
@@ -1064,7 +1065,7 @@ export default function StudyALAdaptive({
               {blueprintLoading && (
                 <div style={{ textAlign: "center", padding: 60 }}>
                   <div style={{ fontSize: 48, marginBottom: 16 }}>✨</div>
-                  <div style={{ fontFamily: HAND, fontSize: 28, color: "#38bdf8", marginBottom: 8 }}>
+                  <div style={{ fontFamily: HAND, fontSize: 28, color: "var(--blue)", marginBottom: 8 }}>
                     Generando tu plan adaptativo...
                   </div>
                   <div style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6 }}>
@@ -1075,13 +1076,13 @@ export default function StudyALAdaptive({
                     marginTop: 20,
                     display: "inline-flex", alignItems: "center", gap: 8,
                     padding: "8px 20px",
-                    border: "1.5px solid #38bdf8",
+                    border: "1.5px solid var(--blue)",
                     borderRadius: 999,
-                    color: "#38bdf8", fontSize: 14,
+                    color: "var(--blue)", fontSize: 14,
                   }}>
                     <div style={{
                       width: 12, height: 12,
-                      border: "2px solid #38bdf8",
+                      border: "2px solid var(--blue)",
                       borderTopColor: "transparent",
                       borderRadius: "50%",
                       animation: "spin 0.8s linear infinite",
@@ -1095,7 +1096,7 @@ export default function StudyALAdaptive({
               {showGeneratingPlan && (
                 <div style={{ textAlign: "center", padding: 60 }}>
                   <div style={{ fontSize: 42, marginBottom: 14 }}>📖</div>
-                  <div style={{ fontFamily: HAND, fontSize: 26, color: "#38bdf8", marginBottom: 8 }}>
+                  <div style={{ fontFamily: HAND, fontSize: 26, color: "var(--blue)", marginBottom: 8 }}>
                     Generando tu plan...
                   </div>
                   <div style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6 }}>
@@ -1117,7 +1118,7 @@ export default function StudyALAdaptive({
               {setupReady && !blueprintReady && !blueprintError && !blueprintLoading && !journeyError && (
                 <div style={{ textAlign: "center", padding: 60 }}>
                   <div style={{ fontSize: 40, marginBottom: 12 }}>🔍</div>
-                  <div style={{ fontFamily: HAND, fontSize: 24, color: "#38bdf8" }}>
+                  <div style={{ fontFamily: HAND, fontSize: 24, color: "var(--blue)" }}>
                     Preparando el análisis inicial…
                   </div>
                 </div>
@@ -1127,7 +1128,7 @@ export default function StudyALAdaptive({
                 <div style={{
                   background: "rgba(239,68,68,.10)",
                   border: "1.5px solid rgba(239,68,68,.35)",
-                  borderRadius: 18,
+                  borderRadius: 14,
                   padding: 18,
                   marginBottom: 22,
                 }}>
@@ -1167,7 +1168,7 @@ export default function StudyALAdaptive({
                 <div style={{
                   background: "rgba(251,191,36,.10)",
                   border: "1.5px solid rgba(251,191,36,.45)",
-                  borderRadius: 18,
+                  borderRadius: 14,
                   padding: 18,
                   marginBottom: 22,
                 }}>
@@ -1197,12 +1198,12 @@ export default function StudyALAdaptive({
                   <div style={{
                     background: "var(--bg-card)",
                     border: "1.5px solid var(--border-color)",
-                    borderRadius: 20, padding: 24, marginBottom: 24,
+                    borderRadius: 14, padding: 24, marginBottom: 24,
                   }}>
-                    <div style={{ fontFamily: HAND, fontSize: 14, color: "#38bdf8", marginBottom: 4 }}>
+                    <div style={{ fontFamily: HAND, fontSize: 14, color: "var(--blue)", marginBottom: 4 }}>
                       📖 tu viaje de aprendizaje
                     </div>
-                    <div style={{ fontFamily: HAND, fontSize: 30, fontWeight: 900, color: "#fff", marginBottom: 10 }}>
+                    <div style={{ fontFamily: HAND, fontSize: 30, fontWeight: 900, color: "var(--text-primary)", marginBottom: 10 }}>
                       {journey?.programGoal ?? ""}
                     </div>
                     <div style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6, marginBottom: 14 }}>
@@ -1215,11 +1216,11 @@ export default function StudyALAdaptive({
                           <span key={i} style={{
                             fontSize: 12,
                             padding: "4px 10px",
-                            background: "rgba(56,189,248,.10)",
-                            color: "#38bdf8",
+                            background: "color-mix(in srgb, var(--blue) 10%, transparent)",
+                            color: "var(--blue)",
                             borderRadius: 999,
                             fontWeight: 700,
-                            border: "1px solid rgba(56,189,248,.25)"
+                            border: "1px solid color-mix(in srgb, var(--blue) 25%, transparent)"
                           }}>
                             {badge}
                           </span>
@@ -1228,7 +1229,7 @@ export default function StudyALAdaptive({
                     )}
 
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 13, padding: "4px 12px", background: "rgba(56,189,248,.12)", color: "#38bdf8", borderRadius: 999, fontWeight: 700 }}>
+                      <span style={{ fontSize: 13, padding: "4px 12px", background: "color-mix(in srgb, var(--blue) 12%, transparent)", color: "var(--blue)", borderRadius: 999, fontWeight: 700 }}>
                         {journey?.totalChapters ?? 0} sesiones
                       </span>
                       <span style={{ fontSize: 13, padding: "4px 12px", background: "rgba(74,222,128,.12)", color: "#4ade80", borderRadius: 999, fontWeight: 700 }}>
@@ -1248,9 +1249,9 @@ export default function StudyALAdaptive({
                       const isLocked = chapter.status === "locked";
 
                       const chapterColor =
-                        chapter.kind === "introduction"  ? "#38bdf8" :
+                        chapter.kind === "introduction"  ? "var(--blue)" :
                         chapter.kind === "final_review"  ? "#4ade80" :
-                        chapter.arcRole === "foundation"   ? "#38bdf8" :
+                        chapter.arcRole === "foundation"   ? "var(--blue)" :
                         chapter.arcRole === "problem"      ? "#fbbf24" :
                         chapter.arcRole === "mechanism"     ? "#4ade80" :
                         chapter.arcRole === "application"     ? "#a78bfa" :
@@ -1281,7 +1282,7 @@ export default function StudyALAdaptive({
                               border: `2px solid ${isDone ? "#4ade80" : isAvailable ? chapterColor : "var(--border-color)"}`,
                               display: "flex", alignItems: "center", justifyContent: "center",
                               fontSize: 18, flexShrink: 0,
-                              boxShadow: isAvailable ? `0 0 16px ${chapterColor}44` : "none",
+                              boxShadow: isAvailable ? hardShadow(chapterColor, 2, 2) : "none",
                               transition: "all .2s", zIndex: 1,
                             }}>
                               {isDone ? "✓" : isLocked ? "🔒" : chapterEmoji}
@@ -1453,7 +1454,7 @@ export default function StudyALAdaptive({
               {blueprintLoading && (
                 <div style={{ textAlign: "center", padding: 60 }}>
                   <div style={{ fontSize: 48, marginBottom: 16 }}>🔍</div>
-                  <div style={{ fontFamily: HAND, fontSize: 28, color: "#38bdf8", marginBottom: 8 }}>
+                  <div style={{ fontFamily: HAND, fontSize: 28, color: "var(--blue)", marginBottom: 8 }}>
                     ALAI está analizando el material...
                   </div>
                   <div style={{ color: "var(--text-muted)", fontSize: 15 }}>
@@ -1463,13 +1464,13 @@ export default function StudyALAdaptive({
                     marginTop: 24,
                     display: "inline-flex", alignItems: "center", gap: 8,
                     padding: "8px 20px",
-                    border: "1.5px solid #38bdf8",
+                    border: "1.5px solid var(--blue)",
                     borderRadius: 999,
-                    color: "#38bdf8", fontSize: 14,
+                    color: "var(--blue)", fontSize: 14,
                   }}>
                     <div style={{
                       width: 14, height: 14,
-                      border: "2px solid #38bdf8",
+                      border: "2px solid var(--blue)",
                       borderTopColor: "transparent",
                       borderRadius: "50%",
                       animation: "spin 0.8s linear infinite",
@@ -1491,7 +1492,7 @@ export default function StudyALAdaptive({
                     generationAuthorizedRef.current = true;
                     void generateBlueprint();
                   }} style={{
-                    padding: "10px 24px", background: "#38bdf8", color: "#000",
+                    padding: "10px 24px", background: "var(--blue)", color: "#000",
                     border: "none", borderRadius: 12,
                     fontFamily: BODY, fontWeight: 900, cursor: "pointer",
                   }}>Reintentar</button>
@@ -1501,7 +1502,7 @@ export default function StudyALAdaptive({
               {!blueprintLoading && !blueprintError && !blueprint && setupReady && (
                 <div style={{ textAlign: "center", padding: 60 }}>
                   <div style={{ fontSize: 44, marginBottom: 14 }}>🔍</div>
-                  <div style={{ fontFamily: HAND, fontSize: 26, color: "#38bdf8" }}>
+                  <div style={{ fontFamily: HAND, fontSize: 26, color: "var(--blue)" }}>
                     Preparando el análisis inicial…
                   </div>
                 </div>
@@ -1512,7 +1513,7 @@ export default function StudyALAdaptive({
                   {/* Coverage summary */}
                   <div style={{
                     background: "var(--bg-card)", border: "1.5px solid var(--border-color)",
-                    borderRadius: 20, padding: 20,
+                    borderRadius: 14, padding: 20,
                     display: "flex", gap: 16, flexWrap: "wrap",
                   }}>
                     {[
@@ -1527,7 +1528,7 @@ export default function StudyALAdaptive({
                         textAlign: "center",
                       }}>
                         <div style={{ fontSize: 24 }}>{stat.emoji}</div>
-                        <div style={{ fontSize: 28, fontFamily: HAND, fontWeight: 900, color: "#38bdf8" }}>
+                        <div style={{ fontSize: 28, fontFamily: HAND, fontWeight: 900, color: "var(--blue)" }}>
                           {stat.value}
                         </div>
                         <div style={{ fontSize: 12, color: "var(--text-faint)" }}>{stat.label}</div>
@@ -1539,9 +1540,9 @@ export default function StudyALAdaptive({
                   {blueprint.topicsIndex?.length > 0 && (
                     <div style={{
                       background: "var(--bg-card)", border: "1.5px solid var(--border-color)",
-                      borderRadius: 20, padding: 20,
+                      borderRadius: 14, padding: 20,
                     }}>
-                      <div style={{ fontFamily: HAND, fontSize: 24, color: "#38bdf8", marginBottom: 14 }}>
+                      <div style={{ fontFamily: HAND, fontSize: 24, color: "var(--blue)", marginBottom: 14 }}>
                         📌 Topics detectados ({blueprint.topicsIndex.length})
                       </div>
                       <div style={{ display: "grid", gap: 10 }}>
@@ -1549,7 +1550,7 @@ export default function StudyALAdaptive({
                           <div key={i} style={{
                             background: "var(--bg-secondary)", borderRadius: 12,
                             padding: "12px 16px",
-                            borderLeft: "3px solid #38bdf8",
+                            borderLeft: "3px solid var(--blue)",
                           }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                               <div>
@@ -1582,9 +1583,9 @@ export default function StudyALAdaptive({
                   {blueprint.globalOrderedAnalysis?.length > 0 && (
                     <div style={{
                       background: "var(--bg-card)", border: "1.5px solid var(--border-color)",
-                      borderRadius: 20, padding: 20,
+                      borderRadius: 14, padding: 20,
                     }}>
-                      <div style={{ fontFamily: HAND, fontSize: 24, color: "#38bdf8", marginBottom: 14 }}>
+                      <div style={{ fontFamily: HAND, fontSize: 24, color: "var(--blue)", marginBottom: 14 }}>
                         🗺️ Análisis completo en orden ({blueprint.globalOrderedAnalysis.length} elementos)
                       </div>
                       <div style={{ display: "grid", gap: 8 }}>
@@ -1593,7 +1594,7 @@ export default function StudyALAdaptive({
                             background: "var(--bg-secondary)", borderRadius: 10,
                             padding: "10px 14px",
                             borderLeft: block.kind === "topic"
-                              ? "3px solid #38bdf8"
+                              ? "3px solid var(--blue)"
                               : block.kind === "formula"
                                 ? "3px solid #a78bfa"
                                 : block.kind === "definition"
@@ -1648,7 +1649,7 @@ export default function StudyALAdaptive({
                                       </span>
                                     )}
                                     {block.dependsOn?.length > 0 && (
-                                      <span style={{ fontSize: 11, padding: "2px 8px", background: "rgba(56,189,248,.12)", color: "#38bdf8", borderRadius: 999, fontWeight: 700 }}>
+                                      <span style={{ fontSize: 11, padding: "2px 8px", background: "color-mix(in srgb, var(--blue) 12%, transparent)", color: "var(--blue)", borderRadius: 999, fontWeight: 700 }}>
                                         depende de {block.dependsOn.length}
                                       </span>
                                     )}
@@ -1682,7 +1683,7 @@ export default function StudyALAdaptive({
                                 {block.relations?.length > 0 && (
                                   <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
                                     {block.relations.map((r: any, ri: number) => (
-                                      <span key={ri} style={{ fontSize: 10, padding: "1px 7px", background: "rgba(56,189,248,.08)", color: "#38bdf8", borderRadius: 999, border: "1px solid rgba(56,189,248,.2)" }}>
+                                      <span key={ri} style={{ fontSize: 10, padding: "1px 7px", background: "color-mix(in srgb, var(--blue) 08%, transparent)", color: "var(--blue)", borderRadius: 999, border: "1px solid color-mix(in srgb, var(--blue) 2%, transparent)" }}>
                                         {{"requires":"necesita","explains":"explica","causes":"causa","contrasts":"contrasta con","extends":"extiende","example_of":"ejemplo de"}[r.type as string] || r.type} → {r.targetLabel || r.target || "?"}
                                       </span>
                                     ))}
@@ -1705,16 +1706,16 @@ export default function StudyALAdaptive({
                   {blueprint.uniqueConceptsIndex?.length > 0 && (
                     <div style={{
                       background: "var(--bg-card)", border: "1.5px solid var(--border-color)",
-                      borderRadius: 20, padding: 20,
+                      borderRadius: 14, padding: 20,
                     }}>
-                      <div style={{ fontFamily: HAND, fontSize: 24, color: "#38bdf8", marginBottom: 14 }}>
+                      <div style={{ fontFamily: HAND, fontSize: 24, color: "var(--blue)", marginBottom: 14 }}>
                         💡 Índice de conocimiento ({blueprint.uniqueConceptsIndex.length} elementos)
                       </div>
                       {(() => {
                         const kindGroups: Record<string, any[]> = {};
                         const kindOrder = ["concept","definition","formula","entity","fact","example","note"];
                         const kindMeta: Record<string, { label: string; emoji: string; color: string }> = {
-                          concept:    { label: "Conceptos",   emoji: "💡", color: "#38bdf8" },
+                          concept:    { label: "Conceptos",   emoji: "💡", color: "var(--blue)" },
                           definition: { label: "Definiciones", emoji: "📖", color: "#4ade80" },
                           formula:    { label: "Fórmulas",    emoji: "🔢", color: "#a78bfa" },
                           entity:     { label: "Entidades",   emoji: "👤", color: "#fbbf24" },
@@ -1792,18 +1793,18 @@ export default function StudyALAdaptive({
                   <div style={{
                     background: "var(--bg-card)",
                     border: "1.5px solid var(--border-color)",
-                    borderRadius: 20,
+                    borderRadius: 14,
                     padding: 24,
                     marginBottom: 24,
                   }}>
-                    <div style={{ fontFamily: HAND, fontSize: 14, color: "#38bdf8", marginBottom: 4 }}>
+                    <div style={{ fontFamily: HAND, fontSize: 14, color: "var(--blue)", marginBottom: 4 }}>
                       📖 tu viaje de aprendizaje
                     </div>
-                    <div style={{ fontFamily: HAND, fontSize: 32, fontWeight: 900, color: "#fff", marginBottom: 12 }}>
+                    <div style={{ fontFamily: HAND, fontSize: 32, fontWeight: 900, color: "var(--text-primary)", marginBottom: 12 }}>
                       {studyPlan.programGoal}
                     </div>
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-                      <span style={{ fontSize: 13, padding: "4px 12px", background: "rgba(56,189,248,.12)", color: "#38bdf8", borderRadius: 999, fontWeight: 700 }}>
+                      <span style={{ fontSize: 13, padding: "4px 12px", background: "color-mix(in srgb, var(--blue) 12%, transparent)", color: "var(--blue)", borderRadius: 999, fontWeight: 700 }}>
                         {studyPlan.totalSessions} sesiones
                       </span>
                       <span style={{ fontSize: 13, padding: "4px 12px", background: "rgba(74,222,128,.12)", color: "#4ade80", borderRadius: 999, fontWeight: 700 }}>
@@ -1814,7 +1815,7 @@ export default function StudyALAdaptive({
                       <div style={{ display: "grid", gap: 6 }}>
                         {(journey?.programObjectives ?? []).map((obj, i) => (
                           <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 14, color: "var(--text-muted)" }}>
-                            <span style={{ color: "#38bdf8", flexShrink: 0 }}>✦</span>
+                            <span style={{ color: "var(--blue)", flexShrink: 0 }}>✦</span>
                             {obj}
                           </div>
                         ))}
@@ -1832,7 +1833,7 @@ export default function StudyALAdaptive({
                       const isLocked = session.status === "locked";
 
                       const typeConfig = {
-                        introduction:  { emoji: "📖", color: "#38bdf8",  label: "Sesión" },
+                        introduction:  { emoji: "📖", color: "var(--blue)",  label: "Sesión" },
                         learning:      { emoji: "📘", color: "#a78bfa",  label: "Sesión" },
                         final_review:  { emoji: "🏁", color: "#4ade80",  label: "Sesión final" },
                       };
@@ -1861,7 +1862,7 @@ export default function StudyALAdaptive({
                               border: `2px solid ${isDone ? "#4ade80" : isAvailable ? cfg.color : "var(--border-color)"}`,
                               display: "flex", alignItems: "center", justifyContent: "center",
                               fontSize: 18, flexShrink: 0,
-                              boxShadow: isAvailable ? `0 0 12px ${cfg.color}44` : "none",
+                              boxShadow: isAvailable ? hardShadow(cfg.color, 2, 2) : "none",
                               transition: "all .2s",
                               zIndex: 1,
                             }}>
@@ -2037,21 +2038,21 @@ export default function StudyALAdaptive({
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 9999, overflowY: "auto", padding: 24,
-      background: "radial-gradient(circle at 20% 10%, rgba(56,189,248,.14), transparent 28%), linear-gradient(135deg, var(--bg-primary), color-mix(in srgb, var(--bg-primary) 78%, #000))",
+      background: "radial-gradient(circle at 20% 10%, color-mix(in srgb, var(--blue) 14%, transparent), transparent 28%), linear-gradient(135deg, var(--bg-primary), color-mix(in srgb, var(--bg-primary) 78%, #000))",
       color: "var(--text-primary)",
     }}>
       <div style={{
         maxWidth: 920, margin: "0 auto",
         background: "color-mix(in srgb, var(--bg-card) 92%, transparent)",
-        border: "1px solid color-mix(in srgb, #38bdf8 35%, var(--border-color))",
-        borderRadius: 28, overflow: "hidden",
-        boxShadow: "0 20px 80px rgba(0,0,0,.45)",
+        border: "1px solid color-mix(in srgb, var(--blue) 35%, var(--border-color))",
+        borderRadius: RADIUS.card, overflow: "hidden",
+        boxShadow: hardShadow('var(--border-color)', 3, 4),
       }}>
         <div style={{ padding: "22px 24px 10px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
             <div>
-              <div style={{ fontFamily: HAND, fontSize: 22, color: "#38bdf8" }}>🤖 modo adaptativo</div>
-              <h1 style={{ margin: "4px 0 0", fontFamily: HAND, fontSize: 42, color: "#fff" }}>setup de este material</h1>
+              <div style={{ fontFamily: HAND, fontSize: 22, color: "var(--blue)" }}>🤖 modo adaptativo</div>
+              <h1 style={{ margin: "4px 0 0", fontFamily: HAND, fontSize: 42, color: "var(--text-primary)" }}>setup de este material</h1>
             </div>
             <button onClick={onClose} style={{
               padding: "10px 18px", background: "transparent", color: "var(--text-muted)",
@@ -2060,7 +2061,7 @@ export default function StudyALAdaptive({
             }}>← volver</button>
           </div>
           <div style={{ height: 8, background: "var(--bg-secondary)", borderRadius: 999, overflow: "hidden", marginTop: 16 }}>
-            <div style={{ height: "100%", width: progress + "%", background: "#38bdf8", transition: "width .25s ease" }} />
+            <div style={{ height: "100%", width: progress + "%", background: "var(--blue)", transition: "width .25s ease" }} />
           </div>
         </div>
 
@@ -2069,7 +2070,7 @@ export default function StudyALAdaptive({
             <div style={{ color: "var(--text-faint)", fontFamily: BODY, fontSize: 13 }}>
               Paso {step + 1} de {stepTitles.length}
             </div>
-            <div style={{ color: "#fff", fontFamily: HAND, fontSize: 34, fontWeight: 900 }}>
+            <div style={{ color: "var(--text-primary)", fontFamily: HAND, fontSize: 34, fontWeight: 900 }}>
               {stepTitles[step]}
             </div>
           </div>
@@ -2111,7 +2112,7 @@ export default function StudyALAdaptive({
                   onChange={(e) => setSetup((prev) => ({ ...prev, examDateCustom: e.target.value }))}
                   style={{
                     width: "100%", boxSizing: "border-box",
-                    border: "2px solid #38bdf8", borderRadius: 16,
+                    border: "2px solid var(--blue)", borderRadius: 16,
                     padding: "14px 16px", background: "var(--bg-secondary)",
                     color: "var(--text-primary)", fontFamily: BODY, fontSize: 16,
                   }} />
@@ -2121,7 +2122,7 @@ export default function StudyALAdaptive({
 
           {step === 2 && (
             <div style={{ display: "grid", gap: 18 }}>
-              <div style={{ fontFamily: HAND, fontSize: 48, color: "#38bdf8", textAlign: "center" }}>
+              <div style={{ fontFamily: HAND, fontSize: 48, color: "var(--blue)", textAlign: "center" }}>
                 {setup.targetScore}%
               </div>
               <input type="range" min={50} max={100} step={5} value={setup.targetScore}
@@ -2150,7 +2151,7 @@ export default function StudyALAdaptive({
                 rows={4}
                 style={{
                   width: "100%", boxSizing: "border-box",
-                  border: "2px solid #38bdf8", borderRadius: 16,
+                  border: "2px solid var(--blue)", borderRadius: 16,
                   padding: "14px 16px", background: "var(--bg-secondary)",
                   color: "var(--text-primary)", fontFamily: BODY, fontSize: 16, resize: "vertical",
                 }} />
@@ -2218,9 +2219,9 @@ export default function StudyALAdaptive({
           }}>Atrás</button>
           <button onClick={next} disabled={!canContinue()} style={{
             flex: 1, padding: "12px 18px",
-            background: canContinue() ? "#38bdf8" : "var(--bg-secondary)",
+            background: canContinue() ? "var(--blue)" : "var(--bg-secondary)",
             color: canContinue() ? "#000" : "var(--text-faint)",
-            border: "2px solid color-mix(in srgb, #38bdf8 45%, var(--border-color))",
+            border: "2px solid color-mix(in srgb, var(--blue) 45%, var(--border-color))",
             borderRadius: 14, fontFamily: BODY, fontWeight: 900,
             cursor: canContinue() ? "pointer" : "not-allowed",
           }}>

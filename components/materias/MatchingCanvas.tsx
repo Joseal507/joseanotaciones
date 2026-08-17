@@ -107,7 +107,7 @@ export default function MatchingCanvas({
               : themeColor,
           fontWeight: 950,
           fontSize: 18,
-          fontFamily: "'Inter', system-ui, sans-serif",
+          fontFamily: "var(--font-body)",
         }}
       >
         {locked ? `${correctCount}/${pairs.length} correctas` : 'Conecta los conceptos'}
@@ -194,7 +194,7 @@ export default function MatchingCanvas({
                   boxShadow: isConnected
                     ? `0 6px 18px ${color}44`
                     : '0 2px 8px rgba(0,0,0,.08)',
-                  fontFamily: "'Inter', system-ui, sans-serif",
+                  fontFamily: "var(--font-body)",
                   textAlign: 'left',
                   width: '100%',
                 }}
@@ -243,7 +243,7 @@ export default function MatchingCanvas({
                   boxShadow: used
                     ? `0 6px 18px ${color}44`
                     : '0 2px 8px rgba(0,0,0,.08)',
-                  fontFamily: "'Inter', system-ui, sans-serif",
+                  fontFamily: "var(--font-body)",
                   textAlign: 'right',
                   width: '100%',
                 }}

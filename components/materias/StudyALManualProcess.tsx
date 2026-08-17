@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SourceSelectionSnapshot } from "../../lib/adaptive/sourceSelection";
 import { MANUAL_TOOL_IDS, MANUAL_TOOL_CAPS, type DurableManualTool } from "../../lib/manualToolState";
+import { RADIUS, hardShadow, accentTint } from "../../lib/ui/surface";
 
-const HAND = "'Caveat', cursive";
-const BODY = "'Inter', system-ui, sans-serif";
+const HAND = "var(--font-hand)";
+const BODY = "var(--font-body)";
 
 interface Props {
   materiales: any[];
@@ -82,20 +83,21 @@ export default function StudyALManualProcess({
 
   const completedCount = tools.filter(t => (progressByTool?.[t.id] || 0) >= MANUAL_TOOL_CAPS[t.id]).length;
 
-  // Progreso por lado del triángulo (0..1) — cada lado depende de 3 tools
-  const sideProgress = (toolIds: DurableManualTool[]) => {
-    const totalCap = toolIds.reduce((sum, id) => sum + MANUAL_TOOL_CAPS[id], 0);
-    const totalDone = toolIds.reduce((sum, id) => sum + Math.min(MANUAL_TOOL_CAPS[id], progressByTool?.[id] || 0), 0);
-    return totalCap > 0 ? Math.min(1, totalDone / totalCap) : 0;
-  };
-  const leftSideProgress = sideProgress(['leer', 'alai', 'examen']);
-  const rightSideProgress = sideProgress(['leer', 'flashcards', 'quizzes']);
-  const baseSideProgress = sideProgress(['examen', 'resumen', 'quizzes']);
+  // Iluminación por lado del triángulo: cada lado es una meta binaria
+  // (INCOMPLETO u COMPLETO), nunca una línea iluminada a medias por haber
+  // tocado solo una de sus herramientas. Se deriva del estado durable real
+  // de Manual (progressByTool/MANUAL_TOOL_CAPS -- la misma autoridad que ya
+  // usa totalProgress/completedCount arriba), no de un flag visual local,
+  // así que sobrevive volver al hub, refresh y reanudar sesión.
+  const isToolComplete = (id: DurableManualTool) => (progressByTool?.[id] || 0) >= MANUAL_TOOL_CAPS[id];
+  const leftComplete = isToolComplete('leer') && isToolComplete('alai') && isToolComplete('examen');
+  const rightComplete = isToolComplete('flashcards') && isToolComplete('quizzes');
+  const bottomComplete = isToolComplete('resumen');
 
   return (
     <div style={{
       position: 'fixed', inset: 0,
-      background: '#f8f6f0',
+      background: 'var(--bg-primary)',
       display: 'flex', flexDirection: 'column',
       fontFamily: BODY, zIndex: 9999, overflow: 'auto',
     }}>
@@ -108,9 +110,9 @@ export default function StudyALManualProcess({
         <button
           onClick={onClose}
           style={{
-            padding: '8px 14px', borderRadius: 12,
-            border: '2px solid #38bdf8', background: 'transparent',
-            color: '#0284c7', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            padding: '8px 14px', borderRadius: RADIUS.control,
+            border: '2px solid var(--blue)', background: 'transparent',
+            color: 'var(--blue)', fontSize: 13, fontWeight: 700, cursor: 'pointer',
             fontFamily: BODY,
           }}
         >← volver al mapa</button>
@@ -130,13 +132,13 @@ export default function StudyALManualProcess({
           <div>
             <h1 style={{
               fontSize: 42, fontWeight: 900, margin: 0, lineHeight: 1,
-              color: '#0f172a',
+              color: 'var(--text-primary)',
               fontFamily: BODY,
             }}>
-              Modo <span style={{ color: '#0369a1' }}>Manual</span>
+              Modo <span style={{ color: 'var(--blue)' }}>Manual</span>
             </h1>
             <p style={{
-              fontSize: 13, color: '#64748b', marginTop: 12,
+              fontSize: 13, color: 'var(--text-faint)', marginTop: 12,
               lineHeight: 1.5,
             }}>
               Tú llevas el control. Estudia a tu ritmo usando las herramientas que necesites.
@@ -145,15 +147,15 @@ export default function StudyALManualProcess({
 
           {/* Material seleccionado */}
           <div style={{
-            padding: 16, borderRadius: 14, background: 'white',
-            border: '1px solid #e2e8f0',
+            padding: 16, borderRadius: RADIUS.card, background: 'var(--bg-card)',
+            border: '1px solid var(--border-color)',
           }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Material seleccionado
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ fontSize: 24 }}>📄</div>
-              <div style={{ fontSize: 12, color: '#334155', fontWeight: 600 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
                 {materiales.length} {materiales.length === 1 ? 'documento' : 'documentos'}
               </div>
             </div>
@@ -161,16 +163,16 @@ export default function StudyALManualProcess({
 
           {/* Progreso general con círculo */}
           <div style={{
-            padding: 20, borderRadius: 14, background: 'white',
-            border: '1px solid #e2e8f0', textAlign: 'center',
+            padding: 20, borderRadius: RADIUS.card, background: 'var(--bg-card)',
+            border: '1px solid var(--border-color)', textAlign: 'center',
           }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Tu progreso general
             </div>
             <div style={{ position: 'relative', width: 120, height: 120, margin: '0 auto' }}>
               <svg width="120" height="120" viewBox="0 0 120 120">
-                <circle cx="60" cy="60" r="52" stroke="#e2e8f0" strokeWidth="8" fill="none" />
-                <circle cx="60" cy="60" r="52" stroke="#0369a1" strokeWidth="8" fill="none"
+                <circle cx="60" cy="60" r="52" stroke="var(--border-color)" strokeWidth="8" fill="none" />
+                <circle cx="60" cy="60" r="52" stroke="var(--blue)" strokeWidth="8" fill="none"
                   strokeLinecap="round"
                   strokeDasharray={`${(totalProgress / 100) * 326.7} 326.7`}
                   transform="rotate(-90 60 60)"
@@ -180,17 +182,17 @@ export default function StudyALManualProcess({
                 position: 'absolute', inset: 0, display: 'flex',
                 flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
               }}>
-                <div style={{ fontSize: 28, fontWeight: 900, color: '#0f172a', lineHeight: 1 }}>{totalProgress}%</div>
-                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, fontWeight: 600 }}>Progreso</div>
+                <div style={{ fontSize: 28, fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1 }}>{totalProgress}%</div>
+                <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2, fontWeight: 600 }}>Progreso</div>
               </div>
             </div>
           </div>
 
           <div style={{
-            padding: 12, borderRadius: 10, borderLeft: '3px solid #cbd5e1',
-            background: '#f8fafc',
+            padding: 12, borderRadius: RADIUS.control, borderLeft: '3px solid var(--border-color2)',
+            background: 'var(--bg-card2)',
           }}>
-            <p style={{ fontStyle: 'italic', fontSize: 12, color: '#64748b', margin: 0, lineHeight: 1.5 }}>
+            <p style={{ fontSize: 12, color: 'var(--text-faint)', margin: 0, lineHeight: 1.5 }}>
               "La constancia convierte el estudio en dominio."
             </p>
           </div>
@@ -204,11 +206,11 @@ export default function StudyALManualProcess({
           <div style={{
             position: 'absolute', inset: 0, opacity: 0.4,
             backgroundImage: `
-              linear-gradient(rgba(148, 163, 184, 0.1) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(148, 163, 184, 0.1) 1px, transparent 1px)
+              linear-gradient(color-mix(in srgb, var(--text-primary) 10%, transparent) 1px, transparent 1px),
+              linear-gradient(90deg, color-mix(in srgb, var(--text-primary) 10%, transparent) 1px, transparent 1px)
             `,
             backgroundSize: '40px 40px',
-            borderRadius: 12,
+            borderRadius: RADIUS.card,
           }} />
 
           {/* SVG con las 3 líneas triangulares que se iluminan */}
@@ -231,50 +233,48 @@ export default function StudyALManualProcess({
               </linearGradient>
             </defs>
 
-            {/* Triángulo real: 3 líneas SÓLIDAS que se iluminan según PROGRESO.
-                Lado IZQ (C→A): Leer + ALAI + Examen
-                Lado DER (A→B): Leer + Flashcards + Quizzes
-                Lado BASE (B→C): Examen + Resumen + Quizzes */}
+            {/* Triángulo real: 3 líneas que se iluminan COMPLETAS cuando su
+                grupo de herramientas está 100% hecho -- nunca a medias.
+                Lado IZQUIERDO: Leer + ALAI Chat + Examen (las 3)
+                Lado DERECHO:   Flashcards + Quizzes (las 2)
+                Lado INFERIOR:  Mi resumen (la única de ese lado) */}
 
-            {/* Lado A→B (derecho): Leer + Flashcards + Quizzes */}
+            {/* Lado derecho: Flashcards + Quizzes */}
             <line
               x1="52%" y1="16%" x2="83%" y2="86%"
-              stroke={rightSideProgress > 0 ? 'url(#glow-top-right)' : 'rgba(148, 163, 184, 0.35)'}
-              strokeWidth={rightSideProgress > 0 ? 2 + rightSideProgress * 2 : 1.5}
+              stroke={rightComplete ? 'url(#glow-top-right)' : 'rgba(148, 163, 184, 0.35)'}
+              strokeWidth={rightComplete ? 4 : 1.5}
               strokeLinecap="round"
               style={{
-                filter: rightSideProgress > 0
-                  ? `drop-shadow(0 0 ${4 + rightSideProgress * 12}px rgba(244, 114, 182, ${0.3 + rightSideProgress * 0.5}))`
+                filter: rightComplete
+                  ? 'drop-shadow(0 0 16px rgba(244, 114, 182, 0.8))'
                   : 'none',
-                opacity: rightSideProgress > 0 ? 0.7 + rightSideProgress * 0.3 : 1,
                 transition: 'all 0.4s ease',
               }}
             />
-            {/* Lado B→C (base): Quizzes + Resumen + Examen */}
+            {/* Lado inferior: Mi resumen */}
             <line
               x1="82%" y1="90%" x2="18%" y2="90%"
-              stroke={baseSideProgress > 0 ? 'url(#glow-right-left)' : 'rgba(148, 163, 184, 0.35)'}
-              strokeWidth={baseSideProgress > 0 ? 2 + baseSideProgress * 2 : 1.5}
+              stroke={bottomComplete ? 'url(#glow-right-left)' : 'rgba(148, 163, 184, 0.35)'}
+              strokeWidth={bottomComplete ? 4 : 1.5}
               strokeLinecap="round"
               style={{
-                filter: baseSideProgress > 0
-                  ? `drop-shadow(0 0 ${4 + baseSideProgress * 12}px rgba(167, 139, 250, ${0.3 + baseSideProgress * 0.5}))`
+                filter: bottomComplete
+                  ? 'drop-shadow(0 0 16px rgba(167, 139, 250, 0.8))'
                   : 'none',
-                opacity: baseSideProgress > 0 ? 0.7 + baseSideProgress * 0.3 : 1,
                 transition: 'all 0.4s ease',
               }}
             />
-            {/* Lado C→A (izquierdo): Examen + ALAI + Leer */}
+            {/* Lado izquierdo: Leer + ALAI Chat + Examen */}
             <line
               x1="17%" y1="86%" x2="48%" y2="16%"
-              stroke={leftSideProgress > 0 ? 'url(#glow-left-top)' : 'rgba(148, 163, 184, 0.35)'}
-              strokeWidth={leftSideProgress > 0 ? 2 + leftSideProgress * 2 : 1.5}
+              stroke={leftComplete ? 'url(#glow-left-top)' : 'rgba(148, 163, 184, 0.35)'}
+              strokeWidth={leftComplete ? 4 : 1.5}
               strokeLinecap="round"
               style={{
-                filter: leftSideProgress > 0
-                  ? `drop-shadow(0 0 ${4 + leftSideProgress * 12}px rgba(248, 113, 113, ${0.3 + leftSideProgress * 0.5}))`
+                filter: leftComplete
+                  ? 'drop-shadow(0 0 16px rgba(248, 113, 113, 0.8))'
                   : 'none',
-                opacity: leftSideProgress > 0 ? 0.7 + leftSideProgress * 0.3 : 1,
                 transition: 'all 0.4s ease',
               }}
             />
@@ -290,7 +290,7 @@ export default function StudyALManualProcess({
             border: '1px solid #fde68a',
             borderRadius: 8,
             padding: '20px 18px',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.08)',
+            boxShadow: hardShadow('rgba(0,0,0,.35)', 5, 6),
             textAlign: 'center',
             zIndex: 2,
           }}>
@@ -345,13 +345,13 @@ export default function StudyALManualProcess({
                   transform: 'translate(-50%, -50%)',
                   width: 200,
                   padding: '14px 16px',
-                  background: 'white',
+                  background: 'var(--bg-card)',
                   border: `2px solid ${tool.color}`,
-                  borderRadius: 12,
+                  borderRadius: RADIUS.card,
                   cursor: 'pointer',
                   textAlign: 'left',
                   fontFamily: BODY,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
+                  boxShadow: hardShadow(tool.color, 2, 3),
                   transition: 'all 0.2s',
                   zIndex: 3,
                 }}
@@ -365,13 +365,13 @@ export default function StudyALManualProcess({
                 {/* Icono + título */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                   <span style={{ fontSize: 20 }}>{tool.emoji}</span>
-                  <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', flex: 1 }}>{tool.title}</span>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', flex: 1 }}>{tool.title}</span>
                   {isCompleted && <span style={{ fontSize: 16 }}>✅</span>}
                 </div>
 
                 {/* Descripción */}
                 <p style={{
-                  fontSize: 11, color: '#64748b', margin: 0, lineHeight: 1.4,
+                  fontSize: 11, color: 'var(--text-faint)', margin: 0, lineHeight: 1.4,
                 }}>
                   {tool.desc}
                 </p>
@@ -379,8 +379,8 @@ export default function StudyALManualProcess({
                 {/* Barra de progreso mini */}
                 {pct > 0 && (
                   <div style={{
-                    marginTop: 8, height: 4, background: '#f1f5f9',
-                    borderRadius: 2, overflow: 'hidden',
+                    marginTop: 8, height: 4, background: 'var(--bg-card2)',
+                    borderRadius: RADIUS.chip, overflow: 'hidden',
                   }}>
                     <div style={{
                       height: '100%',
@@ -398,38 +398,38 @@ export default function StudyALManualProcess({
         {/* SIDEBAR DERECHO */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div style={{
-            padding: 16, borderRadius: 14, background: 'white',
-            border: '1px solid #e2e8f0',
+            padding: 16, borderRadius: RADIUS.card, background: 'var(--bg-card)',
+            border: '1px solid var(--border-color)',
           }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Progreso de estudio
             </div>
-            <div style={{ fontSize: 32, fontWeight: 900, color: '#0369a1' }}>
+            <div style={{ fontSize: 32, fontWeight: 900, color: 'var(--blue)' }}>
               {totalProgress}%
             </div>
           </div>
 
           <div style={{
-            padding: 16, borderRadius: 14, background: 'white',
-            border: '1px solid #e2e8f0',
+            padding: 16, borderRadius: RADIUS.card, background: 'var(--bg-card)',
+            border: '1px solid var(--border-color)',
           }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
               ⭐ Recomendación
             </div>
-            <p style={{ fontSize: 12, color: '#64748b', margin: 0, lineHeight: 1.5 }}>
+            <p style={{ fontSize: 12, color: 'var(--text-faint)', margin: 0, lineHeight: 1.5 }}>
               Usa las herramientas en el orden que necesites. Tú decides.
             </p>
           </div>
 
           <div style={{
-            padding: 16, borderRadius: 14,
-            background: '#f0f9ff',
-            border: '1px solid #bae6fd',
+            padding: 16, borderRadius: RADIUS.card,
+            background: accentTint('var(--blue)', 10),
+            border: '1px solid var(--blue-border)',
           }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#0369a1', marginBottom: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--blue)', marginBottom: 6 }}>
               💡
             </div>
-            <p style={{ fontSize: 12, color: '#0c4a6e', margin: 0, lineHeight: 1.5 }}>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
               Este es tu espacio. Organiza tu estudio como mejor te funcione.
             </p>
           </div>
