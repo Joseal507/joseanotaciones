@@ -1,3 +1,5 @@
+import type { VisualSpec } from './adaptive/visual/visualContract';
+import { chatUserMessage } from './alai-chat/errors';
 export type AlaiMessageRole = 'user' | 'assistant';
 export type AlaiTurnStatus = 'sending' | 'completed' | 'recoverable';
 
@@ -6,6 +8,13 @@ export interface DurableAlaiMessage {
   turnId?: string;
   role: AlaiMessageRole;
   content: string;
+  schemaVersion?: 1;
+  provenance?: ChatProvenance;
+  evidence?: ChatEvidence[];
+  conversationContext?: ChatConversationContext;
+  requestedResponseShape?: ResponseShape;
+  fulfillment?: ChatEnvelope['fulfillment'];
+  visualSpec?: VisualSpec;
   inMaterial?: boolean;
   outsideMaterialNote?: string;
   confidence?: 'alta' | 'media' | 'baja';
@@ -14,6 +23,11 @@ export interface DurableAlaiMessage {
   sourcePages?: number[];
   suggestedFollowups?: string[];
   timestamp?: number;
+  /** StudyalMaterialEnjoyer grounding metadata (main Chat only) — additive, backward-compatible with older persisted messages that lack it or that used the pre-Enjoyer field names. */
+  mode?: 'MATERIAL_ONLY' | 'GENERAL_ONLY' | 'MIXED';
+  usedTargetIds?: string[];
+  usedRelationIds?: string[];
+  materialIds?: string[];
 }
 
 export interface DurableAlaiTurn {
@@ -122,6 +136,7 @@ export function failAlaiTurn(
   if (!turn || turn.id !== turnId || turn.attempt !== attempt || turn.status !== 'sending') return state;
   return {
     ...state,
-    currentTurn: { ...turn, status: 'recoverable', error },
+    currentTurn: { ...turn, status: 'recoverable', error: chatUserMessage(error) },
   };
 }
+import type { ChatConversationContext, ChatEvidence, ChatProvenance, ChatEnvelope, ResponseShape } from './alai-chat/contracts';

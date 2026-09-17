@@ -108,6 +108,7 @@ export interface GraphDataSpec {
   expression: string
   domain: [number, number]
   points: Array<{ x: number; y: number; label?: string }>
+  segments?: Array<Array<{ x: number; y: number }>>
   annotations?: string[]
 }
 

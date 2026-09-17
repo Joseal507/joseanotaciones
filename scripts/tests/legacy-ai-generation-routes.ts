@@ -5,7 +5,6 @@ const migratedRoutes = {
   flashcards: 'app/api/alai-studyal-cards/route.ts',
   maps: 'app/api/alai-studyal-map/route.ts',
   mapExplanation: 'app/api/alai-studyal-map-explain/route.ts',
-  quizzes: 'app/api/alai-studyal-quizzes/route.ts',
   exam: 'app/api/alai-studyal-exam/route.ts',
   review: 'app/api/alai-studyal-repasar/route.ts',
   studyCards: 'app/api/alai-studyal-cheat-codes/route.ts',
@@ -16,11 +15,11 @@ for (const [name, path] of Object.entries(migratedRoutes)) {
   assert.match(source, /generateValidatedLegacyJson/, `${name} must use the common generation pipeline`)
 }
 
-const quiz = readFileSync(migratedRoutes.quizzes, 'utf8')
-assert.doesNotMatch(quiz, /const fallbacks = \['teoría'/)
-assert.match(quiz, /INCOMPATIBLE_ACTIVITY/)
-assert.match(quiz, /SEMANTIC_DUPLICATION/)
-assert.match(quiz, /LOW_DIVERSITY/)
+const quiz = readFileSync('app/api/alai-studyal-quizzes/route.ts', 'utf8')
+assert.doesNotMatch(quiz, /generateValidatedLegacyJson|splitIntoChunks|ExtractedConcept/)
+assert.match(quiz, /restoreMaterialBrain/)
+assert.match(quiz, /getOrBuildQuizArtifact/)
+assert.match(quiz, /RAW_SOURCE_AUTHORITY_FORBIDDEN/)
 
 const review = readFileSync(migratedRoutes.review, 'utf8')
 assert.doesNotMatch(review, /feedback: result\.text/)

@@ -86,7 +86,14 @@ async function testDurableLookupStates() {
 
 for (const path of tools) {
   const source = readFileSync(path, 'utf8')
-  assert.match(source, /useAuthorizedSource/, `${path} debe usar la autoridad compartida`)
+  if (path.endsWith('ALAIStudyALQuizzes.tsx') || path.endsWith('ALAIStudyALExams.tsx') || path.endsWith('ALAIStudyALChat.tsx')) {
+    assert.match(source, /effectiveSourceSelection/)
+    assert.match(source, /sessionId/)
+    assert.doesNotMatch(source, /useAuthorizedSource/)
+    assert.doesNotMatch(source, /content:\s*texto|materialText:|combinedText:/)
+  } else {
+    assert.match(source, /useAuthorizedSource/, `${path} debe usar la autoridad compartida`)
+  }
   assert.doesNotMatch(source, /fetch\(['"]\/api\/enfoques\/teorico\/start/, `${path} no descarga texto completo directamente`)
   assert.doesNotMatch(source, /filtered\s*\|\|\s*fullText/, `${path} no puede hacer fail-open`)
 }

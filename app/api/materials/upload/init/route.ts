@@ -70,7 +70,12 @@ export async function POST(req: NextRequest) {
       const safeName = sanitizeFileName(file.name);
       const key = generateStorageKey(user.id, materialId, validation.extension!);
 
-      // Crear registro en DB (sin texto aún)
+      // Crear registro en DB (sin texto aún). PDF ya es su propio formato
+      // de estudio — conversion_status='ready' de una, normalized_storage_key
+      // queda NULL a propósito (resolveStudyStorageKey cae a storage_key).
+      // Formatos convertibles (docx/pptx/odt/rtf) quedan sin
+      // conversion_status hasta que complete/route.ts dispare la conversión
+      // real, una vez que el archivo ya esté en R2.
       await createMaterial({
         id: materialId,
         user_id: user.id,
@@ -82,6 +87,7 @@ export async function POST(req: NextRequest) {
         size_bytes: file.size,
         storage_key: key,
         kind: validation.kind!,
+        ...(validation.kind === 'pdf' ? { normalized_kind: 'pdf', conversion_status: 'ready' } : {}),
       });
 
       // Generar presigned URL (el frontend sube directo a R2)

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
+import { buildBoundedPageItems } from '../../lib/repasoReaderNavigation';
 
 if (typeof window !== 'undefined' && pdfjs?.GlobalWorkerOptions) {
   pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
@@ -12,7 +13,7 @@ if (typeof window !== 'undefined' && pdfjs?.GlobalWorkerOptions) {
 const BODY = "var(--font-body)";
 
 type Phase = 'preview' | 'lectura' | 'explicar' | 'analisis';
-type Tool = 'draw' | 'erase' | 'note' | 'highlight' | 'underline';
+type Tool = 'select' | 'draw' | 'erase' | 'note' | 'highlight' | 'underline';
 type BrushType = 'pen' | 'pencil' | 'highlighter' | 'underline';
 type BrushSizeKey = 'xs' | 's' | 'm' | 'l' | 'xl' | 'custom';
 
@@ -56,6 +57,14 @@ interface Props {
   phase?: Phase;
   themeColor?: string;
   activeColor?: string;
+  currentPage?: number | null;
+  currentMaterialId?: string | null;
+  pageFilter?: number[];
+  recommendedPages?: number[];
+  onPageChange?: (page: number) => void;
+  onMaterialChange?: (materialId: string) => void;
+  zoom?: number;
+  onZoomChange?: (zoom: number) => void;
 }
 
 const COLORS = [
@@ -156,14 +165,13 @@ function buildSmoothPath(points: StrokePoint[]): string {
   return path;
 }
 
-export default function RepasarViewer({ materiales, seleccion, phase = 'preview', themeColor = 'var(--gold)', activeColor }: Props) {
+export default function RepasarViewer({ materiales, seleccion, phase = 'preview', themeColor = 'var(--gold)', activeColor, currentPage: requestedPage = null, currentMaterialId = null, pageFilter, recommendedPages = [], onPageChange, onMaterialChange, zoom = 1.18, onZoomChange }: Props) {
   const isActiveReading = phase === 'lectura';
   const [activeIndex, setActiveIndex] = useState(0);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [urlRefreshTick, setUrlRefreshTick] = useState(0);
   const [numPages, setNumPages] = useState(0);
-  const [currentPageIndex, setCurrentPageIndex] = useState(0);
-  const [scale, setScale] = useState(1.08);
+  const scale = zoom;
   const [highlightColor, setHighlightColor] = useState(activeColor || COLORS[0].value);
   const [brushType, setBrushType] = useState<BrushType>('pen');
   const [brushSizeKey, setBrushSizeKey] = useState<BrushSizeKey>('m');
@@ -175,10 +183,11 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
   const [loading, setLoading] = useState(false);
   const [firstPageRendered, setFirstPageRendered] = useState(false);
   const [err, setErr] = useState('');
-  const [tool, setTool] = useState<Tool>('highlight');
+  const [tool, setTool] = useState<Tool>('select');
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [textMarks, setTextMarks] = useState<TextMark[]>([]);
   const [stickyNotes, setStickyNotes] = useState<StickyNote[]>([]);
+  const [hydratedMarksKey, setHydratedMarksKey] = useState<string | null>(null);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [currentStroke, setCurrentStroke] = useState<Stroke | null>(null);
   const [hoveredMarkId, setHoveredMarkId] = useState<string | null>(null);
@@ -196,6 +205,8 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
   const draggingNoteRef = useRef<string | null>(null);
   const erasingRef = useRef(false);
   const lastUrlRefreshRef = useRef(0);
+  const renderIdentityRef = useRef('');
+  const documentUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (activeColor) setHighlightColor(activeColor);
@@ -214,30 +225,63 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
 
   const mat = materiales[activeIndex] || materiales[0] || null;
   const selectedPages = useMemo(() => mat ? selectedPagesFor(mat, activeIndex, seleccion) : [], [mat, activeIndex, seleccion]);
-  const pages = useMemo(() => selectedPages.length ? selectedPages : Array.from({ length: numPages }, (_, i) => i + 1), [selectedPages, numPages]);
-  const currentPage = pages[currentPageIndex] || pages[0] || 1;
+  const pages = useMemo(() => {
+    const withinDocument = (page: number) => page > 0 && (!numPages || page <= numPages);
+    const base = selectedPages.length ? selectedPages.filter(withinDocument) : Array.from({ length: numPages }, (_, i) => i + 1);
+    if (!pageFilter?.length) return base;
+    const allowed = new Set(pageFilter);
+    const restricted = base.filter(page => allowed.has(page));
+    return restricted;
+  }, [selectedPages, numPages, pageFilter]);
+  const currentPage = requestedPage != null && pages.includes(requestedPage) ? requestedPage : (pages[0] || 1);
+  const currentPageIndex = pages.indexOf(currentPage);
   const materialKey = String(mat?.materialId || mat?.material_id || mat?.id || 'material');
   const marksKey = `studyal_repasar_marks_${materialKey}_${currentPage}`;
 
-  useEffect(() => setCurrentPageIndex(0), [activeIndex, selectedPages.join(',')]);
+  useEffect(() => {
+    if (!currentMaterialId) return;
+    const index = materiales.findIndex(item => String(item?.materialId || item?.material_id || item?.id || '') === currentMaterialId);
+    if (index >= 0) setActiveIndex(index);
+  }, [currentMaterialId, materiales]);
+
+  useEffect(() => {
+    if (pages.length && requestedPage !== currentPage) onPageChange?.(currentPage);
+  }, [currentPage, pages.length, requestedPage, onPageChange]);
+
+  const renderIdentity = `${materialKey}:${pdfUrl || 'loading'}:${currentPage}:${scale}`;
+  useEffect(() => {
+    renderIdentityRef.current = renderIdentity;
+    setFirstPageRendered(false);
+  }, [renderIdentity]);
+
+  useEffect(() => {
+    documentUrlRef.current = pdfUrl;
+  }, [pdfUrl]);
 
   useEffect(() => {
     if (!isActiveReading) return;
+    setHydratedMarksKey(null);
     try {
       const raw = localStorage.getItem(marksKey);
       const saved = raw ? JSON.parse(raw) : null;
-      setStrokes(Array.isArray(saved?.strokes) ? saved.strokes : []);
-      setTextMarks(Array.isArray(saved?.textMarks) ? saved.textMarks : []);
-      setStickyNotes(Array.isArray(saved?.stickyNotes) ? saved.stickyNotes : []);
+      const nextStrokes = Array.isArray(saved?.strokes) ? saved.strokes : [];
+      const nextTextMarks = Array.isArray(saved?.textMarks) ? saved.textMarks : [];
+      const nextStickyNotes = Array.isArray(saved?.stickyNotes) ? saved.stickyNotes : [];
+      setStrokes(nextStrokes);
+      setTextMarks(nextTextMarks);
+      setStickyNotes(nextStickyNotes);
+      setNotesCount(nextStrokes.length + nextTextMarks.length + nextStickyNotes.length);
     } catch {
       setStrokes([]);
       setTextMarks([]);
       setStickyNotes([]);
+      setNotesCount(0);
     }
+    setHydratedMarksKey(marksKey);
   }, [marksKey, isActiveReading]);
 
   useEffect(() => {
-    if (!isActiveReading) return;
+    if (!isActiveReading || hydratedMarksKey !== marksKey) return;
     try {
       localStorage.setItem(marksKey, JSON.stringify({
         strokes,
@@ -246,7 +290,7 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
         updatedAt: Date.now(),
       }));
     } catch {}
-  }, [marksKey, strokes, textMarks, stickyNotes, isActiveReading]);
+  }, [marksKey, hydratedMarksKey, strokes, textMarks, stickyNotes, isActiveReading]);
 
   useEffect(() => {
     if (!pdfUrl || !mat) return;
@@ -817,7 +861,7 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
   return (
     <div style={{
       height: '100%',
-      minHeight: 690,
+      minHeight: 'max(620px, calc(100vh - 190px))',
       display: 'flex',
       flexDirection: 'column',
       background: 'rgba(13,14,22,0.78)',
@@ -838,7 +882,14 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
       }}>
         <select
           value={activeIndex}
-          onChange={(e) => setActiveIndex(Number(e.target.value))}
+          disabled={Boolean(pageFilter?.length)}
+          onChange={(e) => {
+            const nextIndex = Number(e.target.value);
+            const nextMaterial = materiales[nextIndex];
+            const nextMaterialId = String(nextMaterial?.materialId || nextMaterial?.material_id || nextMaterial?.id || '');
+            setActiveIndex(nextIndex);
+            if (nextMaterialId) onMaterialChange?.(nextMaterialId);
+          }}
           style={{
             background: 'rgba(255,255,255,0.055)',
             color: 'var(--text-primary)',
@@ -857,13 +908,13 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
         </select>
 
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 9 }}>
-          <button onClick={() => setCurrentPageIndex((v) => Math.max(0, v - 1))} style={toolBtn}>‹</button>
+          <button disabled={currentPageIndex <= 0} onClick={() => onPageChange?.(pages[Math.max(0, currentPageIndex - 1)])} style={toolBtn}>‹</button>
           <div style={{ minWidth: 76, textAlign: 'center', fontWeight: 900 }}>
-            {pages.length ? `${currentPageIndex + 1} / ${pages.length}` : '—'}
+            {pages.length ? `Pág. ${currentPage} de ${numPages || '—'}` : '—'}
           </div>
-          <button onClick={() => setCurrentPageIndex((v) => Math.min(pages.length - 1, v + 1))} style={toolBtn}>›</button>
+          <button disabled={currentPageIndex < 0 || currentPageIndex >= pages.length - 1} onClick={() => onPageChange?.(pages[Math.min(pages.length - 1, currentPageIndex + 1)])} style={toolBtn}>›</button>
 
-          <select value={scale} onChange={(e) => setScale(Number(e.target.value))} style={{ ...toolBtn, width: 88 }}>
+          <select value={scale} onChange={(e) => onZoomChange?.(Number(e.target.value))} style={{ ...toolBtn, width: 88 }}>
             <option value={0.95}>95%</option>
             <option value={1.08}>108%</option>
             <option value={1.18}>118%</option>
@@ -887,6 +938,9 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
           gap: 9,
         }}>
           {[
+            ['select', '↖', 'Select'],
+            ['highlight', '▰', 'Highlight'],
+            ['underline', 'U̲', 'Underline'],
             ['draw', '✒️', 'Draw'],
             ['note', '🗒', 'Note'],
             ['erase', '◯', 'Erase'],
@@ -920,23 +974,26 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
             <span style={{ fontSize: 10, lineHeight: 1, marginTop: 3 }}>Redo</span>
           </button>
 
+          {(['draw', 'highlight', 'underline'] as Tool[]).includes(tool) && (
+            <div style={{ width: 62, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, paddingTop: 5, borderTop: '1px solid rgba(255,255,255,.09)' }}>
+              {COLORS.map((color) => <button key={color.id} onClick={() => setHighlightColor(color.value)} title={color.label} style={{ width: 26, height: 26, borderRadius: 8, cursor: 'pointer', background: color.value, border: highlightColor === color.value ? `2px solid ${themeColor}` : '1px solid rgba(255,255,255,.18)' }} />)}
+            </div>
+          )}
+
           {tool === 'draw' && (
             <div style={{
-              position: 'absolute',
-              left: 76,
-              top: 14,
-              zIndex: 40,
+              position: 'static',
               display: 'grid',
-              gap: 10,
-              minWidth: 255,
-              padding: 12,
-              borderRadius: 16,
-              background: 'rgba(8,9,14,0.94)',
+              gap: 7,
+              width: 66,
+              padding: 6,
+              borderRadius: 10,
+              background: 'rgba(8,9,14,0.72)',
               border: '1px solid rgba(255,255,255,0.14)',
               boxShadow: '0 18px 55px rgba(0,0,0,0.45)',
               backdropFilter: 'blur(12px)',
             }}>
-              <div style={{ display: 'flex', gap: 7 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 5 }}>
                 {BRUSH_TYPES.map((item) => {
                   const active = brushType === item.id;
                   return (
@@ -952,13 +1009,13 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
                       title={item.label}
                     >
                       <span>{item.icon}</span>
-                      <small>{item.label}</small>
+                      <small style={{ display: 'none' }}>{item.label}</small>
                     </button>
                   );
                 })}
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 4 }}>
                 {BRUSH_SIZES.map((item) => {
                   const active = brushSizeKey === item.id;
                   return (
@@ -982,7 +1039,7 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
               </div>
 
               {(showSizePanel || brushSizeKey === 'custom') && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ display: 'grid', gap: 4 }}>
                   <input
                     type="range"
                     min={2}
@@ -993,7 +1050,7 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
                       setBrushSizeKey('custom');
                       setCustomBrushSize(Number(e.target.value));
                     }}
-                    style={{ width: 180 }}
+                    style={{ width: 54 }}
                   />
                   <span style={{ color: 'var(--text-primary)', fontWeight: 900, fontSize: 12 }}>{customBrushSize}px</span>
                 </div>
@@ -1061,46 +1118,6 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
             </div>
           )}
 
-          {isActiveReading && firstPageRendered && (
-            <div style={{
-              position: 'sticky',
-              top: 0,
-              zIndex: 18,
-              margin: '0 auto 16px',
-              width: 'fit-content',
-              maxWidth: 'calc(100% - 40px)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '8px 10px',
-              borderRadius: 999,
-              background: 'rgba(8,9,14,0.88)',
-              border: '1px solid rgba(255,255,255,0.14)',
-              boxShadow: '0 12px 35px rgba(0,0,0,0.35)',
-              overflowX: 'auto',
-            }}>
-              {COLORS.map((c) => {
-                const active = highlightColor === c.value;
-                return (
-                  <button
-                    key={c.id}
-                    onClick={() => setHighlightColor(c.value)}
-                    title={c.label}
-                    style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: '50%',
-                      border: active ? `3px solid ${themeColor}` : '1px solid rgba(255,255,255,0.20)',
-                      background: c.value,
-                      cursor: 'pointer',
-                      boxShadow: active ? '0 0 0 3px rgba(250,204,21,0.16)' : 'none',
-                    }}
-                  />
-                );
-              })}
-            </div>
-          )}
-
           {err && (
             <div style={{
               color: '#f87171',
@@ -1116,13 +1133,19 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
           {pdfUrl && !err && (
             <Document
               file={pdfUrl}
-              onLoadSuccess={({ numPages: total }) => setNumPages(total)}
-              onLoadError={() => requestPdfUrlRefresh()}
+              onLoadSuccess={({ numPages: total }) => {
+                if (documentUrlRef.current !== pdfUrl) return;
+                setNumPages(total);
+              }}
+              onLoadError={() => {
+                if (documentUrlRef.current === pdfUrl) requestPdfUrlRefresh();
+              }}
               loading={null}
               error={<div style={{ color: '#f87171', fontWeight: 800 }}>No se pudo renderizar el PDF.</div>}
             >
               <div style={{
-                display: firstPageRendered ? 'flex' : 'none',
+                display: 'flex',
+                opacity: firstPageRendered ? 1 : 0,
                 justifyContent: 'center',
                 minHeight: '100%',
               }}>
@@ -1146,7 +1169,9 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
                     scale={scale}
                     renderTextLayer
                     renderAnnotationLayer
-                    onRenderSuccess={() => setFirstPageRendered(true)}
+                    onRenderSuccess={() => {
+                      if (renderIdentityRef.current === renderIdentity) setFirstPageRendered(true);
+                    }}
                     loading={null}
                   />
 
@@ -1538,36 +1563,37 @@ export default function RepasarViewer({ materiales, seleccion, phase = 'preview'
 
           {pages.length > 1 && firstPageRendered && (
             <div style={{
-              position: 'sticky',
-              bottom: 12,
               margin: '18px auto 0',
               width: 'fit-content',
               display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexWrap: 'wrap',
               gap: 7,
-              background: 'rgba(8,9,14,0.9)',
+              background: 'rgba(8,9,14,0.72)',
               border: '1px solid rgba(255,255,255,0.14)',
               borderRadius: 14,
               padding: 8,
               boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
             }}>
-              {pages.map((page, i) => (
+              {buildBoundedPageItems(pages, currentPage).map((item) => typeof item === 'number' ? (
                 <button
-                  key={page}
-                  onClick={() => setCurrentPageIndex(i)}
+                  key={item}
+                  onClick={() => onPageChange?.(item)}
                   style={{
-                    width: 42,
-                    height: 46,
+                    width: 38,
+                    height: 40,
                     borderRadius: 8,
-                    border: i === currentPageIndex ? `2px solid ${themeColor}` : '1px solid rgba(255,255,255,0.18)',
-                    background: i === currentPageIndex ? 'rgba(250,204,21,0.15)' : 'rgba(255,255,255,0.04)',
+                    border: item === currentPage ? `2px solid ${themeColor}` : recommendedPages.includes(item) ? '1px solid rgba(85,230,193,.8)' : '1px solid rgba(255,255,255,0.18)',
+                    background: item === currentPage ? 'rgba(85,230,193,0.16)' : recommendedPages.includes(item) ? 'rgba(85,230,193,.08)' : 'rgba(255,255,255,0.04)',
                     color: 'var(--text-primary)',
                     cursor: 'pointer',
                     fontWeight: 900,
                   }}
                 >
-                  {i + 1}
+                  {item}{recommendedPages.includes(item) && <span aria-label="recomendada" style={{ display: 'block', fontSize: 7, color: themeColor }}>●</span>}
                 </button>
-              ))}
+              ) : <span key={item} style={{ color: 'var(--text-muted)', padding: '0 3px' }}>…</span>)}
             </div>
           )}
 

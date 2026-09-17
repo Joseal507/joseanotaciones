@@ -249,20 +249,28 @@ function processSegment(text: string): string {
 export function autoMath(text: string): string {
   if (!text) return ''
 
-  // Paso 1: normalizar Unicode → ASCII
-  let s = normalizeUnicode(text)
-
-  // Paso 2: colapsar espacios SOLO en patrones claramente químicos
-  s = collapseChemistrySpaces(s)
-
-  // Paso 3: detectar y colapsar duplicaciones "X X"
-  s = collapseDuplications(s)
-
-  // Paso 4: procesar solo los tramos NO envueltos en $...$
-  const parts = s.split(/(\$\$[\s\S]+?\$\$|\$[^$\n]+\$)/g)
+  // Proteger tramos ya envueltos en delimitadores de math ($...$, $$...$$, \(...\), \[...\], <math...>)
+  const parts = text.split(/(\$\$[\s\S]+?\$\$|\$[^$\n]+\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$\([^\n]+?\)\$|<math(?:\s[^>]*)?>[\s\S]*?<\/math>)/g)
   const processed = parts.map(part => {
-    if (part.startsWith('$')) return part
-    return processSegment(part)
+    if (
+      part.startsWith('$') ||
+      part.startsWith('\\(') ||
+      part.startsWith('\\[') ||
+      part.startsWith('<math')
+    ) {
+      return part
+    }
+    // Paso 1: normalizar Unicode → ASCII
+    let s = normalizeUnicode(part)
+
+    // Paso 2: colapsar espacios SOLO en patrones claramente químicos
+    s = collapseChemistrySpaces(s)
+
+    // Paso 3: detectar y colapsar duplicaciones "X X"
+    s = collapseDuplications(s)
+
+    // Paso 4: procesar solo los tramos NO envueltos en math
+    return processSegment(s)
   })
 
   return processed.join('')

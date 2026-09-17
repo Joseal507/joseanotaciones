@@ -31,12 +31,14 @@ export async function DELETE(
     // objeto huérfano recuperable, nunca metadata activa apuntando a un asset borrado.
     await hardDeleteMaterial(id, user.id);
 
-    // ─── Borrar de R2 ───
-    try {
-      await deleteFromR2(material.storage_key);
-      console.log(`🗑️ R2 borrado: ${material.storage_key}`);
-    } catch (e: any) {
-      console.warn(`⚠️ R2 delete warning: ${e.message}`);
+    // ─── Borrar de R2 (materiales Web no tienen objeto R2) ───
+    if (material.storage_key) {
+      try {
+        await deleteFromR2(material.storage_key);
+        console.log(`🗑️ R2 borrado: ${material.storage_key}`);
+      } catch (e: any) {
+        console.warn(`⚠️ R2 delete warning: ${e.message}`);
+      }
     }
 
     return NextResponse.json({ success: true });

@@ -20,12 +20,23 @@ export const r2 = new S3Client({
 });
 
 // ─── Generar key única para el archivo ───
+// storage_key (existente) = original tal cual lo subió el usuario, nunca
+// cambia de significado. normalized.pdf es la versión canónica de estudio
+// para CONVERTIBLE_KINDS (docx/pptx/odt/rtf) — clave nueva, sin tocar
+// materiales existentes.
 export function generateStorageKey(
   userId: string,
   materialId: string,
   extension: string,
 ): string {
   return `materials/${userId}/${materialId}/source.${extension}`;
+}
+
+export function generateNormalizedStorageKey(
+  userId: string,
+  materialId: string,
+): string {
+  return `materials/${userId}/${materialId}/normalized.pdf`;
 }
 
 // ─── Presigned URL para subir (el frontend sube directo a R2) ───

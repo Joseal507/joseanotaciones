@@ -27,6 +27,8 @@ export function validateFile(
     if (['jpg','jpeg','png','gif','webp','svg','bmp'].includes(ext)) return 'image';
     if (['doc','docx'].includes(ext)) return 'docx';
     if (['ppt','pptx'].includes(ext)) return 'pptx';
+    if (ext === 'odt') return 'odt';
+    if (ext === 'rtf') return 'rtf';
     if (['txt','md'].includes(ext)) return 'txt';
     if (['mp3','wav','m4a','ogg','webm'].includes(ext)) return 'audio';
     return 'other';

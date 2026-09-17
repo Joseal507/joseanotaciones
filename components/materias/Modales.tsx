@@ -167,6 +167,63 @@ export function ModalTema({ onClose, onConfirm, colorMateria }: ModalProps & { c
 }
 
 // ══════════════════════════════════════════════════════════════
+// MODAL CONFIRMAR ELIMINAR (Tema / Materia) — cascada total
+// ══════════════════════════════════════════════════════════════
+export function ModalConfirmarEliminar({
+  tipo, nombre, color, loading, onClose, onConfirm,
+}: {
+  tipo: 'tema' | 'materia';
+  nombre: string;
+  color: string;
+  loading?: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const { idioma } = useIdioma();
+  const esTema = tipo === 'tema';
+
+  const title = idioma === 'en'
+    ? (esTema ? 'Delete Topic' : 'Delete Subject')
+    : (esTema ? 'Eliminar Tema' : 'Eliminar Materia');
+
+  const message = idioma === 'en'
+    ? `This ${esTema ? 'topic' : 'subject'} and all its content — materials, sessions, and progress — will be deleted. This cannot be undone.`
+    : `Se eliminará ${esTema ? 'este tema' : 'esta materia'} y todo su contenido, incluidos materiales, sesiones y progreso. Esta acción no se puede deshacer.`;
+
+  const confirmLabel = loading
+    ? (idioma === 'en' ? 'Deleting…' : 'Eliminando…')
+    : idioma === 'en'
+      ? (esTema ? 'Delete Topic' : 'Delete Subject')
+      : (esTema ? 'Eliminar tema' : 'Eliminar materia');
+
+  return (
+    <ModalShell color={color} emoji="🗑️" title={title} onClose={loading ? () => {} : onClose} maxWidth={420}>
+      <p style={{
+        fontFamily: BODY, fontSize: 15, lineHeight: 1.5,
+        color: 'var(--text-primary)', margin: 0,
+      }}>
+        {message}
+      </p>
+      <p style={{
+        fontFamily: HAND, fontSize: 19, fontWeight: 800,
+        color: 'var(--text-primary)', margin: 0,
+        transform: 'rotate(-0.5deg)',
+      }}>
+        &ldquo;{nombre}&rdquo;
+      </p>
+      <ButtonRow>
+        <ModalBtn variant="secondary" onClick={onClose} disabled={loading}>
+          ✕ {idioma === 'en' ? 'Cancel' : 'Cancelar'}
+        </ModalBtn>
+        <ModalBtn variant="primary" color="#ef4444" onClick={onConfirm} disabled={loading}>
+          🗑️ {confirmLabel}
+        </ModalBtn>
+      </ButtonRow>
+    </ModalShell>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
 // MODAL APUNTE — más complejo (papel, estilo, tamaño)
 // ══════════════════════════════════════════════════════════════
 export function ModalApunte({ onClose, onConfirm, colorTema }: ModalProps & { colorTema: string }) {

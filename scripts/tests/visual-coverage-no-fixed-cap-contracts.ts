@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
-  selectPagesNeedingVision,
-  chunkIntoBatches,
-  syncVisualEnrichmentToPageMap,
-  enrichPageWithVision,
-  VISION_BATCH_SIZE,
-  VISION_MAX_CHARS,
-} from '../../app/api/adaptive/blueprint/route'
+  analyzePdfPageVisual,
+  chunkVisualPagesIntoBatches,
+  selectPagesNeedingVisualAnalysis,
+  VISUAL_PAGE_BATCH_SIZE,
+  VISUAL_PAGE_MAX_TEXT_CHARS,
+} from '../../lib/materials/visualPageAnalysis'
+import { syncVisualEnrichmentToPageMap } from '../../app/api/adaptive/blueprint/route'
 
 // GARANTÍA 2 (verificación post-misión): "ninguna página que realmente
 // necesite análisis visual puede descartarse por una cuota fija de
@@ -26,14 +26,14 @@ function buildFullPageMap(poorPageNumbers: Set<number>, totalPages: number): Map
 
 function assertAllProcessedNoneDropped(poorPageNumbers: number[], totalPages: number, label: string) {
   const fullPageMap = buildFullPageMap(new Set(poorPageNumbers), totalPages)
-  const selected = selectPagesNeedingVision(fullPageMap, totalPages)
+  const selected = selectPagesNeedingVisualAnalysis(fullPageMap, totalPages)
   assert.deepEqual(new Set(selected), new Set(poorPageNumbers), `${label}: BUG DE ORIGEN SI FALLA: selectPagesNeedingVision debe seleccionar EXACTAMENTE las páginas pobres, ni más ni menos`)
-  const batches = chunkIntoBatches(selected, VISION_BATCH_SIZE)
+  const batches = chunkVisualPagesIntoBatches(selected, VISUAL_PAGE_BATCH_SIZE)
   const flattened = batches.flat()
   assert.deepEqual(new Set(flattened), new Set(poorPageNumbers), `${label}: BUG DE ORIGEN SI FALLA: el batching no puede perder ni una sola candidata — processed required pages debe ser ${poorPageNumbers.length}, dropped debe ser 0`)
   assert.equal(flattened.length, poorPageNumbers.length, `${label}: ninguna página duplicada ni perdida en el aplanado de batches`)
   if (poorPageNumbers.length > 0) {
-    assert.equal(batches.length, Math.ceil(poorPageNumbers.length / VISION_BATCH_SIZE), `${label}: número de batches debe derivarse del total de candidatas, no de un cap`)
+    assert.equal(batches.length, Math.ceil(poorPageNumbers.length / VISUAL_PAGE_BATCH_SIZE), `${label}: número de batches debe derivarse del total de candidatas, no de un cap`)
   }
 }
 
@@ -63,16 +63,16 @@ function testMixedTextAndDiagramsOnlyFlagsWhatNeedsIt() {
     [4, 'x'.repeat(30)], // casi vacía — bajo VISION_MAX_CHARS
     [5, 'Texto normal extenso y suficiente para la página cinco, con todo el contenido académico real necesario aquí.'],
   ])
-  const selected = selectPagesNeedingVision(fullPageMap, 5)
+  const selected = selectPagesNeedingVisualAnalysis(fullPageMap, 5)
   assert.deepEqual(new Set(selected), new Set([2, 4]), 'BUG DE ORIGEN SI FALLA: solo las páginas realmente pobres (2 y 4) deben marcarse — las páginas 1/3/5 con texto suficiente NUNCA deben enviarse a visión ciegamente')
 }
 
 // ═══ 9. sin cuota fija — verificación explícita de ausencia de cap ═══
 function testNoFixedCapInSource() {
-  const source = readFileSync('app/api/adaptive/blueprint/route.ts', 'utf8')
+  const source = readFileSync('lib/materials/visualPageAnalysis.ts', 'utf8')
   assert.doesNotMatch(source, /const MAX_VISION_PAGES/, 'BUG DE ORIGEN SI FALLA: no debe existir ningún cap fijo de páginas visuales')
   assert.doesNotMatch(source, /poorPages\.slice\(0,\s*(MAX_VISION_PAGES|\d+)\)/, 'BUG DE ORIGEN SI FALLA: no debe existir ningún slice(0, N) que descarte candidatas por cuota')
-  assert.match(source, /export function chunkIntoBatches/, 'debe existir batching real (control de concurrencia, no de cobertura)')
+  assert.match(source, /export function chunkVisualPagesIntoBatches/, 'debe existir batching real (control de concurrencia, no de cobertura)')
 }
 
 // ═══ 10. una página falla transitoriamente → retry ═══
@@ -82,13 +82,13 @@ async function testTransientFailureRetries() {
   globalThis.fetch = (async (..._args: any[]) => {
     calls += 1
     if (calls === 1) return { ok: false, status: 503, text: async () => 'transient' } as any
-    return { ok: true, json: async () => ({ choices: [{ message: { content: 'Descripción visual real de la página, con más de cincuenta caracteres de contenido genuino.' } }] }) } as any
+    return { ok: true, json: async () => ({ choices: [{ message: { content: 'El gráfico etiqueta velocidad y tiempo; la curva aumenta de 2 m/s a 8 m/s y muestra aceleración positiva.' }, finish_reason: 'stop' }] }) } as any
   }) as any
   try {
     process.env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || 'test-key-for-vision-retry'
-    const result = await enrichPageWithVision(3, Buffer.from('fake-pdf'), 'material.pdf', '')
+    const result = await analyzePdfPageVisual({ page: 3, pdfBuffer: Buffer.from('fake-pdf'), materialName: 'material.pdf', existingText: '' })
     assert.equal(calls, 2, 'BUG DE ORIGEN SI FALLA: un fallo HTTP transitorio debe reintentarse exactamente una vez más')
-    assert.equal(result.status, 'enriched', 'BUG DE ORIGEN SI FALLA: tras el retry exitoso, el status debe ser "enriched", nunca "failed"')
+    assert.equal(result.status, 'success', 'BUG DE ORIGEN SI FALLA: tras el retry exitoso, el status debe ser "success", nunca "failed"')
     assert.ok(result.text.length > 50, 'BUG DE ORIGEN SI FALLA: el segundo intento exitoso debe devolver el contenido enriquecido — nunca perderlo tras un fallo transitorio')
   } finally {
     globalThis.fetch = originalFetch
@@ -109,7 +109,7 @@ async function testPersistentFailureExplicitlyLoggedNeverThrows() {
   }) as any
   try {
     process.env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || 'test-key-for-vision-retry'
-    const result = await enrichPageWithVision(9, Buffer.from('fake-pdf'), 'material.pdf', '')
+    const result = await analyzePdfPageVisual({ page: 9, pdfBuffer: Buffer.from('fake-pdf'), materialName: 'material.pdf', existingText: '' })
     assert.equal(calls, 2, 'BUG DE ORIGEN SI FALLA: debe agotar exactamente 2 intentos antes de rendirse (bounded, no infinito)')
     assert.equal(result.status, 'failed', 'BUG DE ORIGEN SI FALLA: un fallo persistente debe reportarse como status="failed" — distinto de "no_content" (que es un resultado legítimo, no un hueco de cobertura)')
     assert.equal(result.text, '', 'un fallo persistente no debe lanzar — el pipeline debe poder continuar con las demás páginas')
@@ -135,8 +135,8 @@ function testVisualContentReachesPageMapForTopicExtraction() {
 }
 
 function testVisionMaxCharsAndBatchSizeAreReasonable() {
-  assert.ok(VISION_MAX_CHARS > 0 && VISION_MAX_CHARS < 500, 'VISION_MAX_CHARS debe ser un umbral de "casi vacía", no una cuota de cobertura')
-  assert.ok(VISION_BATCH_SIZE >= 1 && VISION_BATCH_SIZE <= 10, 'VISION_BATCH_SIZE debe ser un tamaño de concurrencia razonable, nunca un total de páginas')
+  assert.ok(VISUAL_PAGE_MAX_TEXT_CHARS > 0 && VISUAL_PAGE_MAX_TEXT_CHARS < 500, 'VISUAL_PAGE_MAX_TEXT_CHARS debe ser un umbral de "casi vacía", no una cuota de cobertura')
+  assert.ok(VISUAL_PAGE_BATCH_SIZE >= 1 && VISUAL_PAGE_BATCH_SIZE <= 10, 'VISUAL_PAGE_BATCH_SIZE debe ser un tamaño de concurrencia razonable, nunca un total de páginas')
 }
 
 async function run() {

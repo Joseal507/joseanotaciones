@@ -1,0 +1,13 @@
+{
+  "name": "document-converter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal stateless service: convertible documents (docx/doc/pptx/ppt/odt/rtf) to PDF via LibreOffice headless. No framework — Node's built-in http keeps the image and attack surface small.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

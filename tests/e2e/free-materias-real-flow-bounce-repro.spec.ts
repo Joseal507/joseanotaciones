@@ -178,18 +178,21 @@ async function installRoutes(page: Page, opts: { generationDelayMs: number }) {
     });
   });
 
-  await page.route('**/api/alai-studyal-cards', async route => {
+  await page.route('**/api/flashcards-v2', async route => {
     calls.alaiCards++;
     await new Promise(r => setTimeout(r, opts.generationDelayMs));
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        success: true,
-        flashcards: [
-          { id: 'fc-1', question: 'Q1', answer: 'A1', sourcePage: 1 },
-          { id: 'fc-2', question: 'Q2', answer: 'A2', sourcePage: 2 },
-        ],
+        status: 'ready',
+        deck: {
+          cards: [
+            { id: 'fc-1', question: 'Q1', answer: 'A1', provenance: [{ materialId: MATERIAL_ID, page: 1, quote: '', chunkId: '' }] },
+            { id: 'fc-2', question: 'Q2', answer: 'A2', provenance: [{ materialId: MATERIAL_ID, page: 2, quote: '', chunkId: '' }] },
+          ],
+          coverage: { targetedUnitIds: [], targetedRelationIds: [], coveredUnitIds: [], coveredRelationIds: [], status: 'complete', metrics: { plannedCards: 2, validCards: 2, failedCards: 0, targetedUnits: 0, coveredUnits: 0, targetedRelations: 0, coveredRelations: 0 } },
+        },
       }),
     });
   });

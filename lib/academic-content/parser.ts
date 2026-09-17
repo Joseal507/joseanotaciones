@@ -24,7 +24,7 @@ const CHEMISTRY_TERM = /(?:^|[\s+])(?:\d+\s*)?(?:[A-Z][a-z]?\d*)+(?:\([a-z]{1,3}
 // delimitadores $/{/} literales. AcademicContent sustituye \square por el
 // valor seleccionado (o lo deja como casilla vacía si aún no se respondió)
 // justo antes de invocar KaTeX — ver renderMathBlank en AcademicContent.tsx.
-const INLINE_TOKEN = /(`[^`\n]+`|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$|\$[^$\n]+?\$|<math(?:\s[^>]*)?>[\s\S]*?<\/math>|\\ce\{(?:[^{}]|\{[^{}]*\})*\}|___|\{\{(?:blank|slot|answer|internal):[^}]+\}\}|\[\[(?:blank|slot|answer):[^\]]+\]\]|\*\*(?=\S)[\s\S]*?\S\*\*|__(?=\S)[\s\S]*?\S__|~~(?=\S)[\s\S]*?\S~~|(?<![\p{L}\p{N}])\*(?=\S)[^*\n]*?\S\*(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])_(?=\S)[^_\n]*?\S_(?![\p{L}\p{N}])|\[[^\]\n]+\]\([^) \n]+\))/giu
+const INLINE_TOKEN = /(`[^`\n]+`|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$|\$[^$\n]+?\$|<math(?:\s[^>]*)?>[\s\S]*?<\/math>|\\ce\{(?:[^{}]|\{[^{}]*\})*\}|_{3,}|\{\{(?:blank|slot|answer|internal):[^}]+\}\}|\[\[(?:blank|slot|answer):[^\]]+\]\]|\*\*(?=\S)[\s\S]*?\S\*\*|__(?=\S)[\s\S]*?\S__|~~(?=\S)[\s\S]*?\S~~|(?<![\p{L}\p{N}])\*(?=\S)[^*\n]*?\S\*(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])_(?=\S)[^_\n]*?\S_(?![\p{L}\p{N}])|\[[^\]\n]+\]\([^) \n]+\))/giu
 
 function safeText(value: AcademicFragmentInput): string {
   if (value === null || value === undefined) return ''
@@ -93,8 +93,8 @@ function safeLink(href: string): boolean {
 // renderer cuántas sustituciones reales (renderMathBlank) debe pedir, en
 // orden, antes de invocar KaTeX.
 function buildMathValue(rawValue: string): { value: string; blankCount: number } {
-  const blankCount = (rawValue.match(/___/g) || []).length
-  return blankCount > 0 ? { value: rawValue.replace(/___/g, '\\square'), blankCount } : { value: rawValue, blankCount: 0 }
+  const blankCount = (rawValue.match(/_{3,}/g) || []).length
+  return blankCount > 0 ? { value: rawValue.replace(/_{3,}/g, '\\square'), blankCount } : { value: rawValue, blankCount: 0 }
 }
 
 function parseInline(source: string, baseOffset = 0): AcademicNode[] {
@@ -105,7 +105,7 @@ function parseInline(source: string, baseOffset = 0): AcademicNode[] {
     for (const plain of classifyPlainSegment(source.slice(cursor, index), baseOffset + cursor)) nodes.push(plain)
     const raw = match[0]
     const sourceSpan = span(baseOffset + index, baseOffset + index + raw.length)
-    if (raw === '___') {
+    if (/^_{3,}$/.test(raw)) {
       nodes.push({ type: 'blank', id: `blank_${nodes.filter(node => node.type === 'blank').length + 1}`, sourceSpan })
     } else {
       const internal = raw.match(INTERNAL_TOKEN)
@@ -229,6 +229,52 @@ export function parseAcademicContent(input: AcademicFragmentInput): AcademicDocu
       nodes.push({
         type: 'code', value: body.join('\n'), ...(language ? { language } : {}),
         display: true, sourceSpan: span(start, line < offsets.length ? offsets[line] - 1 : source.length),
+      })
+      if (line < lines.length) nodes.push({ type: 'line_break' })
+      continue
+    }
+    if (/^\$\$/.test(lines[line].trim()) || /^\\\[/.test(lines[line].trim())) {
+      const trimmed = lines[line].trim()
+      const isDollar = trimmed.startsWith('$$')
+      const opener = isDollar ? '$$' : '\\['
+      const closer = isDollar ? '$$' : '\\]'
+      const start = offsets[line]
+      const afterOpener = trimmed.slice(opener.length)
+      if (afterOpener.includes(closer)) {
+        const rawContent = afterOpener.slice(0, afterOpener.indexOf(closer)).trim()
+        const { value, blankCount } = buildMathValue(rawContent)
+        nodes.push({
+          type: 'math',
+          value,
+          display: true,
+          source: 'latex',
+          sourceSpan: span(start, offsets[line] + lines[line].length),
+          ...(blankCount ? { blankCount } : {}),
+        })
+        line++
+        if (line < lines.length) nodes.push({ type: 'line_break' })
+        continue
+      }
+      const mathBody: string[] = [afterOpener]
+      line++
+      while (line < lines.length) {
+        if (lines[line].includes(closer)) {
+          const idx = lines[line].indexOf(closer)
+          mathBody.push(lines[line].slice(0, idx))
+          line++
+          break
+        }
+        mathBody.push(lines[line++])
+      }
+      const rawContent = mathBody.join('\n').trim()
+      const { value, blankCount } = buildMathValue(rawContent)
+      nodes.push({
+        type: 'math',
+        value,
+        display: true,
+        source: 'latex',
+        sourceSpan: span(start, line < offsets.length ? offsets[line] - 1 : source.length),
+        ...(blankCount ? { blankCount } : {}),
       })
       if (line < lines.length) nodes.push({ type: 'line_break' })
       continue

@@ -220,7 +220,7 @@ try {
   const smComponent = readFileSync('components/materias/ALAIStudyMap.tsx', 'utf8');
   const ccComponent = readFileSync('components/materias/ALAIStudyALCheatCodes.tsx', 'utf8');
   assert.match(smComponent, /useAuthorizedSource\(effectiveSourceSelection(?:,\s*['"][^'"]+['"])?\)/);
-  assert.match(ccComponent, /useAuthorizedSource\(effectiveSourceSelection(?:,\s*['"][^'"]+['"])?\)/);
+  assert.match(ccComponent, /useAuthorizedSource\(sessionId \? null : effectiveSourceSelection/);
   assert.match(smComponent, /readFreeToolState/);
   assert.match(smComponent, /writeFreeToolState/);
   assert.match(ccComponent, /readFreeToolState/);

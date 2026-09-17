@@ -6,11 +6,13 @@ import {
   getMaterialText,
   saveMaterialText,
   updateMaterialTextStatus,
+  resolveStudyKind,
+  resolveStudyStorageKey,
 } from '../../../../../lib/materials/repository';
 import { downloadFromR2 } from '../../../../../lib/materials/storage';
 import { extractText } from '../../../../../lib/materials/extractors';
 import {
-  filterTextToSelectedPages,
+  filterTextToSelectedUnits,
   validateSourceSelectionInput,
 } from '../../../../../lib/adaptive/sourceSelection';
 
@@ -69,6 +71,19 @@ export async function POST(req: NextRequest) {
             return;
           }
 
+          // Formatos convertibles (docx/pptx/odt/rtf) entran a este pipeline
+          // como su normalized.pdf — mientras la conversión no esté 'ready'
+          // no hay corpus autorizable. No extraer bytes originales como PDF.
+          if (material.conversion_status === 'processing') {
+            throw new Error(`MATERIAL_CONVERSION_PENDING:${materialId}`);
+          }
+          if (material.conversion_status === 'failed') {
+            throw new Error(`MATERIAL_CONVERSION_FAILED:${materialId}`);
+          }
+
+          const studyKind = resolveStudyKind(material);
+          const studyStorageKey = resolveStudyStorageKey(material);
+
           // ── Cache hit: texto ya extraído ──
           const cached = await getMaterialText(materialId);
           // Solo reextraer si el texto NO tiene separadores de ningún tipo
@@ -82,7 +97,7 @@ export async function POST(req: NextRequest) {
           const isLongEnough = (cached?.raw_text.length ?? 0) > 500;
           const shouldRefreshPdfCache =
             !!cached &&
-            material.kind === 'pdf' &&
+            studyKind === 'pdf' &&
             cached.raw_text.length > 0 &&
             !hasPageSeparators &&
             !isLongEnough;
@@ -93,7 +108,7 @@ export async function POST(req: NextRequest) {
 
           if (cached && cached.raw_text.length > 0 && !shouldRefreshPdfCache) {
             const authorizedText = sourceSelection
-              ? filterTextToSelectedPages(cached.raw_text, sourceSelection.selectedPages[materialId])
+              ? filterTextToSelectedUnits(cached.raw_text, studyKind, sourceSelection.selectedPages[materialId])
               : cached.raw_text;
             if (sourceSelection?.selectedPages[materialId]?.length && !authorizedText.trim()) {
               throw new Error(`AUTHORIZED_PAGES_UNAVAILABLE:${materialId}`);
@@ -110,12 +125,12 @@ export async function POST(req: NextRequest) {
           }
 
           // ── Cache miss: extraer ahora ──
-          await updateMaterialTextStatus(materialId, 'processing');
+          await updateMaterialTextStatus(materialId, user.id, 'processing');
 
-          const buffer = await downloadFromR2(material.storage_key);
+          const buffer = await downloadFromR2(studyStorageKey);
           const extraction = await extractText(
             buffer,
-            material.kind,
+            studyKind,
             material.mime_type,
             material.nombre,
           );
@@ -125,13 +140,13 @@ export async function POST(req: NextRequest) {
             const cleanText = cleanExtractedText(extraction.text);
 
             await saveMaterialText(materialId, cleanText);
-            await updateMaterialTextStatus(materialId, 'ready', {
+            await updateMaterialTextStatus(materialId, user.id, 'ready', {
               extracted_chars: cleanText.length,
               pages_count: extraction.pages,
             });
 
             const authorizedText = sourceSelection
-              ? filterTextToSelectedPages(cleanText, sourceSelection.selectedPages[materialId])
+              ? filterTextToSelectedUnits(cleanText, studyKind, sourceSelection.selectedPages[materialId])
               : cleanText;
             if (sourceSelection?.selectedPages[materialId]?.length && !authorizedText.trim()) {
               throw new Error(`AUTHORIZED_PAGES_UNAVAILABLE:${materialId}`);
@@ -145,7 +160,7 @@ export async function POST(req: NextRequest) {
               chars: authorizedText.length,
             };
           } else {
-            await updateMaterialTextStatus(materialId, 'error', {
+            await updateMaterialTextStatus(materialId, user.id, 'error', {
               last_error: `No se pudo extraer texto (método: ${extraction.method})`,
             });
             console.warn(`❌ Sin texto: ${material.nombre} (${extraction.method})`);
@@ -155,7 +170,7 @@ export async function POST(req: NextRequest) {
           console.error(`Error procesando ${materialId}:`, e?.message);
           if (!String(e?.message || '').startsWith('AUTHORIZED_PAGES_UNAVAILABLE:')) {
             try {
-              await updateMaterialTextStatus(materialId, 'error', {
+              await updateMaterialTextStatus(materialId, user.id, 'error', {
                 last_error: e.message,
               });
             } catch {}

@@ -6,9 +6,21 @@ export type MaterialKind =
   | 'pdf'
   | 'docx'
   | 'pptx'
+  | 'odt'
+  | 'rtf'
   | 'txt'
   | 'image'
-  | 'audio';
+  | 'audio'
+  | 'web';
+
+// Formatos que pasan por el servicio de normalización (LibreOffice) antes
+// de poder estudiarse — se convierten a normalized.pdf y de ahí en más
+// siguen el pipeline PDF de siempre. 'kind' (arriba) sigue siendo el
+// formato ORIGINAL, solo para mostrarle al usuario "Clase.pptx" — nunca
+// se usa para decidir cómo extraer/seleccionar una vez convertido.
+export const CONVERTIBLE_KINDS: readonly MaterialKind[] = ['docx', 'pptx', 'odt', 'rtf'];
+
+export type ConversionStatus = 'processing' | 'ready' | 'failed';
 
 export type UploadStatus = 'pending' | 'uploaded' | 'deleted';
 
@@ -22,7 +34,7 @@ export type JobStatus = 'queued' | 'processing' | 'done' | 'error';
 
 export type EnfoqueType = 'teorico' | 'matematico' | 'mixto';
 
-export type ResultType = 'flashcards' | 'quiz' | 'summary' | 'analysis';
+export type ResultType = 'alai_chat_turn' | 'flashcards' | 'quiz' | 'quiz_history' | 'quiz_manifest' | 'quiz_report' | 'quiz_result' | 'summary' | 'analysis' | 'material_brain' | 'flashcards_deck' | 'visual_page_analysis' | 'exam_manifest' | 'exam_artifact' | 'exam_result' | 'repasar_snapshot' | 'material_enjoyer' | 'repaso_artifact' | 'analysis_enjoyer_artifact' | 'truquitos_artifact';
 
 // ─── Material completo de la DB ───
 export interface Material {
@@ -42,6 +54,20 @@ export interface Material {
   pages_count?: number;
   content_hash?: string;
   last_error?: string;
+  // Solo materiales kind==='web': procedencia + cuándo se tomó el snapshot.
+  // La URL es procedencia, NO se vuelve a descargar en cada sesión — el
+  // contenido cacheado en material_texts es la fuente académica autorizada.
+  source_url?: string;
+  fetched_at?: string;
+  // Normalización a PDF (solo CONVERTIBLE_KINDS). normalized_kind/
+  // normalized_storage_key quedan NULL cuando no aplica (PDF nativo,
+  // imagen, audio, txt, web) — el código de lectura hace
+  // `normalized_storage_key || storage_key` y `normalized_kind || kind`.
+  normalized_kind?: MaterialKind;
+  normalized_storage_key?: string;
+  conversion_status?: ConversionStatus;
+  conversion_error?: string;
+  converted_at?: string;
   created_at: string;
   updated_at: string;
 }
@@ -82,6 +108,7 @@ export interface MaterialUI {
   kind: MaterialKind;
   size_bytes: number;
   text_status: TextStatus;
+  conversion_status?: ConversionStatus;
   created_at: string;
 }
 
@@ -90,7 +117,12 @@ export const ALLOWED_EXTENSIONS: Record<string, MaterialKind> = {
   'pdf':  'pdf',
   'docx': 'docx',
   'doc':  'docx',
+  'pptx': 'pptx',
+  'ppt':  'pptx',
+  'odt':  'odt',
+  'rtf':  'rtf',
   'txt':  'txt',
+  'md':   'txt',
   'jpg':  'image',
   'jpeg': 'image',
   'png':  'image',
@@ -104,7 +136,13 @@ export const ALLOWED_MIMES: Set<string> = new Set([
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/msword',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.oasis.opendocument.text',
+  'application/rtf',
+  'text/rtf',
   'text/plain',
+  'text/markdown',
   'image/jpeg',
   'image/png',
   'image/webp',
@@ -122,6 +160,8 @@ export const MAX_FILE_SIZE_BY_KIND: Record<string, number> = {
   image: 10 * 1024 * 1024, // 10MB - imágenes
   docx:  20 * 1024 * 1024, // 20MB - Word
   pptx:  20 * 1024 * 1024, // 20MB - PowerPoint
+  odt:   20 * 1024 * 1024, // 20MB - OpenDocument
+  rtf:   20 * 1024 * 1024, // 20MB - RTF
   txt:    5 * 1024 * 1024, //  5MB - texto plano
   audio: 25 * 1024 * 1024, // 25MB - audio
 };

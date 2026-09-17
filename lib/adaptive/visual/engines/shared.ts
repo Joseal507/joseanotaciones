@@ -8,14 +8,18 @@ export const normalizeToken = (value: unknown): string =>
 // f(x) en puntos concretos a partir de una expresión YA extraída literalmente del
 // material (nunca para inventar la expresión en sí).
 export function evaluateExpression(expression: string, x: number): number | null {
+  if (expression.length > 512 || !Number.isFinite(x) || !/^[\dxX\s.+\-*/^()]+$/.test(expression)) return null
   // Multiplicación implícita: "2x" / "2(x+1)" / "x(" -> inserta "*" explícito antes
   // de tokenizar, para que el parser (sin soporte nativo de yuxtaposición) no
   // trunque la expresión al primer factor.
   const withExplicitMultiplication = expression
     .replace(/(\d)\s*([xX(])/g, '$1*$2')
     .replace(/([xX)])\s*(\d)/g, '$1*$2')
+    .replace(/([xX)])\s*\(/g, '$1*(')
+    .replace(/\)\s*([xX])/g, ')*$1')
   const tokens = withExplicitMultiplication.replace(/\s+/g, '').match(/(\d+\.?\d*|[+\-*/^()]|x)/gi)
   if (!tokens) return null
+  if (tokens.join('').toLowerCase() !== withExplicitMultiplication.replace(/\s/g, '').toLowerCase()) return null
   let pos = 0
   const peek = () => tokens[pos]
   const next = () => tokens[pos++]
@@ -49,7 +53,7 @@ export function evaluateExpression(expression: string, x: number): number | null
     const token = next()
     if (token === '(') {
       const value = parseExpr()
-      if (peek() === ')') next()
+      if (peek() === ')') next(); else return NaN
       return value
     }
     if (token?.toLowerCase() === 'x') return x
@@ -59,7 +63,7 @@ export function evaluateExpression(expression: string, x: number): number | null
 
   try {
     const result = parseExpr()
-    return Number.isFinite(result) ? result : null
+    return pos === tokens.length && Number.isFinite(result) ? result : null
   } catch {
     return null
   }

@@ -24,7 +24,7 @@ import type { CanonicalQuestion } from '../../lib/adaptive/evaluation/questionCo
 const blueprintSource = readFileSync('app/api/adaptive/blueprint/route.ts', 'utf8')
 assert.doesNotMatch(blueprintSource, /const MAX_VISION_PAGES/, 'BUG DE ORIGEN SI FALLA: el cap total de páginas visuales (MAX_VISION_PAGES) debe haberse eliminado — nunca se puede descartar cobertura por un cap fijo')
 assert.doesNotMatch(blueprintSource, /poorPages\.slice\(0, MAX_VISION_PAGES\)/, 'BUG DE ORIGEN SI FALLA: no debe existir un slice que descarte candidatas más allá de un cap fijo')
-assert.match(blueprintSource, /VISION_BATCH_SIZE/, 'debe existir un tamaño de batch que controle concurrencia sin descartar candidatas')
+assert.match(blueprintSource, /VISUAL_PAGE_BATCH_SIZE/, 'debe existir un tamaño de batch que controle concurrencia sin descartar candidatas')
 assert.match(blueprintSource, /for \(const \[pageNum, text\] of fullPageMap\.entries\(\)\) \{\s*if \(text && text !== pageMap\.get\(pageNum\)\) pageMap\.set\(pageNum, text\)/, 'BUG DE ORIGEN SI FALLA: el contenido visual enriquecido debe sincronizarse de vuelta a pageMap antes de extractDocumentStructure, o las páginas puramente visuales nunca reciben topic')
 
 // ═══ A2. Transient provider failure enters technical retry ═══

@@ -14,6 +14,11 @@ export interface TruquitosCard {
   sourceMaterial?: string;
   sourceMaterialName?: string;
   tags?: string[];
+  // Enjoyer grounding identity — present only for StudyalMaterialEnjoyer-
+  // backed cards (Free Mode). Persisted so "Otra versión" can round-trip
+  // the SAME target identity server-side instead of raw material text.
+  targetIds?: string[];
+  relationIds?: string[];
 }
 
 export interface DurableFreeTruquitosState {
@@ -90,6 +95,21 @@ export function completeFreeTruquitos(
     cards,
     generatedAt: Date.now(),
   };
+}
+
+/**
+ * Cleanly abandons an in-flight generation WITHOUT recording a failure.
+ * Used when the tool is simply still preparing (background Enjoyer
+ * analysis in progress) — that is a normal, self-resolving state, so
+ * it must never leave a persisted `recoverable` + error behind.
+ */
+export function abandonFreeTruquitos(
+  state: DurableFreeTruquitosState,
+  attempt: number,
+): DurableFreeTruquitosState {
+  if (state.status !== 'generating' || state.attempt !== attempt) return state;
+  const { error: _error, ...rest } = state;
+  return { ...rest, status: state.cards.length > 0 ? 'completed' : 'idle' };
 }
 
 export function failFreeTruquitos(

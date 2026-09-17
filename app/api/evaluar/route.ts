@@ -102,6 +102,12 @@ ${respuestaUsuario}`
 
     return NextResponse.json({ success: true, resultado });
   } catch {
+    if (request.headers.get('x-studyal-technical-errors') === 'recoverable') {
+      return NextResponse.json(
+        { success: false, error: 'EVALUATION_PROVIDER_ERROR' },
+        { status: 503 },
+      );
+    }
     return NextResponse.json({
       success: true,
       resultado: {

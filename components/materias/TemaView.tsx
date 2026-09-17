@@ -19,6 +19,7 @@ import ALAIStudyALCheatCodes from "./ALAIStudyALCheatCodes";
 import ALAIStudyMap from "./ALAIStudyMap";
 import SeleccionPaginas, { type SeleccionResult } from "./SeleccionPaginas";
 import ModalConvertirPDF from "./ModalConvertirPDF";
+import MaterialPreparationScreen, { resolveFreeHubMaterialEnjoyerGate, resolvePreparationCopyVariant } from "./MaterialPreparationScreen";
 import StudyLoader from "../StudyLoader";
 import {
   upsertSession,
@@ -991,6 +992,13 @@ export default function TemaView({
   onOpenAnalisis,
   onOpenAlai,
   onOpenExam,
+  onSourceSelectionReady,
+  brainStatus,
+  brainFingerprint,
+  brainPreparation,
+  brainCapabilities,
+  onBrainRecheck,
+  materialEnjoyer,
   returnToEnfoque,
   returnSessionId,
   freeReturnSeed,
@@ -1985,8 +1993,27 @@ export default function TemaView({
   }, [tema.documentos, selectedIds, resumeSessionId, activeSessions]);
 
   const adaptiveSelectedPages = useMemo(() => {
+    // Fuente de verdad: getSessionById() lee el store síncrono (loadAll()),
+    // así que ve la sesión recién creada/actualizada por upsertSession()
+    // EN EL MISMO tick — a diferencia de `activeSessions`, que es un array
+    // de estado de React que solo se actualiza cuando refreshSessions()
+    // resuelve (async). Justo después de crear una sesión nueva
+    // (setResumeSessionId(sess.id) + refreshSessions()), `activeSessions`
+    // todavía no la contiene por uno o más renders — con solo
+    // `activeSessions.find(...)`, ese lookup fallaba, "restored" quedaba
+    // undefined, y este memo caía al fallback de selección EN VIVO
+    // (seleccionResult), calculando páginas distintas a las que
+    // upsertSession() ya guardó para esa misma sesión. Eso producía un
+    // sourceSelectionFingerprint distinto entre freeSourceSelection (usado
+    // acá y por StudyALProcess/ALAIStudyALRepasar) y
+    // session.sourceSelectionFingerprint (el guardado), y validOwner()
+    // rechazaba el envelope de freeToolState.
+    // getSessionById() va primero (siempre fresco); activeSessions.find()
+    // queda como respaldo defensivo, nunca peor que el comportamiento
+    // anterior.
     const restored = resumeSessionId
-      ? activeSessions.find(session => session.id === resumeSessionId)?.selectedPages
+      ? (getSessionById(resumeSessionId)?.selectedPages
+        ?? activeSessions.find(session => session.id === resumeSessionId)?.selectedPages)
       : null;
     if (restored && Object.keys(restored).length) return restored;
     return mapPageSelectionsToMaterials(selectedDocs, seleccionResult);
@@ -1996,6 +2023,15 @@ export default function TemaView({
     selectedDocs.map(getMaterialKey),
     adaptiveSelectedPages,
   ), [selectedDocs, adaptiveSelectedPages]);
+
+  // PASO 4: notify parent when source selection is confirmed
+  // Solo cuando el hub Free ya fue confirmado/restaurado.
+  useEffect(() => {
+    if (!openFree) return;
+    if (freeSourceSelection && selectedDocs.length > 0) {
+      onSourceSelectionReady?.(selectedDocs, adaptiveSelectedPages);
+    }
+  }, [openFree, freeSourceSelection?.fingerprint]);
 
   // Guard: si la selección actual no coincide con la sesión resumida, limpiar resume viejo
   useEffect(() => {
@@ -2534,9 +2570,64 @@ export default function TemaView({
     );
   }
 
+  // Identidad de fuente: brainStatus solo es confiable si corresponde al
+  // MISMO fingerprint que la selección Free actual. Si el Brain fue
+  // preparado/verificado para una selección distinta (cambio de material,
+  // páginas, o una sesión vieja aún no reconciliada), NO renderizamos el
+  // hub como listo — se gatea como 'preparing' hasta que el fingerprint
+  // del Brain alcance al de freeSourceSelection.
+  const brainFingerprintMatches = !!brainFingerprint
+    && !!freeSourceSelection?.fingerprint
+    && brainFingerprint === freeSourceSelection.fingerprint;
+  // PHASE 2 HOTFIX: the hub-entry gate must reflect StudyalMaterialEnjoyer
+  // readiness, NOT Material Brain. Since Phase 2 stopped priming
+  // brainSourceSelection at bare hub entry, `brainStatus` never leaves
+  // its initial/mismatched state here — the OLD
+  // resolveMaterialPreparationGate(..., requireStability:true) call
+  // this replaced always evaluated to 'building' (its own
+  // `brainFingerprintMatches ? brainStatus : 'building'` fallback),
+  // permanently gating the hub. `materialEnjoyer` (threaded down from
+  // page.tsx) is the correct, already-available signal: 'ready' means
+  // StudyalMaterialEnjoyer generation/restore finished and certified
+  // (the route only ever returns success:true after certification —
+  // see app/api/adaptive/blueprint/route.ts's finalStatus/certification
+  // gate), so no separate certification check is needed here.
+  const enjoyerFingerprintMatches = !!materialEnjoyer?.fingerprint
+    && !!freeSourceSelection?.fingerprint
+    && materialEnjoyer.fingerprint === freeSourceSelection.fingerprint;
+  const freePreparationGate = resolveFreeHubMaterialEnjoyerGate(
+    openFree && selectedDocs.length > 0,
+    materialEnjoyer?.status,
+    enjoyerFingerprintMatches,
+  );
+  // SESSION_RESUME_UX: resumeSessionId + activeSessions is the SAME
+  // server-synced session authority (lib/studySessions.ts) TemaView
+  // already uses everywhere else to resolve session identity — never a
+  // separate localStorage-only check. A session id resolves to "resume"
+  // copy ONLY if it actually matches a real persisted record; a stale/
+  // missing id (e.g. a dead link) correctly falls back to "new" copy.
+  const resumeSessionRecord = resumeSessionId
+    ? activeSessions.find(s => s.id === resumeSessionId) || getSessionById(resumeSessionId)
+    : null;
+  const isResumingFreeSession = resolvePreparationCopyVariant(!!resumeSessionId, !!resumeSessionRecord) === 'resume';
+
   if (openFree)
     return (
-      <StudyALProcess
+      <>
+        {freePreparationGate.shouldGate ? (
+          <MaterialPreparationScreen
+            mode={freePreparationGate.mode!}
+            preparation={undefined}
+            isResumingSession={isResumingFreeSession}
+            onRetry={freePreparationGate.mode === 'failed' ? materialEnjoyer?.recheck : undefined}
+            onBack={() => {
+              setOpenFree(false);
+              chosenModeRef.current = null;
+              refreshSessions();
+            }}
+          />
+        ) : (
+        <StudyALProcess
         userId={userId || undefined}
         masteryState={reconstructedMasteryState}
         masterySnapshot={masterySnapshot}
@@ -2709,55 +2800,16 @@ export default function TemaView({
             matsSeleccionados.map((m: any) => m.materialId || m.id),
           );
 
-          // ── Guardar sesión de estudio para persistencia ──
-          let savedSessionId: string | null = null;
-          try {
-            const pagesByMat: Record<string, number[]> = {};
-            normalizedSel.forEach((n: any) => {
-              if (
-                n?.materialId &&
-                Array.isArray(n.pages) &&
-                n.pages.length > 0
-              ) {
-                pagesByMat[n.materialId] = n.pages;
-              }
-            });
-            const matIds = matsSeleccionados
-              .map((m: any) => m?.materialId || m?.id)
-              .filter(Boolean) as string[];
-
-            if (tema?.id && matIds.length > 0) {
-              // Leer el modo real desde la sesión activa que coincida con estos materiales
-              const _matchingMode = studyMode || 'free';
-              const sess = upsertSession({
-                debugCaller: 'TemaView:onOpenFlashcards',
-                temaId: tema.id,
-                enfoque: enfoqueElegido as any,
-                processMode: _matchingMode,
-                studyMode: _matchingMode,
-                materialIds: matIds,
-                materialNames: matsSeleccionados.map((m: any) => String(m?.nombre || m?.name || '').trim()).filter(Boolean),
-                selectedPages: Object.keys(pagesByMat).length
-                  ? pagesByMat
-                  : undefined,
-              } as any);
-              savedSessionId = sess.id;
-              refreshSessions();
-              console.log(
-                "💾 [TemaView] Sesión upsertada:",
-                sess.id,
-                "| flashcards en cache:",
-                sess.flashcards?.length || 0,
-              );
-            }
-          } catch (e) {
-            console.warn("Error guardando sesión:", e);
-          }
+          // Única autoridad de identidad de sesión — ver el mismo fix y
+          // comentario en onOpenRepasar más abajo (mismatch de
+          // sourceSelectionFingerprint por recrear la sesión con
+          // selectedPages recalculadas en vez de reutilizar resumeSessionId).
+          const savedSessionId = ensureFreeSessionForTool(matsSeleccionados, resumeSessionId);
 
           onOpenFlashcards?.(
             matsSeleccionados,
             normalizedSel.length ? normalizedSel : undefined,
-            resumeSessionId || savedSessionId,
+            savedSessionId,
           );
         }}
         onOpenQuiz={() => {
@@ -2938,50 +2990,25 @@ export default function TemaView({
             })
             .filter(Boolean);
 
-          let savedSessionId: string | null = null;
-          try {
-            const pagesByMat: Record<string, number[]> = {};
-            normalizedSel.forEach((n: any) => {
-              if (
-                n?.materialId &&
-                Array.isArray(n.pages) &&
-                n.pages.length > 0
-              ) {
-                pagesByMat[n.materialId] = n.pages;
-              }
-            });
-
-            const matIds = matsSeleccionados
-              .map((m: any) => m?.materialId || m?.id)
-              .filter(Boolean) as string[];
-
-            if (tema?.id && matIds.length > 0) {
-              const _repasarMode = studyMode || 'free';
-              const sess = upsertSession({
-                debugCaller: 'TemaView:onOpenRepasar',
-                temaId: tema.id,
-                enfoque: "teorico" as any,
-                processMode: _repasarMode,
-                studyMode: _repasarMode,
-                materialIds: matIds,
-                materialNames: matsSeleccionados.map((m: any) => String(m?.nombre || m?.name || '').trim()).filter(Boolean),
-                selectedPages: Object.keys(pagesByMat).length
-                  ? pagesByMat
-                  : undefined,
-                currentPhase: "repasar",
-              } as any);
-              savedSessionId = sess.id;
-              setResumeSessionId(sess.id);
-              refreshSessions();
-            }
-          } catch (e) {
-            console.warn("Error guardando sesión de repasar:", e);
-          }
+          // Única autoridad de identidad de sesión: si resumeSessionId ya
+          // apunta a una sesión válida, ensureFreeSessionForTool() la
+          // reutiliza tal cual (sin recalcular selectedPages/fingerprint).
+          // Antes, este handler armaba su PROPIO pagesByMat desde
+          // normalizedSel (que acá suele venir vacío — no es el resultado
+          // recién confirmado del picker) y llamaba upsertSession() con
+          // selectedPages=undefined; como el fingerprint de "sin
+          // selectedPages" (documento completo vacío) no coincidía con el
+          // de la sesión ya creada por SeleccionPaginas-confirm
+          // (selectedPages explícitas), findSession() no la encontraba y
+          // se creaba una sesión DUPLICADA con un sourceSelectionFingerprint
+          // distinto — la causa real del mismatch entre freeSourceSelection
+          // (TemaView/StudyALProcess) y lo que recalculaba ALAIStudyALRepasar.
+          const savedSessionId = ensureFreeSessionForTool(matsSeleccionados, resumeSessionId);
 
           onOpenRepasar?.(
             matsSeleccionados,
             normalizedSel.length ? normalizedSel : undefined,
-            resumeSessionId || savedSessionId,
+            savedSessionId,
           );
         }}
         onOpenAlai={() => {
@@ -3178,6 +3205,8 @@ export default function TemaView({
         }}
         onComingSoon={() => {}}
       />
+        )}
+      </>
     );
 
   // Sin loader: la restauración es instantánea desde datos locales
@@ -3241,7 +3270,7 @@ export default function TemaView({
           fileType={modalArchivo.tipo}
           onCerrar={() => setModalArchivo(null)}
         />
-      )}
+        )}
 
       {subiendoDoc && (
         <div
@@ -5222,6 +5251,13 @@ export default function TemaView({
                   refreshSessions();
                   console.log("💾 Sesión guardada:", sess.id, "| modo:", studyMode);
                 }
+              }
+
+              if (studyMode === 'free') {
+                onSourceSelectionReady?.(
+                  selectedDocs,
+                  Object.keys(pagesByMat).length ? pagesByMat : {},
+                );
               }
             } catch (e) {
               console.warn("Error guardando sesión al entrar al enfoque:", e);

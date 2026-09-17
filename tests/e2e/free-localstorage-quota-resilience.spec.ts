@@ -55,9 +55,15 @@ async function installRoutes(page: Page) {
     return route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: 'no sourceSelection' }) });
   });
   await page.route('**/api/materials/*/download-url', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, url: `data:text/plain;base64,${TWO_PAGE_B64}` }) }));
-  await page.route('**/api/alai-studyal-cards', async route => {
+  await page.route('**/api/flashcards-v2', async route => {
     calls.flashcards++;
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, flashcards: [{ id: 'fc-1', question: 'Q1', answer: 'A1', sourcePage: 1 }] }) });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      status: 'ready',
+      deck: {
+        cards: [{ id: 'fc-1', question: 'Q1', answer: 'A1', provenance: [{ materialId: MATERIAL_ID, page: 1, quote: '', chunkId: '' }] }],
+        coverage: { targetedUnitIds: [], targetedRelationIds: [], coveredUnitIds: [], coveredRelationIds: [], status: 'complete', metrics: { plannedCards: 1, validCards: 1, failedCards: 0, targetedUnits: 0, coveredUnits: 0, targetedRelations: 0, coveredRelations: 0 } },
+      },
+    }) });
   });
   await page.route('**/api/alai-studyal-quizzes', async route => {
     calls.quiz++;

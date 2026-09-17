@@ -7,6 +7,8 @@ import type { MaterialMastery } from "../../lib/masteryEngine";
 import { getSessionById } from "../../lib/studySessions";
 import { computeFreeProcessProgress, type DurableFreeTool } from "../../lib/freeToolState";
 import { freeNavDebug } from "../../lib/debug/freeNavDebug";
+import MaterialBrainDebugViewer from "./MaterialBrainDebugViewer";
+import StudyalMaterialEnjoyerViewer from "./StudyalMaterialEnjoyerViewer";
 
 function getDocEmoji(tipo: string) {
   if (tipo === "pdf") return "📄";
@@ -91,10 +93,22 @@ export default function StudyALProcess({
   sourceSelection,
 }: Props) {
   const [ready, setReady] = useState(false);
+  const [showMaterialBrainDebug, setShowMaterialBrainDebug] = useState(false);
+  const [showMaterialEnjoyerDebug, setShowMaterialEnjoyerDebug] = useState(false);
 
   const { result: authorizedSource, status: contentStatus } = useAuthorizedSource(sourceSelection, 'StudyALProcess');
   const totalChars = authorizedSource?.totalChars || 0;
-  const estimatedPages = Math.max(1, Math.round(totalChars / 1600));
+  // Autoritativo: suma de páginas únicas seleccionadas en sourceSelection,
+  // NUNCA una estimación derivada de totalChars/coverage/chunks/vision.
+  const selectedPageCount = sourceSelection.materials.reduce(
+    (sum, material) => sum + new Set(material.selectedPages).size,
+    0,
+  );
+  const selectedDocumentCount = sourceSelection.materials.length;
+  const materialNames = useMemo(() => Object.fromEntries(materiales.map(material => [
+    getMaterialId(material),
+    String(material?.nombre || material?.name || getMaterialId(material)),
+  ])), [materiales]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setReady(true), 80);
@@ -280,6 +294,16 @@ export default function StudyALProcess({
         <button className="sap-back" onClick={onClose}>
           ← volver al mapa
         </button>
+        {process.env.NODE_ENV !== 'production' && (
+          <button className="sap-brain-debug" onClick={() => setShowMaterialBrainDebug(true)}>
+            🧠 Debug Material Brain <span>DEV</span>
+          </button>
+        )}
+        {process.env.NODE_ENV !== 'production' && (
+          <button className="sap-brain-debug" onClick={() => setShowMaterialEnjoyerDebug(true)}>
+            🧠 Studyal Material Enjoyer <span>DEV</span>
+          </button>
+        )}
       </div>
 
       <main className={`sap-canvas ${ready ? "ready" : ""}`}>
@@ -330,8 +354,8 @@ export default function StudyALProcess({
             <p className="sap-card-meta">
               {contentStatus === "loading"
                 ? "extrayendo texto..."
-                : `${estimatedPages} páginas · ${materiales.length} ${
-                    materiales.length === 1
+                : `${selectedPageCount} páginas · ${selectedDocumentCount} ${
+                    selectedDocumentCount === 1
                       ? "documento"
                       : "documentos"
                   }`}
@@ -491,12 +515,12 @@ export default function StudyALProcess({
 
             <div className="sap-paper-stats">
               <div>
-                📚 {materiales.length}{" "}
-                {materiales.length === 1
+                📚 {selectedDocumentCount}{" "}
+                {selectedDocumentCount === 1
                   ? "material"
                   : "materiales"}
               </div>
-              <div>📄 {estimatedPages} páginas</div>
+              <div>📄 {selectedPageCount} páginas</div>
             </div>
 
             {completedCount === tools.length && (
@@ -594,12 +618,31 @@ export default function StudyALProcess({
         </div>
       </div>
 
+      {process.env.NODE_ENV !== 'production' && showMaterialBrainDebug && (
+        <MaterialBrainDebugViewer
+          temaId={temaId}
+          sessionId={sessionId}
+          materialNames={materialNames}
+          sourceSelection={sourceSelection}
+          onClose={() => setShowMaterialBrainDebug(false)}
+        />
+      )}
+
+      {process.env.NODE_ENV !== 'production' && showMaterialEnjoyerDebug && (
+        <StudyalMaterialEnjoyerViewer
+          materialNames={materialNames}
+          sourceSelection={sourceSelection}
+          onClose={() => setShowMaterialEnjoyerDebug(false)}
+        />
+      )}
+
       <style>{`
         .sap-screen{position:fixed;inset:0;overflow:auto;background:var(--bg-primary);color:var(--text-primary)}
         .sap-board-bg{position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 40%,color-mix(in srgb,var(--gold) 5%,transparent),transparent 55%)}
         .sap-board-grain{position:absolute;inset:0;pointer-events:none;opacity:.07;background-image:linear-gradient(to right,color-mix(in srgb,var(--text-primary) 18%,transparent) 1px,transparent 1px),linear-gradient(to bottom,color-mix(in srgb,var(--text-primary) 18%,transparent) 1px,transparent 1px);background-size:40px 40px}
-        .sap-topbar{position:sticky;top:0;z-index:30;padding:14px 24px;background:linear-gradient(to bottom,var(--bg-primary) 70%,transparent)}
+        .sap-topbar{position:sticky;top:0;z-index:30;padding:14px 24px;background:linear-gradient(to bottom,var(--bg-primary) 70%,transparent);display:flex;justify-content:space-between;gap:12px}
         .sap-back{color:var(--blue);border:2px solid var(--blue);background:var(--bg-card);border-radius:14px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;box-shadow:3px 4px 0 var(--blue)}
+        .sap-brain-debug{color:var(--text-muted);border:1px dashed var(--border-color2);background:color-mix(in srgb,var(--bg-card) 88%,transparent);border-radius:10px;padding:7px 10px;font-size:11px;font-weight:800;cursor:pointer}.sap-brain-debug:hover{color:var(--gold);border-color:var(--gold)}.sap-brain-debug span{font-size:8px;letter-spacing:.08em;color:var(--gold);margin-left:4px}
         .sap-canvas{position:relative;z-index:5;display:grid;grid-template-columns:210px 1fr 220px;gap:20px;padding:0 24px 18px;max-width:1500px;margin:0 auto;align-items:start;opacity:0;transform:translateY(8px);transition:.4s}
         .sap-canvas.ready{opacity:1;transform:none}
         .sap-hero h1{font-size:28px;line-height:1;font-weight:900;letter-spacing:-1px;margin:0}

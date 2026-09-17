@@ -1,4 +1,15 @@
 import katex from 'katex'
+// P0 fix (surgical audit): the renderer (render.ts) loads the mhchem
+// extension so \ce{...} displays correctly to students, but this
+// validator's own katex instance never did — every syntactically
+// correct \ce{...} (mhchem chemistry notation, explicitly instructed by
+// flashcards/generator.ts's own MATH_FORMATTING_RULES) threw
+// "Undefined control sequence: \ce" here and was rejected as
+// broken_academic_content, even though it renders and reads perfectly
+// fine for the student. Confirmed via direct katex.renderToString
+// reproduction. The validator must accept exactly what the renderer can
+// render — never reject notation on an environment gap.
+import 'katex/contrib/mhchem'
 import { academicDocumentText, academicNodeChildren, hasBrokenAcademicDelimiters, parseAcademicContent } from './parser'
 import type { AcademicDocument, AcademicNode, AcademicValidation, NodeIssue, SourceSpan } from './types'
 import { ACADEMIC_PARSER_VERSION, ACADEMIC_SCHEMA_VERSION } from './types'
@@ -168,7 +179,7 @@ function readableTechnicalFallback(source: string): string {
     .replace(/\\(?:begin|end)\{[^{}]*\}/g, '')
     .replace(/\\[A-Za-z]+/g, '')
     .replace(/[$]{1,2}/g, '')
-    .replace(/(?:^|[\s([{])(?:\*\*|__|~~)(?=\S)/g, '$1')
+    .replace(/(^|[\s([{])(?:\*\*|__(?!_)|~~)(?=\S)/g, '$1')
     .replace(/\{\s*([^{}]+)\s*\}/g, '$1')
     .replace(/\s+([,.;:?!%)\]}])/g, '$1')
     .replace(/([,.;:?!])(?=\p{L}|\p{N})/gu, '$1 ')

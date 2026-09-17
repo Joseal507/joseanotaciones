@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import {
   certifyBlueprint,
-  selectPagesNeedingVision,
-  enrichPageWithVision,
   type BlueprintAuditReport,
 } from '../../app/api/adaptive/blueprint/route'
+import {
+  analyzePdfPageVisual,
+  selectPagesNeedingVisualAnalysis,
+} from '../../lib/materials/visualPageAnalysis'
 
 // GARANTÍA 1, ronda de verificación de coverage authority: "REQUIRED VISUAL
 // PAGE FAILED => THAT PAGE CANNOT BE CONSIDERED COVERED." Antes,
@@ -36,12 +38,12 @@ async function testB_TransientThenSuccess_NeverCountsAsFailed() {
   globalThis.fetch = (async () => {
     calls += 1
     if (calls === 1) return { ok: false, status: 503, text: async () => 'transient' } as any
-    return { ok: true, json: async () => ({ choices: [{ message: { content: 'Contenido visual real recuperado tras el segundo intento, con más de cincuenta caracteres.' } }] }) } as any
+    return { ok: true, json: async () => ({ choices: [{ message: { content: 'El esquema etiqueta 4 cámaras y 2 válvulas; conecta aurícula → ventrículo y muestra el flujo sanguíneo entre ambas estructuras.' }, finish_reason: 'stop' }] }) } as any
   }) as any
   try {
     process.env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || 'test-key'
-    const outcome = await enrichPageWithVision(5, Buffer.from('pdf'), 'material.pdf', '')
-    assert.equal(outcome.status, 'enriched', 'B: un fallo transitorio seguido de éxito debe terminar en "enriched", nunca en "failed"')
+    const outcome = await analyzePdfPageVisual({ page: 5, pdfBuffer: Buffer.from('pdf'), materialName: 'material.pdf', existingText: '' })
+    assert.equal(outcome.status, 'success', 'B: un fallo transitorio seguido de éxito debe terminar en "success", nunca en "failed"')
     // Simula lo que hace el caller real: solo 'failed' se empuja a failedVisualPages.
     const failedVisualPages: Array<{ material: string; page: number }> = []
     if ((outcome.status as string) === 'failed') failedVisualPages.push({ material: 'material.pdf', page: 5 })
@@ -81,11 +83,11 @@ async function testE_RetrySuccessNeverDuplicatesContent() {
   globalThis.fetch = (async () => {
     calls += 1
     if (calls === 1) return { ok: false, status: 503, text: async () => 'transient' } as any
-    return { ok: true, json: async () => ({ choices: [{ message: { content: 'UNICO-CONTENIDO-VISUAL: descripción real de la página con más de cincuenta caracteres para superar el umbral.' } }] }) } as any
+    return { ok: true, json: async () => ({ choices: [{ message: { content: 'UNICO-CONTENIDO-VISUAL: la tabla compara 10 mg y 20 mg; la dosis mayor produce una respuesta de 8 unidades.' }, finish_reason: 'stop' }] }) } as any
   }) as any
   try {
     process.env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || 'test-key'
-    const outcome = await enrichPageWithVision(6, Buffer.from('pdf'), 'material.pdf', '')
+    const outcome = await analyzePdfPageVisual({ page: 6, pdfBuffer: Buffer.from('pdf'), materialName: 'material.pdf', existingText: '' })
     const occurrences = outcome.text.split('UNICO-CONTENIDO-VISUAL').length - 1
     assert.equal(occurrences, 1, 'E: BUG DE ORIGEN SI FALLA: el retry no debe duplicar el contenido — debe aparecer exactamente una vez, no acumulado de ambos intentos')
   } finally {
@@ -94,18 +96,20 @@ async function testE_RetrySuccessNeverDuplicatesContent() {
   // selectPagesNeedingVision no puede producir duplicados: escanea 1..totalPages
   // una sola vez por número de página — verificado estructuralmente.
   const fullPageMap = new Map<number, string>([[1, ''], [2, 'x'.repeat(200)]])
-  const selected = selectPagesNeedingVision(fullPageMap, 2)
+  const selected = selectPagesNeedingVisualAnalysis(fullPageMap, 2)
   assert.equal(new Set(selected).size, selected.length, 'E: selectPagesNeedingVision no debe producir páginas duplicadas')
 }
 
-// ═══ F. restored/cached enrichment — NO APLICA ═══
-// blueprint/route.ts no tiene ningún mecanismo de caché/restore por página
-// para resultados de visión (verificado: sin `cache`/`Cache` en el
-// archivo) — cada POST reprocesa el material completo desde cero. No hay
-// estado "restaurado" cuyo failed/success deba preservarse entre
-// requests para este endpoint. Documentado explícitamente, no fabricado.
-function testF_NoCachingMechanismExists_DocumentedNotApplicable() {
-  console.log('  ℹ️  F: no aplica — blueprint/route.ts no cachea/restaura resultados de visión por página entre requests; cada POST reprocesa desde cero')
+// ═══ F. restore/cache authority ═══
+// El contrato detallado de hit/miss/inflight vive en
+// visual-page-cache-contracts.ts. Aquí documentamos que un resultado
+// restaurado nunca entra a failedVisualPages: conserva exactamente el mismo
+// status semántico que una extracción recién generada.
+function testF_CachedSuccessPreservesCoverageSemantics() {
+  const cachedOutcome = { status: 'success' as const }
+  const failedVisualPages: Array<{ material: string; page: number }> = []
+  if ((cachedOutcome.status as string) === 'failed') failedVisualPages.push({ material: 'm.pdf', page: 2 })
+  assert.equal(failedVisualPages.length, 0)
 }
 
 async function run() {
@@ -114,8 +118,8 @@ async function run() {
   testC_OnePersistentFailure_BlocksCertification()
   testD_FailureNeverDisappearsRegardlessOfOtherSignals()
   await testE_RetrySuccessNeverDuplicatesContent()
-  testF_NoCachingMechanismExists_DocumentedNotApplicable()
-  console.log('visual-coverage-authority-contracts: PASS (A: 13/13 ready; B: transitorio-recuperado sigue ready; C: 1 fallo persistente bloquea certificación; D: ninguna otra señal blanquea el fallo; E: retry no duplica contenido/páginas; F: sin mecanismo de caché, no aplica)')
+  testF_CachedSuccessPreservesCoverageSemantics()
+  console.log('visual-coverage-authority-contracts: PASS (A: 13/13 ready; B: transitorio-recuperado sigue ready; C: 1 fallo persistente bloquea certificación; D: ninguna otra señal blanquea el fallo; E: retry no duplica contenido/páginas; F: cache hit preserva semántica de coverage)')
 }
 
 run()

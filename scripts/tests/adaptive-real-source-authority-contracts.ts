@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { NextRequest } from 'next/server'
 import { POST as generatePlan } from '../../app/api/adaptive/generate-plan/route'
-import { selectPagesNeedingVision } from '../../app/api/adaptive/blueprint/route'
+import { selectPagesNeedingVisualAnalysis } from '../../lib/materials/visualPageAnalysis'
 import { mapPageSelectionsToMaterials, prepareCanonicalSourceMaterials, stripNonInstructionalBoilerplate } from '../../lib/adaptive/sourceSelection'
 
 const documents = [{ id: 'doc-falcons', materialId: 'mat-falcons', pages: 2 }, { id: 'doc-bohr', materialId: 'mat-bohr', pages: 5 }, { id: 'doc-clutch', materialId: 'mat-clutch', pages: 43 }]
@@ -22,7 +22,7 @@ assert.equal(prepared.materials.reduce((total, material) => total + material.sel
 assert.doesNotMatch(JSON.stringify(prepared.materials), /FORBIDDEN_/)
 for (const material of prepared.materials) {
   const pageMap = new Map(material.selectedPages!.map(page => [page, '']))
-  assert.deepEqual(selectPagesNeedingVision(pageMap, material.selectedPages!), material.selectedPages)
+  assert.deepEqual(selectPagesNeedingVisualAnalysis(pageMap, material.selectedPages!), material.selectedPages)
 }
 assert.doesNotMatch(stripNonInstructionalBoilerplate('© 2009 Prentice-Hall Inc. Todos los derechos reservados.'), /Prentice|copyright|derechos/i)
 

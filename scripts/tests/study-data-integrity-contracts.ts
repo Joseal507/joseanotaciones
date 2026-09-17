@@ -40,7 +40,12 @@ assert.ok(materialRoute.indexOf('await hardDeleteMaterial') < materialRoute.inde
 // K/L — delete waits for ACK; restore errors stay ERROR and are never migrated as absence.
 assert.match(page, /if \(!response\.ok && response\.status !== 404\)/);
 assert.match(page, /getSessionsByTema\(target\.id\)/);
-assert.match(page, /No se pudieron verificar las sesiones dependientes/);
+// Tema/materia cascade delete: server ACK required before the local tree
+// loses the entity — a failed or network-errored DELETE must NOT be treated
+// as "deleted" (error ≠ absence), and "has sessions" is no longer a valid
+// reason to block deletion (cascade owns that data now).
+assert.match(page, /if \(!res\.ok \|\| !data\.success\)/);
+assert.doesNotMatch(page, /tiene sesiones de estudio y no puede eliminarse/);
 assert.match(storage, /status: 'ERROR'/);
 assert.doesNotMatch(page, /else if \(materiasLocal\.length > 0\)\s*\{\s*await fetch\('\/api\/materias'/s);
 

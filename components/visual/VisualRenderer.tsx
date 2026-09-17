@@ -175,13 +175,15 @@ function GraphView({ data, mode, onSubmit, disabled }: { data: GraphDataSpec; mo
   const plotW = vbWidth - margin.left - margin.right
   const plotH = vbHeight - margin.top - margin.bottom
   const [domainMin, domainMax] = data.domain
-  const ys = data.points.map(p => p.y)
-  const rawYMin = Math.min(0, ...ys), rawYMax = Math.max(0, ...ys) || 1
+  const ys = data.points.map(p => p.y).filter(y => Number.isFinite(y) && Math.abs(y) <= 100)
+  const rawYMin = ys.length ? Math.min(0, ...ys) : -10, rawYMax = ys.length ? (Math.max(0, ...ys) || 1) : 10
   const yPad = (rawYMax - rawYMin) * 0.1 || 1
   const yMin = rawYMin - yPad, yMax = rawYMax + yPad
   const toScreenX = (px: number) => margin.left + ((px - domainMin) / (domainMax - domainMin || 1)) * plotW
   const toScreenY = (py: number) => margin.top + plotH - ((py - yMin) / (yMax - yMin || 1)) * plotH
   const path = data.points.map(p => `${toScreenX(p.x)},${toScreenY(p.y)}`).join(" ")
+  const interactivePoints = data.points.map((point, index) => ({ point, index }))
+    .filter(({ point, index }) => Boolean(point.label) || index % Math.max(1, Math.ceil(data.points.length / 9)) === 0)
   const xTicks = niceTicks(domainMin, domainMax)
   const yTicks = niceTicks(yMin, yMax)
   const zeroInX = domainMin <= 0 && domainMax >= 0
@@ -216,13 +218,37 @@ function GraphView({ data, mode, onSubmit, disabled }: { data: GraphDataSpec; mo
         ))}
         <text x={margin.left + plotW} y={margin.top + plotH + 16} fill="#6b7280" fontSize={10} textAnchor="end">x</text>
         <text x={margin.left} y={margin.top - 10} fill="#6b7280" fontSize={10} textAnchor="start">f(x)</text>
-        {data.points.length > 1 && <polyline points={path} fill="none" stroke="#4ade80" strokeWidth={2} />}
-        {data.points.map((p, i) => (
+        {data.segments && data.segments.length > 0 ? (
+          data.segments.map((seg, sIdx) => (
+            seg.length > 1 && (
+              <polyline
+                key={`seg-${sIdx}`}
+                points={seg.map(p => `${toScreenX(p.x)},${toScreenY(p.y)}`).join(" ")}
+                fill="none"
+                stroke="#4ade80"
+                strokeWidth={2}
+              />
+            )
+          ))
+        ) : (
+          data.points.length > 1 && <polyline points={path} fill="none" stroke="#4ade80" strokeWidth={2} />
+        )}
+        {interactivePoints.map(({ point: p, index: i }) => (
           <g key={i} tabIndex={0} focusable="true" role="button" aria-label={`Punto ${p.x}, ${p.y}`} onClick={()=>{setExploredPoint(i);if(mode!=="teach")onSubmit?.("select_region",{x:p.x,y:p.y})}} onKeyDown={e=>{if(e.key==="Enter"){setExploredPoint(i);if(mode!=="teach")onSubmit?.("select_region",{x:p.x,y:p.y})}}}>
             <circle cx={toScreenX(p.x)} cy={toScreenY(p.y)} r={exploredPoint===i?7:4} fill={exploredPoint===i?"#facc15":"#60a5fa"} stroke="#0c0c12" strokeWidth={1.5}>
-              <title>{p.label ? `${p.label}: ` : ""}({fmtTick(p.x)}, {fmtTick(p.y)})</title>
+              <title>{`${p.label ? `${p.label}: ` : ""}(${fmtTick(p.x)}, ${fmtTick(p.y)})`}</title>
             </circle>
-            {p.label && <text x={toScreenX(p.x)} y={toScreenY(p.y) - 8} fill="#93c5fd" fontSize={10} textAnchor="middle">{p.label}</text>}
+            {p.label && (
+              <text
+                x={toScreenX(p.x) + (p.label.startsWith('Corte Y') ? -6 : 0)}
+                y={toScreenY(p.y) + (p.label.startsWith('Vértice') ? 16 : -8)}
+                fill="#93c5fd"
+                fontSize={10}
+                textAnchor={p.label.startsWith('Corte Y') ? 'end' : 'middle'}
+              >
+                {p.label}
+              </text>
+            )}
           </g>
         ))}
         {mode==="teach"&&sliderY!==null&&<g><line x1={toScreenX(sliderX)} y1={axisX} x2={toScreenX(sliderX)} y2={toScreenY(sliderY)} stroke="#facc15" strokeDasharray="4 3"/><circle cx={toScreenX(sliderX)} cy={toScreenY(sliderY)} r="6" fill="#facc15"/></g>}
@@ -230,7 +256,7 @@ function GraphView({ data, mode, onSubmit, disabled }: { data: GraphDataSpec; mo
       {mode === "teach" && data.points.length > 0 && (
         <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <span style={label}>Explora x:</span>
-          {data.points.map((point, index) => <button key={`${point.x}:${index}`} type="button" style={{ ...submitBtn, marginTop: 0, padding: "5px 10px", background: exploredPoint === index ? "#60a5fa" : "#273449", color: "white" }} onClick={() => setExploredPoint(index)}>{fmtTick(point.x)}</button>)}
+          {interactivePoints.map(({ point, index }) => <button key={`${point.x}:${index}`} type="button" style={{ ...submitBtn, marginTop: 0, padding: "5px 10px", background: exploredPoint === index ? "#60a5fa" : "#273449", color: "white" }} onClick={() => setExploredPoint(index)}>{fmtTick(point.x)}</button>)}
           <span style={{ color: "#93c5fd" }}>x={fmtTick(data.points[exploredPoint].x)} → y={fmtTick(data.points[exploredPoint].y)}</span>
           <input aria-label="Seleccionar valor de x" type="range" min={domainMin} max={domainMax} step={(domainMax-domainMin)/100||1} value={sliderX} onChange={e=>setSliderX(Number(e.target.value))}/>
           {sliderY!==null&&<span style={{color:"#facc15"}}>f({fmtTick(sliderX)}) = {fmtTick(sliderY)}</span>}

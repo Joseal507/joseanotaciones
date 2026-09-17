@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { alaiRequest } from '../../../../lib/alai';
 
 export async function POST(req: NextRequest) {
+  // This visualization endpoint is independent from Material Brain/Quiz and does not persist relations consumed by planQuiz.
   try {
     const { materialText, concepts, materialId, tema, materia } = await req.json();
 

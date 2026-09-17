@@ -53,6 +53,7 @@ export async function uploadMaterials(
     const err = await initRes.json().catch(() => ({}));
     throw new Error(err.error ?? 'Error iniciando upload');
   }
+  console.log('[upload] UPLOAD_INIT_OK', { files: files.length });
 
   const { uploads } = await initRes.json();
   const results: MaterialUI[] = [];
@@ -75,10 +76,16 @@ export async function uploadMaterials(
         onProgress([...progress]);
 
         try {
-          await uploadWithProgress(upload.uploadUrl, file, pct => {
-            progress[idx] = { ...progress[idx], progress: pct };
-            onProgress([...progress]);
-          });
+          try {
+            await uploadWithProgress(upload.uploadUrl, file, pct => {
+              progress[idx] = { ...progress[idx], progress: pct };
+              onProgress([...progress]);
+            });
+            console.log('[upload] R2_PUT_OK', file.name);
+          } catch (err: any) {
+            console.warn('[upload] R2_PUT_FAILED', file.name, err?.message);
+            throw err;
+          }
 
           progress[idx] = { ...progress[idx], status: 'completing', progress: 100 };
           onProgress([...progress]);
@@ -92,7 +99,17 @@ export async function uploadMaterials(
 
           const completeData = await completeRes.json().catch(() => ({}));
           if (!completeRes.ok || !completeData.success) {
+            console.warn('[upload] UPLOAD_COMPLETE_FAILED', completeRes.status);
             throw new Error(completeData.error ?? 'Error completando upload');
+          }
+          console.log('[upload] UPLOAD_COMPLETE_OK', upload.materialId);
+
+          // El archivo subió bien a R2, pero si necesitaba normalizarse a
+          // PDF (docx/pptx/odt/rtf) y la conversión falló, el material no
+          // es estudiable todavía — no lo mostramos como "listo" sin decir
+          // nada.
+          if (completeData.material?.conversion_status === 'failed') {
+            throw new Error('Este material no pudo prepararse.');
           }
 
           progress[idx] = {
@@ -140,6 +157,11 @@ function uploadWithProgress(
 
     xhr.addEventListener('error', () => reject(new Error('Error de red')));
     xhr.addEventListener('abort', () => reject(new Error('Upload cancelado')));
+    // Sin esto, un PUT que se cuelga (p.ej. preflight CORS bloqueado sin
+    // respuesta) nunca dispara load/error/abort y el upload queda
+    // silenciosamente atascado para siempre.
+    xhr.timeout = 60000;
+    xhr.addEventListener('timeout', () => reject(new Error('R2 upload timeout (60s)')));
 
     xhr.open('PUT', url);
     xhr.setRequestHeader('Content-Type', file.type);

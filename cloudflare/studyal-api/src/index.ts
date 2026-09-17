@@ -806,12 +806,26 @@ export default {
         const body = await readBody(request)
         if (!body.id || !body.user_id) return json({ ok: false, error: "id_user_id_required" }, 400)
 
+        // Aditivo, seguro de repetir — materiales Web necesitan procedencia
+        // (source_url/fetched_at); normalización a PDF necesita
+        // normalized_kind/normalized_storage_key/conversion_status/
+        // converted_at. No afecta filas existentes (quedan en NULL).
+        for (const [col, def] of [
+          ["source_url", "TEXT"], ["fetched_at", "TEXT"],
+          ["normalized_kind", "TEXT"], ["normalized_storage_key", "TEXT"],
+          ["conversion_status", "TEXT"], ["conversion_error", "TEXT"], ["converted_at", "TEXT"],
+        ]) {
+          try { await env.DB.prepare(`ALTER TABLE materials ADD COLUMN ${col} ${def}`).run() } catch (_) {}
+        }
+
         await env.DB.prepare(`
           INSERT INTO materials (
             id,user_id,tema_id,materia_id,nombre,extension,mime_type,size_bytes,storage_key,kind,
-            upload_status,text_status,extracted_chars,pages_count,content_hash,last_error,created_at,updated_at
+            upload_status,text_status,extracted_chars,pages_count,content_hash,last_error,
+            source_url,fetched_at,normalized_kind,normalized_storage_key,conversion_status,converted_at,
+            created_at,updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
           ON CONFLICT(id) DO UPDATE SET
             tema_id=excluded.tema_id,
             materia_id=excluded.materia_id,
@@ -827,6 +841,12 @@ export default {
             pages_count=excluded.pages_count,
             content_hash=excluded.content_hash,
             last_error=excluded.last_error,
+            source_url=excluded.source_url,
+            fetched_at=excluded.fetched_at,
+            normalized_kind=excluded.normalized_kind,
+            normalized_storage_key=excluded.normalized_storage_key,
+            conversion_status=excluded.conversion_status,
+            converted_at=excluded.converted_at,
             updated_at=datetime('now')
           WHERE materials.user_id = excluded.user_id
         `).bind(
@@ -846,6 +866,12 @@ export default {
           body.pages_count ?? null,
           body.content_hash ?? null,
           body.last_error ?? null,
+          body.source_url ?? null,
+          body.fetched_at ?? null,
+          body.normalized_kind ?? null,
+          body.normalized_storage_key ?? null,
+          body.conversion_status ?? null,
+          body.converted_at ?? null,
           body.created_at ?? null
         ).run()
 
@@ -858,6 +884,26 @@ export default {
         const body = await readBody(request)
         if (!body.id || !body.user_id) return json({ ok: false, error: "id_user_id_required" }, 400)
 
+        // Aditivo, seguro de repetir — normalización DOCX/PPTX/etc a PDF vía
+        // document-converter. normalized_kind/normalized_storage_key son
+        // NULL para materiales que no necesitan conversión (el código de
+        // lectura hace fallback a kind/storage_key existentes).
+        for (const [col, def] of [
+          ["normalized_kind", "TEXT"],
+          ["normalized_storage_key", "TEXT"],
+          ["conversion_status", "TEXT"],
+          ["conversion_error", "TEXT"],
+          ["converted_at", "TEXT"],
+        ]) {
+          try { await env.DB.prepare(`ALTER TABLE materials ADD COLUMN ${col} ${def}`).run() } catch (_) {}
+        }
+
+        // conversion_error se limpia explícitamente cada vez que
+        // conversion_status cambia (CASE ... ELSE conversion_error) — un
+        // retry exitoso no debe dejar un error viejo colgado. Cuando esta
+        // llamada no toca conversion_status (updates no relacionados a
+        // conversión), conversion_error queda intacto.
+        const conversionStatus = body.conversion_status ?? null
         await env.DB.prepare(`
           UPDATE materials SET
             upload_status = COALESCE(?, upload_status),
@@ -865,6 +911,12 @@ export default {
             extracted_chars = COALESCE(?, extracted_chars),
             pages_count = COALESCE(?, pages_count),
             last_error = COALESCE(?, last_error),
+            normalized_kind = COALESCE(?, normalized_kind),
+            normalized_storage_key = COALESCE(?, normalized_storage_key),
+            conversion_status = COALESCE(?, conversion_status),
+            converted_at = COALESCE(?, converted_at),
+            conversion_error = CASE WHEN ? IS NOT NULL THEN ? ELSE conversion_error END,
+            content_hash = COALESCE(?, content_hash),
             updated_at = datetime('now')
           WHERE id = ? AND user_id = ?
         `).bind(
@@ -873,6 +925,13 @@ export default {
           body.extracted_chars ?? null,
           body.pages_count ?? null,
           body.last_error ?? null,
+          body.normalized_kind ?? null,
+          body.normalized_storage_key ?? null,
+          conversionStatus,
+          body.converted_at ?? null,
+          conversionStatus,
+          body.conversion_error ?? null,
+          body.content_hash ?? null,
           body.id,
           body.user_id
         ).run()
@@ -883,8 +942,17 @@ export default {
       if (url.pathname === "/materials/delete" && request.method === "POST") {
         const body = await readBody(request)
         if (!body.id || !body.user_id) return json({ ok: false, error: "id_user_id_required" }, 400)
-        await env.DB.prepare("UPDATE materials SET upload_status='deleted', updated_at=datetime('now') WHERE id=? AND user_id=?")
+        const upd = await env.DB.prepare("UPDATE materials SET upload_status='deleted', updated_at=datetime('now') WHERE id=? AND user_id=?")
           .bind(body.id, body.user_id).run()
+        // Solo purgar hijas si la fila realmente le pertenece al caller
+        // (meta.changes > 0) — nunca purgar por un id ajeno.
+        if ((upd.meta?.changes ?? 0) > 0) {
+          await env.DB.batch([
+            env.DB.prepare("DELETE FROM material_texts WHERE material_id = ?").bind(body.id),
+            env.DB.prepare("DELETE FROM material_results WHERE material_id = ?").bind(body.id),
+            env.DB.prepare("DELETE FROM material_jobs WHERE material_id = ?").bind(body.id),
+          ])
+        }
         return json({ ok: true })
       }
 
@@ -920,15 +988,222 @@ export default {
         const enfoque = url.searchParams.get("enfoque")
         const resultType = url.searchParams.get("resultType")
         if (!materialId) return json({ ok: false, error: "materialId_required" }, 400)
+        // A deterministic id equal to material_id is the authoritative row
+        // for CAS-backed records. Prefer it over historical random-id rows;
+        // otherwise retain the created_at + rowid latest-write ordering.
         const row = await env.DB.prepare(`
           SELECT * FROM material_results
           WHERE material_id = ?
             AND (? IS NULL OR enfoque = ?)
             AND (? IS NULL OR result_type = ?)
-          ORDER BY created_at DESC
+          ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END,
+            created_at DESC, rowid DESC
           LIMIT 1
-        `).bind(materialId, enfoque, enfoque, resultType, resultType).first()
+        `).bind(materialId, enfoque, enfoque, resultType, resultType, materialId).first()
         return json({ ok: true, result: row || null })
+      }
+
+      if (url.pathname === "/material-results/by-scope" && request.method === "GET") {
+        const materialId = url.searchParams.get("materialId")
+        const enfoque = url.searchParams.get("enfoque")
+        const resultType = url.searchParams.get("resultType")
+        if (!materialId || !enfoque || !resultType) return json({ ok: false, error: "scope_required" }, 400)
+        const rows = await env.DB.prepare(`
+          SELECT * FROM material_results
+          WHERE material_id = ? AND enfoque = ? AND result_type = ?
+          ORDER BY created_at ASC, rowid ASC
+        `).bind(materialId, enfoque, resultType).all()
+        return json({ ok: true, results: rows.results || [] })
+      }
+
+      // Immutable completed Quiz evidence. The frozen artifact identity owns
+      // one result; retries and concurrent tabs observe the same first winner.
+      if (url.pathname === "/material-results/quiz-result-insert" && request.method === "POST") {
+        const body = await readBody(request)
+        if (typeof body.id !== "string" || !/^quiz_result:[a-f0-9]{64}$/.test(body.id)
+          || typeof body.material_id !== "string" || !/^quiz_progress:[a-f0-9]{64}$/.test(body.material_id)
+          || typeof body.content_hash !== "string" || !/^[a-f0-9]{64}$/.test(body.content_hash)
+          || !body.payload || typeof body.payload !== "object") {
+          return json({ ok: false, error: "invalid_quiz_result" }, 400)
+        }
+        const written = await env.DB.prepare(`
+          INSERT INTO material_results (id, material_id, enfoque, result_type, payload, content_hash, created_at)
+          VALUES (?, ?, 'mixto', 'quiz_result', ?, ?, datetime('now'))
+          ON CONFLICT(id) DO NOTHING
+        `).bind(body.id, body.material_id, JSON.stringify(body.payload), body.content_hash).run()
+        const result = await env.DB.prepare(`SELECT * FROM material_results WHERE id = ? AND result_type = 'quiz_result'`)
+          .bind(body.id).first()
+        return json({ ok: true, applied: written.meta.changes === 1, result })
+      }
+
+      // Quiz progressive generation freezes artifact + manifest as one revision.
+      // The two D1 statements execute transactionally as a batch. The manifest
+      // write is gated by the artifact's unique new revision, so a stale caller
+      // can change neither row and must reload the authoritative winner.
+      if (url.pathname === "/material-results/quiz-generation-cas" && request.method === "POST") {
+        const body = await readBody(request)
+        const identity = String(body.identity || "")
+        const artifactId = `enjoyer_quiz:${identity}`
+        const manifestId = `enjoyer_quiz_manifest:${identity}`
+        const revisionsAreNull = body.expectedArtifactRevision === null && body.expectedManifestRevision === null
+        const revisionsAreStrings = typeof body.expectedArtifactRevision === "string"
+          && typeof body.expectedManifestRevision === "string"
+        if (!/^[a-f0-9]{64}$/.test(identity)
+          || typeof body.revision !== "string" || !body.revision
+          || (!revisionsAreNull && !revisionsAreStrings)
+          || !body.artifact || typeof body.artifact !== "object"
+          || !body.manifest || typeof body.manifest !== "object"
+          || body.manifest.identity !== identity
+          || body.artifact?.meta?.generationId !== body.manifest.generationId
+          || JSON.stringify(body.artifact.scopePlan ?? null) !== JSON.stringify(body.manifest.scopePlan ?? null)
+          || JSON.stringify(body.artifact.retiredSlotIds ?? []) !== JSON.stringify(body.manifest.retiredSlotIds ?? [])) {
+          return json({ ok: false, error: "invalid_quiz_generation_write" }, 400)
+        }
+        const artifactPayload = JSON.stringify(body.artifact)
+        const manifestPayload = JSON.stringify(body.manifest)
+        const statements = revisionsAreNull
+          ? [
+              env.DB.prepare(`INSERT INTO material_results
+                (id, material_id, enfoque, result_type, payload, content_hash, created_at)
+                SELECT ?, ?, 'mixto', 'quiz', ?, ?, datetime('now')
+                WHERE NOT EXISTS (SELECT 1 FROM material_results WHERE id IN (?, ?))`)
+                .bind(artifactId, artifactId, artifactPayload, body.revision, artifactId, manifestId),
+              env.DB.prepare(`INSERT INTO material_results
+                (id, material_id, enfoque, result_type, payload, content_hash, created_at)
+                SELECT ?, ?, 'mixto', 'quiz', ?, ?, datetime('now')
+                WHERE NOT EXISTS (SELECT 1 FROM material_results WHERE id = ?)
+                  AND EXISTS (SELECT 1 FROM material_results WHERE id = ? AND content_hash = ?)`)
+                .bind(manifestId, manifestId, manifestPayload, body.revision,
+                  manifestId, artifactId, body.revision),
+            ]
+          : [
+              env.DB.prepare(`UPDATE material_results SET payload = ?, content_hash = ?
+                WHERE id = ? AND result_type = 'quiz' AND content_hash = ?
+                  AND COALESCE(json_extract(payload, '$.meta.status'), '') <> 'ready'
+                  AND json_extract(payload, '$.scopePlan') IS json_extract(?, '$.scopePlan')
+                  AND EXISTS (SELECT 1 FROM material_results
+                    WHERE id = ? AND result_type = 'quiz' AND content_hash = ?
+                      AND COALESCE(json_extract(payload, '$.status'), '') <> 'ready'
+                      AND json_extract(payload, '$.scopePlan') IS json_extract(?, '$.scopePlan'))`)
+                .bind(artifactPayload, body.revision, artifactId, body.expectedArtifactRevision,
+                  artifactPayload, manifestId, body.expectedManifestRevision, manifestPayload),
+              env.DB.prepare(`UPDATE material_results SET payload = ?, content_hash = ?
+                WHERE id = ? AND result_type = 'quiz' AND content_hash = ?
+                  AND COALESCE(json_extract(payload, '$.status'), '') <> 'ready'
+                  AND json_extract(payload, '$.scopePlan') IS json_extract(?, '$.scopePlan')
+                  AND EXISTS (SELECT 1 FROM material_results
+                    WHERE id = ? AND result_type = 'quiz' AND content_hash = ?)`)
+                .bind(manifestPayload, body.revision, manifestId, body.expectedManifestRevision,
+                  manifestPayload, artifactId, body.revision),
+            ]
+        const written = await env.DB.batch(statements)
+        return json({ ok: true, applied: written.length === 2
+          && written[0].meta.changes === 1 && written[1].meta.changes === 1 })
+      }
+
+      // ALAI Chat: reserve once, then freeze a validated result. Completed turns are immutable.
+      if (url.pathname === "/material-results/alai-chat-turn-cas" && request.method === "POST") {
+        const body = await readBody(request)
+        if (typeof body.id !== 'string' || !/^alai_chat_turn:[a-f0-9]{64}$/.test(body.id)
+          || typeof body.revision !== 'string' || !body.revision
+          || !(body.expectedRevision === null || typeof body.expectedRevision === 'string')
+          || body.payload?.version !== 1 || !['pending', 'failed', 'completed'].includes(body.payload?.status)
+          || typeof body.payload?.requestHash !== 'string' || !/^[a-f0-9]{64}$/.test(body.payload.requestHash)
+          || !Number.isInteger(body.payload?.attempt) || body.payload.attempt < 1
+          || (body.payload.status === 'completed' && (body.payload.result?.schema !== 'alai-chat' || body.payload.result?.version !== 1 || body.payload.result?.success !== true))) {
+          return json({ ok: false, error: 'invalid_alai_chat_turn_write' }, 400)
+        }
+        const payload = JSON.stringify(body.payload)
+        if (payload.length > 100000) return json({ ok: false, error: 'alai_chat_turn_too_large' }, 400)
+        if (body.expectedRevision === null && body.payload.status !== 'pending') return json({ ok: false, error: 'alai_chat_turn_reservation_required' }, 400)
+        const written = body.expectedRevision === null
+          ? await env.DB.prepare(`INSERT INTO material_results
+              (id, material_id, enfoque, result_type, payload, content_hash, created_at)
+              VALUES (?, ?, 'mixto', 'alai_chat_turn', ?, ?, datetime('now')) ON CONFLICT(id) DO NOTHING`)
+              .bind(body.id, body.id, payload, body.revision).run()
+          : await env.DB.prepare(`UPDATE material_results SET payload = ?, content_hash = ?
+              WHERE id = ? AND result_type = 'alai_chat_turn' AND content_hash = ?
+              AND json_extract(payload, '$.status') <> 'completed'
+              AND json_extract(payload, '$.requestHash') = ?
+              AND ((json_extract(payload, '$.status') = 'pending' AND ? IN ('completed', 'failed') AND json_extract(payload, '$.attempt') = ?)
+                OR (json_extract(payload, '$.status') = 'failed' AND ? = 'pending' AND json_extract(payload, '$.attempt') < ?))`)
+              .bind(payload, body.revision, body.id, body.expectedRevision, body.payload.requestHash,
+                body.payload.status, body.payload.attempt, body.payload.status, body.payload.attempt).run()
+        return json({ ok: true, applied: written.meta.changes === 1 })
+      }
+
+      // Truquitos uses the existing table with atomic revision-checked writes.
+      // No read-then-write race: both insert-if-absent and CAS are single SQL statements.
+      if (url.pathname === "/material-results/truquitos-cas" && request.method === "POST") {
+        const body = await readBody(request)
+        if (typeof body.id !== "string" || !/^truquitos:[a-f0-9]{64}$/.test(body.id)
+          || typeof body.revision !== "string" || !body.revision
+          || !(body.expectedRevision === null || typeof body.expectedRevision === "string")
+          || !body.payload || typeof body.payload !== "object") {
+          return json({ ok: false, error: "invalid_truquitos_write" }, 400)
+        }
+        const payload = JSON.stringify(body.payload)
+        const written = body.expectedRevision === null
+          ? await env.DB.prepare(`
+              INSERT INTO material_results (id, material_id, enfoque, result_type, payload, content_hash, created_at)
+              VALUES (?, ?, 'mixto', 'truquitos_artifact', ?, ?, datetime('now'))
+              ON CONFLICT(id) DO NOTHING
+            `).bind(body.id, body.id, payload, body.revision).run()
+          : await env.DB.prepare(`
+              UPDATE material_results SET payload = ?, content_hash = ?
+              WHERE id = ? AND result_type = 'truquitos_artifact' AND content_hash = ?
+            `).bind(payload, body.revision, body.id, body.expectedRevision).run()
+        return json({ ok: true, applied: written.meta.changes === 1 })
+      }
+
+      // Exam generation uses the same revision boundary as grading. A stale
+      // candidate must re-read/merge the accepted slot before trying again.
+      if (url.pathname === "/material-results/exam-generation-cas" && request.method === "POST") {
+        const body = await readBody(request)
+        if (!['exam_manifest', 'exam_artifact'].includes(body.resultType)
+          || typeof body.id !== 'string' || !new RegExp('^' + body.resultType + ':[a-f0-9]{64}$').test(body.id)
+          || typeof body.revision !== 'string' || !body.revision
+          || !(body.expectedRevision === null || typeof body.expectedRevision === 'string')
+          || !body.payload || typeof body.payload !== 'object') {
+          return json({ ok: false, error: 'invalid_exam_generation_write' }, 400)
+        }
+        const payload = JSON.stringify(body.payload)
+        const written = body.expectedRevision === null
+          ? await env.DB.prepare(`INSERT INTO material_results
+              (id, material_id, enfoque, result_type, payload, content_hash, created_at)
+              VALUES (?, ?, 'mixto', ?, ?, ?, datetime('now')) ON CONFLICT(id) DO NOTHING`)
+              .bind(body.id, body.id, body.resultType, payload, body.revision).run()
+          : await env.DB.prepare(`UPDATE material_results SET payload = ?, content_hash = ?
+              WHERE id = ? AND result_type = ? AND content_hash = ?
+              AND COALESCE(json_extract(payload, '$.meta.status'), json_extract(payload, '$.status'), '') <> 'ready'`)
+              .bind(payload, body.revision, body.id, body.resultType, body.expectedRevision).run()
+        // A previously READY row is already the immutable winner.
+        const frozen = written.meta.changes === 0
+          ? await env.DB.prepare(`SELECT id FROM material_results WHERE id = ?
+              AND COALESCE(json_extract(payload, '$.meta.status'), json_extract(payload, '$.status'), '') = 'ready'`)
+              .bind(body.id).first() : null
+        return json({ ok: true, applied: written.meta.changes === 1 || Boolean(frozen) })
+      }
+
+      // Exam grading: insert-if-absent / revision CAS, using the existing result table.
+      if (url.pathname === "/material-results/exam-grading-cas" && request.method === "POST") {
+        const body = await readBody(request)
+        if (typeof body.id !== "string" || !/^exam_grading:[a-f0-9]{64}$/.test(body.id)
+          || typeof body.revision !== "string" || !body.revision
+          || !(body.expectedRevision === null || typeof body.expectedRevision === "string")
+          || !body.payload || typeof body.payload !== "object") {
+          return json({ ok: false, error: "invalid_exam_grading_write" }, 400)
+        }
+        const payload = JSON.stringify(body.payload)
+        const written = body.expectedRevision === null
+          ? await env.DB.prepare(`INSERT INTO material_results
+              (id, material_id, enfoque, result_type, payload, content_hash, created_at)
+              VALUES (?, ?, 'mixto', 'exam_grading', ?, ?, datetime('now')) ON CONFLICT(id) DO NOTHING`)
+              .bind(body.id, body.id, payload, body.revision).run()
+          : await env.DB.prepare(`UPDATE material_results SET payload = ?, content_hash = ?
+              WHERE id = ? AND result_type = 'exam_grading' AND content_hash = ?`)
+              .bind(payload, body.revision, body.id, body.expectedRevision).run()
+        return json({ ok: true, applied: written.meta.changes === 1 })
       }
 
       if (url.pathname === "/material-results/upsert" && request.method === "POST") {
@@ -943,6 +1218,10 @@ export default {
           ON CONFLICT(id) DO UPDATE SET
             payload=excluded.payload,
             content_hash=excluded.content_hash
+          WHERE material_results.result_type NOT IN ('exam_artifact', 'exam_manifest', 'quiz_result')
+            AND NOT (material_results.result_type = 'quiz'
+              AND (material_results.id GLOB 'enjoyer_quiz:[0-9a-f]*'
+                OR material_results.id GLOB 'enjoyer_quiz_manifest:[0-9a-f]*'))
         `).bind(
           id,
           body.material_id,

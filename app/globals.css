@@ -149,6 +149,28 @@ body, input, textarea, select, button, p, span, div, a, li, td, th, label, small
   font-family: revert !important;
 }
 
+.katex {
+  font-family: KaTeX_Main, 'Times New Roman', serif !important;
+}
+.katex .mathnormal {
+  font-family: KaTeX_Math, 'Times New Roman', serif !important;
+  font-style: italic !important;
+}
+.katex .mathrm {
+  font-family: KaTeX_Main, 'Times New Roman', serif !important;
+  font-style: normal !important;
+}
+.katex .mathbf {
+  font-family: KaTeX_Main, 'Times New Roman', serif !important;
+  font-weight: bold !important;
+}
+.katex .amsrm {
+  font-family: KaTeX_AMS, 'Times New Roman', serif !important;
+}
+.katex .mainrm {
+  font-family: KaTeX_Main, 'Times New Roman', serif !important;
+}
+
 /* ===== SIN CURSIVA EN LA UI DE STUDYAL =====
    Red de seguridad para que no reaparezca italic en el chrome del producto.
    NO es un universal ciego: excluye KaTeX, editor y contenido académico,

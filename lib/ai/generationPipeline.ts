@@ -23,6 +23,7 @@ export type GenerationFailureCode =
   | 'UNKNOWN_GENERATION_FAILURE'
   | 'OPENROUTER_CREDITS_EXHAUSTED'
   | 'CONTEXT_TOO_LARGE'
+  | 'PROVIDER_CONFIGURATION_ERROR'
 
 export type GenerationStage =
   | 'normal'
@@ -110,6 +111,7 @@ export interface GenerationPipelineInput<T> {
   describeItems?: (value: T) => string[]
   totalTimeoutMs?: number
   failurePath?: 'comprehensive' | 'single_repair'
+  beforeProviderAttempt?: (context: GenerationAttemptContext) => void | Promise<void>
   maxIndividualAttemptsPerPart?: number
   telemetry?: (event: string, payload: Record<string, unknown>) => void
 }
@@ -133,14 +135,21 @@ export function classifyGenerationFailure(errors: string[], error?: unknown): Ge
     const reason = classifyProviderFailure(providerError)
     if (reason === 'OPENROUTER_CREDITS_EXHAUSTED') return 'OPENROUTER_CREDITS_EXHAUSTED'
     if (reason === 'CONTEXT_TOO_LARGE') return 'CONTEXT_TOO_LARGE'
+    if (reason === 'PROVIDER_CONFIGURATION_ERROR') return 'PROVIDER_CONFIGURATION_ERROR'
   }
   const message = [
     ...errors,
     error instanceof Error ? error.message : String(error || ''),
   ].join(' ').toLowerCase()
+  // A deterministic local/transport-configuration defect (e.g. the SDK's
+  // own "timeout must be an integer") — checked BEFORE the generic
+  // "timeout" substring match below, which would otherwise misfile it as
+  // a retryable PROVIDER_ERROR. No repair/retry stage can fix a caller
+  // options-object bug.
+  if (/must be an? (?:positive )?integer/.test(message)) return 'PROVIDER_CONFIGURATION_ERROR'
   if (/json|parse|syntaxerror|normalization_failed/.test(message)) return 'INVALID_JSON'
   if (/academic|latex|markdown|fragment|delimiter|forbidden_visual/.test(message)) return 'INVALID_ACADEMIC_FRAGMENT'
-  if (/similar|semantic|duplicate|repeated_question|repeated_fact/.test(message)) return 'SEMANTIC_DUPLICATION'
+  if (/similar|semantic_duplication|duplicate|repeated_question|repeated_fact/.test(message)) return 'SEMANTIC_DUPLICATION'
   if (/mode|incompatible|typing|textarea|forbidden_question/.test(message)) return 'INCOMPATIBLE_ACTIVITY'
   if (/reteach|explanation.*duplicate|low_quality/.test(message)) return 'LOW_QUALITY_RETEACH'
   if (/diversity|distinct|independent|missing_items|requires_\d+_questions/.test(message)) return 'LOW_DIVERSITY'
@@ -204,6 +213,7 @@ export async function runGenerationPipeline<T>(
     input.telemetry?.(eventForStage(stage), { ...context })
     const attemptStartedAt = Date.now()
     try {
+      await input.beforeProviderAttempt?.(context)
       const candidate = await input.generate(context)
       const validation = await input.validate(candidate.value, context)
       const errors = normalizedErrors(validation.errors)
@@ -255,6 +265,14 @@ export async function runGenerationPipeline<T>(
         : undefined
       previousFailure = (input.classifyFailure || classifyGenerationFailure)([], error)
       validationErrors = [error instanceof Error ? error.message : String(error)]
+      // A deterministic local/transport-configuration defect (e.g. an
+      // invalid SDK request-option) cannot be fixed by format_repair,
+      // targeted_repair, or simplified — those stages exist for
+      // model-output/academic failures, not a caller bug in the request
+      // itself. Stop immediately instead of burning the full attempt
+      // budget on a class of error that is guaranteed to repeat
+      // identically on every retry.
+      if (previousFailure === 'PROVIDER_CONFIGURATION_ERROR') terminalValidationFailure = true
       attempts.push({
         stage,
         attempt: globalAttempt,
@@ -416,6 +434,19 @@ export async function runGenerationPipeline<T>(
   }
 
   for (const stageBudget of STAGES) {
+    // Failure-class routing (mirrors the `single_repair` path below): a
+    // pure INVALID_JSON failure is a transport/formatting defect, never
+    // an academic-content defect — sending the SAME broken generation
+    // through 'targeted_repair' ("corrige exactamente los rechazos
+    // anteriores") cannot fix a JSON parse error and only burns two
+    // provider calls (~15-30s each) for a repair class that cannot
+    // possibly succeed. Skip straight to 'simplified' (which explicitly
+    // asks the model to shrink its own output — the actual lever that
+    // can fix a truncation-driven INVALID_JSON) instead. Every other
+    // failure class (STRUCTURAL_VALIDATION_FAILED, INVALID_ACADEMIC_
+    // FRAGMENT, etc.) is completely unaffected — this only prunes an
+    // attempt class that was structurally guaranteed to fail.
+    if (stageBudget.stage === 'targeted_repair' && previousFailure === 'INVALID_JSON') continue
     for (let index = 0; index < stageBudget.attempts; index++) {
       const candidate = await runAttempt(stageBudget.stage)
       if (candidate) {

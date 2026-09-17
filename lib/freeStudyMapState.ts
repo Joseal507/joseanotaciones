@@ -1,5 +1,10 @@
 export type StudyMapStatus = 'idle' | 'generating' | 'completed' | 'recoverable';
-export type StudyMapView = 'map' | 'cards' | 'outline';
+// STUDYMAP_FINAL_POLISH: Cards mode was removed entirely from Study
+// Map. A session persisted before this change may still carry
+// `view: 'cards'` — ALAIStudyMap.tsx's sanitizeViewMode() coerces any
+// unrecognized value back to 'map' on restore, so an old 'cards'
+// value never crashes or renders nothing.
+export type StudyMapView = 'map' | 'outline';
 
 export interface StudyMapNode {
   id: string;
@@ -12,11 +17,28 @@ export interface StudyMapNode {
   description?: string;
 }
 
+export interface StudyMapGroundingMetadata {
+  fingerprint: string;
+  builderVersion: string;
+  totalMapTargets: number;
+  representedMapTargets: number;
+  coveragePercent: number;
+  missingTargetIds: string[];
+  totalRelationIds: number;
+  representedRelationIds: number;
+  visibleInitially: string[];
+  availableInMap: string[];
+}
+
 export interface StudyMapData {
   title: string;
   root: StudyMapNode;
   summary?: string;
   totalConcepts?: number;
+  // Optional, additive — absent in maps persisted before this field
+  // existed; when present, lets a resumed session restore coverage/
+  // visibility metadata without recomputing anything.
+  grounding?: StudyMapGroundingMetadata;
 }
 
 export interface StudyMapExplanationState {
@@ -25,6 +47,14 @@ export interface StudyMapExplanationState {
   outsideMaterialNote?: string;
   sourcePages?: number[];
   suggestedFollowups?: string[];
+  /**
+   * Optional pedagogical enrichment (analogy/extra context) NOT claimed
+   * to be backed by `sourcePages` — kept separate from `answer` so the
+   * UI never implies source support for content the material doesn't
+   * actually contain. Only ever populated by explain_node's grounded
+   * leaf-node path; absent/undefined for the legacy chat fallback.
+   */
+  pedagogicalNote?: string;
 }
 
 export interface DurableFreeStudyMapState {

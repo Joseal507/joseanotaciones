@@ -11,10 +11,365 @@ import { detectContentLanguage } from '../../../lib/detectLanguage';
 import {
   getMaterialResult,
   saveMaterialResult,
+  getMaterial,
 } from '../../../lib/materials/repository';
+import { getAuthoritativeFreeSession } from '../../../lib/materialBrain/quiz/sessionAuthority';
+import { lookupStudyalMaterialEnjoyer, WorkerMaterialEnjoyerStore } from '../../../lib/adaptive/materialEnjoyer';
+import type { SourceSelectionSnapshot } from '../../../lib/adaptive/sourceSelection';
+import {
+  buildAnalysisEnjoyerContext, computeAnalysisCoverage, renderAnalysisEnjoyerContext,
+  deterministicCoberturaMaterial, deterministicParaExamen, deterministicProbabilidadExamen,
+  deterministicYaPuedesExplicar, ANALYSIS_ENJOYER_AUTHORITY_TYPE, ANALYSIS_ENJOYER_ADAPTER_VERSION,
+  type AnalysisEnjoyerContext, type AnalysisEnjoyerTarget,
+} from '../../../lib/materialBrain/analysisEnjoyerContext';
+import {
+  analysisArtifactIdentity, isValidRestorableArtifact, WorkerAnalysisArtifactStore,
+  ANALYSIS_ARTIFACT_SCHEMA_VERSION, type AnalysisArtifact, type AnalysisArtifactStore,
+} from '../../../lib/materialBrain/analysisArtifactStore';
 
 export const maxDuration = 120;
 export const dynamic = 'force-dynamic';
+
+// ============================================================
+// StudyalMaterialEnjoyer grounded path (sessionId-based) — see
+// resolveReadyAnalysisEnjoyer()/handleGroundedAnalysisRequest() near the
+// POST handler. The legacy documentos-based chunk/M0-M3 pipeline below
+// remains for the blueprint_analysis mode (Adaptive) and as an
+// unreachable fallback path; AnalisisTeorico.tsx (Free Mode) no longer
+// sends `documentos`. No Material Brain-based knowledge units, no raw
+// material text in this path.
+// ============================================================
+
+export const __routeDeps = {
+  getServerSession,
+  getAuthoritativeFreeSession,
+  getMaterial,
+  lookupStudyalMaterialEnjoyer,
+  materialEnjoyerStore: new WorkerMaterialEnjoyerStore(),
+  alaiJson,
+  analysisArtifactStore: new WorkerAnalysisArtifactStore() as AnalysisArtifactStore,
+};
+
+// Per-isolate single-flight guard — mirrors lib/materialBrain/productionStore.ts's
+// inFlightBuilds pattern. Two concurrent requests for the SAME
+// user+fingerprint+nivel identity await the SAME in-progress generation
+// instead of each starting their own provider call; this is a
+// best-effort, single-process guard (the Worker backend has no CAS), not
+// a distributed lock — sufficient to bound the common case without
+// building new infrastructure.
+const inFlightAnalysisGenerations = new Map<string, Promise<NextResponse>>();
+
+const RAW_SOURCE_AUTHORITY_KEYS = ['documentos', 'materialText', 'combinedText', 'rawText', 'contenido', 'texto', 'facts'];
+
+function groundedErrorResponse(code: string, status: number, detail?: string) {
+  return NextResponse.json({ success: false, error: code, ...(detail ? { detail } : {}) }, { status });
+}
+
+interface AnalysisEnjoyerLookupResult {
+  context: AnalysisEnjoyerContext | null
+  code: string
+  status: number
+}
+
+/**
+ * Resolves the EXACT-fingerprint, persisted StudyalMaterialEnjoyer for
+ * an Análisis request. Lookup-only: never builds, never regenerates,
+ * never falls back to a different fingerprint. Mirrors the same
+ * restore-only contract already proven for Exam/Flashcards/Truquitos —
+ * duplicated here (not imported) to keep this migration isolated.
+ */
+async function resolveReadyAnalysisEnjoyer(sessionId: string, userId: string): Promise<AnalysisEnjoyerLookupResult> {
+  const freeSession = await __routeDeps.getAuthoritativeFreeSession(sessionId, userId);
+  if (!freeSession) return { context: null, code: 'SESSION_NOT_FOUND', status: 404 };
+  const sourceSelection: SourceSelectionSnapshot = freeSession.sourceSelection;
+  for (const materialId of sourceSelection.materialIds) {
+    if (!await __routeDeps.getMaterial(materialId, userId)) return { context: null, code: 'SESSION_NOT_FOUND', status: 404 };
+  }
+  const persisted = await __routeDeps.lookupStudyalMaterialEnjoyer(sourceSelection.fingerprint, __routeDeps.materialEnjoyerStore);
+  if (!persisted) return { context: null, code: 'ENJOYER_NOT_READY', status: 409 };
+  try {
+    const context = buildAnalysisEnjoyerContext(persisted, sourceSelection);
+    return { context, code: 'OK', status: 200 };
+  } catch (error: any) {
+    const code = String(error?.message || '') === 'SOURCE_SELECTION_MISMATCH' ? 'SOURCE_SELECTION_MISMATCH' : 'INVALID_ENJOYER_AUTHORITY';
+    return { context: null, code, status: 409 };
+  }
+}
+
+const ANALYSIS_NIVEL_DESC: Record<string, string> = {
+  secundaria: 'Secundaria: usa analogías simples, evita tecnicismos, vocabulario básico, ejemplos de la vida cotidiana',
+  universidad: 'Universidad: nivel estándar universitario, conceptos completos con terminología técnica básica',
+  medicina: 'Medicina/Ciencias avanzadas: terminología técnica completa, mecanismos moleculares detallados, relevancia clínica o científica',
+  doctorado: 'Posgrado/Doctorado: máxima profundidad conceptual, mecanismos avanzados, conexiones con literatura especializada',
+};
+
+function analysisSystemPrompt(nivelInstruccion: string): string {
+  return `Eres el Profesor ALAI. Vas a narrar pedagógicamente un material ya extraído y organizado por StudyAL en clusters de conocimiento — NO vuelvas a extraer ni inventes contenido.
+
+NIVEL DE AUDIENCIA: ${nivelInstruccion}
+
+AUTORIDAD ACADÉMICA — REGLAS OBLIGATORIAS:
+1. El MATERIAL de abajo está dividido en bloques [CLUSTER <id>], cada uno con uno o más [ANALYSIS_TARGET <id>] — estos targets son la ÚNICA fuente de hechos autorizados. PROHIBIDO inventar datos, páginas, fórmulas o nombres que no aparezcan en un target.
+2. Para CADA sección que generes, incluye "targetIds": los ids de ANALYSIS_TARGET que esa sección realmente narra. NUNCA inventes un id que no exista en el MATERIAL — si lo haces, se descarta server-side y no cuenta como cobertura.
+3. Genera EXACTAMENTE una entrada de "clase_narrativa" por cada CLUSTER listado (ni más ni menos), narrando TODOS los targets de ese cluster juntos — un cluster grande puede necesitar una explicación más larga, uno pequeño una más corta. No comprimas clusters distintos en una sola entrada ni fragmentes un cluster en varias.
+4. Actúa como tutor particular: contexto → base → desarrollo → conexiones → conclusión. Explica CAUSA y MECANISMO, no solo el dato.
+5. Para cada fórmula (kind=formula): explica cada variable y qué representa, usando solo lo que aparece en su target.
+6. No copies literal el "CONTENIDO AUTORIZADO" de los targets — reescribe con tus palabras, adaptado al nivel.
+7. No hagas listas de definiciones aisladas ni relleno genérico.
+8. Devuelve SOLO JSON válido. Sin markdown, sin texto extra.`;
+}
+
+function analysisUserPrompt(groundedText: string, materia: string, tema: string, masteryBlock: string): string {
+  return `MATERIA: ${materia || '(sin materia)'}
+TEMA: ${tema || '(sin tema)'}
+${masteryBlock}
+MATERIAL (clusters y targets autorizados):
+"""
+${groundedText}
+"""
+
+Devuelve EXACTAMENTE este JSON:
+{
+  "objetivos": ["objetivo de aprendizaje"],
+  "si_no_sabes_nada": "2-3 oraciones para quien no sabe nada del tema",
+  "mapa_inicial": "problema/contexto → idea central → mecanismo, en 1-2 oraciones",
+  "clase_narrativa": [
+    { "titulo": "título específico del cluster", "explicacion": "5-8 oraciones narrando TODOS los targets del cluster", "ejemplo": "", "checkpoint": "pregunta causa→mecanismo→consecuencia", "targetIds": [] }
+  ],
+  "panorama_completo": "6-10 oraciones de overview",
+  "conexiones_clave": [ { "titulo": "conexión", "explicacion": "explicación", "targetIds": [] } ],
+  "errores_comunes": [ { "error": "confusión realista del nivel de audiencia", "correccion": "corrección precisa", "mini_ejemplo": "", "targetIds": [] } ],
+  "preguntas_profesor": [ { "pregunta": "pregunta causal", "que_evalua": "qué evalúa", "respuesta_esperada": "respuesta esperada", "targetIds": [] } ],
+  "resumen_final": "3-4 oraciones causales de resumen",
+  "preguntas_sugeridas": ["pregunta que el estudiante podría hacerle a ALAI"]
+}`;
+}
+
+/** Filters an array of provider-returned targetIds down to only ids that exist in this Brain's target set. */
+function filterKnownTargetIds(rawIds: unknown, knownIds: ReadonlySet<string>): string[] {
+  if (!Array.isArray(rawIds)) return [];
+  return rawIds.map(id => String(id || '').trim()).filter(id => id && knownIds.has(id));
+}
+
+// DEV-safe: log the failure class + provider/model only, never the raw
+// provider text or the authorized academic source content it was built
+// from.
+function logGroundedAlaiFailure(label: string, error: any) {
+  const detail = error?.code === 'INVALID_JSON'
+    ? { code: 'INVALID_JSON', jsonFailureClass: error.jsonFailureClass }
+    : { code: error?.code || 'PROVIDER_FAILURE', message: error?.message };
+  console.warn(`⚠️ safeGroundedAlaiJson ${label}:`, JSON.stringify(detail));
+}
+
+async function safeGroundedAlaiJson(prompt: string, systemPrompt: string, maxTokens: number): Promise<any> {
+  try {
+    return await __routeDeps.alaiJson({
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }],
+      temperature: 0.25, maxTokens, json: true,
+    });
+  } catch (firstError: any) {
+    logGroundedAlaiFailure('primer intento falló', firstError);
+    try {
+      return await __routeDeps.alaiJson({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt + '\n\nIMPORTANTE FINAL: Devuelve SOLO JSON válido, sin markdown, sin explicaciones fuera del JSON.' },
+        ],
+        // Keep the SAME token budget on retry — a truncated first attempt
+        // (INVALID_JSON/TRUNCATED) needs at least as much room to finish,
+        // never less; shrinking it here only made truncation more likely.
+        temperature: 0.15, maxTokens, json: true,
+      });
+    } catch (secondError: any) {
+      logGroundedAlaiFailure('segundo intento falló', secondError);
+      return null;
+    }
+  }
+}
+
+/**
+ * The StudyalMaterialEnjoyer grounded pipeline: 1 provider call for the
+ * pedagogical narration, everything else (cobertura_material,
+ * para_examen, probabilidad_examen, ya_puedes_explicar, coverage) is
+ * deterministic, derived directly from the persisted Enjoyer by
+ * analysisEnjoyerContext.ts. No chunking, no extraction, no vision
+ * calls, no PDF re-parsing, no Enjoyer regeneration.
+ */
+async function handleGroundedAnalysisRequest(
+  sessionId: string, userId: string, nivel: string, materia: string, tema: string, masteryContext: any,
+): Promise<NextResponse> {
+  const enjoyerLookup = await resolveReadyAnalysisEnjoyer(sessionId, userId);
+  if (!enjoyerLookup.context) return groundedErrorResponse(enjoyerLookup.code, enjoyerLookup.status);
+  const context = enjoyerLookup.context;
+
+  // Server-resolved identity ONLY: userId from the authenticated session,
+  // fingerprint from the just-resolved (never client-supplied) Enjoyer
+  // authority. A forged client fingerprint/materialIds/userId can never
+  // select or overwrite another selection's or another user's artifact.
+  const identity = analysisArtifactIdentity(userId, context.fingerprint, nivel);
+
+  // READ-BEFORE-GENERATE: an existing valid durable artifact is restored
+  // with ZERO provider calls — never regenerated merely because the
+  // client's localStorage cache is empty (refresh, new device, cleared
+  // storage, or simply leaving and returning to Análisis).
+  const existingArtifact = await __routeDeps.analysisArtifactStore.get(identity);
+  if (isValidRestorableArtifact(existingArtifact, {
+    userId, fingerprint: context.fingerprint, nivel, generatorVersion: ANALYSIS_ENJOYER_ADAPTER_VERSION,
+  })) {
+    return NextResponse.json({ success: true, analisis: existingArtifact.analisis });
+  }
+
+  // Single-flight: a second concurrent request for the exact same
+  // user+fingerprint+nivel identity awaits the SAME in-progress
+  // generation instead of starting its own. The map is updated
+  // synchronously (no `await` between the check above and the `.set`
+  // below), so whichever concurrent call resumes second always observes
+  // the first's entry before creating its own.
+  const existingGeneration = inFlightAnalysisGenerations.get(identity);
+  // A shared in-flight NextResponse's body can only be read ONCE — every
+  // additional concurrent waiter must clone it before the caller consumes
+  // its body, or the second/third/... waiter would throw "Body already
+  // read" trying to serialize the very same Response instance twice.
+  if (existingGeneration) return existingGeneration.then(response => response.clone() as NextResponse);
+
+  const operation = generateAndPersistAnalysis(context, identity, userId, nivel, materia, tema, masteryContext);
+  inFlightAnalysisGenerations.set(identity, operation);
+  try {
+    return await operation;
+  } finally {
+    if (inFlightAnalysisGenerations.get(identity) === operation) inFlightAnalysisGenerations.delete(identity);
+  }
+}
+
+async function generateAndPersistAnalysis(
+  context: AnalysisEnjoyerContext, identity: string, userId: string, nivel: string, materia: string, tema: string, masteryContext: any,
+): Promise<NextResponse> {
+  const targets: AnalysisEnjoyerTarget[] = context.targets;
+
+  if (!targets.length) {
+    return groundedErrorResponse('NO_ANALYSIS_TARGETS', 400, 'El material no tiene contenido analizable.');
+  }
+
+  const knownTargetIds = new Set(targets.map(target => target.id));
+  const groundedText = renderAnalysisEnjoyerContext(context);
+  const nivelInstruccion = ANALYSIS_NIVEL_DESC[nivel] || ANALYSIS_NIVEL_DESC.universidad;
+
+  const masteryBlock = masteryContext ? [
+    'PERFIL DEL ESTUDIANTE (adapta la clase a este perfil):',
+    `Dominio actual: ${masteryContext.overallMastery ?? 0}%`,
+    masteryContext.criticalConcepts?.length ? `CONCEPTOS CRITICOS que DEBE dominar: ${masteryContext.criticalConcepts.join(', ')}` : '',
+    masteryContext.weakConcepts?.length ? `CONCEPTOS DEBILES - enfoca aqui: ${masteryContext.weakConcepts.join(', ')}` : '',
+    '',
+  ].filter(Boolean).join('\n') + '\n' : '';
+
+  // Token budget scales with cluster count so a large Brain isn't forced
+  // through the same fixed ceiling as a tiny one — capped for safety.
+  const maxTokens = Math.min(3000 + context.clusters.length * 220, 12000);
+
+  const parsed = await safeGroundedAlaiJson(
+    analysisUserPrompt(groundedText, materia, tema, masteryBlock),
+    analysisSystemPrompt(nivelInstruccion),
+    maxTokens,
+  );
+  if (!parsed) {
+    return groundedErrorResponse('PROVIDER_GENERATION_FAILED', 502, 'No se pudo generar el análisis grounded.');
+  }
+  const clean = (cleanDeep(parsed) as any) || {};
+
+  const claseNarrativaRaw = Array.isArray(clean.clase_narrativa) ? clean.clase_narrativa : [];
+  const claseNarrativa = claseNarrativaRaw.map((item: any) => ({
+    titulo: String(item?.titulo || '').trim(),
+    explicacion: String(item?.explicacion || '').trim(),
+    ejemplo: String(item?.ejemplo || '').trim(),
+    checkpoint: String(item?.checkpoint || '').trim(),
+    targetIds: filterKnownTargetIds(item?.targetIds, knownTargetIds),
+  })).filter((item: any) => item.titulo && item.explicacion);
+
+  const conexionesClave = (Array.isArray(clean.conexiones_clave) ? clean.conexiones_clave : []).map((item: any) => ({
+    titulo: String(item?.titulo || '').trim(),
+    explicacion: String(item?.explicacion || '').trim(),
+    targetIds: filterKnownTargetIds(item?.targetIds, knownTargetIds),
+  })).filter((item: any) => item.titulo && item.explicacion);
+
+  const erroresComunes = (Array.isArray(clean.errores_comunes) ? clean.errores_comunes : []).map((item: any) => ({
+    error: String(item?.error || '').trim(),
+    correccion: String(item?.correccion || '').trim(),
+    mini_ejemplo: String(item?.mini_ejemplo || '').trim(),
+    targetIds: filterKnownTargetIds(item?.targetIds, knownTargetIds),
+  })).filter((item: any) => item.error && item.correccion);
+
+  const preguntasProfesor = (Array.isArray(clean.preguntas_profesor) ? clean.preguntas_profesor : []).map((item: any) => ({
+    pregunta: String(item?.pregunta || '').trim(),
+    que_evalua: String(item?.que_evalua || '').trim(),
+    respuesta_esperada: String(item?.respuesta_esperada || '').trim(),
+    targetIds: filterKnownTargetIds(item?.targetIds, knownTargetIds),
+  })).filter((item: any) => item.pregunta);
+
+  // Everything a target could be "represented by" across all narrated
+  // sections — the ONLY inputs to coverage. Ids outside knownTargetIds
+  // were already dropped above by filterKnownTargetIds.
+  const representedTargetIds = Array.from(new Set([
+    ...claseNarrativa.flatMap((item: any) => item.targetIds),
+    ...conexionesClave.flatMap((item: any) => item.targetIds),
+    ...erroresComunes.flatMap((item: any) => item.targetIds),
+    ...preguntasProfesor.flatMap((item: any) => item.targetIds),
+  ]));
+  const coverage = computeAnalysisCoverage(targets, representedTargetIds);
+
+  const analisis = {
+    titulo: 'Profesor ALAI',
+    nivel_detectado: nivel,
+    objetivos: Array.isArray(clean.objetivos) ? clean.objetivos.map((x: any) => String(x || '').trim()).filter(Boolean).slice(0, 10) : [],
+    si_no_sabes_nada: String(clean.si_no_sabes_nada || '').trim(),
+    mapa_inicial: String(clean.mapa_inicial || '').trim(),
+    // Deterministic — derived directly from the Enjoyer, not the provider.
+    cobertura_material: deterministicCoberturaMaterial(targets),
+    clase_narrativa: claseNarrativa,
+    panorama_completo: String(clean.panorama_completo || '').trim(),
+    conexiones_clave: conexionesClave,
+    errores_comunes: erroresComunes,
+    preguntas_profesor: preguntasProfesor,
+    para_examen: deterministicParaExamen(targets),
+    probabilidad_examen: deterministicProbabilidadExamen(targets),
+    ya_puedes_explicar: deterministicYaPuedesExplicar(targets),
+    resumen_final: String(clean.resumen_final || '').trim(),
+    preguntas_sugeridas: Array.isArray(clean.preguntas_sugeridas) ? clean.preguntas_sugeridas.map((x: any) => String(x || '').trim()).filter(Boolean).slice(0, 6) : [],
+    preguntale_alai: 'Puedes preguntarme cualquier duda sobre este material.',
+    grounding: {
+      fingerprint: context.fingerprint,
+      authorityType: ANALYSIS_ENJOYER_AUTHORITY_TYPE,
+      adapterVersion: ANALYSIS_ENJOYER_ADAPTER_VERSION,
+      totalAnalysisTargets: coverage.totalAnalysisTargets,
+      representedAnalysisTargets: coverage.representedAnalysisTargets,
+      coveragePercent: coverage.coveragePercent,
+      missingTargetIds: coverage.missingTargetIds,
+      clusterCount: context.clusters.length,
+    },
+  };
+
+  // Schema-invalid generation writes nothing — a response with zero
+  // narrated clusters is not a usable Análisis, regardless of provider
+  // status. Never persisted, never cached; a future explicit retry may
+  // try again.
+  if (!analisis.clase_narrativa.length) {
+    return groundedErrorResponse('PROVIDER_GENERATION_FAILED', 502, 'El análisis generado no tiene contenido narrado válido.');
+  }
+
+  const now = new Date().toISOString();
+  const artifact: AnalysisArtifact = {
+    schemaVersion: ANALYSIS_ARTIFACT_SCHEMA_VERSION,
+    generatorVersion: ANALYSIS_ENJOYER_ADAPTER_VERSION,
+    userId,
+    sourceSelectionFingerprint: context.fingerprint,
+    nivel,
+    analisis,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await __routeDeps.analysisArtifactStore.set(identity, artifact);
+
+  return NextResponse.json({ success: true, analisis });
+}
 
 // ── Validación básica de strings ───────────────────────────────
 const ok = (s: any, min = 10) =>
@@ -488,465 +843,6 @@ function compactExtractedKnowledge(extracted: any[]) {
   };
 }
 
-function synthPromptA(lang: 'es' | 'en', materialName: string, extracted: any[], masteryCtx: any = null): string {
-  const compact = compactExtractedKnowledge(extracted);
-const priorityData = JSON.stringify({
-  ideas: compact.ideas,
-  procesos: compact.procesos,
-  formulas: compact.formulas,
-  relaciones: compact.relaciones,
-  datos: compact.datos,
-  noOmitir: compact.noOmitir,
-  ejemplos: compact.ejemplos,
-  causas: compact.causas,
-});
-const data = priorityData.length > 45000
-  ? priorityData.slice(0, 45000)
-  : priorityData;
-
-  const adaptiveBlockA = masteryCtx ? [
-    '',
-    'PERFIL DEL ESTUDIANTE (adapta la clase según esto):',
-    'Dominio general: ' + (masteryCtx.overallMastery ?? 0) + '%',
-    'Comprension: ' + (masteryCtx.understanding ?? 0) + '% | Memoria: ' + (masteryCtx.memory ?? 0) + '% | Aplicacion: ' + (masteryCtx.application ?? 0) + '%',
-    masteryCtx.criticalConcepts?.length ? 'CONCEPTOS CRITICOS (< 20%) - explica estos con maxima profundidad: ' + masteryCtx.criticalConcepts.join(', ') : '',
-    masteryCtx.weakConcepts?.length ? 'CONCEPTOS DEBILES (< 40%) - enfoca aqui la clase: ' + masteryCtx.weakConcepts.join(', ') : '',
-    masteryCtx.strongConcepts?.length ? 'CONCEPTOS DOMINADOS - no repetir basicos: ' + masteryCtx.strongConcepts.join(', ') : '',
-    masteryCtx.repeatedMistakes?.length ? 'ERRORES REPETIDOS - corregir explicitamente: ' + masteryCtx.repeatedMistakes.join(', ') : '',
-    masteryCtx.studentProfile === 'beginner' ? 'INSTRUCCION: Empieza desde cero, usa analogias simples, no asumas conocimiento previo.' : '',
-    masteryCtx.studentProfile === 'memorizer' ? 'INSTRUCCION: El estudiante memoriza pero no conecta. Enfoca en relaciones causales y aplicaciones.' : '',
-    masteryCtx.studentProfile === 'understander' ? 'INSTRUCCION: El estudiante entiende pero olvida. Enfoca en patrones memorables y ejemplos concretos.' : '',
-    masteryCtx.studentProfile === 'advanced' ? 'INSTRUCCION: Estudiante avanzado. Sube el nivel, integra conceptos, usa casos complejos.' : '',
-    '',
-  ].filter(Boolean).join('\n') : '';
-
-  if (lang === 'es') return `Eres Profesor ALAI 10/10 de StudyAL.
-
-${adaptiveBlockA}
-
-MISIÓN ÚNICA:
-Construir una clase que enseñe de verdad, no que resuma.
-La clase debe girar alrededor de UN PROBLEMA CENTRAL que el material intenta resolver.
-Todo lo demás (conceptos, fórmulas, procesos, personas) existe para responder ese problema.
-
-PASO 1 — ANTES DE ESCRIBIR, IDENTIFICA:
-A) ¿Cuál es el problema o pregunta central del material? (Lo que no se podía explicar antes)
-B) ¿Cuál es la solución o idea principal que lo resuelve?
-C) ¿Qué evidencia o mecanismo demuestra que funciona?
-D) ¿Qué consecuencias tuvo esa solución?
-
-PASO 2 — ESTRUCTURA OBLIGATORIA DE LA CLASE:
-Parte 1: El problema que nadie podía resolver (contexto + limitación anterior)
-Parte 2: La solución propuesta (idea central, quién la propuso y cómo)
-Parte 3: El mecanismo exacto (cómo funciona paso a paso)
-Parte 4: La evidencia que lo prueba (espectro, experimento, dato concreto del material)
-Parte 5: Las fórmulas explicadas de verdad (cada variable, el signo, qué pasa cuando cambia n)
-Parte 6+: Consecuencias e impacto (solo lo que el material desarrolla, no menciones de pasada)
-
-REGLAS DE ORO:
-1. CADA CONCEPTO APARECE EN UNA SOLA PARTE. Si ya explicaste Copenhague en Parte 3, no lo repitas en Parte 5.
-2. La Parte 1 debe empezar con el problema, no con la biografía del científico.
-3. Las fórmulas deben explicarse con precisión: si Eₙ = -13.6/n², debes decir que cuando n=1 la energía es -13.6 eV, cuando n=2 es -3.4 eV, y que el signo negativo significa que el electrón está LIGADO (no que la energía sea menor).
-4. Si algo se menciona brevemente en el material (ej: energía nuclear en una oración), mencionarlo en UNA oración dentro de otra parte, NO como capítulo propio.
-5. El espectro del hidrógeno es evidencia clave — si aparece en el material, debe tener su propia parte explicando POR QUÉ antes no se podía explicar y CÓMO el modelo lo resolvió.
-6. PROHIBIDO repetir la misma idea con otras palabras en partes distintas.
-7. PROHIBIDO inventar relaciones que el material no establece explícitamente.
-8. Cada parte debe enseñar algo NUEVO que las partes anteriores no enseñaron.
-
-TONO OBLIGATORIO — así debe sonar cada explicación:
-❌ MAL: "La interpretación de Copenhague propone que las partículas no tienen propiedades definidas hasta que son observadas."
-✅ BIEN: "Imagina que disparas un electrón hacia una pantalla con dos ranuras. Según la física clásica, el electrón debería pasar por una u otra ranura. Pero el experimento muestra que pasa por las dos al mismo tiempo, como si fuera una onda. Solo cuando lo mides, el electrón 'elige' una ranura. Eso es lo que Bohr y sus colegas intentaban explicar: la realidad subatómica no existe de forma definida hasta que la observamos."
-
-Material: ${materialName}
-
-CONOCIMIENTO EXTRAÍDO:
-${data}
-
-Devuelve SOLO JSON válido:
-{
-  "titulo": "Título claro de 4-8 palabras que describe el problema central",
-  "objetivos": [
-    "Al terminar podrás explicar el problema que Bohr resolvió y cómo lo hizo",
-    "Podrás interpretar la fórmula Eₙ con palabras, no solo con números",
-    "Entenderás por qué el espectro del hidrógeno fue la prueba clave",
-    "Podrás distinguir el modelo de Rutherford del de Bohr y por qué importa la diferencia"
-  ],
-  "si_no_sabes_nada": "8-10 oraciones que expliquen el PROBLEMA que existía antes de la idea central del material. Empieza con la situación que no se podía explicar. No empieces con la biografía del científico.",
-  "mapa_inicial": "6-8 oraciones que muestren la ruta lógica: problema → solución → mecanismo → evidencia → consecuencia. Menciona los conceptos clave en ese orden.",
-  "cobertura_material": [
-    {
-      "elemento": "nombre del concepto central del material",
-      "por_que_importa": "una oración que diga exactamente qué resuelve o explica este concepto"
-    }
-  ],
-  "clase_narrativa": [
-    {
-      "titulo": "Título específico que dice el PROBLEMA o IDEA que enseña esta parte",
-      "explicacion": "15-20 oraciones en tono de profesor explicando en voz alta. ESTRUCTURA: 1) situación previa o problema, 2) idea nueva o solución, 3) mecanismo exacto de cómo funciona, 4) ejemplo concreto del material, 5) por qué esto cambia la comprensión. NUNCA repitas conceptos de partes anteriores.",
-      "ejemplo": "Ejemplo concreto y específico extraído del material. No genérico.",
-      "checkpoint": "Pregunta que obligue a explicar causa→mecanismo→consecuencia, no definición."
-    }
-  ]
-}
-
-CANTIDAD DE PARTES:
-- Cuenta los conceptos CENTRALES (no secundarios) en el conocimiento extraído
-- 3-5 conceptos centrales → 4-6 partes
-- 6-10 conceptos centrales → 7-10 partes  
-- 11+ conceptos centrales → 10-14 partes
-- Cada parte enseña UN concepto central
-- Los conceptos secundarios van en UNA oración dentro de la parte más relevante`;
-
-  return `You are Professor ALAI 10/10 for StudyAL.
-
-GOAL:
-Turn extracted knowledge into a CAUSAL AND PROGRESSIVE CLASS.
-The student must understand the material, not memorize definitions.
-
-FORBIDDEN:
-- Writing Wikipedia-style summaries.
-- Making a list of concepts.
-- Repeating phrases like "it is important because..." without explanation.
-- Repeating the same example.
-- Inventing external facts.
-- Omitting processes, formulas, dates, symptoms, causes or consequences present in extraction.
-
-MANDATORY METHOD:
-For each class part use this logic:
-1. What problem or question appears.
-2. What new concept is needed.
-3. What that concept means in simple words.
-4. What happens step by step.
-5. What causes what.
-6. What consequence it produces.
-7. Concrete example.
-8. How it connects to the previous part.
-9. What the student must remember.
-
-IMPORTANT — CRITICAL RULES:
-- USE ONLY information from the EXTRACTED KNOWLEDGE provided. FORBIDDEN to add external data.
-- If there are processes, narrate each as a story: what problem existed → what was proposed → how it works → what it solved.
-- If there is a formula, explain in words what relationship it describes, what each variable represents and what it allows to calculate.
-- If there is history/people, narrate chronology → problem faced → solution proposed → impact.
-- If extracted data does not mention something, do NOT include it. Only use what is in the material.
-- If a formula does not appear in the extracted material, do NOT include it even if famous.
-- Each part must teach ONE single central idea, not several mixed together.
-
-Material: ${materialName}
-
-EXTRACTED KNOWLEDGE:
-${data}
-
-Return ONLY valid JSON:
-{
-  "titulo": "Clear title",
-  "objetivos": [
-    "By the end you will be able to explain..."
-  ],
-  "si_no_sabes_nada": "Initial from-zero class in 8-12 sentences. Do not only define: prepare the student's mind and explain the central problem.",
-  "mapa_inicial": "8-12 sentence map of the material. Explain the logical order to learn it.",
-  "cobertura_material": [
-    {
-      "elemento": "important concept, fact, formula, process, person, symptom or mechanism",
-      "por_que_importa": "why it is needed to understand the material"
-    }
-  ],
-  "clase_narrativa": [
-    {
-      "titulo": "Pedagogical title for the part",
-      "explicacion": "16-24 sentence mini class. Must be causal narrative, not definition. Explain problem, concept, step by step, cause, consequence, example, connection and closure.",
-      "ejemplo": "Distinct useful concrete example based on the material.",
-      "checkpoint": "Question measuring reasoning, not memory."
-    }
-  ]
-}
-
-MANDATORY COVERAGE:
-1. First look at elements in ideas, procesos, formulas, relaciones, datos and noOmitir from extracted knowledge.
-2. clase_narrativa must cover almost all of those elements, not only the famous ones.
-3. Use this quantitative rule:
-   - 1-5 relevant elements: create 3-5 parts.
-   - 6-10 relevant elements: create 6-10 parts.
-   - 11-20 relevant elements: create 10-15 parts.
-   - 21+ relevant elements: create 15-25 parts if the content supports it.
-4. Every important noOmitir element must appear at least once inside clase_narrativa.
-5. If a REAL formula exists, create a dedicated part interpreting it: meaning, variables and use.
-6. If chronology or biography exists, create parts in time order: origin → problem → contribution → consequence → legacy.
-7. If a mechanism or process exists, create a dedicated part explaining it step by step.
-8. Merge repeated concepts, but do NOT delete unique details.
-9. Do NOT create generic sections called "Key point". Each title must say exactly what it teaches.
-10. Do NOT call a person, institution, collaboration or historical event a formula.
-9. Do not ask 'What is X?' if you can ask cause/consequence.
-10. Prefer too much coverage over too much summary.`;
-}
-
-function synthPromptB(lang: 'es' | 'en', materialName: string, extracted: any[], masteryCtx: any = null): string {
-  const compact = compactExtractedKnowledge(extracted);
-const priorityData = JSON.stringify({
-  ideas: compact.ideas,
-  procesos: compact.procesos,
-  formulas: compact.formulas,
-  relaciones: compact.relaciones,
-  datos: compact.datos,
-  noOmitir: compact.noOmitir,
-  ejemplos: compact.ejemplos,
-  causas: compact.causas,
-});
-const data = priorityData.length > 45000
-  ? priorityData.slice(0, 45000)
-  : priorityData;
-
-  const adaptiveBlockB = masteryCtx ? [
-    '',
-    'PERFIL DEL ESTUDIANTE para consolidacion:',
-    masteryCtx.weakConcepts?.length ? 'REFORZAR especialmente: ' + masteryCtx.weakConcepts.join(', ') : '',
-    masteryCtx.criticalConcepts?.length ? 'CONCEPTOS CRITICOS que el estudiante NO domina: ' + masteryCtx.criticalConcepts.join(', ') : '',
-    masteryCtx.repeatedMistakes?.length ? 'CORREGIR errores repetidos: ' + masteryCtx.repeatedMistakes.join(', ') : '',
-    '',
-  ].filter(Boolean).join('\n') : '';
-
-  if (lang === 'es') return `Eres Profesor ALAI 10/10. Tu trabajo es consolidar una clase para que el estudiante pueda explicar, aplicar y responder examen.
-
-${adaptiveBlockB}
-
-NO generes preguntas repetidas.
-NO generes "qué es X" como pregunta principal.
-NO inventes.
-NO uses placeholders.
-
-Material: ${materialName}
-
-CONOCIMIENTO EXTRAÍDO:
-${data}
-
-Devuelve SOLO JSON válido:
-{
-  "panorama_completo": "Explicación de 10-14 oraciones que una todo como historia causal. Debe explicar qué ocurre primero, qué ocurre después y por qué importa.",
-  "conexiones_clave": [
-    {
-      "titulo": "Relación causal o lógica importante",
-      "explicacion": "Explica cómo una idea produce, explica, limita o conecta con otra."
-    }
-  ],
-  "errores_comunes": [
-    {
-      "error": "Confusión realista",
-      "correccion": "Corrección clara",
-      "mini_ejemplo": "Ejemplo breve"
-    }
-  ],
-  "preguntas_profesor": [
-    {
-      "pregunta": "Pregunta de razonamiento sobre causa, consecuencia, proceso, comparación, fórmula, diagnóstico, tratamiento o aplicación.",
-      "que_evalua": "Comprensión específica que evalúa",
-      "respuesta_esperada": "Respuesta ideal de 3-5 oraciones"
-    }
-  ],
-  "para_examen": [
-    {
-      "punto": "Punto que un profesor sí podría preguntar",
-      "por_que": "Por qué importa para examen o exposición oral"
-    }
-  ],
-  "ya_puedes_explicar": [
-    "Habilidad concreta que el estudiante puede explicar"
-  ],
-  "resumen_final": "Resumen final de 7-10 oraciones que cierre sin repetir.",
-  "preguntas_sugeridas": [
-    "Pregunta útil para profundizar"
-  ],
-  "preguntale_alai": "Puedes preguntarme cualquier duda sobre este material."
-}
-
-REGLAS:
-- preguntas_profesor deben ser únicas.
-- conexiones_clave deben ser pocas pero profundas.
-- errores_comunes deben corregir malentendidos reales.
-- para_examen debe ser práctico.
-- ya_puedes_explicar debe sonar como logro aprendido.
-- Si hay fórmulas, incluye preguntas de interpretación.
-- Si hay procesos clínicos, incluye preguntas de secuencia y mecanismo.`;
-
-  return `You are Professor ALAI 10/10. Your job is to consolidate a class so the student can explain, apply and answer exam questions.
-
-Do NOT generate repeated questions.
-Do NOT generate "what is X" as the main question.
-Do NOT invent.
-Do NOT use placeholders.
-
-Material: ${materialName}
-
-EXTRACTED KNOWLEDGE:
-${data}
-
-Return ONLY valid JSON:
-{
-  "panorama_completo": "10-14 sentence explanation connecting everything as a causal story. Explain what happens first, what happens next and why it matters.",
-  "conexiones_clave": [
-    {
-      "titulo": "Important causal or logical relationship",
-      "explicacion": "Explain how one idea produces, explains, limits or connects to another."
-    }
-  ],
-  "errores_comunes": [
-    {
-      "error": "Realistic confusion",
-      "correccion": "Clear correction",
-      "mini_ejemplo": "Brief example"
-    }
-  ],
-  "preguntas_profesor": [
-    {
-      "pregunta": "Reasoning question about cause, consequence, process, comparison, formula, diagnosis, treatment or application.",
-      "que_evalua": "Specific understanding being tested",
-      "respuesta_esperada": "Ideal 3-5 sentence answer"
-    }
-  ],
-  "para_examen": [
-    {
-      "punto": "Point a professor could actually ask",
-      "por_que": "Why it matters for exam or oral presentation"
-    }
-  ],
-  "ya_puedes_explicar": [
-    "Concrete skill the student can explain"
-  ],
-  "resumen_final": "Final 7-10 sentence summary that closes without repetition.",
-  "preguntas_sugeridas": [
-    "Useful question for going deeper"
-  ],
-  "preguntale_alai": "You can ask me any question about this material."
-}
-
-RULES:
-- preguntas_profesor must be unique.
-- conexiones_clave must be few but deep.
-- errores_comunes must correct real misunderstandings.
-- para_examen must be practical.
-- ya_puedes_explicar must sound like a learned achievement.
-- If there are formulas, include interpretation questions.
-- If there are clinical processes, include sequence and mechanism questions.`;
-}
-
-function multiMaterialPrompt(lang: 'es' | 'en', analyses: any[]): string {
-  const data = JSON.stringify(analyses.map((a) => ({
-    materialName: a.materialName,
-    titulo: a.titulo,
-    objetivos: a.objetivos,
-    cobertura_material: a.cobertura_material,
-    clase_narrativa: a.clase_narrativa,
-    panorama_completo: a.panorama_completo || a.historia_completa,
-    para_examen: a.para_examen || a.examen,
-    resumen_final: a.resumen_final_profesor || a.resumen_30s,
-  }))).slice(0, 34000);
-
-  if (lang === 'es') return `Eres Profesor ALAI 10/10. El estudiante seleccionó VARIOS materiales.
-
-Tu tarea:
-1. NO mezclarlos artificialmente.
-2. Enseñar cada material como una clase separada.
-3. Solo mencionar conexiones si son explícitas o académicamente evidentes.
-4. Mantener cobertura alta de cada material.
-5. Evitar que el estudiante confunda temas sin relación.
-
-Análisis completos por material:
-${data}
-
-Devuelve SOLO JSON válido:
-{
-  "titulo": "Clase completa de varios materiales",
-  "objetivos": ["Qué podrá explicar el estudiante al terminar"],
-  "si_no_sabes_nada": "Explica en 8-12 oraciones que hay varios materiales, qué trata cada uno y cómo estudiarlos sin confundirlos.",
-  "mapa_inicial": "Mapa de 10-14 oraciones: material por material, qué enseña cada uno y si existe o no relación real entre ellos.",
-  "cobertura_material": [
-    { "elemento": "Material: elemento importante", "por_que_importa": "qué aporta para entender ese material" }
-  ],
-  "clase_narrativa": [
-    {
-      "titulo": "Material 1: título de la clase",
-      "explicacion": "Clase de 14-22 oraciones sobre este material. Enseña contexto, ideas centrales, causas, consecuencias, ejemplos y cierre. No lo mezcles con otros materiales.",
-      "ejemplo": "Ejemplo propio de este material.",
-      "checkpoint": "Pregunta de comprensión de este material."
-    }
-  ],
-  "panorama_completo": "Explica en 10-14 oraciones cómo estudiar todos los materiales juntos. Si no hay relación directa, dilo claramente y enseña a separarlos mentalmente.",
-  "conexiones_clave": [],
-  "errores_comunes": [
-    { "error": "Confusión probable", "correccion": "Corrección", "mini_ejemplo": "Ejemplo rápido" }
-  ],
-  "preguntas_profesor": [
-    { "pregunta": "Pregunta por material o comparación válida", "que_evalua": "qué mide", "respuesta_esperada": "respuesta ideal" }
-  ],
-  "para_examen": [
-    { "punto": "idea clave de un material", "por_que": "por qué importa" }
-  ],
-  "ya_puedes_explicar": ["qué puede explicar ahora el estudiante"],
-  "resumen_final": "Resumen final de 8-10 oraciones.",
-  "preguntas_sugeridas": ["pregunta útil"],
-  "preguntale_alai": "Puedes preguntarme cualquier duda sobre este material."
-}
-
-REGLAS:
-- Si los materiales no tienen relación directa, dilo sin inventar conexión.
-- Cada material seleccionado debe tener su propia parte en clase_narrativa.
-- No reduzcas cada material a una sola frase.
-- Cubre lo más importante de cada material.
-- Enseña, no solo resumas.`;
-
-  return `You are Professor ALAI 10/10. The student selected MULTIPLE materials.
-
-Your task:
-1. Do NOT artificially mix them.
-2. Teach each material as a separate class.
-3. Mention connections only if explicit or academically evident.
-4. Keep high coverage for each material.
-5. Prevent the student from confusing unrelated topics.
-
-Complete per-material analyses:
-${data}
-
-Return ONLY valid JSON with Spanish keys:
-{
-  "titulo": "Complete class for multiple materials",
-  "objetivos": ["What the student can explain by the end"],
-  "si_no_sabes_nada": "Explain in 8-12 sentences that there are multiple materials, what each is about and how to study them without confusion.",
-  "mapa_inicial": "10-14 sentence map: material by material, what each teaches and whether there is a real relationship between them.",
-  "cobertura_material": [
-    { "elemento": "Material: important element", "por_que_importa": "what it contributes to understanding that material" }
-  ],
-  "clase_narrativa": [
-    {
-      "titulo": "Material 1: class title",
-      "explicacion": "14-22 sentence class about this material. Teach context, central ideas, causes, consequences, examples and closure. Do not mix with other materials.",
-      "ejemplo": "Example from this material.",
-      "checkpoint": "Understanding question for this material."
-    }
-  ],
-  "panorama_completo": "Explain in 10-14 sentences how to study all materials together. If there is no direct relationship, say so clearly and teach how to separate them mentally.",
-  "conexiones_clave": [],
-  "errores_comunes": [
-    { "error": "Likely confusion", "correccion": "Correction", "mini_ejemplo": "Quick example" }
-  ],
-  "preguntas_profesor": [
-    { "pregunta": "Question per material or valid comparison", "que_evalua": "what it measures", "respuesta_esperada": "ideal answer" }
-  ],
-  "para_examen": [
-    { "punto": "key idea from one material", "por_que": "why it matters" }
-  ],
-  "ya_puedes_explicar": ["what the student can now explain"],
-  "resumen_final": "Final 8-10 sentence summary.",
-  "preguntas_sugeridas": ["useful question"],
-  "preguntale_alai": "You can ask me any question about this material."
-}
-
-RULES:
-- If materials are unrelated, say so without inventing a connection.
-- Each selected material must have its own part in clase_narrativa.
-- Do not reduce each material to one sentence.
-- Cover the most important parts of each material.
-- Teach, do not only summarize.`;
-}
-
 
 function simpleSynthPromptA(lang: 'es' | 'en', materialName: string, compact: any): string {
   const data = JSON.stringify(compact);
@@ -1131,219 +1027,6 @@ const REGLAS = (lang: 'es' | 'en') => lang === 'es'
 8. Avoid filler and generic phrases.
 9. Every section must help the student explain the topic in their own words.
 10. Return ONLY valid JSON. No markdown, no extra text.`;
-
-function promptA(lang: 'es' | 'en', text: string): string {
-  const reglas = REGLAS(lang);
-  if (lang === 'es') return `Eres Profesor ALAI, el profesor IA de StudyAL.
-
-El estudiante ya repasó el material. Ahora tu misión es que lo ENTIENDA completo.
-
-NO conviertas el material en "concepto → definición".
-Construye una clase real, como si te sentaras con el estudiante y le explicaras el tema desde cero hasta que pueda enseñárselo a otra persona.
-
-${reglas}
-
-Material seleccionado:
-${text.slice(0, 30000)}
-
-Devuelve EXACTAMENTE este JSON:
-{
-  "titulo": "Título claro de 4-8 palabras",
-  "objetivos": [
-    "Al terminar podrás explicar...",
-    "..."
-  ],
-  "si_no_sabes_nada": "Explicación inicial de 6-9 oraciones. Empieza desde cero. Si el tema requiere contexto previo, explícalo aquí. Debe sentirse como un profesor diciendo: 'antes de entrar al tema, entiende esto'.",
-  "mapa_inicial": "Explica en 6-9 oraciones qué intenta enseñar TODO el material, cuál es la idea central y por qué importa.",
-  "cobertura_material": [
-    {
-      "elemento": "Idea, persona, término, proceso, fecha, fórmula o ejemplo importante del material",
-      "por_que_importa": "Por qué este elemento es necesario para entender el material completo"
-    }
-  ],
-  "clase_narrativa": [
-    {
-      "titulo": "Parte 1: título natural de la explicación",
-      "explicacion": "Explicación narrativa de 7-10 oraciones. No definas solamente: enseña el qué, el por qué, el cómo y cómo se relaciona con lo anterior.",
-      "ejemplo": "Ejemplo concreto basado en el material.",
-      "checkpoint": "Pregunta corta para que el estudiante compruebe si entendió esta parte."
-    }
-  ]
-}
-
-REQUISITOS:
-- objetivos: 4 a 8.
-- cobertura_material: incluye TODOS los elementos importantes del material seleccionado.
-- clase_narrativa: 4 a 8 partes que se lean como una clase continua, no como fichas sueltas.
-- La primera parte debe dar contexto.
-- Las partes intermedias deben desarrollar el tema.
-- La última parte debe cerrar la idea central.
-- Si el material menciona nombres/personajes/fórmulas/procesos, deben aparecer en cobertura_material y dentro de la clase_narrativa.
-- Evita títulos como "Identidad única" si no estás explicando primero el contexto completo.`;
-
-  return `You are Professor ALAI, StudyAL's AI teacher.
-
-The student has reviewed the material. Now your mission is to make them fully UNDERSTAND it.
-
-Do NOT turn the material into "concept → definition".
-Build a real class, as if you sat with the student and explained the topic from zero until they can teach it to someone else.
-
-${reglas}
-
-Selected material:
-${text.slice(0, 30000)}
-
-Return EXACTLY this JSON:
-{
-  "titulo": "Clear 4-8 word title",
-  "objetivos": [
-    "By the end you will be able to explain...",
-    "..."
-  ],
-  "si_no_sabes_nada": "Initial explanation in 6-9 sentences. Start from zero. If the topic needs prior context, explain it here. It should feel like a teacher saying: 'before entering the topic, understand this'.",
-  "mapa_inicial": "Explain in 6-9 sentences what ALL the material is trying to teach, what the central idea is, and why it matters.",
-  "cobertura_material": [
-    {
-      "elemento": "Important idea, person, term, process, date, formula or example from the material",
-      "por_que_importa": "Why this element is necessary to understand the whole material"
-    }
-  ],
-  "clase_narrativa": [
-    {
-      "titulo": "Part 1: natural explanation title",
-      "explicacion": "Narrative explanation of 7-10 sentences. Don't just define: teach what, why, how, and how it connects to what came before.",
-      "ejemplo": "Concrete example based on the material.",
-      "checkpoint": "Short question for the student to check understanding."
-    }
-  ]
-}
-
-REQUIREMENTS:
-- objetivos: 4 to 8.
-- cobertura_material: include ALL important elements from the selected material.
-- clase_narrativa: 4 to 8 parts that read like a continuous class, not disconnected cards.
-- First part gives context.
-- Middle parts develop the topic.
-- Last part closes the central idea.
-- If the material mentions names/people/formulas/processes, they must appear in cobertura_material and inside clase_narrativa.
-- Avoid titles like "Unique identity" if you have not explained the full context first.`;
-}
-
-function promptB(lang: 'es' | 'en', text: string): string {
-  const reglas = REGLAS(lang);
-  if (lang === 'es') return `Eres Profesor ALAI. Genera la segunda parte de una clase para que el estudiante consolide el material completo.
-
-${reglas}
-
-Material seleccionado:
-${text.slice(0, 30000)}
-
-Devuelve EXACTAMENTE este JSON:
-{
-  "panorama_completo": "Une TODO el material en una sola explicación de 8-12 oraciones. Debe sentirse como: 'ahora que viste las piezas, así encaja todo'.",
-  "conexiones_clave": [
-    {
-      "titulo": "Conexión importante",
-      "explicacion": "Explica cómo se conectan varias ideas del material y por qué esa relación cambia la comprensión del tema."
-    }
-  ],
-  "errores_comunes": [
-    {
-      "error": "Confusión probable del estudiante",
-      "correccion": "Cómo debe entenderlo correctamente",
-      "mini_ejemplo": "Ejemplo rápido que corrige la confusión"
-    }
-  ],
-  "preguntas_profesor": [
-    {
-      "pregunta": "Pregunta tipo profesor que obligue a pensar, no a memorizar",
-      "que_evalua": "Qué comprensión está midiendo",
-      "respuesta_esperada": "Respuesta ideal en 2-4 oraciones"
-    }
-  ],
-  "para_examen": [
-    {
-      "punto": "Idea clave que debe recordar",
-      "por_que": "Por qué importa para una prueba, presentación o explicación oral"
-    }
-  ],
-  "ya_puedes_explicar": [
-    "Cosa concreta que el estudiante debería poder explicar con sus palabras"
-  ],
-  "resumen_final": "Resumen final de 5-7 oraciones que cierre la clase de forma clara.",
-  "preguntas_sugeridas": [
-    "Pregunta útil que el estudiante podría hacerle a ALAI"
-  ],
-  "preguntale_alai": "Puedes preguntarme cualquier duda sobre este material."
-}
-
-REQUISITOS:
-- panorama_completo debe unir el material como sistema, no repetir conceptos.
-- preguntas_profesor deben medir comprensión real.
-- errores_comunes no debe venir vacío si hay al menos una confusión probable.
-- para_examen debe ser práctico.
-- ya_puedes_explicar debe cerrar la sensación de aprendizaje.
-- preguntas_sugeridas deben ayudar a estudiar mejor.
-- No repitas lo mismo con otras palabras.`;
-
-  return `You are Professor ALAI. Generate the second half of a class so the student consolidates the whole material.
-
-${reglas}
-
-Selected material:
-${text.slice(0, 30000)}
-
-Return EXACTLY this JSON:
-{
-  "panorama_completo": "Connect ALL the material into one explanation of 8-12 sentences. It should feel like: 'now that you saw the pieces, this is how everything fits'.",
-  "conexiones_clave": [
-    {
-      "titulo": "Important connection",
-      "explicacion": "Explain how several ideas from the material connect and why that relationship changes understanding."
-    }
-  ],
-  "errores_comunes": [
-    {
-      "error": "Likely student confusion",
-      "correccion": "How it should be understood correctly",
-      "mini_ejemplo": "Quick example that corrects the confusion"
-    }
-  ],
-  "preguntas_profesor": [
-    {
-      "pregunta": "Teacher-style question that forces thinking, not memorization",
-      "que_evalua": "What understanding it measures",
-      "respuesta_esperada": "Ideal answer in 2-4 sentences"
-    }
-  ],
-  "para_examen": [
-    {
-      "punto": "Key idea to remember",
-      "por_que": "Why it matters for a test, presentation or oral explanation"
-    }
-  ],
-  "ya_puedes_explicar": [
-    "Concrete thing the student should now be able to explain in their own words"
-  ],
-  "resumen_final": "Final summary of 5-7 sentences that closes the class clearly.",
-  "preguntas_sugeridas": [
-    "Useful question the student could ask ALAI"
-  ],
-  "preguntale_alai": "You can ask me any question about this material."
-}
-
-REQUIREMENTS:
-- panorama_completo must connect the material as a system, not repeat concepts.
-- preguntas_profesor must measure real understanding.
-- errores_comunes must not be empty if there is at least one likely confusion.
-- para_examen must be practical.
-- ya_puedes_explicar must close the learning experience.
-- preguntas_sugeridas must help studying.
-- Do not repeat the same thing in different words.`;
-}
-
-
-
 
 function formatStudyText(value: any): string {
   let t = String(value || '');
@@ -2346,7 +2029,7 @@ export async function POST(req: NextRequest) {
     // ─── Auth NextAuth (opcional pero recomendado) ───
     let userId: string | null = null;
     try {
-      const session = await getServerSession(authOptions);
+      const session = await __routeDeps.getServerSession(authOptions);
       userId = (session?.user as any)?.id ?? null;
     } catch {}
 
@@ -2355,7 +2038,8 @@ export async function POST(req: NextRequest) {
 
     // ─── MODO BLUEPRINT — análisis estructural del material ───
     // Se usa en modo adaptativo para entender el material completo
-    // antes de construir el programa.
+    // antes de construir el programa. Sin relación con Free Analysis —
+    // no tocado por la migración a Material Brain.
     if (body?.mode === 'blueprint_analysis' && body?.blueprintPrompt) {
       try {
         const bpResult = await safeAlaiJson(String(body.blueprintPrompt), 6000);
@@ -2374,6 +2058,24 @@ export async function POST(req: NextRequest) {
         );
       }
     }
+
+    // ─── STUDYALMATERIALENJOYER GROUNDED PATH — Free Mode Análisis Teórico ───
+    // AnalisisTeorico.tsx sends { sessionId, nivel, ... } and no
+    // `documentos`. Autoridad académica: SOLO el StudyalMaterialEnjoyer
+    // persistido, resuelto server-side por fingerprint exacto, nunca
+    // texto crudo del cliente.
+    if (typeof body?.sessionId === 'string' && body.sessionId) {
+      if (RAW_SOURCE_AUTHORITY_KEYS.some(key => Object.prototype.hasOwnProperty.call(body, key))) {
+        return groundedErrorResponse('INVALID_CONFIG', 400, 'RAW_SOURCE_AUTHORITY_FORBIDDEN');
+      }
+      if (!userId) return groundedErrorResponse('UNAUTHORIZED', 401);
+      const nivel = ['secundaria', 'universidad', 'medicina', 'doctorado'].includes(body.nivel) ? body.nivel : 'universidad';
+      return handleGroundedAnalysisRequest(
+        body.sessionId, userId, nivel,
+        String(body.materia || '').trim(), String(body.tema || '').trim(), body.masteryContext || null,
+      );
+    }
+
     const { documentos, idioma, materialId, nivel, masteryContext } = body as {
       documentos: {
         id: string;

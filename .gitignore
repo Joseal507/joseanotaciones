@@ -25,6 +25,13 @@ tsconfig.tsbuildinfo
 # local vercel
 .vercel/
 
+# Material Brain — Fase 1 cache local (stand-in de infra; ver lib/materialBrain/cache.ts)
+.materialBrainCache/
+
+# Flashcards — DEV-only diagnostic trace files (ver lib/materialBrain/flashcards/tracePersistence.ts)
+.debug/
+.flashcards-traces/
+
 # archives are local-only
 archive/
 
@@ -32,3 +39,22 @@ archive/
 *.bak
 *backup*
 *.backup*
+
+# regenerable test-runner metadata (rewritten every run, not product state)
+test-results/.last-run.json
+reports/playwright-artifacts/.last-run.json
+
+# Local development exports and generated diagnostics
+/studyal_context.txt
+/graphify-out/
+/test-results/
+/playwright-report/
+/reports/playwright/
+/reports/playwright-artifacts/
+/reports/playwright-real-materials/
+/reports/playwright-real-materials-artifacts/
+/artifacts/
+/coverage/
+/.cache/
+/.turbo/
+/logs/

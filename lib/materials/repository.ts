@@ -5,6 +5,7 @@ import type {
   MaterialJob,
   MaterialKind,
   TextStatus,
+  ConversionStatus,
   EnfoqueType,
   ResultType,
 } from './types';
@@ -31,6 +32,19 @@ async function apiPost(path: string, body: any) {
   return res.json();
 }
 
+function rethrowQuizPersistenceError(error: unknown, code: string): never {
+  const message = error instanceof Error ? error.message : String(error);
+  let workerCode = '';
+  try {
+    const parsed = JSON.parse(message) as { error?: unknown };
+    workerCode = String(parsed?.error || '');
+  } catch {
+    workerCode = /^not found$/i.test(message.trim()) ? 'not_found' : '';
+  }
+  if (workerCode === 'not_found') throw new Error(`${code}:WORKER_ROUTE_NOT_DEPLOYED`);
+  throw error;
+}
+
 function normalizeMaterialText(row: any): MaterialText | null {
   if (!row) return null;
   return {
@@ -52,11 +66,17 @@ export async function createMaterial(data: {
   size_bytes: number;
   storage_key: string;
   kind: MaterialKind;
+  source_url?: string;
+  fetched_at?: string;
+  upload_status?: string;
+  text_status?: string;
+  normalized_kind?: MaterialKind;
+  conversion_status?: ConversionStatus;
 }): Promise<Material> {
   const res = await apiPost('/materials/upsert', {
-    ...data,
     upload_status: 'pending',
     text_status: 'pending',
+    ...data,
   });
 
   if (!res.material) throw new Error('DB createMaterial: material vacío');
@@ -81,6 +101,7 @@ export async function getMaterialsByTema(
 
 export async function updateMaterialTextStatus(
   id: string,
+  userId: string,
   status: TextStatus,
   extra?: {
     extracted_chars?: number;
@@ -88,11 +109,37 @@ export async function updateMaterialTextStatus(
     last_error?: string;
   },
 ): Promise<void> {
+  // El Worker exige id+user_id (ownership) en /materials/update — sin
+  // user_id el endpoint devuelve 400 y esta llamada nunca actualiza nada.
   await apiPost('/materials/update', {
     id,
+    user_id: userId,
     text_status: status,
     ...(extra || {}),
   });
+}
+
+export async function updateMaterialConversion(
+  id: string,
+  userId: string,
+  update: {
+    conversion_status: ConversionStatus;
+    normalized_kind?: MaterialKind;
+    normalized_storage_key?: string;
+    converted_at?: string;
+    conversion_error?: string;
+    content_hash?: string;
+  },
+): Promise<void> {
+  await apiPost('/materials/update', { id, user_id: userId, ...update });
+}
+
+export function resolveStudyKind(material: Pick<Material, 'kind' | 'normalized_kind'>): MaterialKind {
+  return material.normalized_kind || material.kind;
+}
+
+export function resolveStudyStorageKey(material: Pick<Material, 'storage_key' | 'normalized_storage_key'>): string {
+  return material.normalized_storage_key || material.storage_key;
 }
 
 export async function softDeleteMaterial(
@@ -148,7 +195,85 @@ export async function getMaterialResult(
   };
 }
 
+export async function getMaterialResults(
+  materialId: string,
+  enfoque: EnfoqueType,
+  resultType: ResultType,
+): Promise<MaterialResult[]> {
+  let res;
+  try {
+    res = await apiGet(
+      `/material-results/by-scope?materialId=${encodeURIComponent(materialId)}&enfoque=${encodeURIComponent(enfoque)}&resultType=${encodeURIComponent(resultType)}`
+    );
+  } catch (error) {
+    rethrowQuizPersistenceError(error, 'QUIZ_COVERAGE_STORE_UNAVAILABLE');
+  }
+  const results = Array.isArray(res.results) ? res.results : [];
+  return results.map((result: MaterialResult) => ({
+    ...result,
+    payload: typeof result.payload === 'string'
+      ? (() => { try { return JSON.parse(result.payload); } catch { return result.payload; } })()
+      : result.payload,
+  }));
+}
+
+export async function insertImmutableQuizResult(data: {
+  id: string;
+  material_id: string;
+  payload: any;
+  content_hash: string;
+}): Promise<{ applied: boolean; result: any }> {
+  let res;
+  try {
+    res = await apiPost('/material-results/quiz-result-insert', data);
+  } catch (error) {
+    rethrowQuizPersistenceError(error, 'QUIZ_COMPLETION_STORE_UNAVAILABLE');
+  }
+  const result = res.result;
+  if (!result) throw new Error('DB insertImmutableQuizResult: result vacío');
+  return {
+    applied: res.applied === true,
+    result: typeof result.payload === 'string'
+      ? (() => { try { return JSON.parse(result.payload); } catch { return result.payload; } })()
+      : result.payload,
+  };
+}
+
+export interface QuizGenerationCasPayload {
+  identity: string;
+  expectedArtifactRevision: string | null;
+  expectedManifestRevision: string | null;
+  revision: string;
+  artifact: Record<string, unknown>;
+  manifest: Record<string, unknown>;
+}
+
+/** Atomically advances the frozen Quiz artifact and its manifest under one revision. */
+export async function compareAndSwapQuizGeneration(
+  data: QuizGenerationCasPayload,
+): Promise<{ applied: boolean }> {
+  let res;
+  try {
+    res = await apiPost('/material-results/quiz-generation-cas', data);
+  } catch (error) {
+    rethrowQuizPersistenceError(error, 'QUIZ_GENERATION_STORE_UNAVAILABLE');
+  }
+  return { applied: res.applied === true };
+}
+
 export async function saveMaterialResult(data: {
+  /**
+   * Optional STABLE row id. The Worker's upsert conflicts on `id` alone
+   * (`ON CONFLICT(id) DO UPDATE`) — omitting it makes the server mint a
+   * fresh random id on every call, so repeated saves for the SAME
+   * logical record (material_id+enfoque+result_type) accumulate as
+   * separate rows instead of updating one. Callers that save the same
+   * logical record more than once (e.g. Material Brain, which persists
+   * a placeholder, checkpoint flushes, and a final result for the same
+   * fingerprint) MUST pass a deterministic id derived from that logical
+   * identity so every save updates the SAME row.
+   */
+  id?: string;
   material_id: string;
   enfoque: EnfoqueType;
   result_type: ResultType;

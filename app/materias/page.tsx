@@ -24,6 +24,7 @@ const AnalisisTeorico = dynamicImport(() => import('../../components/materias/An
 const ModalMateria = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalMateria));
 const ModalTema = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalTema));
 const ModalApunte = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalApunte));
+const ModalConfirmarEliminar = dynamicImport(() => import('../../components/materias/Modales').then(mod => mod.ModalConfirmarEliminar));
 import Buscador from '../../components/Buscador';
 import MaterialUploader from '../../components/materials/MaterialUploader';
 import type { MaterialUI } from '../../lib/materials/types';
@@ -43,10 +44,14 @@ import {
   type MasteryContext,
   type SessionSummary,
 } from '../../lib/masteryEngine';
-import { getSessionById, getSessionsByTema, lookupSessionByIdFromServer, syncSessionsFromServer } from '../../lib/studySessions';
+import { getSessionById, getSessionsByTema, lookupSessionByIdFromServer, syncSessionsFromServer, deleteSession } from '../../lib/studySessions';
 import { hasPersistedAdaptiveArtifacts } from '../../lib/adaptive/resume';
-import { buildSourceSelectionFromMaterials } from '../../lib/adaptive/sourceSelection';
+import { buildSourceSelectionFromMaterials, buildSourceSelectionSnapshot, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import { freeNavDebug, freeNavCallsite, nextFreeNavRenderId } from '../../lib/debug/freeNavDebug';
+import { useMaterialBrainLifecycle } from '../../lib/materialBrain/useMaterialBrainLifecycle';
+import { useStudyalMaterialEnjoyerLifecycle } from '../../lib/adaptive/useStudyalMaterialEnjoyerLifecycle';
+import MaterialPreparationScreen, { resolveMaterialPreparationGate } from '../../components/materias/MaterialPreparationScreen';
+import type { FreeTool } from '../../lib/materialBrain/capabilities';
 
 type Vista = 'materias' | 'materia' | 'tema' | 'apunte' | 'documento' | 'flashcards' | 'quiz' | 'repasar' | 'analisis' | 'alai' | 'exam';
 
@@ -91,6 +96,53 @@ export default function MateriasPage() {
     studyMode: 'free';
   } | null>(null);
 
+  const [brainSourceSelection, setBrainSourceSelection] = useState<SourceSelectionSnapshot | null>(null);
+  const brainLifecycle = useMaterialBrainLifecycle(brainSourceSelection);
+
+  // PHASE 2 — StudyalMaterialEnjoyer is Free Mode's HUB-ENTRY
+  // preparation authority. Set exclusively by onSourceSelectionReady
+  // (hub open / "Empezar a estudiar"), never by opening a specific
+  // tool — that is what keeps hub entry itself free of any Material
+  // Brain call. `freeStudyContext.materialEnjoyer` (below) is the
+  // exposed read surface downstream tools can migrate to later.
+  const [freeEnjoyerSourceSelection, setFreeEnjoyerSourceSelection] = useState<SourceSelectionSnapshot | null>(null);
+  const [freeEnjoyerMaterials, setFreeEnjoyerMaterials] = useState<{ materialId: string; materialName: string }[]>([]);
+  const materialEnjoyerLifecycle = useStudyalMaterialEnjoyerLifecycle(freeEnjoyerSourceSelection, freeEnjoyerMaterials);
+  const freeStudyContext = { materialEnjoyer: materialEnjoyerLifecycle };
+
+  // ── Material Brain Preparation Gate (P0 tool readiness) ──
+  // Computed once per render, scoped to whichever tool `vista` is
+  // currently showing — each tool waits for EXACTLY the capability its
+  // contract needs (capabilities.ts is the single authority), never a
+  // shared "brain ready" flag. A non-tool vista (hub/browse/documento)
+  // maps to `null`, which only ever needs source-level readiness — the
+  // hub itself is never blocked by tool-specific enrichment.
+  // Free Mode tools are StudyalMaterialEnjoyer-native — none of them
+  // are gated behind legacy Material Brain readiness.
+  const VISTA_TOOL: Partial<Record<Vista, FreeTool>> = {};
+  const activeTool = VISTA_TOOL[vista] || null;
+  const preparationGate = resolveMaterialPreparationGate(
+    brainLifecycle.status,
+    !!brainSourceSelection,
+    activeTool,
+    brainLifecycle.capabilities,
+  );
+
+  // Auto-continue is implicit here, not a separate state machine:
+  // clicking a tool already sets `vista` synchronously (see
+  // onOpenFlashcards/onOpenQuiz/... below); this screen renders in its
+  // place ONLY while gated, and reactively stops rendering — letting
+  // the real tool pane mount — the moment `brainLifecycle.capabilities`
+  // flips the required flag, with no extra "pending intent" plumbing.
+  // A fingerprint change resets `capabilities` to null in the lifecycle
+  // hook itself, so a stale selection can never unlock a new one.
+  const shouldShowMaterialPreparationScreen =
+    !!brainSourceSelection &&
+    !!temaActual &&
+    !!materiaActual &&
+    !!activeTool &&
+    preparationGate.shouldGate;
+
   const [autoOpenAdaptive, setAutoOpenAdaptive] = useState(false);
   const [autoOpenAdaptiveSessionId, setAutoOpenAdaptiveSessionId] = useState<string | null>(null);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
@@ -100,6 +152,14 @@ export default function MateriasPage() {
       && new URLSearchParams(window.location.search).has('adaptiveSessionId'),
   );
   const createLocksRef = useRef(new Set<string>());
+  // Generación monótona: se incrementa en CADA save() local (crear/
+  // actualizar/borrar). Un refresco de fondo (lookupMateriasDesdeDB en el
+  // efecto de abajo, disparado por NextAuth revalidando `session` en cada
+  // focus/visibilitychange) compara su snapshot contra esto — si cambió
+  // mientras el fetch estaba en vuelo, un save() local más nuevo ya ganó y
+  // la respuesta del fetch (potencialmente vieja) se descarta en vez de
+  // pisar ese cambio.
+  const materiasWriteGenerationRef = useRef(0);
   const cargarRunCountRef = useRef(0);
   const prevSessionRefForDebug = useRef<typeof session>(undefined);
   const urlRestoreConsumedRef = useRef(false);
@@ -285,6 +345,9 @@ export default function MateriasPage() {
                   materialIndex,
                   pages: freeSession.selectedPages?.[materialId] || [],
                 }));
+
+                // Free Mode tools restore their exact Enjoyer authority instead —
+                // never Material Brain.
                 setFreeToolSessionId(freeSession.id);
                 if (freeTool === 'flashcards') { setFlashcardsMateriales(selectedMaterials); setFlashcardsSeleccion(restoredSelection); setFlashcardsSessionId(freeSession.id); }
                 if (freeTool === 'quiz') { setQuizMateriales(selectedMaterials); setQuizSeleccion(restoredSelection); }
@@ -363,29 +426,55 @@ export default function MateriasPage() {
   // FIX P0: memoizar sourceSelection y masteryContext para evitar bounce.
   // Antes se construian inline en JSX (nueva identidad cada render) → useAuthorizedSource
   // veia snapshot nuevo → refetch → setResult(null) → UI de la herramienta desaparecia.
+  //
+  // ÚNICA AUTORIDAD DE sourceSelectionFingerprint: cuando existe una sesión
+  // (freeToolSessionId), su propio materialIds/selectedPages YA ES el
+  // sourceSelectionFingerprint canónico (así lo calculó TemaView/upsertSession
+  // al crearla) — leerlo de acá en vez de recomputar buildSourceSelectionFromMaterials()
+  // desde los argumentos materiales/seleccion que llegan por el callback
+  // onOpenX evita que esta pantalla calcule un fingerprint LIGERAMENTE
+  // distinto al que ya quedó guardado en la sesión (esa era la causa real
+  // del mismatch: dos cómputos independientes de la MISMA selección
+  // semántica, con inputs que podían drift entre sí). Sin sesión todavía
+  // (herramienta que no la requiere, o timing antes de crearla), cae al
+  // cómputo de siempre desde materiales/seleccion.
+  const buildCanonicalToolSource = useCallback((
+    sessionId: string | null,
+    materiales: any[],
+    seleccion: any[] | null,
+  ): SourceSelectionSnapshot => {
+    if (sessionId) {
+      const session = getSessionById(sessionId);
+      if (session) {
+        return buildSourceSelectionSnapshot(session.materialIds, session.selectedPages || {});
+      }
+    }
+    return buildSourceSelectionFromMaterials(materiales, seleccion);
+  }, []);
+
   const flashcardsSource = useMemo(
-    () => buildSourceSelectionFromMaterials(flashcardsMateriales, flashcardsSeleccion),
-    [flashcardsMateriales, flashcardsSeleccion],
+    () => buildCanonicalToolSource(freeToolSessionId, flashcardsMateriales, flashcardsSeleccion),
+    [buildCanonicalToolSource, freeToolSessionId, flashcardsMateriales, flashcardsSeleccion],
   );
   const quizSource = useMemo(
-    () => buildSourceSelectionFromMaterials(quizMateriales, quizSeleccion),
-    [quizMateriales, quizSeleccion],
+    () => buildCanonicalToolSource(freeToolSessionId, quizMateriales, quizSeleccion),
+    [buildCanonicalToolSource, freeToolSessionId, quizMateriales, quizSeleccion],
   );
   const repasarSource = useMemo(
-    () => buildSourceSelectionFromMaterials(repasarMateriales, repasarSeleccion),
-    [repasarMateriales, repasarSeleccion],
+    () => buildCanonicalToolSource(freeToolSessionId, repasarMateriales, repasarSeleccion),
+    [buildCanonicalToolSource, freeToolSessionId, repasarMateriales, repasarSeleccion],
   );
   const analisisSource = useMemo(
-    () => buildSourceSelectionFromMaterials(analisisMateriales, analisisSeleccion),
-    [analisisMateriales, analisisSeleccion],
+    () => buildCanonicalToolSource(freeToolSessionId, analisisMateriales, analisisSeleccion),
+    [buildCanonicalToolSource, freeToolSessionId, analisisMateriales, analisisSeleccion],
   );
   const alaiSource = useMemo(
-    () => buildSourceSelectionFromMaterials(alaiMateriales, alaiSeleccion),
-    [alaiMateriales, alaiSeleccion],
+    () => buildCanonicalToolSource(freeToolSessionId, alaiMateriales, alaiSeleccion),
+    [buildCanonicalToolSource, freeToolSessionId, alaiMateriales, alaiSeleccion],
   );
   const examSource = useMemo(
-    () => buildSourceSelectionFromMaterials(examMateriales, examSeleccion),
-    [examMateriales, examSeleccion],
+    () => buildCanonicalToolSource(freeToolSessionId, examMateriales, examSeleccion),
+    [buildCanonicalToolSource, freeToolSessionId, examMateriales, examSeleccion],
   );
   const memoizedMasteryContext = useMemo(
     () => buildMasteryContext(masteryState),
@@ -396,6 +485,9 @@ export default function MateriasPage() {
   // Auto-extraer conceptos en background cuando el mastery existe pero no tiene conceptos
   const autoExtractConcepts = async (mastery: MaterialMastery) => {
     if (adaptiveResumeExtractionGuardRef.current) return;
+    // Free Mode tools (ALAI Chat, Flashcards, Quiz, etc.) consume StudyalMaterialEnjoyer
+    // and must never trigger background LLM concept extraction on entry.
+    if (vista !== 'tema') return;
     if (!mastery || mastery.conceptsExtracted || mastery.concepts.length > 0) return;
     if (!mastery.materialId && !mastery.sessionKey) return;
 
@@ -536,10 +628,19 @@ export default function MateriasPage() {
     // Guardar el estado con el olvido aplicado
     if (loaded) saveMaterialMastery(mastery);
 
-    // Auto-extraer conceptos si no los tiene
+    // Auto-extraer conceptos si no los tiene.
+    // P13 (Material Brain audit): Mastery does its OWN independent LLM
+    // extraction over the same material, competing for provider/latency
+    // with Material Brain's enrichment during the exact window that
+    // matters most for correctness. Not necessary for the Free Mode hub
+    // to open — deferred while the Brain is still actively preparing,
+    // never disabled entirely.
     if (!adaptiveResumeExtractionGuardRef.current
+      && vista === 'tema'
       && !mastery.conceptsExtracted
-      && !mastery.concepts.length) {
+      && !mastery.concepts.length
+      && brainLifecycle.status === 'ready'
+      && (brainLifecycle.academicStability === 'stable_rich' || brainLifecycle.academicStability === 'stable_degraded' || brainLifecycle.academicStability === 'failed')) {
       setTimeout(() => autoExtractConcepts(mastery), 500);
     }
   };
@@ -703,6 +804,13 @@ export default function MateriasPage() {
   const [modalMateria, setModalMateria] = useState(false);
   const [modalTema, setModalTema] = useState(false);
   const [modalApunte, setModalApunte] = useState(false);
+  const [confirmEliminar, setConfirmEliminar] = useState<{
+    tipo: 'tema' | 'materia';
+    id: string;
+    nombre: string;
+    color: string;
+  } | null>(null);
+  const [eliminando, setEliminando] = useState(false);
   const [subiendoDoc, setSubiendoDoc] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
@@ -759,40 +867,50 @@ export default function MateriasPage() {
           localStorage.removeItem('josea_objetivos');
         }
 
+        const generationAtFetchStart = materiasWriteGenerationRef.current;
         const lookup = await lookupMateriasDesdeDB();
         if (lookup.status !== 'ERROR') {
           const restored = lookup.materias;
-          if (process.env.NODE_ENV !== 'production') {
-            freeNavDebug('SET_MATERIAS', {
-              source: 'cargar-effect:lookupMateriasDesdeDB',
-              newArrayRefWillTriggerFindAndOpenEffect: true,
-              count: restored.length,
-            });
-          }
-          setMaterias(restored);
-          setMateriasRestoreStatus('READY');
-          // Auto-abrir materia si viene del home (URL param o localStorage)
-          try {
-            const openId = openParam || localStorage.getItem('josea_open_materia');
-            if (openId) {
-              const mat = restored.find((m: any) => m.id === openId);
-              if (mat) {
-                setMateriaActual(mat);
-                setVistaDebug(prev => (
-                  ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam', 'tema', 'apunte', 'documento'].includes(prev)
-                    ? prev
-                    : 'materia'
-                ));
-              } else {
-                setVistaDebug(prev => (
-                  ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam', 'tema', 'apunte', 'documento'].includes(prev)
-                    ? prev
-                    : 'materias'
-                ));
-              }
-              localStorage.removeItem('josea_open_materia');
+          if (materiasWriteGenerationRef.current !== generationAtFetchStart) {
+            // Un save() local (crear/actualizar/borrar) confirmó mientras
+            // este refresco de fondo estaba en vuelo — esa escritura es más
+            // nueva. Aplicar esta respuesta la pisaría (p.ej. resucitar
+            // visualmente un tema recién borrado). READY igual porque sí
+            // tenemos una respuesta definitiva, solo no la usamos.
+            setMateriasRestoreStatus('READY');
+          } else {
+            if (process.env.NODE_ENV !== 'production') {
+              freeNavDebug('SET_MATERIAS', {
+                source: 'cargar-effect:lookupMateriasDesdeDB',
+                newArrayRefWillTriggerFindAndOpenEffect: true,
+                count: restored.length,
+              });
             }
-          } catch {}
+            setMaterias(restored);
+            setMateriasRestoreStatus('READY');
+            // Auto-abrir materia si viene del home (URL param o localStorage)
+            try {
+              const openId = openParam || localStorage.getItem('josea_open_materia');
+              if (openId) {
+                const mat = restored.find((m: any) => m.id === openId);
+                if (mat) {
+                  setMateriaActual(mat);
+                  setVistaDebug(prev => (
+                    ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam', 'tema', 'apunte', 'documento'].includes(prev)
+                      ? prev
+                      : 'materia'
+                  ));
+                } else {
+                  setVistaDebug(prev => (
+                    ['flashcards', 'quiz', 'repasar', 'analisis', 'alai', 'exam', 'tema', 'apunte', 'documento'].includes(prev)
+                      ? prev
+                      : 'materias'
+                  ));
+                }
+                localStorage.removeItem('josea_open_materia');
+              }
+            } catch {}
+          }
         } else {
           // ERROR no equivale a ABSENT. El cache solo mantiene la UI usable;
           // nunca se sube ni se interpreta como autoridad durable.
@@ -823,6 +941,7 @@ export default function MateriasPage() {
   }, []);
 
   const save = (m: Materia[]) => {
+    materiasWriteGenerationRef.current += 1;
     setMaterias(m);
     saveMaterias(m);
   };
@@ -869,30 +988,51 @@ export default function MateriasPage() {
     setTimeout(() => createLocksRef.current.delete(lock), 1000);
   };
 
-  const eliminarMateria = async (id: string) => {
+  const eliminarMateria = (id: string) => {
     const target = materias.find(m => m.id === id);
     if (!target) return;
-    if (target.temas.some(t => t.apuntes.length > 0 || t.documentos.length > 0)) {
-      alert(idioma === 'en'
-        ? 'Remove the notes and materials from this subject before deleting it.'
-        : 'Elimina primero los apuntes y materiales de esta materia.');
-      return;
-    }
+    setConfirmEliminar({ tipo: 'materia', id, nombre: target.nombre, color: target.color });
+  };
+
+  const ejecutarEliminarMateria = async (id: string) => {
+    const target = materias.find(m => m.id === id);
+    if (!target) return;
+
+    // Snapshot de sesiones LOCALES de todos los temas antes de borrar — el
+    // cascade en el servidor es la autoridad real (D1 + R2); esto solo
+    // determina qué limpiar del cache local (localStorage) después.
+    const sessionsForMateria = target.temas.flatMap(t => getSessionsByTema(t.id));
+
     try {
-      await syncSessionsFromServer();
-      if (target.temas.some(t => getSessionsByTema(t.id).length > 0)) {
+      const res = await fetch(`/api/materias/materia/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
         alert(idioma === 'en'
-          ? 'This subject has study sessions and cannot be deleted safely.'
-          : 'Esta materia tiene sesiones de estudio y no puede eliminarse de forma segura.');
+          ? 'Could not fully delete this subject. Please try again — it is safe to retry.'
+          : 'No se pudo eliminar completamente esta materia. Vuelve a intentarlo — es seguro repetir la acción.');
         return;
       }
     } catch {
-      alert(idioma === 'en' ? 'Could not verify dependent sessions.' : 'No se pudieron verificar las sesiones dependientes.');
+      alert(idioma === 'en'
+        ? 'Could not delete this subject (network error). Please try again.'
+        : 'No se pudo eliminar esta materia (error de red). Intenta de nuevo.');
       return;
     }
-    if (!confirm(idioma === 'en'
-      ? 'Delete this subject and all its content?'
-      : '¿Eliminar esta materia y todo su contenido?')) return;
+
+    // Cascade confirmada en servidor (materiales + R2 + sesiones de cada
+    // tema). Limpiar caches locales y recién ahí retirar la materia del
+    // árbol — misma autoridad de siempre (save → /api/materias).
+    for (const s of sessionsForMateria) {
+      deleteSession(s.id);
+      try { localStorage.removeItem(getMasteryStorageKey(s.materialIds)); } catch {}
+    }
+    try {
+      for (const t of target.temas) {
+        if (localStorage.getItem('studyal_open_tema') === t.id) localStorage.removeItem('studyal_open_tema');
+      }
+      if (localStorage.getItem('studyal_open_tema_adaptive') === id) localStorage.removeItem('studyal_open_tema_adaptive');
+    } catch {}
+
     save(materias.filter(m => m.id !== id));
   };
 
@@ -913,29 +1053,51 @@ export default function MateriasPage() {
     setTimeout(() => createLocksRef.current.delete(lock), 1000);
   };
 
-  const eliminarTema = async (id: string) => {
-    if (!confirm(idioma === 'en' ? 'Delete this topic?' : '¿Eliminar este tema?')) return;
+  const eliminarTema = (id: string) => {
     if (!materiaActual) return;
     const target = materiaActual.temas.find(t => t.id === id);
     if (!target) return;
-    if (target.apuntes.length > 0 || target.documentos.length > 0) {
-      alert(idioma === 'en'
-        ? 'Remove the notes and materials from this topic before deleting it.'
-        : 'Elimina primero los apuntes y materiales de este tema.');
-      return;
-    }
+    setConfirmEliminar({ tipo: 'tema', id, nombre: target.nombre, color: target.color });
+  };
+
+  const ejecutarEliminarTema = async (id: string) => {
+    if (!materiaActual) return;
+    const target = materiaActual.temas.find(t => t.id === id);
+    if (!target) return;
+
+    // Snapshot de sesiones LOCALES antes de borrar — el cascade en el
+    // servidor es la autoridad real (D1 + R2); esto solo determina qué
+    // limpiar del cache local (localStorage) después.
+    const sessionsForTema = getSessionsByTema(target.id);
+
     try {
-      await syncSessionsFromServer(target.id);
-      if (getSessionsByTema(target.id).length > 0) {
+      const res = await fetch(`/api/materias/tema/${encodeURIComponent(target.id)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
         alert(idioma === 'en'
-          ? 'This topic has study sessions and cannot be deleted safely.'
-          : 'Este tema tiene sesiones de estudio y no puede eliminarse de forma segura.');
+          ? 'Could not fully delete this topic. Please try again — it is safe to retry.'
+          : 'No se pudo eliminar completamente este tema. Vuelve a intentarlo — es seguro repetir la acción.');
         return;
       }
     } catch {
-      alert(idioma === 'en' ? 'Could not verify dependent sessions.' : 'No se pudieron verificar las sesiones dependientes.');
+      alert(idioma === 'en'
+        ? 'Could not delete this topic (network error). Please try again.'
+        : 'No se pudo eliminar este tema (error de red). Intenta de nuevo.');
       return;
     }
+
+    // Cascade confirmada en servidor (materiales + R2 + sesiones). Limpiar
+    // caches locales y recién ahí retirar el tema del árbol — misma
+    // autoridad de siempre (actualizarMateria → saveMaterias → /api/materias).
+    for (const s of sessionsForTema) {
+      deleteSession(s.id);
+      try { localStorage.removeItem(getMasteryStorageKey(s.materialIds)); } catch {}
+    }
+    try {
+      if (localStorage.getItem('studyal_open_tema') === id) localStorage.removeItem('studyal_open_tema');
+      if (localStorage.getItem('studyal_open_tema_adaptive') === id) localStorage.removeItem('studyal_open_tema_adaptive');
+    } catch {}
+
     actualizarMateria({
       ...materiaActual,
       temas: materiaActual.temas.filter(t => t.id !== id),
@@ -1013,6 +1175,7 @@ export default function MateriasPage() {
       archivoMime: undefined,
       materialId: m.id,
       text_status: m.text_status,
+      conversion_status: m.conversion_status,
     }));
     actualizarTema({
       ...temaActual,
@@ -1275,6 +1438,18 @@ const eliminarDocumento = async (id: string) => {
           />
         )}
 
+        {/* ── Material Brain Preparation Gate Screen — any Free Mode tool (Flashcards/Quiz/Repasar/Análisis/ALAI/Exam) whose capability isn't ready yet. Auto-continues via reactive gate recompute, no explicit intent state. ── */}
+        {shouldShowMaterialPreparationScreen && (
+          <MaterialPreparationScreen
+            mode={preparationGate.mode!}
+            preparation={brainLifecycle.preparation}
+            onRetry={preparationGate.mode === 'failed' ? brainLifecycle.recheck : undefined}
+            onBack={() => {
+              setVistaDebug('tema', 'preparation-gate:back');
+            }}
+          />
+        )}
+
         {vista === 'tema' && temaActual && materiaActual && (
           <TemaView
             userId={userId}
@@ -1297,6 +1472,30 @@ const eliminarDocumento = async (id: string) => {
             onClearReturnToEnfoque={() => { setReturnToEnfoque(false); setReturnSessionId(null); setFreeReturnSeed(null); }}
             autoOpenAdaptive={autoOpenAdaptive}
             autoOpenAdaptiveSessionId={autoOpenAdaptiveSessionId}
+            onSourceSelectionReady={(mats, sel) => {
+              const ss = buildSourceSelectionSnapshot(
+                mats.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean),
+                sel || {},
+              );
+              // PHASE 2 (StudyalMaterialEnjoyer): entering the Free hub
+              // ("Empezar a estudiar") must prepare StudyalMaterialEnjoyer,
+              // NOT Material Brain — Material Brain is deliberately NOT
+              // primed here anymore. It is still primed by the tool-open
+              // callbacks for tools not yet migrated off it; Flashcards is
+              // explicitly excluded as of Phase 3A. Bare hub entry and
+              // opening Flashcards therefore cause zero Material Brain calls.
+              setFreeEnjoyerSourceSelection(ss);
+              setFreeEnjoyerMaterials(mats.map((m: any) => ({
+                materialId: String(m?.materialId || m?.id || ''),
+                materialName: m?.nombre || m?.name || 'Material',
+              })).filter((m: any) => m.materialId));
+            }}
+            brainStatus={brainLifecycle.status}
+            brainFingerprint={brainLifecycle.fingerprint}
+            brainPreparation={brainLifecycle.preparation}
+            brainCapabilities={brainLifecycle.capabilities}
+            onBrainRecheck={brainLifecycle.recheck}
+            materialEnjoyer={materialEnjoyerLifecycle}
             onOpenFlashcards={(mats?: any[], sel?: any[], sessionId?: string | null) => {
               const matsToUse = mats || temaActual?.documentos || [];
               const normalizedSel = normalizeSeleccionForFlashcards(sel || null, matsToUse);
@@ -1312,6 +1511,9 @@ const eliminarDocumento = async (id: string) => {
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
+              // PHASE 3A: the exact-fingerprint Enjoyer was prepared by
+              // onSourceSelectionReady. Opening Flashcards must never prime
+              // Material Brain or replace the user's page authority.
               setVistaDebug('flashcards', 'StudyALProcess-hub:onOpenFlashcards:user-clicked-generate');
             }}
             onOpenQuiz={(mats?: any[], sel?: any[], sessionId?: string | null) => {
@@ -1323,6 +1525,8 @@ const eliminarDocumento = async (id: string) => {
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
+              // Quiz consumes the exact persisted StudyalMaterialEnjoyer for
+              // the session fingerprint. Opening it must never prime Brain.
               setVistaDebug('quiz');
             }}
             onOpenRepasar={(mats?: any[], sel?: any[], sessionId?: string | null) => {
@@ -1334,6 +1538,8 @@ const eliminarDocumento = async (id: string) => {
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
+              // Repasar restores the exact persisted StudyalMaterialEnjoyer
+              // for this Free session; opening it must never prime Brain.
               setVistaDebug('repasar');
             }}
             onOpenAnalisis={(mats?: any[], sel?: any[], sessionId?: string | null) => {
@@ -1345,6 +1551,9 @@ const eliminarDocumento = async (id: string) => {
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
+              // Análisis is StudyalMaterialEnjoyer-native (analysisEnjoyerContext,
+              // app/api/analizar-teorico/route.ts) — opening it must never build
+              // or prime the legacy Brain lifecycle.
               setVistaDebug('analisis');
             }}
             onOpenAlai={(mats?: any[], sel?: any[], sessionId?: string | null) => {
@@ -1356,6 +1565,8 @@ const eliminarDocumento = async (id: string) => {
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
+              // ALAI Chat is StudyalMaterialEnjoyer-native — opening it must
+              // never build or prime the legacy Material Brain lifecycle.
               setVistaDebug('alai');
             }}
             onOpenExam={(mats?: any[], sel?: any[], sessionId?: string | null) => {
@@ -1368,6 +1579,8 @@ const eliminarDocumento = async (id: string) => {
               const ids = matsToUse.map((m: any) => String(m?.materialId || m?.id || '')).filter(Boolean);
               const names = matsToUse.map((m: any) => m?.nombre || m?.name || 'Material');
               initMastery(ids, names);
+              // Exam resolves the exact persisted StudyalMaterialEnjoyer for
+              // this Free session; opening it must never prime Material Brain.
               setVistaDebug('exam');
             }}
             onAgregarYoutube={agregarYoutube}
@@ -1401,7 +1614,7 @@ const eliminarDocumento = async (id: string) => {
           });
           return null;
         })()}
-        {vista === 'flashcards' && temaActual && materiaActual && (
+        {vista === 'flashcards' && temaActual && materiaActual && !shouldShowMaterialPreparationScreen && (
           <ALAIStudyALCards
             materiales={flashcardsMateriales}
             seleccion={flashcardsSeleccion}
@@ -1409,6 +1622,7 @@ const eliminarDocumento = async (id: string) => {
             materia={materiaActual}
             sessionId={flashcardsSessionId}
             sourceSelection={flashcardsSource}
+            enjoyerStatus={materialEnjoyerLifecycle.status}
             masteryContext={memoizedMasteryContext}
             onMasteryEvent={reportMasteryEvent}
             onBack={() => returnToFreeProcess('flashcards', flashcardsMateriales, flashcardsSeleccion, flashcardsSessionId || freeToolSessionId)}
@@ -1447,7 +1661,7 @@ const eliminarDocumento = async (id: string) => {
           />
         )}
 
-        {vista === 'analisis' && temaActual && materiaActual && (
+        {vista === 'analisis' && temaActual && materiaActual && !preparationGate.shouldGate && (
           <AnalisisTeorico
             materiales={analisisMateriales}
             seleccion={analisisSeleccion}
@@ -1539,6 +1753,27 @@ const eliminarDocumento = async (id: string) => {
             onClose={() => setModalTema(false)}
             onConfirm={crearTema}
             colorMateria={materiaActual.color}
+          />
+        )}
+        {confirmEliminar && (
+          <ModalConfirmarEliminar
+            tipo={confirmEliminar.tipo}
+            nombre={confirmEliminar.nombre}
+            color={confirmEliminar.color}
+            loading={eliminando}
+            onClose={() => setConfirmEliminar(null)}
+            onConfirm={async () => {
+              if (eliminando) return; // doble click: operación ya en curso
+              const { tipo, id } = confirmEliminar;
+              setEliminando(true);
+              try {
+                if (tipo === 'tema') await ejecutarEliminarTema(id);
+                else await ejecutarEliminarMateria(id);
+              } finally {
+                setEliminando(false);
+                setConfirmEliminar(null);
+              }
+            }}
           />
         )}
         {/* Session Summary Modal */}

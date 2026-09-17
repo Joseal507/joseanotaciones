@@ -20,12 +20,18 @@ async function installSource(page: Page) {
 test('Flashcards conserva mazo, tarjeta, respuesta y confianza tras refresh y reopen', async ({ page }) => {
   await installSource(page);
   let generationCalls = 0;
-  await page.route('**/api/alai-studyal-cards', async route => {
+  await page.route('**/api/flashcards-v2', async route => {
     generationCalls += 1;
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, flashcards: [
-      { question: 'Pregunta durable alpha', answer: 'Respuesta durable alpha', sourceMaterialId: 'e2e-free-a', sourcePage: 2 },
-      { question: 'Pregunta durable beta', answer: 'Respuesta durable beta', sourceMaterialId: 'e2e-free-b', sourcePage: 1 },
-    ] }) });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      status: 'ready',
+      deck: {
+        cards: [
+          { id: 'fc-alpha', question: 'Pregunta durable alpha', answer: 'Respuesta durable alpha', provenance: [{ materialId: 'e2e-free-a', page: 2, quote: '', chunkId: '' }] },
+          { id: 'fc-beta', question: 'Pregunta durable beta', answer: 'Respuesta durable beta', provenance: [{ materialId: 'e2e-free-b', page: 1, quote: '', chunkId: '' }] },
+        ],
+        coverage: { targetedUnitIds: [], targetedRelationIds: [], coveredUnitIds: [], coveredRelationIds: [], status: 'complete', metrics: { plannedCards: 2, validCards: 2, failedCards: 0, targetedUnits: 0, coveredUnits: 0, targetedRelations: 0, coveredRelations: 0 } },
+      },
+    }) });
   });
   await page.route('**/api/evaluar', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultado: { nivel: 'correcta', porcentaje: 100, explicacion: 'Feedback durable', respuestaCorrecta: 'Respuesta durable alpha' } }) }));
 

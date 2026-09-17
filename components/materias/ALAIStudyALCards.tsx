@@ -10,6 +10,11 @@ import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from 
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
 import { freeNavDebug, nextFreeNavInstanceId } from '../../lib/debug/freeNavDebug';
+import type { GeneratedFlashcard } from '../../lib/materialBrain/flashcards';
+import {
+  FLASHCARD_EVALUATION_RETRY_MESSAGE,
+  FlashcardEvaluationGate,
+} from '../../lib/flashcards/evaluationClient';
 import { RADIUS, inkBorder, hardShadow } from '../../lib/ui/surface';
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 const SourceViewer = dynamic(() => import('./FlashcardSourceViewer'), { ssr: false });
@@ -25,6 +30,15 @@ interface Flashcard {
   sourceMaterialId?: string;
   primaryConcept?: string;
   concepts?: string[];
+  // Campos aditivos de Flashcards V2 (Material Brain)
+  unitIds?: string[];
+  relationIds?: string[];
+  retrievalObjective?: string;
+  cognitiveType?: string;
+  rationale?: string;
+  generatorVersion?: string;
+  validated?: boolean;
+  validationErrors?: string[];
 }
 
 interface SeleccionItem {
@@ -43,6 +57,7 @@ interface Props {
   onMasteryEvent?: (event: any) => void;
   masteryContext?: any;
   sourceSelection?: SourceSelectionSnapshot;
+  enjoyerStatus?: string;
 }
 
 type StudyMode = 'repite' | 'rapido';
@@ -73,6 +88,7 @@ interface PersistedFlashcardsState {
   favorites: string[];
   deckCurrent: number;
   deckFlipped: boolean;
+  deckIsPartial: boolean;
   round: FlashcardRoundState | null;
   finished: boolean;
 }
@@ -617,7 +633,7 @@ function ControlsBar({ controls, color }: {
 function DeckView({
   cards, color, onEdit, onDelete, onShowSource, onStudyAll,
   onStudySingle, onRegenerate, generating, onCreateManual, favorites: favoriteIds,
-  onFavoritesChange, initialCurrent, initialFlipped, onViewStateChange,
+  onFavoritesChange, initialCurrent, initialFlipped, onViewStateChange, isPartial = false, coverageLabel = '',
 }: {
   cards: Flashcard[];
   color: string;
@@ -634,6 +650,8 @@ function DeckView({
   initialCurrent: number;
   initialFlipped: boolean;
   onViewStateChange: (current: number, flipped: boolean) => void;
+  isPartial?: boolean;
+  coverageLabel?: string;
 }) {
   const controls = useFlashcardControls(cards, favoriteIds, onFavoritesChange);
   const { favorites, toggleFav, visibleCards } = controls;
@@ -685,7 +703,7 @@ function DeckView({
       }}>
         <span style={{ fontSize: 20 }}>🤖</span>
         <span>
-          La AI generó <strong style={{ color: '#4ade80' }}>{cards.length} flashcards</strong> cubriendo el <strong style={{ color: '#4ade80' }}>100%</strong> del contenido
+          <strong style={{ color: '#4ade80' }}>{cards.length} flashcards</strong> generadas
         </span>
       </div>
       <div style={{
@@ -794,7 +812,7 @@ function DeckView({
 
 function ScrollList({
   cards, color, onEdit, onDelete, onShowSource, onStudySingle,
-  onStudyAll, onRegenerate, generating, onCreateManual, favorites: favoriteIds, onFavoritesChange,
+  onStudyAll, onRegenerate, generating, onCreateManual, favorites: favoriteIds, onFavoritesChange, isPartial = false, coverageLabel = '',
 }: {
   cards: Flashcard[];
   color: string;
@@ -808,6 +826,8 @@ function ScrollList({
   onCreateManual: () => void;
   favorites: Set<string>;
   onFavoritesChange: (favorites: Set<string>) => void;
+  isPartial?: boolean;
+  coverageLabel?: string;
 }) {
   const [flippedSet, setFlippedSet] = useState<Set<string>>(new Set());
   const toggleFlip = (id: string) => {
@@ -840,7 +860,9 @@ function ScrollList({
           marginBottom: 0,
         }}>
           <span style={{ fontSize: 16 }}>🤖</span>
-          <span>AI generó <strong style={{ color: '#4ade80' }}>{cards.length}</strong> flashcards al <strong style={{ color: '#4ade80' }}>100%</strong></span>
+          <span>
+            <strong style={{ color: '#4ade80' }}>{cards.length} flashcards</strong> generadas
+          </span>
         </div>
         <DashedButton onClick={onStudyAll} color={color} active fontSize={13}>
           🎯 Estudiar todas
@@ -1035,6 +1057,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
   const [userAnswer, setUserAnswer] = useState(initialState?.userAnswer || '');
   const [evaluating, setEvaluating] = useState(false);
   const [evaluation, setEvaluation] = useState<any>(initialState?.evaluation ?? null);
+  const [evaluationError, setEvaluationError] = useState('');
   const [revealed, setRevealed] = useState(initialState?.revealed === true);
   const [done, setDone] = useState(initialState?.done === true);
   const [position, setPosition] = useState(Number(initialState?.position || 0));
@@ -1043,6 +1066,8 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const evaluationAttemptRef = useRef(0);
   const evaluationControllerRef = useRef<AbortController | null>(null);
+  const evaluationGateRef = useRef(new FlashcardEvaluationGate());
+  const evaluationSubmittingRef = useRef(false);
 
   const current = progress.get(currentId);
 
@@ -1082,43 +1107,37 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
 
   const evaluate = async () => {
     if (!current || !userAnswer.trim()) return;
-    if (evaluating) return;
+    if (evaluating || evaluationSubmittingRef.current) return;
+    evaluationSubmittingRef.current = true;
     const attempt = evaluationAttemptRef.current + 1;
     evaluationAttemptRef.current = attempt;
     evaluationControllerRef.current?.abort();
     const controller = new AbortController();
     evaluationControllerRef.current = controller;
     setEvaluating(true);
+    setEvaluationError('');
     try {
-      const res = await fetch('/api/evaluar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const result = await evaluationGateRef.current.evaluate({
           pregunta: current.card.question,
           respuestaCorrecta: current.card.answer,
           respuestaUsuario: userAnswer,
           idioma: 'es',
           contexto,
-        }),
-        signal: controller.signal,
-      });
-      const data = await res.json();
+        }, { signal: controller.signal });
       if (controller.signal.aborted || evaluationAttemptRef.current !== attempt) return;
-      setEvaluation(data.resultado);
+      if (!result) return;
+      setEvaluation(result);
       setRevealed(true);
     } catch (e) {
       if (controller.signal.aborted || evaluationAttemptRef.current !== attempt) return;
       console.error("Error al evaluar con IA:", e);
-      setEvaluation({
-        nivel: 'medio_correcta', porcentaje: 50,
-        explicacion: 'No se pudo evaluar. Compara tu respuesta con la correcta.',
-        consejo: '',
-      });
+      setEvaluationError(FLASHCARD_EVALUATION_RETRY_MESSAGE);
     } finally {
       if (evaluationAttemptRef.current === attempt) {
         setEvaluating(false);
         evaluationControllerRef.current = null;
       }
+      evaluationSubmittingRef.current = false;
     }
   };
 
@@ -1208,6 +1227,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
 
   const handleDontKnow = async () => {
     if (!current) return;
+    setEvaluationError('');
     setEvaluation({
       nivel: 'dont_know', porcentaje: 0,
       analisis: 'No te preocupes, vamos a aprenderlo.',
@@ -1385,6 +1405,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
     setPosition(p => Math.max(0, p - 1));
     setRevealed(false);
     setEvaluation(null);
+    setEvaluationError('');
     setUserAnswer('');
   };
 
@@ -1416,6 +1437,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
   }, [revealed, currentId, canGoBack]);
 
   const showAnswerOnly = () => {
+    setEvaluationError('');
     setEvaluation({
       nivel: 'shown', porcentaje: 0,
       explicacion: 'Respuesta revelada manualmente. Lee la respuesta correcta abajo en la tarjeta.',
@@ -1537,6 +1559,19 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
                 {evaluating ? '🤖 Evaluando...' : '✓ Enviar (Enter)'}
               </DashedButton>
             </div>
+            {evaluationError && (
+              <div role="alert" style={{
+                padding: 14, borderRadius: 12, textAlign: 'center',
+                background: 'rgba(248,113,113,0.08)',
+                border: '1.5px dashed rgba(248,113,113,0.5)',
+                color: '#f87171', fontFamily: BODY, fontSize: 13,
+              }}>
+                <div>{evaluationError}</div>
+                <DashedButton onClick={evaluate} color="#f87171" fontSize={13} disabled={evaluating}>
+                  {evaluating ? 'Evaluando...' : 'Reintentar evaluación'}
+                </DashedButton>
+              </div>
+            )}
             {canGoBack && (
               <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4 }}>
                 <DashedButton onClick={goBack} color="#a78bfa" fontSize={13}>
@@ -1726,10 +1761,13 @@ function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle', in
   const [userAnswer, setUserAnswer] = useState(initialState?.userAnswer || '');
   const [evaluating, setEvaluating] = useState(false);
   const [evaluation, setEvaluation] = useState<any>(initialState?.evaluation ?? null);
+  const [evaluationError, setEvaluationError] = useState('');
   const [revealed, setRevealed] = useState(initialState?.revealed === true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const evaluationAttemptRef = useRef(0);
   const evaluationControllerRef = useRef<AbortController | null>(null);
+  const evaluationGateRef = useRef(new FlashcardEvaluationGate());
+  const evaluationSubmittingRef = useRef(false);
 
   const card = shuffledCards[index];
 
@@ -1763,48 +1801,43 @@ function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle', in
   };
 
   const evaluate = async () => {
-    if (!card || !userAnswer.trim() || evaluating) return;
+    if (!card || !userAnswer.trim() || evaluating || evaluationSubmittingRef.current) return;
+    evaluationSubmittingRef.current = true;
     const attempt = evaluationAttemptRef.current + 1;
     evaluationAttemptRef.current = attempt;
     evaluationControllerRef.current?.abort();
     const controller = new AbortController();
     evaluationControllerRef.current = controller;
     setEvaluating(true);
+    setEvaluationError('');
     try {
-      const res = await fetch('/api/evaluar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const result = await evaluationGateRef.current.evaluate({
           pregunta: card.question,
           respuestaCorrecta: card.answer,
           respuestaUsuario: userAnswer,
           idioma: 'es',
           contexto,
-        }),
-        signal: controller.signal,
-      });
-      const data = await res.json();
+        }, { signal: controller.signal });
       if (controller.signal.aborted || evaluationAttemptRef.current !== attempt) return;
-      setEvaluation(data.resultado);
+      if (!result) return;
+      setEvaluation(result);
       setRevealed(true);
     } catch (e) {
       if (controller.signal.aborted || evaluationAttemptRef.current !== attempt) return;
       console.error("Error al evaluar con IA:", e);
-      setEvaluation({
-        nivel: 'medio_correcta', porcentaje: 50,
-        explicacion: 'No se pudo evaluar. Compara tu respuesta.',
-        consejo: '',
-      });
+      setEvaluationError(FLASHCARD_EVALUATION_RETRY_MESSAGE);
     } finally {
       if (evaluationAttemptRef.current === attempt) {
         setEvaluating(false);
         evaluationControllerRef.current = null;
       }
+      evaluationSubmittingRef.current = false;
     }
   };
 
   const showAnswer = async () => {
     if (!card) return;
+    setEvaluationError('');
     setEvaluation({
       nivel: 'dont_know', porcentaje: 0,
       analisis: 'Respuesta revelada manualmente.',
@@ -1825,6 +1858,7 @@ function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle', in
       setIndex(i => i + 1);
       setUserAnswer('');
       setEvaluation(null);
+      setEvaluationError('');
       setRevealed(false);
     }
   };
@@ -1917,6 +1951,19 @@ function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle', in
                 {evaluating ? '🤖 Evaluando...' : '✓ Enviar (Enter)'}
               </DashedButton>
             </div>
+            {evaluationError && (
+              <div role="alert" style={{
+                padding: 14, borderRadius: 12, textAlign: 'center',
+                background: 'rgba(248,113,113,0.08)',
+                border: '1.5px dashed rgba(248,113,113,0.5)',
+                color: '#f87171', fontFamily: BODY, fontSize: 13,
+              }}>
+                <div>{evaluationError}</div>
+                <DashedButton onClick={evaluate} color="#f87171" fontSize={13} disabled={evaluating}>
+                  {evaluating ? 'Evaluando...' : 'Reintentar evaluación'}
+                </DashedButton>
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ width: '100%', maxWidth: 680, display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -2072,11 +2119,13 @@ function StudySelector({ color, onSelect, onClose }: {
   );
 }
 
-function EmptyGenerate({ color, onGenerate, generating, numPages, selectedPages, materialesCount, activeMaterialIndex, totalSelectedPages }: {
+function EmptyGenerate({ color, onGenerate, generating, numPages, selectedPages, materialesCount, activeMaterialIndex, totalSelectedPages, enjoyerStatus }: {
   color: string; onGenerate: () => void; generating: boolean;
   numPages: number; selectedPages: number[];
   materialesCount: number; activeMaterialIndex: number; totalSelectedPages: number;
+  enjoyerStatus?: string;
 }) {
+  const enjoyerNotReady = enjoyerStatus !== 'ready';
   return (
     <div style={{
       flex: 1, display: 'flex', flexDirection: 'column',
@@ -2117,22 +2166,34 @@ function EmptyGenerate({ color, onGenerate, generating, numPages, selectedPages,
                   : `📑 ${selectedPages.length} páginas seleccionadas`))
           : numPages > 0 ? `📑 Todas las páginas (${numPages})` : '📑 Cargando material...'}
       </div>
+      {enjoyerNotReady && (
+        <div style={{
+          padding: '10px 18px', borderRadius: 10,
+          background: enjoyerStatus === 'checking' || enjoyerStatus === 'generating' ? 'rgba(251,191,36,0.08)' : 'rgba(239,68,68,0.08)',
+          border: '1.5px dashed ' + (enjoyerStatus === 'checking' || enjoyerStatus === 'generating' ? '#fbbf24' : '#ef4444'),
+          color: enjoyerStatus === 'checking' || enjoyerStatus === 'generating' ? '#fbbf24' : '#ef4444',
+          fontSize: 13, fontFamily: BODY, fontWeight: 600,
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          {enjoyerStatus === 'checking' || enjoyerStatus === 'generating' ? '⏳ Analizando material...' : '⚠️ El análisis del material no está listo aún'}
+        </div>
+      )}
       <button
         onClick={onGenerate}
-        disabled={generating}
+        disabled={generating || enjoyerNotReady}
         style={{
           padding: '14px 32px', borderRadius: 14,
-          border: `2px dashed ${color}`,
-          background: generating ? 'rgba(255,255,255,0.05)' : `${color}22`,
-          color: generating ? '#555' : color,
+          border: '2px dashed ' + (enjoyerNotReady ? '#555' : color),
+          background: (generating || enjoyerNotReady) ? 'rgba(255,255,255,0.05)' : color + '22',
+          color: (generating || enjoyerNotReady) ? '#555' : color,
           fontFamily: BODY, fontSize: 18, fontWeight: 700,
-          cursor: generating ? 'default' : 'pointer',
-          boxShadow: generating ? 'none' : `0 12px 32px ${color}44`,
+          cursor: (generating || enjoyerNotReady) ? 'default' : 'pointer',
+          boxShadow: (generating || enjoyerNotReady) ? 'none' : '0 12px 32px ' + color + '44',
           display: 'flex', alignItems: 'center', gap: 10,
           transition: 'all 0.2s',
         }}
       >
-        ✨ {generating ? 'Generando...' : 'Generar flashcards'}
+        ✨ {generating ? 'Generando...' : enjoyerNotReady ? 'Esperando análisis...' : 'Generar flashcards'}
       </button>
     </div>
   );
@@ -2140,7 +2201,7 @@ function EmptyGenerate({ color, onGenerate, generating, numPages, selectedPages,
 
 import { useMasteryReporter } from '../../hooks/useMastery';
 
-export default function ALAIStudyALCards({ materiales, seleccion, tema, materia, sessionId, onBack, onMasteryEvent, masteryContext, sourceSelection }: Props) {
+export default function ALAIStudyALCards({ materiales, seleccion, tema, materia, sessionId, onBack, onMasteryEvent, masteryContext, sourceSelection, enjoyerStatus }: Props) {
   const color = tema?.color || '#22d3ee';
 
   // ─── [free-nav-debug] mount/unmount instrumentation (BUG REAL #2, dev-only) ───
@@ -2333,6 +2394,12 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
   const [generatingStep, setGeneratingStep] = useState('');
   const [generatingProgress, setGeneratingProgress] = useState(0);
   const [error, setError] = useState('');
+  const [deckIsPartial, setDeckIsPartial] = useState(false);
+  // Coverage is a TARGET metric ("N de M conceptos"), never a card-count
+  // metric — the mission's exact bug was "115 flashcards · cobertura
+  // parcial" with no indication of what that meant. Derived once from
+  // coverage.metrics (server-authoritative), never guessed client-side.
+  const [deckCoverageLabel, setDeckCoverageLabel] = useState('');
   const [editingCard, setEditingCard] = useState<Flashcard | null>(null);
   const [studyMode, setStudyMode] = useState<StudyMode | null>(null);
   const [showStudySelector, setShowStudySelector] = useState(false);
@@ -2350,6 +2417,9 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
   const generationAttemptRef = useRef(0);
   const generationControllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
+  const buildingRetryCountRef = useRef(0);
+  const BUILDING_RETRY_LIMIT = 5;
+  const BUILDING_RETRY_DELAY_MS = 2500;
 
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(true);
@@ -2416,6 +2486,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
         setFavorites(new Set(Array.isArray(saved.favorites) ? saved.favorites : []));
         setDeckCurrent(Math.max(0, Number(saved.deckCurrent || 0)));
         setDeckFlipped(saved.deckFlipped === true);
+        setDeckIsPartial(saved.deckIsPartial === true);
         setRoundState(saved.round || null);
       } else if (sess) {
         // Backward-compatible deck migration; progress/favorites are not guessed.
@@ -2447,6 +2518,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
       favorites: [...favorites],
       deckCurrent,
       deckFlipped,
+      deckIsPartial,
       round: roundState,
       finished: Boolean(roundState?.done || (roundState?.kind === 'rapido' && Number(roundState.index || 0) >= flashcards.length && flashcards.length > 0)),
     };
@@ -2462,7 +2534,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
       });
     }
     return () => clearTimeout(t);
-  }, [flashcards, sessionId, cacheLoaded, continuityReady, materialText, effectiveSourceSelection.fingerprint, rightTab, studyMode, studyOrder, favorites, deckCurrent, deckFlipped, roundState]);
+  }, [flashcards, sessionId, cacheLoaded, continuityReady, materialText, effectiveSourceSelection.fingerprint, rightTab, studyMode, studyOrder, favorites, deckCurrent, deckFlipped, deckIsPartial, roundState]);
 
   // Flush the LATEST pending write synchronously on true unmount (e.g. a
   // fast "Volver al proceso" click) so it can never race the 250ms debounce
@@ -2553,27 +2625,57 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
     return authorizedSource.combinedText;
   }, [authorizedStatus, authorizedSource, authorizedError]);
 
-  const generate = useCallback(async () => {
-    if (generating) return;
+  // P0 mission ("EXPLICIT REGENERATE"): a semantic options object, never
+  // a positional boolean — a bare positional flag is exactly what let a
+  // React MouseEvent (passed by `onClick={generate}`) silently masquerade
+  // as a truthy `isRetry`/`regenerate` argument. `retry` is the existing
+  // internal-continuation intent (unchanged behavior); `regenerate` is
+  // the ONLY thing that may set the backend's `regenerate:true` — it is
+  // never inferred from anything else, and only one call site ever
+  // passes it (the explicit "Regenerar todas" wrapper below).
+  const generate = useCallback(async (options: { retry?: boolean; regenerate?: boolean } = {}) => {
+    const isRetry = options.retry === true;
+    const explicitRegenerate = options.regenerate === true;
+    if (generating && !isRetry) return;
+
+    const enjoyerGate = enjoyerStatus === 'ready'
+      ? { block: false, reason: null }
+      : { block: true, reason: enjoyerStatus === 'failed' ? 'failed' : 'building' };
+
+    // Enjoyer is prepared restore-first by the shared hub lifecycle. A retry
+    // never bypasses a missing/failed exact-fingerprint authority.
+    if (enjoyerGate.block) {
+      if (enjoyerGate.reason === 'building') {
+        setGeneratingStep('Construyendo la base de conocimiento...');
+        setError('El material aún se está analizando. Espera un momento e intenta de nuevo.');
+      } else if (enjoyerGate.reason === 'failed') {
+        setError('No se pudo analizar el material. Recarga y vuelve a intentarlo.');
+      }
+      return;
+    }
+
     const attempt = generationAttemptRef.current + 1;
     generationAttemptRef.current = attempt;
     generationControllerRef.current?.abort();
     const controller = new AbortController();
     generationControllerRef.current = controller;
+    if (!isRetry) buildingRetryCountRef.current = 0;
     if (process.env.NODE_ENV !== 'production') {
       freeNavDebug('GENERATION_START', {
         instanceId: freeNavInstanceIdRef.current,
         generationId: `${freeNavInstanceIdRef.current}-gen${attempt}`,
         attempt,
+        isRetry,
         sessionId: sessionId || null,
       });
     }
     setGenerating(true);
     setError('');
+    setDeckIsPartial(false);
     setGeneratingStep(
       hasAnySelection
-        ? `Analizando el 100% de ${totalSelectedPages} página${totalSelectedPages === 1 ? '' : 's'} seleccionada${totalSelectedPages === 1 ? '' : 's'}...`
-        : 'Analizando el 100% de tu material...'
+        ? `Analizando ${totalSelectedPages} página${totalSelectedPages === 1 ? '' : 's'} seleccionada${totalSelectedPages === 1 ? '' : 's'}...`
+        : 'Analizando tu material...'
     );
     setGeneratingProgress(0);
 
@@ -2583,10 +2685,10 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
 
     const steps = [
       'Leyendo el contenido...',
-      'Identificando conceptos clave...',
-      'Generando preguntas inteligentes...',
-      'Creando respuestas precisas...',
-      'Filtrando duplicados...',
+      'Construyendo el mapa de conocimiento...',
+      'Planificando tarjetas de estudio...',
+      'Generando preguntas y respuestas...',
+      'Validando calidad y cobertura...',
     ];
     let stepIdx = 0;
     const stepInterval = setInterval(() => {
@@ -2594,102 +2696,133 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
     }, 2200);
 
     try {
-      let texto = materialText;
-      if (!texto || texto.trim().length < 50) {
-        console.log('🔍 Sin cache de texto, extrayendo con OCR/Gemini...');
-        texto = await extractText();
-        if (!texto.trim()) { setError('No se pudo extraer texto del material.'); return; }
-        setMaterialText(texto);
-      } else {
-        console.log('⚡ Texto ya cacheado (' + texto.length + ' chars) - saltando OCR');
-      }
+      const lang = detectContentLanguage(materialText || '', 'es');
 
-      console.log('📚 Texto usado para flashcards:', texto.length, 'chars');
-      console.log('📑 Selección activa:', seleccion || []);
-      const lang = detectContentLanguage(texto, 'es');
-
-      const materialBlocks: { text: string; materialId: string }[] = [];
-      const blockRegex = /\[Material \d+: ID=([^|\]]+)[^\]]*\]\n([\s\S]*?)(?=\n\[Material \d+:|$)/g;
-      let blockMatch;
-      while ((blockMatch = blockRegex.exec(texto)) !== null) {
-        const matId = blockMatch[1].trim();
-        const matText = blockMatch[2].trim();
-        if (matText.length > 50) {
-          materialBlocks.push({ text: matText, materialId: matId });
-        }
-      }
-      if (materialBlocks.length === 0) {
-        materialBlocks.push({
-          text: texto,
-          materialId: matActual?.materialId || matActual?.id || '',
+      if (process.env.NODE_ENV !== 'production') {
+        freeNavDebug('PROVIDER_REQUEST_START', {
+          instanceId: freeNavInstanceIdRef.current,
+          generationId: `${freeNavInstanceIdRef.current}-gen${attempt}`,
+          fingerprint: effectiveSourceSelection.fingerprint,
+          componentStillMounted: mountedRef.current,
         });
       }
-      console.log(`🔀 Procesando ${materialBlocks.length} material(es) por separado`);
 
-      const allResponses = await Promise.all(
-        materialBlocks.map(async (block, blockIdx) => {
-          setGeneratingStep(`Generando flashcards del material ${blockIdx + 1}/${materialBlocks.length}...`);
-          if (process.env.NODE_ENV !== 'production') {
-            freeNavDebug('PROVIDER_REQUEST_START', {
-              instanceId: freeNavInstanceIdRef.current,
-              generationId: `${freeNavInstanceIdRef.current}-gen${attempt}`,
-              blockIdx, totalBlocks: materialBlocks.length,
-              componentStillMounted: mountedRef.current,
-            });
-          }
-          const res = await fetch('/api/alai-studyal-cards', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
+      const res = await fetch('/api/flashcards-v2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          materialIds: effectiveSourceSelection.materialIds,
+          selectedPages: effectiveSourceSelection.selectedPages,
+          language: lang,
+          // Same sourceSelectionFingerprint, explicit intent only — see
+          // the `generate` options contract above. Never inferred from a
+          // click event or a retry attempt.
+          ...(explicitRegenerate ? { regenerate: true } : {}),
+        }),
+        signal: controller.signal,
+      });
+      const data = await res.json();
 
-            },
-            body: JSON.stringify({
-              content: block.text,
-              idioma: lang,
-              materialId: block.materialId,
-              seleccion,
-              selectedPages,
-              masteryContext,
-              totalSelectedPages,
-            }),
-            signal: controller.signal,
-          });
-          const data = await res.json();
-          if (process.env.NODE_ENV !== 'production') {
-            freeNavDebug('PROVIDER_RESPONSE', {
-              instanceId: freeNavInstanceIdRef.current,
-              generationId: `${freeNavInstanceIdRef.current}-gen${attempt}`,
-              blockIdx,
-              cardsCount: data?.flashcards?.length || 0,
-              aborted: controller.signal.aborted,
-              staleAttempt: generationAttemptRef.current !== attempt,
-              componentStillMounted: mountedRef.current,
-            });
-          }
-          if (controller.signal.aborted || generationAttemptRef.current !== attempt) return [];
-          if (!data.success || !data.flashcards?.length) {
-            console.warn(`⚠️ Material ${blockIdx + 1} sin flashcards:`, data.error);
-            return [];
-          }
-          console.log(`✅ Material ${blockIdx + 1}: ${data.flashcards.length} flashcards`);
-          return data.flashcards;
-        })
-      );
-      const allCards = allResponses.flat();
-      if (controller.signal.aborted || generationAttemptRef.current !== attempt) return;
-      if (allCards.length === 0) {
-        setError('No se pudieron generar flashcards.'); return;
+      if (process.env.NODE_ENV !== 'production') {
+        freeNavDebug('PROVIDER_RESPONSE', {
+          instanceId: freeNavInstanceIdRef.current,
+          generationId: `${freeNavInstanceIdRef.current}-gen${attempt}`,
+          status: data?.status,
+          cardsCount: data?.deck?.cards?.length || 0,
+          aborted: controller.signal.aborted,
+          staleAttempt: generationAttemptRef.current !== attempt,
+          componentStillMounted: mountedRef.current,
+        });
       }
-      const raw = dedupe(allCards);
-      const cards: Flashcard[] = raw.map((c: any) => ({
-        id: uid(),
-        question: c.question,
-        answer: c.answer,
-        createdAt: Date.now(),
-        sourceText: c.sourceText,
-        sourcePage: c.sourcePage,
-        sourceMaterialId: c.sourceMaterialId,
-      }));
+
+      if (controller.signal.aborted || generationAttemptRef.current !== attempt) return;
+      if (!res.ok || data?.error) {
+        setError(data.error || data.message || 'Error al generar flashcards');
+        return;
+      }
+      if (data.status === 'building') {
+        if (buildingRetryCountRef.current < BUILDING_RETRY_LIMIT) {
+          buildingRetryCountRef.current += 1;
+          const delay = BUILDING_RETRY_DELAY_MS * buildingRetryCountRef.current;
+          setGeneratingStep(
+            `Construyendo la base de conocimiento... reintentando en ${Math.round(delay / 1000)}s (intento ${buildingRetryCountRef.current}/${BUILDING_RETRY_LIMIT})`,
+          );
+          setGeneratingProgress(55);
+          clearInterval(progressInterval);
+          clearInterval(stepInterval);
+          await new Promise(r => setTimeout(r, delay));
+          if (
+            mountedRef.current &&
+            generationAttemptRef.current === attempt &&
+            !controller.signal.aborted
+          ) {
+            return generate({ retry: true });
+          }
+          return;
+        }
+        setError('El material aún se está procesando. Inténtalo de nuevo en unos segundos.');
+        return;
+      }
+      const isUsable = (data.status === 'ready' || data.status === 'partial') && data.deck?.cards?.length > 0;
+      if (!isUsable) {
+        if (data.status === 'partial' && !data.deck?.cards?.length) {
+          setError('La IA procesó el material pero no pudo generar flashcards válidas. Intenta con otra selección.');
+        } else {
+          setError('No se pudieron generar flashcards.');
+        }
+        return;
+      }
+
+      const deckCards: GeneratedFlashcard[] = data.deck.cards;
+      const seenIds = new Set<string>();
+      const cards: Flashcard[] = [];
+      for (const c of deckCards) {
+        if (c.validated === false) continue;
+        if (!c.question?.trim() || !c.answer?.trim()) continue;
+        if (seenIds.has(c.id)) continue;
+        seenIds.add(c.id);
+        const provenance = c.provenance?.[0];
+        cards.push({
+          id: c.id,
+          question: cleanFlashcardText(c.question),
+          answer: cleanFlashcardText(c.answer),
+          createdAt: Date.now(),
+          sourceText: provenance?.quote,
+          sourcePage: provenance?.page,
+          sourceMaterialId: provenance?.materialId,
+          unitIds: c.sourceUnitIds,
+          relationIds: c.sourceRelationIds,
+          retrievalObjective: c.retrievalObjective,
+          cognitiveType: c.cognitiveType,
+          rationale: c.rationale,
+          generatorVersion: c.generatorVersion,
+          validated: c.validated,
+          validationErrors: c.validationErrors,
+        });
+      }
+
+      if (cards.length === 0) {
+        setError('No se pudieron generar flashcards.');
+        return;
+      }
+
+      const m = data.deck.coverage?.metrics;
+      // P0 fix (UI coverage canonical universe): this used to sum raw
+      // targetedUnits+targetedRelations, a DIFFERENT, coarser universe
+      // than the retrieval-target/concept-cluster identity the backend
+      // actually reconciles (see reconcileFinalCoverage/computeDeckCoverage
+      // in validate.ts) — a unit AND a relation about the same concept
+      // both counted separately, inflating the denominator beyond the
+      // real number of distinct retrieval targets. "N de M conceptos
+      // cubiertos" must read numerator/denominator from the SAME
+      // canonical target universe the backend reconciles: targetedConcepts/
+      // coveredConcepts (== distinct conceptClusterId count).
+      // Coverage is an internal planning/reconciliation concern (see
+      // planFlashcards/reconcileFinalCoverage) — the user never manages
+      // it directly, they just see their generated flashcards.
+      const isPartialDeck = data.status === 'partial';
+      setDeckIsPartial(isPartialDeck);
+      setDeckCoverageLabel('');
       setGeneratingProgress(100);
       setGeneratingStep(`¡Listo! ${cards.length} flashcards generadas`);
       await new Promise(r => setTimeout(r, 700));
@@ -2728,7 +2861,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
       if (sessionId) {
         writeFreeToolState<PersistedFlashcardsState>(sessionId, effectiveSourceSelection.fingerprint, 'flashcards', {
           cards, materialText, rightTab, studyMode, studyOrder,
-          favorites: [], deckCurrent: 0, deckFlipped: false, round: null, finished: false,
+          favorites: [], deckCurrent: 0, deckFlipped: false, deckIsPartial: isPartialDeck, round: null, finished: false,
         });
       }
 
@@ -2753,7 +2886,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
         generationControllerRef.current = null;
       }
     }
-  }, [extractText, matActual, hasAnySelection, totalSelectedPages, materialText, seleccion, generating, masteryContext]);
+  }, [effectiveSourceSelection, materialText, hasAnySelection, totalSelectedPages, generating, sessionId, rightTab, studyMode, studyOrder]);
 
   const editCard = (id: string, q: string, a: string) => {
     setFlashcards(prev => prev.map(c => c.id === id ? { ...c, question: q, answer: a } : c));
@@ -2932,6 +3065,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
                   color={color} onGenerate={generate} generating={generating}
                   numPages={numPages} selectedPages={selectedPages}
                   materialesCount={materiales.length} activeMaterialIndex={activeMaterialIndex} totalSelectedPages={totalSelectedPages}
+                  enjoyerStatus={enjoyerStatus}
                 />
               ) : (
                 <ScrollList
@@ -2941,11 +3075,13 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
                   onShowSource={setSourceCard}
                   onStudySingle={(c) => setStudySingleCard(c)}
                   onStudyAll={() => setShowStudySelector(true)}
-                  onRegenerate={generate}
+                  onRegenerate={() => generate({ regenerate: true })}
                   generating={generating}
                   onCreateManual={crearManualmente}
                   favorites={favorites}
                   onFavoritesChange={handleFavoritesChange}
+                  isPartial={deckIsPartial}
+                  coverageLabel={deckCoverageLabel}
                 />
               )}
             </div>
@@ -2959,6 +3095,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
                 color={color} onGenerate={generate} generating={generating}
                 numPages={numPages} selectedPages={selectedPages}
                 materialesCount={materiales.length} activeMaterialIndex={activeMaterialIndex} totalSelectedPages={totalSelectedPages}
+                enjoyerStatus={enjoyerStatus}
               />
             ) : (
               <DeckView
@@ -2968,7 +3105,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
                 onShowSource={setSourceCard}
                 onStudyAll={() => setShowStudySelector(true)}
                 onStudySingle={(c) => setStudySingleCard(c)}
-                onRegenerate={generate}
+                onRegenerate={() => generate({ regenerate: true })}
                 generating={generating}
                 onCreateManual={crearManualmente}
                 favorites={favorites}
@@ -2976,6 +3113,8 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
                 initialCurrent={deckCurrent}
                 initialFlipped={deckFlipped}
                 onViewStateChange={handleDeckViewState}
+                isPartial={deckIsPartial}
+                coverageLabel={deckCoverageLabel}
               />
             )}
           </div>

@@ -61,8 +61,8 @@ try {
   assert.match(cardsSource, /generationAttemptRef/); // I
   assert.match(cardsSource, /evaluationAttemptRef/); // H
   assert.doesNotMatch(cardsSource, /localStorage\.setItem\('flashcard_favs'/); // E
-  assert.match(repasarSource, /analysisAttemptRef/); // Q
-  assert.match(repasarSource, /verificationAttemptRef/); // R
+  assert.match(repasarSource, /flightRef/); // Q — one single-flight across Repaso phases
+  assert.match(repasarSource, /controllerRef/); // R — stale requests are abortable
   assert.doesNotMatch(repasarSource, /localStorage\.setItem\(storageKey/); // durable authority
   console.log('free-flashcards-repasar-continuity-contracts: A-T PASS');
 } finally {

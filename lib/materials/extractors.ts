@@ -36,6 +36,11 @@ export async function extractTxt(buffer: Buffer): Promise<ExtractionResult> {
 
 // ════════════════════════════════════════
 // DOCX — gratis, mammoth
+// Fallback legacy: con el pipeline de normalización a PDF (LibreOffice vía
+// document-converter), un DOCX nuevo ya no pasa por acá — se convierte a
+// normalized.pdf y se extrae con extractPdf(). Esto solo se usa si la
+// conversión no está disponible/falla, o para materiales viejos ya
+// cacheados con este método.
 // ════════════════════════════════════════
 export async function extractDocx(buffer: Buffer): Promise<ExtractionResult> {
   const mammoth = (await import('mammoth')).default;

@@ -309,46 +309,26 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
         setLoading(true);
         setError(null);
 
-        if (authorizedStatus === 'error' || !authorizedSource) {
-          throw new Error(authorizedError || 'No se pudo resolver la fuente autorizada.');
+        // Autoridad académica: el servidor resuelve el Material Brain
+        // READY del fingerprint exacto de esta sesión — nunca enviamos
+        // documentos/texto crudo del cliente (ver lib/materialBrain/
+        // analysisContext.ts). El texto autorizado (authorizedSource)
+        // se conserva SOLO para la función "Pregúntale a ALAI" (chat de
+        // dudas), no como autoridad de la generación del análisis.
+        if (mountedRef.current && authorizedSource?.combinedText) {
+          setProfesorMaterialText(authorizedSource.combinedText);
         }
-
-        const documentos = effectiveSourceSelection.materials.map(selection => {
-          const source = authorizedSource.materials[selection.materialId];
-          return {
-            id: selection.materialId,
-            nombre: source.nombre,
-            contenido: source.text,
-            tipo: source.kind,
-            pages: selection.selectedPages,
-          };
-        });
-
-        if (!documentos.length) {
-          throw new Error('No hay contenido legible para analizar.');
-        }
-
-        const materialTextForQuestions = documentos
-          .map((doc: any, i: number) => `[Material ${i + 1}: ${doc.nombre}${doc.pages?.length ? ` | páginas ${doc.pages.join(', ')}` : ''}]\n${doc.contenido}`)
-          .join('\n\n---\n\n');
-
-        if (mountedRef.current) setProfesorMaterialText(materialTextForQuestions);
 
         const res = await fetch('/api/analizar-teorico', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
           body: JSON.stringify({
-            documentos,
+            sessionId,
             materia: materia?.nombre || materia?.name || '',
             tema: tema?.nombre || tema?.name || '',
             nivel,
             masteryContext,
-            selectedPages: documentos.reduce((acc: any, doc: any) => {
-              if (doc.pages?.length) acc[doc.id] = doc.pages;
-              return acc;
-            }, {}),
-            materialId: `source_${effectiveSourceSelection.fingerprint}_${nivel}`,
           }),
           signal: controller.signal,
         });

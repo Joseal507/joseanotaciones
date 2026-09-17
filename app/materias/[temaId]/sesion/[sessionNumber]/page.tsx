@@ -17,7 +17,7 @@ import { useEffect, useState, useRef, useCallback } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { AcademicContent } from "../../../../../components/academic/AcademicContent"
 import { AcademicListbox } from "../../../../../components/academic/AcademicListbox"
-import { toLatexSafeText } from "../../../../../lib/academic-content/composition"
+import { FillBlankPresentation } from "../../../../../components/quiz/FillBlankPresentation"
 import { AlaiSessionChat, type AlaiChatMessage } from "../../../../../components/materias/AlaiSessionChat"
 import { isAdministrativeQuery } from "../../../../../lib/adaptive/evaluation/chatAssistanceClassifier"
 import { presentAnswer } from "../../../../../lib/adaptive/evaluation/answerPresentation"
@@ -3378,48 +3378,14 @@ export default function SessionPage() {
               (questionContract.ts: hasUnsupportedWordBankMathBlank) y, como
               red de seguridad adicional, AcademicContent nunca crashea ni
               muestra sintaxis rota si algo inesperado llega igual (fail-closed). */}
-          {currentQuestion.format === "word_bank" && Array.isArray(currentQuestion.options) && (() => {
-            let blankIndex = -1
-            const nextBlankAnswer = () => {
-              blankIndex += 1
-              const i = blankIndex
-              const answerId = wordBankAnswers[i] || ""
-              const answerLabel = (currentQuestion.options as any[]).find((option: any) => option.id === answerId)?.text || ""
-              return { i, answerId, answerLabel }
-            }
-            return <div>
-              <div style={{ fontSize: 17, lineHeight: 2, marginBottom: 20, padding: 16, background: "rgba(15,23,42,0.5)", borderRadius: 12, border: "1px solid rgba(148,163,184,0.15)" }}>
-                <AcademicContent
-                  content={currentQuestion.questionText}
-                  renderBlank={() => {
-                    const { i, answerId, answerLabel } = nextBlankAnswer()
-                    return <span style={{ display: "inline-block", minWidth: 100, padding: "4px 12px", margin: "0 4px", background: answerId ? "rgba(59,130,246,0.2)" : "rgba(148,163,184,0.1)", border: answerId ? "2px solid #60a5fa" : "2px dashed rgba(148,163,184,0.3)", borderRadius: 8, textAlign: "center", color: answerId ? "#93c5fd" : "#64748b", fontWeight: 600, cursor: "pointer", fontSize: 15 }} onClick={() => { if (answerId) { const n = [...wordBankAnswers]; n[i] = ""; setWordBankAnswers(n) } }}>
-                      {answerLabel ? <AcademicContent content={answerLabel} inline /> : "___"}
-                    </span>
-                  }}
-                  renderMathBlank={() => {
-                    const { i, answerId, answerLabel } = nextBlankAnswer()
-                    return {
-                      latex: toLatexSafeText(answerLabel),
-                      onClick: answerId ? () => { const n = [...wordBankAnswers]; n[i] = ""; setWordBankAnswers(n) } : undefined,
-                    }
-                  }}
-                />
-              </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", marginBottom: 10, textTransform: "uppercase" }}>Banco de palabras</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                {(currentQuestion.options as any[]).map((o: any) => {
-                  const isUsed = wordBankAnswers.includes(o.id)
-                  return <button key={o.id} disabled={isUsed} onClick={() => {
-                    const firstEmpty = wordBankAnswers.findIndex(w => w === "")
-                    if (firstEmpty !== -1) { const n = [...wordBankAnswers]; n[firstEmpty] = o.id; setWordBankAnswers(n) }
-                  }} style={{ padding: "10px 18px", background: isUsed ? "rgba(148,163,184,0.05)" : "rgba(59,130,246,0.12)", color: isUsed ? "#475569" : "#93c5fd", border: isUsed ? "1px solid rgba(148,163,184,0.1)" : "1px solid rgba(59,130,246,0.3)", borderRadius: 999, cursor: isUsed ? "default" : "pointer", fontSize: 15, fontWeight: 600, opacity: isUsed ? 0.4 : 1, textDecoration: isUsed ? "line-through" : "none" }}>
-                    <AcademicContent content={o.text} inline />
-                  </button>
-                })}
-              </div>
-            </div>
-          })()}
+          {currentQuestion.format === "word_bank" && Array.isArray(currentQuestion.options) && (
+            <FillBlankPresentation
+              prompt={currentQuestion.questionText}
+              options={currentQuestion.options}
+              answerIds={wordBankAnswers}
+              onAnswerIdsChange={setWordBankAnswers}
+            />
+          )}
 
           {/* ORDERING — drag & drop + botones ↑↓ */}
           {currentQuestion.format === "ordering" && Array.isArray(currentQuestion.options) && (() => {

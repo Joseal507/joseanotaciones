@@ -357,10 +357,10 @@ export default function MasteryCoach({
   onInitMastery,
   onMasteryUpdate,
 }: Props) {
-  const materialIds = useMemo(() =>
-    materiales.map(m => String(m?.materialId || m?.id || '')).filter(Boolean),
-    [materiales]
-  );
+  const materialIds = useMemo(() => {
+    if (sourceSelection?.materialIds?.length) return sourceSelection.materialIds;
+    return materiales.map(m => String(m?.materialId || m?.id || '')).filter(Boolean);
+  }, [sourceSelection?.materialIds, materiales]);
 
   const sessionKey = useMemo(() => getMasteryStorageKey(materialIds), [materialIds]);
 
@@ -494,12 +494,13 @@ export default function MasteryCoach({
       }
 
       // 3. Extraer conceptos con ALAI — máximo contexto posible
+      const targetMaterialId = sourceSelection?.materialIds?.[0] || materialIds[0];
       const extractRes = await fetch('/api/mastery/extract-concepts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           materialText: fullText.slice(0, 25000),
-          materialId: materialIds[0],
+          materialId: targetMaterialId,
           tema: tema?.nombre || '',
           materia: materia?.nombre || '',
         }),
@@ -513,7 +514,7 @@ export default function MasteryCoach({
       }
 
       const newConcepts = extractData.concepts.map((name: string) =>
-        createConcept(name, materialIds[0])
+        createConcept(name, targetMaterialId)
       );
 
       console.log(

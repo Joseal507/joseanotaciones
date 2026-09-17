@@ -44,8 +44,15 @@ function isToolEnvelopeMeaningfullyUsed(tool: DurableFreeTool, state: any): bool
       return Array.isArray(state?.questions) && state.questions.length > 0;
     case 'exam':
       return Boolean(state?.exam);
-    case 'repasar':
-      return Boolean(state?.phase) && state.phase !== 'preview';
+    case 'repasar': {
+      // Progreso monótono: usa `furthestPhase` (la fase MÁS AVANZADA
+      // alcanzada alguna vez en la sesión), no `phase` (la vista actual) —
+      // si no, navegar de vuelta a "Leer" antes de salir borraba el
+      // progreso aunque ya se hubiera llegado a "Explicar". Fallback a
+      // `phase` para envelopes viejos guardados antes de este campo.
+      const furthest = state?.furthestPhase || state?.phase;
+      return Boolean(furthest) && furthest !== 'preview';
+    }
     case 'studymap':
       return Boolean(state?.mapData);
     case 'truquitos':
@@ -167,4 +174,24 @@ export function writeFreeToolState<T>(
     };
   });
   return written;
+}
+
+export function clearFreeToolState(
+  sessionId: string | null | undefined,
+  fingerprint: string,
+  tool: DurableFreeTool,
+): void {
+  if (!sessionId || !fingerprint) return;
+  updateSessionById(sessionId, session => {
+    if (!validOwner(session, sessionId, fingerprint)) return session;
+    const nextFreeTools = { ...(session.notes?.freeTools || {}) };
+    delete nextFreeTools[tool];
+    return {
+      ...session,
+      notes: {
+        ...(session.notes || {}),
+        freeTools: nextFreeTools,
+      },
+    };
+  });
 }

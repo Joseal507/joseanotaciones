@@ -16,6 +16,9 @@ const nextConfig = {
       // para que Node.js lo cargue directamente sin webpack
       config.externals = config.externals || [];
       config.externals.push('pdfjs-dist');
+      // El import real usado por Page Intelligence es un subpath; si webpack
+      // lo empaqueta, pdf.js busca ./pdf.worker.js dentro de vendor-chunks.
+      config.externals.push('pdfjs-dist/legacy/build/pdf.js');
       config.externals.push('canvas');
     } else {
       config.resolve.alias.canvas = false;

@@ -22,6 +22,8 @@ const ACCEPT = Object.keys(ALLOWED_EXTENSIONS)
   .map(e => `.${e}`)
   .join(',');
 
+const CONVERTIBLE_EXTENSIONS = new Set(['doc', 'docx', 'ppt', 'pptx', 'odt', 'rtf']);
+
 export default function MaterialUploader({
   temaId,
   materiaId,
@@ -33,6 +35,7 @@ export default function MaterialUploader({
   const [uploading, setUploading] = useState(false);
   const [done, setDone] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const uploadRequestIdRef = useRef(
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -44,15 +47,9 @@ export default function MaterialUploader({
   // ─── Selección de archivos ───
   const addFiles = useCallback((incoming: FileList | File[]) => {
     const arr = Array.from(incoming);
-    // Validar PPTX y otros formatos no soportados
-    for (const f of arr) {
-      const nombre = f.name.toLowerCase();
-      const mime = (f.type || '').toLowerCase();
-      if (nombre.endsWith('.pptx') || nombre.endsWith('.ppt') || mime.includes('presentationml') || mime.includes('powerpoint')) {
-        setModalArchivo({ nombre: f.name, tipo: 'pptx' });
-        return;
-      }
-    }
+    // doc/docx/ppt/pptx/odt/rtf se normalizan a PDF server-side
+    // (document-converter) — ya no hace falta bloquear ni pedir conversión
+    // manual, se suben como cualquier otro material.
     const valid = arr.filter(f => {
       const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
       if (!ALLOWED_EXTENSIONS[ext]) return false;
@@ -60,7 +57,7 @@ export default function MaterialUploader({
       const ext3 = f.name.split('.').pop()?.toLowerCase() ?? '';
       const kindMap: Record<string, number> = {
         pdf: 30, jpg: 10, jpeg: 10, png: 10, gif: 10, webp: 10,
-        doc: 20, docx: 20, ppt: 20, pptx: 20, txt: 5, md: 5,
+        doc: 20, docx: 20, ppt: 20, pptx: 20, odt: 20, rtf: 20, txt: 5, md: 5,
         mp3: 25, wav: 25, m4a: 25, ogg: 25, webm: 25,
       };
       const maxMB3 = kindMap[ext3] ?? 30;
@@ -96,6 +93,7 @@ export default function MaterialUploader({
     if (!files.length || uploading) return;
     setUploading(true);
     setDone(false);
+    setUploadError(null);
 
     try {
       const uploaded = await uploadMaterials(
@@ -109,6 +107,10 @@ export default function MaterialUploader({
       onUploadComplete(uploaded);
     } catch (err: any) {
       console.error('Upload error:', err);
+      // Un fallo antes de que exista progreso por archivo (init, auth) no
+      // debe quedar silencioso — sin esto la UI simplemente volvía al
+      // selector de archivos como si nada hubiera pasado.
+      setUploadError(err?.message || 'Falló la subida. Intenta de nuevo.');
     } finally {
       setUploading(false);
     }
@@ -262,7 +264,11 @@ export default function MaterialUploader({
                   {p.status === 'done' ? 'listo' :
                    p.status === 'error' ? 'error' :
                    p.status === 'uploading' ? `${p.progress}%` :
-                   p.status === 'completing' ? 'verificando...' : 'esperando...'}
+                   p.status === 'completing'
+                     ? (CONVERTIBLE_EXTENSIONS.has(p.fileName.split('.').pop()?.toLowerCase() ?? '')
+                         ? 'preparando material...'
+                         : 'verificando...')
+                     : 'esperando...'}
                 </span>
               </div>
 
@@ -292,6 +298,20 @@ export default function MaterialUploader({
         </div>
       )}
 
+      {/* Error de subida (fallo antes de tener progreso por archivo: init, auth, red) */}
+      {uploadError && !uploading && (
+        <div style={{
+          background: 'rgba(248,113,113,0.1)',
+          border: '1px solid rgba(248,113,113,0.4)',
+          borderRadius: 10, padding: '10px 14px',
+          marginBottom: 12,
+        }}>
+          <p style={{ color: '#f87171', fontSize: 14, fontWeight: 700, margin: 0 }}>
+            ⚠️ {uploadError}
+          </p>
+        </div>
+      )}
+
       {/* Botones */}
       {!allDone && (
         <button
@@ -313,7 +333,9 @@ export default function MaterialUploader({
         >
           {uploading
             ? '⬆️ Subiendo...'
-            : `📎 Subir ${files.length || ''} ${files.length === 1 ? 'archivo' : 'archivos'}`}
+            : uploadError
+              ? '🔁 Reintentar'
+              : `📎 Subir ${files.length || ''} ${files.length === 1 ? 'archivo' : 'archivos'}`}
         </button>
       )}
 

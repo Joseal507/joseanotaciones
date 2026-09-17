@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
+import type { VisualSpec } from '../../lib/adaptive/visual/visualContract';
+import { normalizeChatText, parseContentNodes } from '../../lib/alai-chat/content';
+import { boundedHistory } from '../../lib/alai-chat/conversation';
+import { chatProvenanceLabel } from '../../lib/alai-chat/contracts';
+export { parseContentNodes } from '../../lib/alai-chat/content';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import {
   beginAlaiTurn,
@@ -14,12 +19,41 @@ import {
   type DurableAlaiState,
 } from '../../lib/freeAlaiState';
 import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
-import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 import { freeNavDebug } from '../../lib/debug/freeNavDebug';
 
+import { AcademicContent } from '../academic/AcademicContent';
+
+import { VisualRenderer } from '../visual/VisualRenderer';
+import { extractGraphSpec } from '../../lib/adaptive/visual/engines/graphEngine';
+import { chatUserMessage, safeChatDisplayText, isInternalChatText } from '../../lib/alai-chat/errors';
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
 
 type ChatMessage = DurableAlaiMessage;
+
+function deriveClientVisualSpec(msg: ChatMessage): VisualSpec | undefined {
+  if (msg.visualSpec) return msg.visualSpec;
+  if (msg.role !== 'assistant' || !msg.content) return undefined;
+  // Fallback is only intended for graph turns where visualSpec was missing
+  const isGraphTurn = msg.requestedResponseShape === 'graph' || msg.fulfillment === 'text_only';
+  if (!isGraphTurn) return undefined;
+  try {
+    const extracted = extractGraphSpec(msg.content, [], `alai:${msg.id}`);
+    if (!extracted) return undefined;
+    return {
+      id: `visualspec:client:${msg.id}`,
+      requirementId: `visualreq:client:${msg.id}`,
+      microId: `client:${msg.id}`,
+      representation: 'cartesian_graph',
+      engine: 'graph_2d',
+      data: extracted.data,
+      sourceGrounding: { sourceSpans: extracted.sourceSpans, factKeys: [] },
+      conceptual: false,
+      provenance: { kind: 'DERIVED', operation: 'plot_explicit_function', inputs: [extracted.data.expression], reproducible: true },
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 interface Props {
   materiales: any[];
@@ -44,147 +78,117 @@ function formatPages(pages?: number[]) {
   return `Páginas ${clean.join(', ')}`;
 }
 
+// Chip-sized citation label — display-only abbreviation, distinct from
+// formatPages() (which stays exact/unabbreviated for the material panel
+// header and internal summaries).
+export function formatCitationPages(pages?: number[]) {
+  const clean = Array.from(new Set((pages || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))).sort((a, b) => a - b);
+  if (!clean.length) return '';
+  if (clean.length === 1) return `Página ${clean[0]}`;
+  const shown = clean.slice(0, 3);
+  return `Págs. ${shown.join(', ')}${clean.length > shown.length ? '…' : ''}`;
+}
+
+// Presentation-only cleanup: strips known internal-disclosure phrasing
+// that occasionally leaks into generated text even when authorized
+// material context DID ground the answer (making the phrase simply
+// false). This never touches retrieval/grounding — it only affects how
+// already-generated text is displayed.
+export function sanitizeDisplayText(text: string): string {
+  text = safeChatDisplayText(text);
+  // Legacy fallback messages exposed internal learner-state inference. Keep an
+  // honest limitation rather than silently turning that inference into evidence.
+  return normalizeChatText(text).replace(
+    /No tengo acceso directo al contenido específico, pero puedo inferir basándome en tus conceptos débiles\./gi,
+    'No puedo respaldar esta respuesta con tu material.',
+  );
+}
+
 function renderInline(text: string): React.ReactNode {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]*?\$\$|\$[^$\n]+?\$)/g);
   return parts.map((part, i) => {
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={i} style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return <strong key={i} className="aal-strong">{renderInline(part.slice(2, -2))}</strong>;
+    }
+    if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+      return <code key={i} className="aal-inline-code">{part.slice(1, -1)}</code>;
+    }
+    if (
+      (part.startsWith('\\(') && part.endsWith('\\)')) ||
+      (part.startsWith('\\[') && part.endsWith('\\]')) ||
+      (part.startsWith('$$') && part.endsWith('$$')) ||
+      (part.startsWith('$') && part.endsWith('$'))
+    ) {
+      return <AcademicContent key={i} content={part} inline />;
     }
     return <span key={i}>{part}</span>;
   });
 }
 
-function splitInlineList(text: string): string[] | null {
-  const pattern = /^(\d+[\).:][\s\S]*?)(?=\s+\d+[\).:][\s\S])/;
-  if (!pattern.test(text.trim())) return null;
-  const items = text.trim().split(/(?=\d+[\).:] )/).map(s => s.trim()).filter(Boolean);
-  if (items.length < 2) return null;
-  if (!items.every(s => /^\d+[\).:].+/.test(s))) return null;
-  return items;
-}
+const BULLET_DOT_COLORS = ['var(--red)', 'var(--blue)', 'var(--pink)', '#22c55e', 'var(--gold)'];
 
-function renderMessageContent(text: string) {
-  const normalized = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const trimmedFull = normalized.trim();
-  const inlineItems = splitInlineList(trimmedFull);
-
-  if (inlineItems) {
-    return (
-      <ol className="aal-num-list">
-        {inlineItems.map((item, i) => {
-          const numMatch = item.match(/^(\d+)[\).:]+\s+([\s\S]+)/);
-          const num = numMatch ? numMatch[1] : String(i + 1);
-          const txt = numMatch ? numMatch[2].trim() : item;
-          return (
-            <li key={i}>
-              <span className="aal-num-dot">{num}</span>
-              <span>{renderInline(txt)}</span>
-            </li>
-          );
-        })}
-      </ol>
-    );
-  }
-
-  const allLines = normalized.split('\n');
-  const tableStart = allLines.findIndex(l => l.trim().startsWith('|') && l.trim().endsWith('|'));
-  if (tableStart >= 0) {
-    const tableLines = allLines.slice(tableStart).filter(l => l.trim().startsWith('|') && l.trim().endsWith('|'));
-    const dataRows = tableLines.filter(l => !l.trim().match(/^\|[-:\s|]+\|$/));
-    const headers = dataRows[0]?.split('|').map((c: string) => c.trim()).filter(Boolean) || [];
-    const bodyRows = dataRows.slice(1);
-    return (
-      <div style={{ overflowX: 'auto' }}>
-        <table className="aal-table">
-          <thead><tr>{headers.map((h: string, i: number) => <th key={i}>{h}</th>)}</tr></thead>
-          <tbody>
-            {bodyRows.map((row: string, ri: number) => {
-              const cells = row.split('|').map((c: string) => c.trim()).filter(Boolean);
-              return (
-                <tr key={ri}>
-                  {cells.map((cell: string, ci: number) => <td key={ci}>{renderInline(cell)}</td>)}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    );
-  }
-
-  const numberedLines = allLines.map(l => l.trim()).filter(Boolean);
-  const isFullNumberedList = numberedLines.length >= 2 && numberedLines.every(l => /^\d+[\).:]\s+.+/.test(l));
-  if (isFullNumberedList) {
-    return (
-      <ol className="aal-num-list">
-        {numberedLines.map((line, i) => {
-          const numMatch = line.match(/^(\d+)[\).:]+\s+(.+)/);
-          const num = numMatch ? numMatch[1] : String(i + 1);
-          const txt = numMatch ? numMatch[2] : line;
-          return (
-            <li key={i}>
-              <span className="aal-num-dot">{num}</span>
-              <span>{renderInline(txt)}</span>
-            </li>
-          );
-        })}
-      </ol>
-    );
-  }
-
-  const bulletLines = allLines.map(l => l.trim()).filter(Boolean);
-  const isFullBulletList = bulletLines.length >= 2 && bulletLines.every(l => /^[-•*]\s+.+/.test(l));
-  if (isFullBulletList) {
-    // Colores rotando para los bullets como en tu imagen
-    const dotColors = ['var(--red)', 'var(--blue)', 'var(--pink)', '#22c55e', 'var(--gold)'];
-    return (
-      <ul className="aal-bullet-list">
-        {bulletLines.map((line, i) => {
-          const txt = line.replace(/^[-•*]\s+/, '');
-          return (
-            <li key={i}>
-              <span className="aal-bullet-dot" style={{ background: dotColors[i % dotColors.length] }} />
-              <span>{renderInline(txt)}</span>
-            </li>
-          );
-        })}
-      </ul>
-    );
-  }
-
-  function renderLine(line: string, key: any) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('### ')) return <h3 key={key} className="aal-h3">{trimmed.slice(4)}</h3>;
-    if (trimmed.startsWith('## ')) return <h2 key={key} className="aal-h2">{trimmed.slice(3)}</h2>;
-    if (trimmed.startsWith('# ')) return <h1 key={key} className="aal-h1">{trimmed.slice(2)}</h1>;
-    return <div key={key} className="aal-line">{renderInline(trimmed)}</div>;
-  }
-
-  const blocks = normalized.split(/\n{2,}/).filter(b => b.trim());
+export function renderMessageContent(text: string) {
+  const normalized = sanitizeDisplayText(String(text || ''));
+  const nodes = parseContentNodes(normalized);
   return (
     <div className="aal-blocks">
-      {blocks.map((block, blockIndex) => {
-        const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
-        if (lines.length === 1) {
-          const single = lines[0];
-          if (/^#{1,3}\s/.test(single)) return renderLine(single, blockIndex);
-          return <p key={blockIndex} className="aal-line">{renderInline(single)}</p>;
+      {nodes.map((node, idx) => {
+        switch (node.kind) {
+          case 'h': {
+            if (node.level === 1) return <h1 key={idx} className="aal-h1">{renderInline(node.text)}</h1>;
+            if (node.level === 2) return <h2 key={idx} className="aal-h2">{renderInline(node.text)}</h2>;
+            return <h3 key={idx} className="aal-h3">{renderInline(node.text)}</h3>;
+          }
+          case 'ul':
+            return (
+              <ul key={idx} className="aal-bullet-list">
+                {node.items.map((item, i) => (
+                  <li key={i}>
+                    <span className="aal-bullet-dot" style={{ background: BULLET_DOT_COLORS[i % BULLET_DOT_COLORS.length] }} />
+                    <span>{renderInline(item)}</span>
+                  </li>
+                ))}
+              </ul>
+            );
+          case 'ol':
+            return (
+              <ol key={idx} className="aal-num-list" start={node.start || 1}>
+                {node.items.map((item, i) => (
+                  <li key={i}>
+                    <span className="aal-num-dot">{i + (node.start || 1)}</span>
+                    <span>{renderInline(item)}</span>
+                  </li>
+                ))}
+              </ol>
+            );
+          case 'table':
+            return (
+              <div key={idx} className="aal-table-wrap">
+                <table className="aal-table">
+                  <thead>
+                    <tr>
+                      {node.headers.map((header, i) => (
+                        <th key={i}>{renderInline(header)}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {node.rows.map((row, ri) => (
+                      <tr key={ri}>
+                        {row.map((cell, ci) => (
+                          <td key={ci}>{renderInline(cell)}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          case 'code':
+            return <pre key={idx} style={{ whiteSpace: 'pre-wrap', overflowX: 'auto' }}><code>{node.text}</code></pre>;
+          case 'p':
+            return <div key={idx} className="aal-line" style={{ whiteSpace: 'pre-wrap' }}>{renderInline(node.text)}</div>;
         }
-        const hasHeading = lines.some(l => /^#{1,3}\s/.test(l));
-        if (hasHeading) {
-          return (
-            <div key={blockIndex} className="aal-multiline">
-              {lines.map((line, i) => renderLine(line, i))}
-            </div>
-          );
-        }
-        return (
-          <div key={blockIndex} className="aal-multiline">
-            {lines.map((line, i) => (
-              <div key={i} className="aal-line">{renderInline(line)}</div>
-            ))}
-          </div>
-        );
       })}
     </div>
   );
@@ -205,8 +209,6 @@ function highlightKeywords(text: string): React.ReactNode {
 export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, onBack, masteryContext, sessionId, sourceSelection }: Props) {
   const [conversation, setConversation] = useState<DurableAlaiState>(() => initialAlaiState());
   const [continuityReady, setContinuityReady] = useState(false);
-  const [materialText, setMaterialText] = useState('');
-  const [loadingText, setLoadingText] = useState(true);
   const [error, setError] = useState('');
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -228,7 +230,6 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
-  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection, 'ALAIStudyALChat');
   const messages = conversation.messages;
   const input = conversation.draft;
   const loadingAnswer = conversation.currentTurn?.status === 'sending';
@@ -259,16 +260,6 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
     () => selectionSequence.length || activeSelectedPages.length,
     [selectionSequence.length, activeSelectedPages.length]
   );
-
-  const materialSummary = useMemo(() => {
-    const pages = selectionSequence.map((x) => x.page);
-    return {
-      count: materiales.length,
-      chars: materialText.length,
-      pages,
-      pageLabel: pages.length ? formatPages(pages.slice(0, 12)) + (pages.length > 12 ? '…' : '') : 'documento completo',
-    };
-  }, [materiales.length, materialText.length, selectionSequence]);
 
   const persistConversation = useCallback((next: DurableAlaiState) => {
     conversationRef.current = next;
@@ -337,21 +328,6 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, loadingAnswer]);
 
-  useEffect(() => {
-    if (authorizedStatus === 'loading' || authorizedStatus === 'idle') {
-      setLoadingText(true);
-      return;
-    }
-    setLoadingText(false);
-    if (authorizedStatus === 'error' || !authorizedSource) {
-      setError(authorizedError || 'No se pudo resolver la fuente autorizada.');
-      setMaterialText('');
-      return;
-    }
-    setError('');
-    setMaterialText(authorizedSource.combinedText);
-  }, [authorizedStatus, authorizedSource, authorizedError]);
-
   const isAuthorizedCitation = useCallback((materialId: string, page: number) => {
     const resolvedId = materialId || String(activeMaterialId || '');
     const selection = effectiveSourceSelection.materials.find(item => item.materialId === resolvedId);
@@ -410,17 +386,39 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
     sendLockedRef.current = true;
     setError('');
     try {
+      // The immediate conversational predecessor may be general; never search backwards for old evidence.
+      const lastAssistant = [...stateAtStart.messages].reverse().find(message => message.role === 'assistant');
+      console.log('[alai-chat-trace:client:outbound]', {
+        sessionId,
+        turnId,
+        attempt,
+        userMessage: userMessage.content.slice(0, 100),
+        messagesTotal: stateAtStart.messages.length,
+        lastAssistantId: lastAssistant?.id,
+        hasLastAssistantContext: Boolean(lastAssistant?.conversationContext),
+        lastAssistantContext: lastAssistant?.conversationContext ? {
+          subject: lastAssistant.conversationContext.subject,
+          activeProblem: lastAssistant.conversationContext.activeProblem,
+          workingMemory: lastAssistant.conversationContext.workingMemory,
+        } : null,
+        historySentCount: stateAtStart.messages.filter(m => m.id !== userMessage.id).length,
+        historySentSnippets: stateAtStart.messages.filter(m => m.id !== userMessage.id).slice(-4).map(m => `${m.role}:${m.content.slice(0, 60)}`),
+      });
       const res = await fetch('/api/alai-studyal-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          sessionId,
           message: userMessage.content,
-          materialText,
-          sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
-          history: stateAtStart.messages
+          turnId,
+          attempt,
+          conversationContext: lastAssistant?.conversationContext,
+          // Bounded — deterministic retrieval/grounding is the academic
+          // authority, not accumulated assistant prose (Phase 10).
+          history: boundedHistory(stateAtStart.messages
             .filter(message => message.id !== userMessage.id)
-            .slice(-20)
-            .map(message => ({ role: message.role, content: message.content })),
+            .slice(-6)
+            .map(message => ({ role: message.role, content: message.content }))),
           materia: materia?.nombre || '',
           tema: tema?.nombre || '',
           masteryContext,
@@ -428,13 +426,20 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
         signal: controller.signal,
       });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || `Error ${res.status}`);
+      if (!res.ok || !data.success) throw new Error(chatUserMessage(data));
       if (!mountedRef.current || controller.signal.aborted || activeAttemptRef.current !== attemptIdentity) return;
       const assistantMsg: ChatMessage = {
         id: `${turnId}:assistant`,
         turnId,
         role: 'assistant',
         content: data.answer || '',
+        schemaVersion: data.schema === 'alai-chat' ? data.version : undefined,
+        provenance: data.provenance,
+        evidence: Array.isArray(data.evidence) ? data.evidence : undefined,
+        conversationContext: data.conversationContext,
+        requestedResponseShape: data.requestedResponseShape,
+        fulfillment: data.fulfillment,
+        visualSpec: data.visualSpec as VisualSpec | undefined,
         inMaterial: Boolean(data.inMaterial),
         outsideMaterialNote: data.outsideMaterialNote || '',
         confidence: data.confidence || 'media',
@@ -445,6 +450,10 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
           : [],
         suggestedFollowups: Array.isArray(data.suggestedFollowups) ? data.suggestedFollowups : [],
         timestamp: Date.now(),
+        mode: data.mode || undefined,
+        usedTargetIds: Array.isArray(data.usedTargetIds) ? data.usedTargetIds : undefined,
+        usedRelationIds: Array.isArray(data.usedRelationIds) ? data.usedRelationIds : undefined,
+        materialIds: Array.isArray(data.materialIds) ? data.materialIds : undefined,
       };
       const completed = completeAlaiTurn(conversationRef.current, turnId, attempt, assistantMsg);
       if (completed === conversationRef.current) return;
@@ -464,7 +473,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
       }
     } catch (caught: unknown) {
       if (controller.signal.aborted || activeAttemptRef.current !== attemptIdentity) return;
-      const message = caught instanceof Error ? caught.message : 'ALAI no pudo responder ahora.';
+      const message = chatUserMessage(caught);
       const failed = failAlaiTurn(conversationRef.current, turnId, attempt, message);
       persistConversation(failed);
     } finally {
@@ -474,11 +483,11 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
         sendLockedRef.current = false;
       }
     }
-  }, [materialText, effectiveSourceSelection.fingerprint, materia, tema, masteryContext, materiales, isAuthorizedCitation, persistConversation]);
+  }, [effectiveSourceSelection.fingerprint, materia, tema, masteryContext, materiales, isAuthorizedCitation, persistConversation]);
 
   const sendMessage = useCallback((override?: string) => {
     const text = String(override ?? conversationRef.current.draft).trim();
-    if (!text || sendLockedRef.current || loadingAnswer || loadingText || !continuityReady) return;
+    if (!text || sendLockedRef.current || loadingAnswer || !continuityReady) return;
     if (!sessionId) {
       setError('No se pudo identificar la sesión Free para guardar esta conversación.');
       return;
@@ -493,15 +502,15 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
     });
     persistConversation(next);
     void runTurn(turnId, 1);
-  }, [loadingAnswer, loadingText, continuityReady, sessionId, persistConversation, runTurn]);
+  }, [loadingAnswer, continuityReady, sessionId, persistConversation, runTurn]);
 
   const retryCurrentTurn = useCallback(() => {
     const current = conversationRef.current.currentTurn;
-    if (!current || current.status !== 'recoverable' || sendLockedRef.current || loadingText) return;
+    if (!current || current.status !== 'recoverable' || sendLockedRef.current) return;
     const next = retryAlaiTurn(conversationRef.current, current.id);
     persistConversation(next);
     void runTurn(current.id, next.currentTurn?.attempt || current.attempt + 1);
-  }, [loadingText, persistConversation, runTurn]);
+  }, [persistConversation, runTurn]);
 
   return (
     <div className="aal-screen">
@@ -521,7 +530,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
             <path d="M4 6 Q 50 1 90 5 T 176 4" stroke="var(--gold)" strokeWidth="2.5" fill="none" strokeLinecap="round" />
           </svg>
           <p>Tu compañero de estudio inteligente</p>
-          <small>{loadingText ? 'Analizando material...' : 'ALAI ya analizó tu material. Pregunta lo que quieras.'}</small>
+          <small>ALAI ya analizó tu material. Pregunta lo que quieras.</small>
         </div>
 
 <div className="aal-topbar-right" />
@@ -605,11 +614,11 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
                 <span>Hoy</span>
               </div>
 
-              {error && <div className="aal-error">⚠️ {error}</div>}
+              {error && <div className="aal-error">⚠️ {chatUserMessage(error)}</div>}
               {conversation.currentTurn?.status === 'recoverable' && (
                 <div className="aal-error" data-testid="alai-recoverable-turn">
-                  ⚠️ {conversation.currentTurn.error || 'La respuesta se interrumpió.'}
-                  <button type="button" onClick={retryCurrentTurn} disabled={loadingText}>Reintentar respuesta</button>
+                  ⚠️ {chatUserMessage(conversation.currentTurn.error)}
+                  <button type="button" onClick={retryCurrentTurn} disabled={loadingAnswer}>Reintentar respuesta</button>
                 </div>
               )}
 
@@ -619,6 +628,8 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
                 const onePage = pages.length === 1;
                 const prevMsg = messages[idx - 1];
                 const showAvatar = !prevMsg || prevMsg.role !== msg.role;
+
+                const effectiveVisual = deriveClientVisualSpec(msg);
 
                 return (
                   <div key={msg.id} className={`aal-msg ${isUser ? 'user' : 'alai'}`}>
@@ -633,32 +644,50 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
                     <div className={`aal-bubble ${isUser ? 'user' : 'alai'}`}>
                       <div className="aal-bubble-body">
                         {isUser ? highlightKeywords(msg.content) : renderMessageContent(msg.content)}
+                        {!isUser && effectiveVisual && <VisualRenderer spec={effectiveVisual} mode="teach" />}
+                        {!isUser && msg.fulfillment === 'text_only' && !effectiveVisual && <p role="note" className="aal-line">Representación textual: esta función no tiene una gráfica disponible en este formato.</p>}
                       </div>
 
-                      {!isUser && msg.inMaterial === false && (
-                        <div className="aal-outside-note">
-                          {msg.outsideMaterialNote || 'Esta respuesta no está directamente en el material.'}
+                      {!isUser && msg.provenance && (
+                        <div className="aal-source-row">
+                          <span className="aal-source-tag">{chatProvenanceLabel(msg.provenance)}</span>
+                          {Array.from(new Set((msg.evidence || []).map(item => item.materialId))).map(materialId => {
+                            const material = materiales.find(item => String(item?.materialId || item?.material_id || item?.id || '') === materialId);
+                            const citationPages = [...new Set((msg.evidence || []).filter(item => item.materialId === materialId).flatMap(item => item.pages))]
+                              .filter(page => isAuthorizedCitation(materialId, page)).sort((a, b) => a - b);
+                            return <button key={materialId} className={'aal-source-chip ' + (citationPages.length === 1 ? 'clickable' : '')}
+                              disabled={citationPages.length !== 1}
+                              onClick={() => jumpToSource({ ...msg, sourceMaterial: materialId, sourcePages: citationPages })}>
+                              📄 {String(material?.nombre || material?.name || material?.title || materialId)} · {formatCitationPages(citationPages)}
+                            </button>;
+                          })}
+                        </div>
+                      )}
+                      {!isUser && !msg.provenance && pages.length > 0 && (
+                        <div className="aal-source-row">
+                          <button
+                            onClick={() => jumpToSource(msg)}
+                            disabled={!onePage}
+                            className={`aal-source-chip ${onePage ? 'clickable' : ''}`}
+                          >
+                            📄 {formatCitationPages(pages)}
+                          </button>
+                          <span className="aal-source-tag">Basado en tu material</span>
+                          {msg.mode === 'MIXED' && (
+                            <span className="aal-mode-chip mixed">✨ con contexto adicional</span>
+                          )}
                         </div>
                       )}
 
-                      {!isUser && (pages.length > 0 || msg.sourceMaterialName) && (
+                      {!isUser && !msg.provenance && pages.length === 0 && (msg.mode === 'GENERAL_ONLY' || (msg.mode === undefined && msg.inMaterial === false)) && (
                         <div className="aal-source-row">
-                          <span className="aal-source-label">Fuente:</span>
-                          {pages.length > 0 && (
-                            <button
-                              onClick={() => jumpToSource(msg)}
-                              disabled={!onePage}
-                              className={`aal-source-chip ${onePage ? 'clickable' : ''}`}
-                            >
-                              📄 {formatPages(pages)}
-                            </button>
-                          )}
-                          {msg.sourceMaterialName && (
-                            <>
-                              <span className="aal-source-arrow">→</span>
-                              <span className="aal-source-tag">Basado en tu material</span>
-                            </>
-                          )}
+                          <span className="aal-mode-chip general">💭 Conocimiento general</span>
+                        </div>
+                      )}
+
+                      {!isUser && !msg.provenance && pages.length === 0 && msg.mode === 'MIXED' && (
+                        <div className="aal-source-row">
+                          <span className="aal-mode-chip mixed">✨ Con apoyo de conocimiento general</span>
                         </div>
                       )}
 
@@ -687,7 +716,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
                 if (last?.role !== 'assistant' || !last.suggestedFollowups?.length || loadingAnswer) return null;
                 return (
                   <div className="aal-followups-inline">
-                    {last.suggestedFollowups.map((f) => (
+                    {last.suggestedFollowups.filter(f => typeof f === 'string' && !isInternalChatText(f)).map((f) => (
                       <button key={f} onClick={() => sendMessage(f)} className="aal-followup-pill">
                         {f}
                       </button>
@@ -727,14 +756,14 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
                   sendMessage();
                 }
               }}
-              placeholder={loadingText ? 'Cargando material...' : 'Escribe tu pregunta aquí...'}
-              disabled={loadingText || loadingAnswer}
+              placeholder="Escribe tu pregunta aquí..."
+              disabled={loadingAnswer}
               className="aal-input"
               rows={1}
             />
             <button
               type="submit"
-              disabled={loadingText || loadingAnswer || !input.trim()}
+              disabled={loadingAnswer || !input.trim()}
               className="aal-send-btn"
               title="Enviar"
             >
@@ -757,7 +786,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
               <button
                 key={q}
                 onClick={() => sendMessage(q)}
-                disabled={loadingText || loadingAnswer}
+                disabled={loadingAnswer}
                 className="aal-quick-pill"
               >
                 <span>{icon}</span>
@@ -1174,9 +1203,9 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
         .aal-bubble.alai .aal-bubble-body { color: #1a1a1a; }
         .aal-bubble.user .aal-bubble-body { color: var(--text-primary); }
 
-        .aal-line { color: inherit; }
+        .aal-line { color: inherit; margin: 0; }
         .aal-multiline { display: flex; flex-direction: column; gap: 6px; }
-        .aal-blocks { display: flex; flex-direction: column; gap: 12px; }
+        .aal-blocks { display: flex; flex-direction: column; gap: 10px; }
 
         .aal-num-list {
           margin: 0; padding: 0;
@@ -1230,26 +1259,86 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
           color: inherit;
           font-weight: 700;
         }
+        .aal-strong {
+          font-weight: 800;
+          color: inherit;
+        }
+        .aal-inline-code {
+          font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+          background: color-mix(in srgb, currentColor 10%, transparent);
+          padding: 1px 6px;
+          border-radius: 4px;
+          font-size: 0.92em;
+          color: inherit;
+        }
+
+        .aal-table-wrap {
+          width: 100%;
+          max-width: 100%;
+          overflow-x: auto;
+          overflow-y: visible;
+          margin-top: 6px;
+          -webkit-overflow-scrolling: touch;
+        }
 
         .aal-table {
           width: 100%;
+          min-width: 480px;
           border-collapse: collapse;
+          table-layout: auto;
           font-size: 12.5px;
-          margin-top: 4px;
         }
+
+        .aal-table th,
+        .aal-table td {
+          box-sizing: border-box;
+          text-align: left;
+          vertical-align: top;
+          overflow-wrap: break-word;
+          word-break: normal;
+          white-space: normal;
+        }
+
         .aal-table th {
-          padding: 7px 10px;
+          padding: 8px 10px;
           border-bottom: 2px solid rgba(0,0,0,0.25);
           color: #5a4015;
           font-weight: 900;
-          text-align: left;
         }
+
         .aal-table td {
-          padding: 7px 10px;
+          padding: 8px 10px;
           border-bottom: 1px solid rgba(0,0,0,0.1);
-          line-height: 1.5;
+          line-height: 1.45;
         }
-        .aal-table tr:nth-child(even) { background: rgba(0,0,0,0.025); }
+
+        /* Keep short label columns readable instead of crushing words
+           such as "Componente" into multiple fragments. */
+        .aal-table th:first-child,
+        .aal-table td:first-child {
+          width: 30%;
+          min-width: 130px;
+        }
+
+        .aal-table th:not(:first-child),
+        .aal-table td:not(:first-child) {
+          min-width: 220px;
+        }
+
+        .aal-table tr:nth-child(even) {
+          background: rgba(0,0,0,0.025);
+        }
+
+        @media (max-width: 720px) {
+          .aal-table {
+            min-width: 560px;
+          }
+
+          .aal-table th:first-child,
+          .aal-table td:first-child {
+            min-width: 125px;
+          }
+        }
 
         .aal-h1, .aal-h2, .aal-h3 {
           margin: 6px 0 4px;
@@ -1261,31 +1350,14 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
         .aal-h2 { font-size: 15px; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 3px; }
         .aal-h3 { font-size: 14px; }
 
-        .aal-outside-note {
-          background: rgba(248,113,113,0.12);
-          border: 1px solid rgba(248,113,113,0.35);
-          color: #b14545;
-          padding: 7px 9px;
-          border-radius: 8px;
-          font-size: 11.5px;
-          font-weight: 700;
-          margin-top: 8px;
-          line-height: 1.4;
-        }
-
         .aal-source-row {
-          margin-top: 10px;
-          padding-top: 8px;
+          margin-top: 9px;
+          padding-top: 7px;
           border-top: 1px dashed rgba(0,0,0,0.18);
           display: flex;
-          gap: 8px;
+          gap: 7px;
           align-items: center;
           flex-wrap: wrap;
-        }
-        .aal-source-label {
-          color: rgba(0,0,0,0.55);
-          font-size: 11px;
-          font-weight: 800;
         }
         .aal-source-chip {
           border: 1.5px solid color-mix(in srgb, var(--gold) 50%, transparent);
@@ -1306,15 +1378,30 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
           transform: translateY(-1px);
           box-shadow: 0 3px 8px rgba(214,178,111,0.5);
         }
-        .aal-source-arrow {
-          color: var(--red);
-          font-weight: 900;
-          font-size: 14px;
-        }
         .aal-source-tag {
           font-size: 11px;
           color: var(--red);
           font-weight: 800;
+        }
+        /* Discrete provenance chips — never an alarming/error-styled box.
+           GENERAL_ONLY / MIXED are ordinary, expected answer shapes, not
+           failures, and never expose internal retrieval/mode names. */
+        .aal-mode-chip {
+          font-size: 11px;
+          font-weight: 800;
+          padding: 3px 9px;
+          border-radius: 999px;
+          border: 1.5px solid transparent;
+        }
+        .aal-mode-chip.general {
+          color: #5a4015;
+          background: rgba(0,0,0,0.06);
+          border-color: rgba(0,0,0,0.12);
+        }
+        .aal-mode-chip.mixed {
+          color: #5a4015;
+          background: color-mix(in srgb, var(--gold) 12%, transparent);
+          border-color: color-mix(in srgb, var(--gold) 35%, transparent);
         }
 
         .aal-msg-actions {

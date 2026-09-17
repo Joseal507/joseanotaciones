@@ -2,7 +2,8 @@
 
 import katex from 'katex'
 import 'katex/contrib/mhchem'
-import { Fragment } from 'react'
+import React, { Fragment } from 'react'
+import { autoMath } from '../../lib/adaptive/v3/ui/autoMath'
 import { prepareAcademicContentForDelivery } from '../../lib/academic-content/validation'
 import type { AcademicDocument, AcademicNode } from '../../lib/academic-content/types'
 import { academicNodeBoundary, quantityText } from '../../lib/academic-content/composition'
@@ -62,7 +63,7 @@ function MathNode({ node, renderMathBlank }: { node: Extract<AcademicNode, { typ
       throwOnError: true,
       trust: false,
       strict: 'error',
-      output: 'htmlAndMathml',
+      output: 'html',
     })
   } catch {
     // Fail-closed: un hueco sustituido en una posición que rompe la sintaxis
@@ -72,7 +73,15 @@ function MathNode({ node, renderMathBlank }: { node: Extract<AcademicNode, { typ
     return <span role="math" aria-label="Fórmula no disponible" style={{ opacity: 0.7 }}>⚠️ Fórmula no disponible</span>
   }
   const Component = node.display ? 'div' : 'span'
-  return <Component role="math" onClick={onClick} style={{ overflowX: 'auto', cursor: onClick ? 'pointer' : undefined }} dangerouslySetInnerHTML={{ __html: html }} />
+  return (
+    <Component
+      role="math"
+      aria-label={latexSource}
+      onClick={onClick}
+      style={{ overflowX: 'auto', cursor: onClick ? 'pointer' : undefined }}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  )
 }
 
 function ChemistryNode({ node }: { node: Extract<AcademicNode, { type: 'chemistry' }> }) {
@@ -81,7 +90,7 @@ function ChemistryNode({ node }: { node: Extract<AcademicNode, { type: 'chemistr
     throwOnError: true,
     trust: false,
     strict: 'error',
-    output: 'htmlAndMathml',
+    output: 'html',
   })
   const Component = node.display ? 'div' : 'span'
   return <Component role="math" aria-label={node.value} style={{ overflowX: 'auto' }} dangerouslySetInnerHTML={{ __html: html }} />
@@ -161,7 +170,8 @@ export function AcademicContent({
   renderBlank,
   renderMathBlank,
 }: AcademicContentProps) {
-  const prepared = prepareAcademicContentForDelivery(content)
+  const safeContent = typeof content === 'string' ? autoMath(content) : content
+  const prepared = prepareAcademicContentForDelivery(safeContent)
   const Component = inline ? 'span' : 'div'
   return <Component data-academic-content data-academic-degraded={prepared.degraded || undefined}><DocumentNodes document={prepared.document} renderBlank={renderBlank} renderMathBlank={renderMathBlank} /></Component>
 }

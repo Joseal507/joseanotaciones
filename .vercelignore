@@ -1,0 +1,43 @@
+# Local exports and diagnostics; retain these files on the development machine.
+/studyal_context.txt
+/graphify-out/
+/.flashcards-traces/
+/.debug/
+/.materialBrainCache/
+/.ai-backups/
+/archive/
+/backup/
+
+# Build products, dependencies and local tooling state.
+.git/
+.next/
+node_modules/
+/.vercel/
+/out/
+.cache/
+.turbo/
+__pycache__/
+*.tsbuildinfo
+.DS_Store
+.env
+.env.*
+
+# Test-only fixtures and generated browser artifacts (never public runtime assets).
+/scripts/fixtures/
+/tests/fixtures/
+/tests/e2e/*-snapshots/
+/test-results/
+/playwright-report/
+/reports/playwright/
+/reports/playwright-artifacts/
+/reports/playwright-real-materials/
+/reports/playwright-real-materials-artifacts/
+/artifacts/
+/coverage/
+
+# Local logs and editor backup files.
+/logs/
+*.log
+*.bak
+*.backup
+*.swp

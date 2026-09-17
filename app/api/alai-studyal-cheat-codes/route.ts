@@ -1,10 +1,81 @@
+import { WorkerTruquitosStore, restoreOrGenerateTruquitos, truquitosIdentity } from '../../../lib/truquitos/artifact';
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../lib/auth/options';
 import { alai, safeParseJson } from '../../../lib/alai';
 import { detectLanguage } from '../../../lib/detectLanguage';
 import { generateValidatedLegacyJson } from '../../../lib/ai/legacyRouteGeneration';
+import { getAuthoritativeFreeSession } from '../../../lib/materialBrain/quiz/sessionAuthority';
+import { getMaterial } from '../../../lib/materials/repository';
+import { lookupStudyalMaterialEnjoyer, WorkerMaterialEnjoyerStore } from '../../../lib/adaptive/materialEnjoyer';
+import type { SourceSelectionSnapshot } from '../../../lib/adaptive/sourceSelection';
+import {
+  buildTruquitosEnjoyerContext, computeTruquitosCoverage,
+  TRUQUITOS_ENJOYER_AUTHORITY_TYPE, TRUQUITOS_ENJOYER_ADAPTER_VERSION,
+  type TruquitosEnjoyerContext,
+} from '../../../lib/materialBrain/truquitosEnjoyerContext';
 
 export const maxDuration = 120;
 export const dynamic = 'force-dynamic';
+
+// ============================================================
+// StudyalMaterialEnjoyer grounded path (sessionId-based) — see
+// handleGroundedTruquitosRequest()/handleGroundedTruquitosVariant()
+// near the POST handler. The legacy materialText-based chunk pipeline
+// below remains as a compatibility fallback for non-Free
+// callers that never send sessionId; ALAIStudyALCheatCodes.tsx no
+// longer sends materialText for generation OR for "Otra versión" in
+// Free Mode — both are sessionId+Enjoyer-grounded now. No Material
+// Brain-based knowledge units, no raw material text in this path.
+// ============================================================
+
+export const __routeDeps = {
+  getServerSession,
+  getAuthoritativeFreeSession,
+  getMaterial,
+  lookupStudyalMaterialEnjoyer,
+  materialEnjoyerStore: new WorkerMaterialEnjoyerStore(),
+  truquitosStore: new WorkerTruquitosStore(),
+  generateValidatedLegacyJson,
+  alai,
+};
+
+const RAW_SOURCE_AUTHORITY_KEYS = ['materialText', 'combinedText', 'rawText', 'texto'];
+
+function groundedErrorResponse(code: string, status: number, detail?: string) {
+  return NextResponse.json({ success: false, error: code, ...(detail ? { detail } : {}) }, { status });
+}
+
+interface TruquitosEnjoyerLookupResult {
+  context: TruquitosEnjoyerContext | null
+  code: string
+  status: number
+}
+
+/**
+ * Resolves the EXACT-fingerprint, persisted StudyalMaterialEnjoyer for
+ * a Truquitos request. Lookup-only: never builds, never regenerates,
+ * never falls back to a different fingerprint. Mirrors the same
+ * restore-only contract already proven for Exam/Flashcards — duplicated
+ * here (not imported) so this migration stays isolated.
+ */
+async function resolveReadyTruquitosEnjoyer(sessionId: string, userId: string): Promise<TruquitosEnjoyerLookupResult> {
+  const freeSession = await __routeDeps.getAuthoritativeFreeSession(sessionId, userId);
+  if (!freeSession) return { context: null, code: 'SESSION_NOT_FOUND', status: 404 };
+  const sourceSelection: SourceSelectionSnapshot = freeSession.sourceSelection;
+  for (const materialId of sourceSelection.materialIds) {
+    if (!await __routeDeps.getMaterial(materialId, userId)) return { context: null, code: 'SESSION_NOT_FOUND', status: 404 };
+  }
+  const persisted = await __routeDeps.lookupStudyalMaterialEnjoyer(sourceSelection.fingerprint, __routeDeps.materialEnjoyerStore);
+  if (!persisted) return { context: null, code: 'ENJOYER_NOT_READY', status: 409 };
+  try {
+    const context = buildTruquitosEnjoyerContext(persisted, sourceSelection);
+    return { context, code: 'OK', status: 200 };
+  } catch (error: any) {
+    const code = String(error?.message || '') === 'SOURCE_SELECTION_MISMATCH' ? 'SOURCE_SELECTION_MISMATCH' : 'INVALID_ENJOYER_AUTHORITY';
+    return { context: null, code, status: 409 };
+  }
+}
 
 type CardType =
   | 'cheat_code'
@@ -625,7 +696,7 @@ async function generateCardsFromChunk(
   }
 }
 
-function deduplicateAndRank(cards: RawCard[]): RawCard[] {
+function deduplicateAndRank(cards: RawCard[], maxCards = 14): RawCard[] {
   const normalize = (s: string) =>
     s.toLowerCase()
       .replace(/los|las|el|la|de|con|para|en|un|una|que|del|al|sobre|por|como/g, '')
@@ -674,22 +745,23 @@ function deduplicateAndRank(cards: RawCard[]): RawCard[] {
     examen: diverse.filter(c => c.stage === 'examen').sort((a, b) => stageScore(b) - stageScore(a)),
   };
 
+  const perStageCap = Math.max(2, Math.round(maxCards * 0.28));
   const final: RawCard[] = [];
-  final.push(...byStage.entiende.slice(0, 4));
-  final.push(...byStage.recuerda.slice(0, 4));
-  final.push(...byStage.no_confundas.slice(0, 3));
-  final.push(...byStage.examen.slice(0, 3));
+  final.push(...byStage.entiende.slice(0, perStageCap));
+  final.push(...byStage.recuerda.slice(0, perStageCap));
+  final.push(...byStage.no_confundas.slice(0, Math.max(1, Math.round(maxCards * 0.21))));
+  final.push(...byStage.examen.slice(0, Math.max(1, Math.round(maxCards * 0.21))));
 
   const used = new Set(final.map(c => c.id));
   const remaining = diverse
     .filter(c => !used.has(c.id))
     .sort((a, b) => stageScore(b) - stageScore(a));
 
-  while (final.length < 14 && remaining.length) {
+  while (final.length < maxCards && remaining.length) {
     final.push(remaining.shift()!);
   }
 
-  return final.slice(0, 14);
+  return final.slice(0, maxCards);
 }
 
 async function buildProfessorAdvice(
@@ -734,11 +806,16 @@ Tarjetas:
 ${JSON.stringify(cards.slice(0, 8), null, 2)}`;
 
   try {
-    const res = await alai({
+    const res = await __routeDeps.alai({
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.12,
       maxTokens: 800,
       json: true,
+      // This is a genuine second call within initial generation — the
+      // "profesor advice" closing section is user-facing product content,
+      // not legacy/duplicate work. Classify it explicitly instead of
+      // leaving it unlabeled (was surfacing as taskType:"unspecified").
+      taskType: 'session_content',
     });
 
     const parsed = safeParseJson(res.text);
@@ -893,15 +970,87 @@ async function generateAllCards(blocks: MaterialBlock[], profile: MaterialProfil
   return all;
 }
 
+async function handleGroundedTruquitosRequest(
+  sessionId: string, userId: string, _materia: string, _tema: string, _masteryContext: unknown,
+): Promise<NextResponse> {
+  const lookup = await resolveReadyTruquitosEnjoyer(sessionId, userId);
+  if (!lookup.context) return groundedErrorResponse(lookup.code, lookup.status);
+  const context = lookup.context;
+  try {
+    const artifact = await restoreOrGenerateTruquitos(truquitosIdentity(userId, sessionId, context.fingerprint),
+      context, __routeDeps.truquitosStore, __routeDeps.alai);
+    const coverage = computeTruquitosCoverage(context.targets, artifact.cards.map(card => card.targetId));
+    return NextResponse.json({ success: artifact.status === 'ready', cards: artifact.cards,
+      ...(artifact.status === 'failed' ? { error: 'TRUQUITOS_GENERATION_INCOMPLETE' } : {}),
+      grounding: { fingerprint: context.fingerprint, authorityType: TRUQUITOS_ENJOYER_AUTHORITY_TYPE,
+        adapterVersion: TRUQUITOS_ENJOYER_ADAPTER_VERSION, ...coverage,
+        selectedTargetIds: artifact.slots.map(slot => slot.target.id),
+        omittedTargets: context.targets.filter(target => !artifact.slots.some(slot => slot.target.id === target.id))
+          .map(target => ({ targetId: target.id, reason: 'bounded_selection' })),
+      },
+      meta: { version: artifact.version, status: artifact.status, lang: artifact.language,
+        plannedSlots: artifact.slots.length, missingSlotIds: artifact.slots.filter(slot => !artifact.cards.some(card => card.slotId === slot.id)).map(slot => slot.id),
+        providerCallsUsed: artifact.callsUsed },
+    }, { status: artifact.status === 'ready' ? 200 : 422 });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : 'TRUQUITOS_GENERATION_FAILED';
+    return groundedErrorResponse(code, code === 'TRUQUITOS_GENERATING' ? 409 : 503);
+  }
+}
+
+async function handleGroundedTruquitosVariant(
+  sessionId: string, userId: string, cardId: string, action: VariantAction,
+): Promise<NextResponse> {
+  if (!['another_trick', 'another_analogy', 'simple'].includes(action)) return groundedErrorResponse('INVALID_CONFIG', 400);
+  const lookup = await resolveReadyTruquitosEnjoyer(sessionId, userId);
+  if (!lookup.context) return groundedErrorResponse(lookup.code, lookup.status);
+  const context = lookup.context;
+  const identity = truquitosIdentity(userId, sessionId, context.fingerprint);
+  const original = await __routeDeps.truquitosStore.read(identity);
+  const card = original?.artifact.cards.find(card => card.id === cardId);
+  const slot = original?.artifact.slots.find(slot => slot.id === card?.slotId);
+  if (!card || !slot) return groundedErrorResponse('PERSISTED_CARD_REQUIRED', 409);
+  try {
+    const variant = await restoreOrGenerateTruquitos(truquitosIdentity(userId, sessionId, context.fingerprint, `${cardId}:${action}`),
+      context, __routeDeps.truquitosStore, __routeDeps.alai, { slots: [slot], alternative: action, previousPedagogy: card.content });
+    if (variant.status !== 'ready') return groundedErrorResponse('NO_VARIANT_GENERATED', 422);
+    return NextResponse.json({ success: true, card: variant.cards[0] });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : 'NO_VARIANT_GENERATED';
+    return groundedErrorResponse(code, code === 'TRUQUITOS_GENERATING' ? 409 : 503);
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const mode = String(body.mode || '').trim();
 
     if (mode === 'variant') {
-      const materialText = String(body.materialText || '').trim();
       const card = body.card as RawCard;
       const action = String(body.action || 'another_trick') as VariantAction;
+
+      // Grounded Free Mode path: same session, same exact persisted
+      // Enjoyer, same target IDs — never raw materialText. Checked
+      // FIRST, mirroring the main generation dispatch below.
+      if (typeof body?.sessionId === 'string' && body.sessionId) {
+        if (RAW_SOURCE_AUTHORITY_KEYS.some(key => Object.prototype.hasOwnProperty.call(body, key))) {
+          return groundedErrorResponse('INVALID_CONFIG', 400, 'RAW_SOURCE_AUTHORITY_FORBIDDEN');
+        }
+        if (typeof body.cardId !== 'string' || !body.cardId || body.card) return groundedErrorResponse('PERSISTED_CARD_REQUIRED', 400);
+        let userId: string | null = null;
+        try {
+          const session = await __routeDeps.getServerSession(authOptions);
+          userId = (session?.user as any)?.id ?? null;
+        } catch {}
+        if (!userId) return groundedErrorResponse('UNAUTHORIZED', 401);
+        return await handleGroundedTruquitosVariant(body.sessionId, userId, body.cardId, action);
+      }
+
+      // Legacy materialText path — unreachable from Free Mode; kept
+      // ONLY for non-Enjoyer callers (e.g. Adaptive) that never send
+      // sessionId. Not touched by this migration.
+      const materialText = String(body.materialText || '').trim();
 
       if (!materialText || !card) {
         return NextResponse.json({ success: false, error: 'Faltan datos para generar variante.' }, { status: 400 });
@@ -915,6 +1064,26 @@ export async function POST(req: NextRequest) {
       }
 
       return NextResponse.json({ success: true, card: variant });
+    }
+
+    // ─── STUDYALMATERIALENJOYER GROUNDED PATH — Free Mode Truquitos ───
+    // ALAIStudyALCheatCodes.tsx sends { sessionId, materia, tema,
+    // masteryContext } and no materialText for generation. Autoridad
+    // académica: SOLO el StudyalMaterialEnjoyer persistido, resuelto
+    // server-side por fingerprint exacto.
+    if (typeof body?.sessionId === 'string' && body.sessionId) {
+      if (RAW_SOURCE_AUTHORITY_KEYS.some(key => Object.prototype.hasOwnProperty.call(body, key))) {
+        return groundedErrorResponse('INVALID_CONFIG', 400, 'RAW_SOURCE_AUTHORITY_FORBIDDEN');
+      }
+      let userId: string | null = null;
+      try {
+        const session = await __routeDeps.getServerSession(authOptions);
+        userId = (session?.user as any)?.id ?? null;
+      } catch {}
+      if (!userId) return groundedErrorResponse('UNAUTHORIZED', 401);
+      return await handleGroundedTruquitosRequest(
+        body.sessionId, userId, String(body.materia || '').trim(), String(body.tema || '').trim(), body.masteryContext || null,
+      );
     }
 
     const materialText = String(body.materialText || '').trim();

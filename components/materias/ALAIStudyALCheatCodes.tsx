@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import katex from "katex";
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from "../../lib/adaptive/sourceSelection";
 import { useAuthorizedSource } from "../../lib/materials/useAuthorizedSource";
 import { sourceScopedKey } from "../../lib/materials/authorizedSource";
@@ -16,7 +17,12 @@ import {
   updateFreeTruquitosState,
   type DurableFreeTruquitosState,
   type TruquitosCard as DurableTruquitosCard,
+  abandonFreeTruquitos,
 } from "../../lib/freeTruquitosState";
+import {
+  isBrainEnrichingResponse, shouldContinuePreparation, toolPreparationMessage,
+  TOOL_PREPARATION_POLL_MS,
+} from "../../lib/materialBrain/toolPreparation";
 
 const PDFViewer = dynamic(() => import("./FlashcardsPDFViewer"), {
   ssr: false,
@@ -63,12 +69,16 @@ interface CheatCard {
   sourceMaterial?: string;
   sourceMaterialName?: string;
   tags?: string[];
-}
+  // Enjoyer grounding identity (Free Mode only) — round-tripped to the
+  // server for "Otra versión" instead of raw material text.
+  targetIds?: string[];
+  relationIds?: string[];
+  schemaVersion?: number;
+  category?: "esencial" | "estrategico" | "examen";
+  purpose?: string;
+  importanceTier?: string;
+  canonicalSources?: { materialId: string; pages: number[]; sourceItemId: string; content: string }[];
 
-interface ProfessorAdvice {
-  title: string;
-  bullets: string[];
-  closing?: string;
 }
 
 interface Props {
@@ -84,6 +94,35 @@ interface Props {
 }
 
 type QuickFilter = "all" | "favorites" | "hard" | "exam" | "memory";
+
+// TRUQUITOS_LIVE_HARDENING #1: pedagogical-purpose grouping, by the
+// card's own `type` taxonomy (author-assigned server-side, one of the
+// 25 real CardTypes) — every type is accounted for exactly once,
+// grounded in what each type actually IS (a core irreducible truth vs.
+// an exam-application strategy vs. an understanding/memory shortcut),
+// never inferred from content text.
+const ESENCIAL_CARD_TYPES = new Set<CardType>([
+  "tesis_central", "regla_oro", "solo_una_cosa", "premisa_clave", "figura_clave",
+]);
+const EXAMEN_CARD_TYPES = new Set<CardType>([
+  "examen_tip", "trampa_examen", "respuesta_perfecta", "como_defender", "momento_decisivo",
+]);
+
+// TRUQUITOS_LIVE_UI_FINAL: single canonical bucket classification, used by
+// BOTH the header counters and the rendered sections/filters below. Before
+// this fix the header stat boxes reimplemented their own separate,
+// stage-blind type-only whitelist — so a card whose `stage === "examen"`
+// (server-computed, see route.ts) rendered correctly under the 🎓 De
+// Examen section while the header counter (which never checked `stage`)
+// still counted it as 🧠 estratégico. `stage === "examen"` is checked
+// FIRST and wins regardless of type — never inferred from content text.
+function classifyBucket(c: Pick<CheatCard, "type" | "stage" | "category" | "schemaVersion">): "esencial" | "examen" | "estrategico" {
+  if (c.schemaVersion === 2 && c.category) return c.category;
+  if (c.stage === "examen") return "examen";
+  if (ESENCIAL_CARD_TYPES.has(c.type)) return "esencial";
+  if (EXAMEN_CARD_TYPES.has(c.type)) return "examen";
+  return "estrategico";
+}
 
 const TYPE_META: Record<
   CardType,
@@ -365,6 +404,20 @@ function stars(n?: number) {
   return "★".repeat(value) + "☆".repeat(5 - value);
 }
 
+// TRUQUITOS_LIVE_HARDENING #4: internal grounding identifiers (e.g.
+// "mat_9e34e98b324aa1466321153e...") must never render as a
+// student-facing "source material" chip. The server's Enjoyer-grounded
+// path sets sourceMaterialName from the SAME internal materialId used
+// for grounding/dedup/jumpToSource (a display-name lookup is out of
+// scope for this hardening pass — see final report) — this is a UI-only
+// guard: it never touches sourceMaterial/targetIds/relationIds, which
+// stay exactly as persisted for grounding, dedup, and "Otra versión".
+// A real material display name (spaces, accents, no long hex run) still
+// renders normally; an internal-id-shaped string is simply hidden.
+function isInternalIdLike(value: string): boolean {
+  return /^[a-z][a-z0-9]{1,15}_[0-9a-f]{10,}$/i.test(value.trim());
+}
+
 function stageMeta(stage?: string) {
   if (stage === "entiende") return { icon: "1️⃣", label: "Primero entiende" };
   if (stage === "recuerda") return { icon: "2️⃣", label: "Luego recuerda" };
@@ -373,7 +426,148 @@ function stageMeta(stage?: string) {
   return { icon: "🧠", label: "Truco útil" };
 }
 
+// TRUQUITOS_LIVE_HARDENING #3 / TRUQUITOS_LIVE_UI_FINAL #B: reuses the
+// project's existing math rendering stack (the `katex` package, the
+// same one Study Map's own InlineMath uses).
+//
+// Root cause found live: the Truquitos grounded prompt's rule 5
+// ("preserve formulas exactly") never instructs the model to wrap math
+// in `$...$` — that convention was only ever a CLIENT-side assumption,
+// so real generations never emit the delimiter, the KaTeX path never
+// activated, and content fell through to raw plain text — where any
+// `**bold**` the model wrote for emphasis around a variable name (e.g.
+// "**k_f**/**k_r**") also showed its literal asterisks, since nothing
+// in this renderer interpreted markdown emphasis either.
+//
+// Two deterministic, non-inventive additions (no prompt/model-
+// compliance change, no new provider call):
+//   1. A BARE_LATEX_RUN span — gated strictly on containing an actual
+//      `\command` (a real backslash-letter sequence can only appear in
+//      already-produced LaTeX, never ordinary prose) — is recognized
+//      and handed UNCHANGED to KaTeX even without `$...$` delimiters.
+//      `$...$` keeps working exactly as before.
+//   2. Markdown `**bold**` (already-valid syntax the model may emit)
+//      renders as actual emphasis instead of literal asterisks.
+// Both only ever decide whether/how to render an UNCHANGED substring;
+// neither ever edits, fabricates, or "recovers" a formula — a run that
+// fails to KaTeX-parse always falls back to its original plain text.
+// Merges whitespace-delimited tokens into contiguous "math runs": a
+// token continues the current run unless it is an ordinary prose word
+// (4+ letters, no digits/backslash/braces/caret/underscore) — variable
+// names, numbers, operators and `\command`s are all short/symbol-laden
+// and never look like that. A run is only KaTeX-attempted if it
+// actually contains a real `\command` — never for a bare "Kc"-shaped
+// token with no backslash, so ordinary short words never get pulled in
+// on their own.
+function splitBareMathRuns(text: string): { text: string; isMath: boolean }[] {
+  const isProseWord = (t: string) => /^[A-Za-zÀ-ÿ]{4,}[:.,;!?)"']*$/.test(t);
+  const tokens = text.split(/(\s+)/);
+  const result: { text: string; isMath: boolean }[] = [];
+  let i = 0;
+  while (i < tokens.length) {
+    const tok = tokens[i];
+    if (/^\s+$/.test(tok) || isProseWord(tok) || !tok) {
+      result.push({ text: tok, isMath: false });
+      i++;
+      continue;
+    }
+    let run = tok;
+    let j = i + 1;
+    while (j + 1 < tokens.length && /^\s+$/.test(tokens[j]) && !isProseWord(tokens[j + 1]) && tokens[j + 1]) {
+      run += tokens[j] + tokens[j + 1];
+      j += 2;
+    }
+    result.push({ text: run, isMath: /\\[A-Za-z]+/.test(run) });
+    i = j;
+  }
+  return result;
+}
+
+function renderBoldAwareText(text: string, keyPrefix: string | number): React.ReactNode {
+  const parts = text.split(/(\*\*[^*\n]+\*\*)/g);
+  if (parts.length <= 1) return text;
+  return (
+    <>
+      {parts.map((part, i) => (
+        part.startsWith("**") && part.endsWith("**") && part.length > 4
+          ? <strong key={`${keyPrefix}-b${i}`}>{part.slice(2, -2)}</strong>
+          : <span key={`${keyPrefix}-b${i}`}>{part}</span>
+      ))}
+    </>
+  );
+}
+
+function renderInlineMathAwareText(text: string, keyPrefix: string | number): React.ReactNode {
+  const parts = text.split(/(\$[^$\n]+\$)/g);
+  if (parts.length <= 1) {
+    // No `$...$` delimiters present — still check for a bare LaTeX run
+    // (a literal backslash-command can only be real math/chemistry
+    // notation, never ordinary prose) before falling back to bold-aware
+    // plain text.
+    if (!/\\[A-Za-z]+/.test(text)) return renderBoldAwareText(text, keyPrefix);
+    const bareParts = splitBareMathRuns(text);
+    return (
+      <>
+        {bareParts.map((part, i) => {
+          if (part.isMath) {
+            let html: string | null = null;
+            try {
+              html = katex.renderToString(part.text, { throwOnError: true, displayMode: false, output: "html" });
+            } catch {
+              html = null;
+            }
+            if (html !== null) {
+              return <span key={`${keyPrefix}-m${i}`} dangerouslySetInnerHTML={{ __html: html }} />;
+            }
+          }
+          return <span key={`${keyPrefix}-m${i}`}>{renderBoldAwareText(part.text, `${keyPrefix}-m${i}`)}</span>;
+        })}
+      </>
+    );
+  }
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.startsWith("$") && part.endsWith("$") && part.length > 2) {
+          let html: string | null = null;
+          try {
+            html = katex.renderToString(part.slice(1, -1), { throwOnError: true, displayMode: false, output: "html" });
+          } catch {
+            html = null;
+          }
+          if (html !== null) {
+            return <span key={`${keyPrefix}-i${i}`} dangerouslySetInnerHTML={{ __html: html }} />;
+          }
+        }
+        return <span key={`${keyPrefix}-i${i}`}>{renderBoldAwareText(part, `${keyPrefix}-i${i}`)}</span>;
+      })}
+    </>
+  );
+}
+
+// Canonical notation is never rewritten: only explicit Enjoyer math delimiters are rendered.
+function renderCanonicalNotation(text: string) {
+  return text.split(/(\$\$[\s\S]+?\$\$|\$[^$\n]+\$)/g).map((part, index) => {
+    if (part.startsWith('$') && part.endsWith('$')) {
+      const displayMode = part.startsWith('$$');
+      const width = displayMode ? 2 : 1;
+      try {
+        return <span key={index} dangerouslySetInnerHTML={{ __html: katex.renderToString(part.slice(width, -width), { throwOnError: true, trust: false, displayMode }) }} />;
+      } catch { /* Preserve invalid canonical notation verbatim; never reconstruct. */ }
+    }
+    return <span key={index}>{part}</span>;
+  });
+}
+
 function renderCardContent(card: CheatCard, accent: string) {
+  if (card.schemaVersion === 2) return <>
+    <p style={{ whiteSpace: "pre-wrap" }}>{card.content}</p>
+    {card.canonicalSources?.map((source, index) => <details open key={`${source.sourceItemId}:${index}`}>
+      <summary>{"Fuente · " + source.pages.join(", ")}</summary>
+      <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{renderCanonicalNotation(source.content)}</div>
+    </details>)}
+  </>;
+
   const lines = String(card.content || "")
     .split("\n")
     .map((l) => l.trim())
@@ -401,7 +595,7 @@ function renderCardContent(card: CheatCard, accent: string) {
                 lineHeight: 1.35,
               }}
             >
-              {line}
+              {renderInlineMathAwareText(line, i)}
             </div>
             {i < lines.length - 1 && (
               <div
@@ -440,7 +634,7 @@ function renderCardContent(card: CheatCard, accent: string) {
                   color: "var(--text-secondary)",
                 }}
               >
-                {line}
+                {renderInlineMathAwareText(line, i)}
               </div>
             );
           }
@@ -473,7 +667,7 @@ function renderCardContent(card: CheatCard, accent: string) {
                       fontWeight: 800,
                     }}
                   >
-                    {part}
+                    {renderInlineMathAwareText(part, `pg-${idx}`)}
                   </span>
                   {idx < parts.length - 1 && (
                     <span style={{ color: accent, fontWeight: 900 }}>→</span>
@@ -513,7 +707,7 @@ function renderCardContent(card: CheatCard, accent: string) {
               fontWeight: 700,
             }}
           >
-            {left}
+            {renderInlineMathAwareText(left, "vs-left")}
           </div>
           <div
             style={{
@@ -537,7 +731,7 @@ function renderCardContent(card: CheatCard, accent: string) {
               fontWeight: 700,
             }}
           >
-            {right}
+            {renderInlineMathAwareText(right, "vs-right")}
           </div>
         </div>
       );
@@ -557,7 +751,7 @@ function renderCardContent(card: CheatCard, accent: string) {
               color: i === 0 ? accent : "var(--text-secondary)",
             }}
           >
-            {line}
+            {renderInlineMathAwareText(line, i)}
           </div>
         ))}
       </div>
@@ -581,7 +775,7 @@ function renderCardContent(card: CheatCard, accent: string) {
                   color: "var(--text-secondary)",
                 }}
               >
-                {line.replace(/^[•-]\s*/, "")}
+                {renderInlineMathAwareText(line.replace(/^[•-]\s*/, ""), i)}
               </span>
             </div>
           );
@@ -595,7 +789,7 @@ function renderCardContent(card: CheatCard, accent: string) {
               color: "var(--text-secondary)",
             }}
           >
-            {line}
+            {renderInlineMathAwareText(line, i)}
           </div>
         );
       })}
@@ -640,7 +834,7 @@ function CheatCardView({
 }) {
   const [hovered, setHovered] = useState(false);
   const meta = TYPE_META[card.type] || TYPE_META.cheat_code;
-  const important = [
+  const important = card.schemaVersion === 2 ? card.importanceTier === "critical" : [
     "cheat_code",
     "solo_una_cosa",
     "regla_oro",
@@ -667,8 +861,8 @@ function CheatCardView({
         <div className="cc-card-icon">{meta.icon}</div>
         <div className="cc-card-head-text">
           <div className="cc-card-type">{meta.label}</div>
-          <h3>{card.title}</h3>
-          {card.concept && <p>{card.concept}</p>}
+          <h3>{renderInlineMathAwareText(card.title, "title")}</h3>
+          {card.concept && <p>{renderInlineMathAwareText(card.concept, "concept")}</p>}
         </div>
         <button
           className={`cc-fav-btn ${isFavorite ? "active" : ""}`}
@@ -680,8 +874,9 @@ function CheatCardView({
       </div>
 
       <div className="cc-badges">
-        <span className="cc-badge">🧠 {stars(card.difficulty)}</span>
-        <span className="cc-badge">📈 {stars(card.forgetRisk)}</span>
+        {card.schemaVersion === 2
+          ? <span className="cc-badge">{card.importanceTier === "critical" ? "Importancia alta" : card.importanceTier === "supporting" ? "Importancia de apoyo" : "Contexto"}</span>
+          : <><span className="cc-badge">🧠 {stars(card.difficulty)}</span><span className="cc-badge">📈 {stars(card.forgetRisk)}</span></>}
         {card.sourcePages?.length ? (
           <button className="cc-badge source" onClick={onJumpToSource}>
             📄 {formatPages(card.sourcePages)}
@@ -691,9 +886,9 @@ function CheatCardView({
 
       <div className="cc-card-body">{renderCardContent(card, meta.accent)}</div>
 
-      {(card.sourceMaterialName || card.tags?.length) && (
+      {((card.sourceMaterialName && !isInternalIdLike(card.sourceMaterialName)) || card.tags?.length) && (
         <div className="cc-card-foot">
-          {card.sourceMaterialName && (
+          {card.sourceMaterialName && !isInternalIdLike(card.sourceMaterialName) && (
             <span className="cc-source-chip">{card.sourceMaterialName}</span>
           )}
           {card.tags?.slice(0, 3).map((tag) => (
@@ -731,7 +926,7 @@ function CheatCardView({
             <strong>Otra forma de recordarlo</strong>
           </div>
           <div className="cc-variation-body">
-            <h4>{variant.title}</h4>
+            <h4>{renderInlineMathAwareText(variant.title, "variant-title")}</h4>
             {renderCardContent(variant, meta.accent)}
           </div>
         </div>
@@ -755,6 +950,7 @@ export default function ALAIStudyALCheatCodes({
   const [loadingText, setLoadingText] = useState(true);
   const [loadingCards, setLoadingCards] = useState(false);
   const [error, setError] = useState("");
+  const [preparingMessage, setPreparingMessage] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -770,7 +966,6 @@ export default function ALAIStudyALCheatCodes({
   const [saved, setSaved] = useState<string[]>([]);
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [toast, setToast] = useState("");
-  const [professorAdvice, setProfessorAdvice] = useState<ProfessorAdvice | null>(null);
   const [variants, setVariants] = useState<Record<string, CheatCard | null>>({});
   const [variantLoadingId, setVariantLoadingId] = useState<string | null>(null);
 
@@ -778,12 +973,21 @@ export default function ALAIStudyALCheatCodes({
   const generationAttemptRef = useRef(0);
   const variantAttemptRef = useRef<Record<string, number>>({});
   const persistedStateRef = useRef<DurableFreeTruquitosState>(initialFreeTruquitosState());
+  // Single-flight guard for the initial/retry generation, keyed by the
+  // EXACT authority identity (session + Enjoyer fingerprint). At most
+  // one POST /api/alai-studyal-cheat-codes (mode=generate) may be in
+  // flight for a given identity at a time — the mount/hydration effect
+  // below re-runs whenever authorizedStatus/authorizedSource settle
+  // (unrelated to generation itself, only fetched for the variant path),
+  // and without this guard that re-run would re-derive "generating" as
+  // "interrupted" and fire a second, fully duplicate generation.
+  const inFlightGenerationKeyRef = useRef<string | null>(null);
 
   const effectiveSourceSelection = useMemo(
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
-  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection, 'ALAIStudyALCheatCodes');
+  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(sessionId ? null : effectiveSourceSelection, 'ALAIStudyALCheatCodes:legacy');
   const fingerprint = effectiveSourceSelection.fingerprint;
 
   const legacyStorageKey = useMemo(
@@ -906,9 +1110,7 @@ export default function ALAIStudyALCheatCodes({
       return cards.filter((c) => clamp1to5(c.difficulty) >= 4);
     }
     if (quickFilter === "exam") {
-      return cards.filter((c) =>
-        ["examen_tip", "respuesta_perfecta", "trampa_examen"].includes(c.type),
-      );
+      return cards.filter((c) => classifyBucket(c) === "examen");
     }
     if (quickFilter === "memory") {
       return cards.filter((c) =>
@@ -943,8 +1145,27 @@ export default function ALAIStudyALCheatCodes({
     return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
   }, []);
 
+  // Preparación localizada (ver lib/materialBrain/toolPreparation.ts):
+  // continuación automática acotada mientras el Brain termina de
+  // enriquecerse, sin bloquear el resto de Free Mode.
+  const preparationAttemptRef = useRef(0);
+  const preparationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const generateCardsRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => {
+    if (preparationTimerRef.current) clearTimeout(preparationTimerRef.current);
+  }, []);
+
   const generateCheatCodes = useCallback(async () => {
-    if (!materialText.trim()) return;
+    if (!sessionId) return;
+
+    // Single-flight: at most one generation in flight per exact
+    // session+fingerprint authority. Covers both the automatic
+    // mount/hydration trigger re-firing (effect deps unrelated to
+    // generation settling) AND a Retry click while a request is
+    // already active — neither may start a second provider call.
+    const generationKey = `${sessionId}::${fingerprint}`;
+    if (inFlightGenerationKeyRef.current === generationKey) return;
+    inFlightGenerationKeyRef.current = generationKey;
 
     const started = beginFreeTruquitos(persistedStateRef.current);
     generationAttemptRef.current = started.attempt;
@@ -952,13 +1173,17 @@ export default function ALAIStudyALCheatCodes({
 
     setLoadingCards(true);
     setError("");
+    setPreparingMessage(null);
 
     try {
+      // Autoridad académica: el servidor resuelve el Material Brain READY
+      // del fingerprint exacto de esta sesión — nunca enviamos
+      // materialText crudo (ver lib/materialBrain/truquitosContext.ts).
       const res = await fetch("/api/alai-studyal-cheat-codes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          materialText,
+          sessionId,
           materia: materia?.nombre || "",
           tema: tema?.nombre || "",
           masteryContext,
@@ -969,6 +1194,36 @@ export default function ALAIStudyALCheatCodes({
 
       if (generationAttemptRef.current !== started.attempt) return;
 
+      // FAST-ENTRY: la fuente ya está lista pero el enriquecimiento rico
+      // sigue corriendo. No es un error — mensaje localizado propio de
+      // Truquitos + continuación automática (sin Reintentar, sin forzar
+      // volver, sin pantalla global de preparación).
+      const isPreparing = isBrainEnrichingResponse(res.status, data) || (res.status === 409 && ['ENJOYER_NOT_READY', 'TRUQUITOS_GENERATING'].includes(data?.error));
+      if (isPreparing) {
+        const nextAttempt = preparationAttemptRef.current + 1;
+        preparationAttemptRef.current = nextAttempt;
+        persistState(abandonFreeTruquitos(persistedStateRef.current, started.attempt));
+        setError("");
+        setPreparingMessage(toolPreparationMessage('truquitos', nextAttempt));
+        if (shouldContinuePreparation(nextAttempt)) {
+          preparationTimerRef.current = setTimeout(() => {
+            setPreparingMessage(null);
+            generateCardsRef.current?.();
+          }, TOOL_PREPARATION_POLL_MS);
+        }
+        setLoadingCards(false);
+        return;
+      }
+
+      if (data?.error === 'TRUQUITOS_GENERATION_INCOMPLETE' && Array.isArray(data.cards)) {
+        const partial = { ...persistedStateRef.current, cards: data.cards, status: 'recoverable' as const,
+          error: `Generación incompleta: ${data.cards.length}/${data.meta.plannedSlots}. Se agotaron los intentos disponibles.` };
+        persistState(partial);
+        applyPersistedState(partial);
+        setError(partial.error);
+        setLoadingCards(false);
+        return;
+      }
       if (!res.ok || !data.success) {
         const failed = failFreeTruquitos(
           persistedStateRef.current,
@@ -976,7 +1231,17 @@ export default function ALAIStudyALCheatCodes({
           data.error || `Error ${res.status}`,
         );
         persistState(failed);
-        if ((persistedStateRef.current.cards || []).length > 0) {
+        // A failed regeneration may only silently keep showing the
+        // retained cards when those cards are themselves current-schema
+        // (schemaVersion 2) — i.e. genuinely valid, just not freshly
+        // regenerated. Silently swallowing the error while retaining
+        // LEGACY (pre-migration, potentially corrupted) cards would let
+        // a failed schema-v2 regeneration masquerade as a successful
+        // fresh result — the student would keep seeing old broken
+        // categories/math with no indication a fix was ever attempted.
+        const retained = persistedStateRef.current.cards || [];
+        const retainedIsCurrentSchema = retained.length > 0 && retained.every((c: any) => c?.schemaVersion === 2);
+        if (retainedIsCurrentSchema) {
           setError("");
           showToast(data.error || "No se pudo regenerar. Se conservó la versión actual.");
         } else {
@@ -1010,19 +1275,28 @@ export default function ALAIStudyALCheatCodes({
         e?.message || "Error generando Truquitos.",
       );
       persistState(failed);
-      if ((persistedStateRef.current.cards || []).length > 0) {
+      // Same schema-aware guard as the !res.ok branch above — never let
+      // a failed regeneration silently masquerade as fresh when the
+      // retained cards are legacy/pre-migration.
+      const retainedOnException = persistedStateRef.current.cards || [];
+      const retainedIsCurrentSchemaOnException = retainedOnException.length > 0 && retainedOnException.every((c: any) => c?.schemaVersion === 2);
+      if (retainedIsCurrentSchemaOnException) {
         setError("");
         showToast("No se pudo regenerar. Se conservó la versión actual.");
       } else {
         setError(e?.message || "Error generando Truquitos.");
       }
     } finally {
+      if (inFlightGenerationKeyRef.current === generationKey) {
+        inFlightGenerationKeyRef.current = null;
+      }
       if (generationAttemptRef.current === started.attempt) {
         setLoadingCards(false);
       }
     }
   }, [
-    materialText,
+    sessionId,
+    fingerprint,
     materia?.nombre,
     tema?.nombre,
     masteryContext,
@@ -1030,6 +1304,10 @@ export default function ALAIStudyALCheatCodes({
     applyPersistedState,
     showToast,
   ]);
+
+  // Ref estable para la continuación automática de preparación — evita
+  // que el temporizador cree un ciclo de dependencias en el callback.
+  useEffect(() => { generateCardsRef.current = generateCheatCodes; }, [generateCheatCodes]);
 
   const jumpToSource = useCallback(
     (card: CheatCard) => {
@@ -1069,7 +1347,21 @@ export default function ALAIStudyALCheatCodes({
     card: CheatCard,
     action: "another_trick" | "another_analogy" | "simple"
   ) => {
-    if (!materialText.trim()) return;
+    // Free Mode (sessionId present): grounded ONLY — same session, same
+    // exact persisted Enjoyer, same target IDs. Never falls back to raw
+    // materialText for a Free session, even if a legacy (pre-migration)
+    // persisted card lacks targetIds — that card simply can't offer
+    // "Otra versión" until it's regenerated fresh via Enjoyer.
+    const hasGroundedIdentity = card.schemaVersion === 2 && Boolean(card.id);
+    if (sessionId) {
+      if (!hasGroundedIdentity) {
+        showToast("Esta tarjeta es de una versión anterior — genera Truquitos de nuevo para poder pedir otra versión.");
+        return;
+      }
+    } else if (!materialText.trim()) {
+      return;
+    }
+    const isGroundedSession = Boolean(sessionId) && hasGroundedIdentity;
     const attempt = (variantAttemptRef.current[card.id] || 0) + 1;
     variantAttemptRef.current[card.id] = attempt;
 
@@ -1078,12 +1370,11 @@ export default function ALAIStudyALCheatCodes({
       const res = await fetch("/api/alai-studyal-cheat-codes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "variant",
-          materialText,
-          card,
-          action,
-        }),
+        body: JSON.stringify(
+          isGroundedSession
+            ? { mode: "variant", sessionId, cardId: card.id, action }
+            : { mode: "variant", materialText, card, action },
+        ),
       });
 
       const data = await res.json();
@@ -1119,7 +1410,7 @@ export default function ALAIStudyALCheatCodes({
         setVariantLoadingId(null);
       }
     }
-  }, [materialText, showToast, persistPatch]);
+  }, [sessionId, materialText, showToast, persistPatch]);
 
   const handleShare = useCallback(
     async (card: CheatCard) => {
@@ -1154,25 +1445,21 @@ export default function ALAIStudyALCheatCodes({
     };
   }, []);
 
+  // MaterialText handling for legacy variant fallback (does NOT trigger generation)
+  useEffect(() => {
+    setLoadingText(!sessionId && (authorizedStatus === "loading" || authorizedStatus === "idle"));
+    if (authorizedSource) setMaterialText(authorizedSource.combinedText);
+    else if (authorizedStatus === "error") setMaterialText("");
+  }, [sessionId, authorizedSource, authorizedStatus]);
+
   useEffect(() => {
     let cancelled = false;
 
     const run = async () => {
-      if (authorizedStatus === "loading" || authorizedStatus === "idle") {
-        setLoadingText(true);
-        return;
-      }
+      if (!sessionId) return;
 
-      setLoadingText(false);
-
-      if (authorizedStatus === "error" || !authorizedSource) {
-        setError(authorizedError || "No se pudo resolver la fuente autorizada.");
-        setMaterialText("");
-        return;
-      }
-
-      const combinedText = authorizedSource.combinedText;
-      setMaterialText(combinedText);
+      // This effect must not re-trigger generation if already in flight for this EXACT identity
+      if (inFlightGenerationKeyRef.current === `${sessionId}::${fingerprint}`) return;
 
       const envelope = readFreeToolState<DurableFreeTruquitosState>(
         sessionId,
@@ -1216,6 +1503,7 @@ export default function ALAIStudyALCheatCodes({
 
       if ((restoredState.cards || []).length > 0) {
         setLoadingCards(false);
+        setError(restoredState.error || "");
         return;
       }
 
@@ -1236,9 +1524,6 @@ export default function ALAIStudyALCheatCodes({
   }, [
     sessionId,
     fingerprint,
-    authorizedStatus,
-    authorizedSource,
-    authorizedError,
     legacyStorageKey,
     generateCheatCodes,
     persistState,
@@ -1309,7 +1594,7 @@ export default function ALAIStudyALCheatCodes({
             onClick={generateCheatCodes}
             disabled={loadingText || loadingCards}
           >
-            {loadingCards ? "Generando..." : "↺ Regenerar truquitos"}
+            {loadingCards ? "Generando..." : "↺ Actualizar truquitos"}
           </button>
         </div>
       </div>
@@ -1406,6 +1691,15 @@ export default function ALAIStudyALCheatCodes({
                 <i />
               </div>
             </div>
+          ) : preparingMessage && cards.length === 0 ? (
+            // Preparación localizada de Truquitos: no es un error, no
+            // hay botón Reintentar y no se fuerza volver atrás — la
+            // generación continúa sola cuando el Brain termina.
+            <div className="cc-loading-card">
+              <div className="cc-loading-icon">🪄</div>
+              <h2>{preparingMessage}</h2>
+              <div className="cc-dots"><i /><i /><i /></div>
+            </div>
           ) : error && cards.length === 0 ? (
             <div className="cc-error-card">
               <div style={{ fontSize: 44 }}>⚠️</div>
@@ -1432,15 +1726,15 @@ export default function ALAIStudyALCheatCodes({
 
                 <div className="cc-intro-stats">
                   <div className="cc-stat-box">
-                    <strong>{cards.filter(c => ["tesis_central","regla_oro","solo_una_cosa"].includes(c.type)).length}</strong>
+                    <strong>{cards.filter(c => classifyBucket(c) === "esencial").length}</strong>
                     <span>🔥 esenciales</span>
                   </div>
                   <div className="cc-stat-box">
-                    <strong>{cards.filter(c => !["tesis_central","regla_oro","solo_una_cosa","examen_tip","trampa_examen","respuesta_perfecta","como_defender"].includes(c.type)).length}</strong>
+                    <strong>{cards.filter(c => classifyBucket(c) === "estrategico").length}</strong>
                     <span>🧠 estratégicos</span>
                   </div>
                   <div className="cc-stat-box">
-                    <strong>{cards.filter(c => ["examen_tip","trampa_examen","respuesta_perfecta","como_defender"].includes(c.type)).length}</strong>
+                    <strong>{cards.filter(c => classifyBucket(c) === "examen").length}</strong>
                     <span>🎓 de examen</span>
                   </div>
                 </div>
@@ -1465,18 +1759,25 @@ export default function ALAIStudyALCheatCodes({
                 ))}
               </div>
 
+              {error && cards.length > 0 && <p role="status">{error}</p>}
               {(() => {
-                const esenciales = filteredCards.filter(c =>
-                  ["tesis_central","regla_oro","solo_una_cosa"].includes(c.type)
-                );
-
-                const examen = filteredCards.filter(c =>
-                  ["examen_tip","trampa_examen","respuesta_perfecta","como_defender"].includes(c.type)
-                );
-
-                const estrategicos = filteredCards.filter(c =>
-                  !["tesis_central","regla_oro","solo_una_cosa","examen_tip","trampa_examen","respuesta_perfecta","como_defender"].includes(c.type)
-                );
+                // TRUQUITOS_LIVE_HARDENING #1: the old classification was a
+                // hardcoded 7-type whitelist for "esenciales"/"examen" with
+                // EVERY other type (18 of the 25 real CardTypes) silently
+                // collapsing into "estratégicos" by default — the live
+                // 0/22/0 bug. This uses the card's already-computed
+                // pedagogical signals (its author-assigned `type` taxonomy
+                // AND `stage`, both deterministic server output — never a
+                // text/keyword search over `content`) so every real type
+                // reaches its actual pedagogical bucket. `stage === 'examen'`
+                // is checked FIRST and wins regardless of type: it is a
+                // more precise, per-card judgment ("this specific Truquito
+                // is exam-application content") than a static type table
+                // can be — this is exactly what fixes ICE-table/Kc/Q-vs-K
+                // cards landing in "estratégico" despite being exam content.
+                const esenciales = filteredCards.filter(c => classifyBucket(c) === "esencial");
+                const examen = filteredCards.filter(c => classifyBucket(c) === "examen");
+                const estrategicos = filteredCards.filter(c => classifyBucket(c) === "estrategico");
 
                 const renderGroup = (title, icon, color, subtitle, list) => (
                   list.length > 0 && (
@@ -1560,26 +1861,6 @@ export default function ALAIStudyALCheatCodes({
                   </>
                 );
               })()}
-
-              {professorAdvice && (
-                <div className="cc-intro" style={{ marginTop: 20 }}>
-                  <div className="cc-intro-left">
-                    <span className="cc-intro-label">últimos 5 minutos antes del examen</span>
-                    <h2>{professorAdvice.title || "Lo que un profesor te diría antes del examen"}</h2>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {(professorAdvice.bullets || []).map((b, i) => (
-                        <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                          <span style={{ color: "var(--gold)", fontWeight: 900 }}>{i + 1}.</span>
-                          <span style={{ color: "var(--text-secondary)", lineHeight: 1.55 }}>{b}</span>
-                        </div>
-                      ))}
-                    </div>
-                    {professorAdvice.closing && (
-                      <p style={{ marginTop: 12 }}><b>{professorAdvice.closing}</b></p>
-                    )}
-                  </div>
-                </div>
-              )}
 
               <div className="cc-footer-note">
                 ✨ Truquitos generados desde tu material · StudyAL × ALAI

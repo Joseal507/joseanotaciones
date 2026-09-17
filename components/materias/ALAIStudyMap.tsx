@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import katex from 'katex';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
@@ -15,7 +16,17 @@ import {
   updateFreeStudyMapState,
   type DurableFreeStudyMapState,
   type StudyMapExplanationState,
+  type StudyMapGroundingMetadata,
 } from '../../lib/freeStudyMapState';
+import {
+  isBrainEnrichingResponse, shouldContinuePreparation, toolPreparationMessage,
+  TOOL_PREPARATION_POLL_MS,
+} from '../../lib/materialBrain/toolPreparation';
+
+// Stable fallback identity — a fresh `{}` literal inline in JSX would be
+// a new object every render, which is exactly the kind of unstable prop
+// identity STUDYMAP_NODE_PROVIDER_LOOP was caused by.
+const EMPTY_EXPLANATIONS_BY_NODE_ID: Record<string, StudyMapExplanationState> = {};
 
 interface MapNode {
   id: string;
@@ -33,6 +44,7 @@ interface MindMapData {
   root: MapNode;
   summary?: string;
   totalConcepts?: number;
+  grounding?: StudyMapGroundingMetadata;
 }
 
 interface Props {
@@ -179,8 +191,22 @@ function useEnergyLines(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   chargeState: React.MutableRefObject<Map<string, number>>,
   lines: EnergyLine[],
-  transform: { x: number; y: number; scale: number },
-  bounds: { minX: number; minY: number },
+  // STUDYMAP_SMOOTH_LOCAL_NAVIGATION perf fix: transform/bounds are now
+  // REFS, not raw values. Before this fix, passing the raw `transform`
+  // object (recreated by every setTransform call) as a normal parameter
+  // put it in this effect's dependency array — during a camera
+  // animation that meant this ENTIRE effect tore down and rebuilt on
+  // EVERY animation frame (cancelling+restarting the rAF loop, removing
+  // +re-adding a window resize listener, and — worst of all — calling
+  // resize()'s canvas.parentElement.getBoundingClientRect(), a
+  // synchronous forced layout reflow, up to 60 times per second). The
+  // loop already redraws every frame on its own; it only ever needed
+  // the LATEST transform/bounds value at draw time, never a reason to
+  // restart. Reading through refs decouples "value changes" from
+  // "effect re-runs" entirely — confirmed root cause of the reported
+  // jank (see STUDYMAP_SMOOTH_LOCAL_NAVIGATION final report).
+  transformRef: React.MutableRefObject<{ x: number; y: number; scale: number }>,
+  boundsRef: React.MutableRefObject<{ minX: number; minY: number }>,
 ) {
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -200,10 +226,11 @@ function useEnergyLines(
     window.addEventListener('resize', resize);
     resize();
 
-    const toScreen = (x: number, y: number) => ({
-      x: transform.x + (x - bounds.minX) * transform.scale,
-      y: transform.y + (y - bounds.minY) * transform.scale,
-    });
+    const toScreen = (x: number, y: number) => {
+      const t = transformRef.current;
+      const b = boundsRef.current;
+      return { x: t.x + (x - b.minX) * t.scale, y: t.y + (y - b.minY) * t.scale };
+    };
 
     const loop = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -277,7 +304,11 @@ function useEnergyLines(
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
     };
-  }, [lines, transform, bounds, canvasRef, chargeState]);
+  // transformRef/boundsRef are stable ref OBJECTS (their .current mutates,
+  // but the ref itself never changes identity) — correctly excluded from
+  // this effect's re-run triggers; only `lines` (a genuinely new node/edge
+  // set) should ever restart the loop.
+  }, [lines, canvasRef, chargeState, transformRef, boundsRef]);
 }
 
 // ════════════════════════════════════════════════
@@ -298,12 +329,303 @@ interface PositionedNode {
   expanded: boolean;
 }
 
-const NODE_WIDTHS = { 0: 320, 1: 280, 2: 260, 3: 220 };
-const NODE_HEIGHTS = { 0: 130, 1: 110, 2: 95, 3: 75 };
-const H_GAP = 120;
-const V_GAP_LEAF = 18;
-const V_GAP_BRANCH = 60;
-const V_GAP_DETAIL = 12;
+// STUDYMAP_UX_PHASE1: ~15-18% more compact than before (was
+// {0:320,1:280,2:260,3:220} / {0:130,1:110,2:95,3:75} / H_GAP:120 /
+// V_GAP_BRANCH:60 / V_GAP_LEAF:18 / V_GAP_DETAIL:12) — pure presentation
+// constants, no effect on node identity/topology. Tune further only
+// after a live visual check; kept conservative here to avoid text
+// wrapping regressions.
+const NODE_WIDTHS = { 0: 270, 1: 235, 2: 215, 3: 185 };
+const NODE_HEIGHTS = { 0: 112, 1: 95, 2: 82, 3: 66 };
+const H_GAP = 100;
+const V_GAP_LEAF = 15;
+const V_GAP_BRANCH = 50;
+const V_GAP_DETAIL = 10;
+
+export interface FitTransform { x: number; y: number; scale: number }
+export interface ViewportRect { width: number; height: number }
+
+/**
+ * GUIDED_STUDYMAP: stable, readable study-zoom target PER NODE TYPE
+ * (level 0=root, 1=branch, 2=leaf, 3=detail) — deliberately fixed
+ * constants, never derived from svgW/svgH/bounds, so a node's
+ * readability never depends on how many other branches have already
+ * been revealed elsewhere in the map. Exported for direct contract
+ * testing (no rendering needed).
+ */
+export const READABLE_SCALE_BY_LEVEL: Record<0 | 1 | 2 | 3, number> = {
+  0: 0.85, // root/category overview — medium zoom
+  1: 1.0,  // branch — medium-close zoom
+  2: 1.25, // leaf/concept — close, readable zoom
+  3: 1.3,  // detail — closest, readable zoom
+};
+
+// STUDYMAP_NAVIGABLE_VIEWPORT_FIT: MAX_GUIDED_SCALE still caps over-zoom
+// (a sparse neighborhood must never zoom in tighter than this just
+// because it technically fits). MIN_GUIDED_SCALE is now a PREFERENCE,
+// not a hard floor — navigation completeness has priority: if the local
+// navigable set does not fit at MIN_GUIDED_SCALE with the current
+// (possibly panel-narrowed) viewport, computeGuidedFramingTransform
+// goes BELOW it rather than clip a navigable node. Exported so both the
+// preference and the override are directly contract-testable.
+export const MIN_GUIDED_SCALE = 0.85;
+export const MAX_GUIDED_SCALE = 1.3;
+
+// STUDYMAP_NAVIGABLE_VIEWPORT_FIT: fixed-pixel safety margin around the
+// navigable bounds (distinct from the multiplicative `padding` factor
+// below) — a node whose edge lands EXACTLY at the viewport boundary is
+// "inside" by the numbers but reads as visually clipped (shadow/stroke
+// overhang, rounding). This margin is subtracted from the viewport
+// before fitting, not from the final render, so it applies uniformly
+// regardless of chosen scale.
+export const NAVIGABLE_EDGE_PADDING_PX = 24;
+
+export interface GuidedNeighborhoodMember { id: string; x: number; y: number; width: number; height: number }
+
+/**
+ * STUDYMAP_NAVIGABLE_VIEWPORT_FIT: replaces the old single-node fixed-
+ * readable-scale target. Instead of framing ONLY the selected node,
+ * computes the transform that keeps the selected node PLUS its local
+ * navigable neighborhood (parent/siblings/children/rendered relation-
+ * detail children — whatever the caller passed in `members`, see
+ * getNavigableNeighborhoodIds) inside `viewport`.
+ *
+ * Anchors on the selected node's OWN position (not the neighborhood's
+ * bounding-box centroid) — a neighborhood member can extend more on one
+ * side than the other, and centering on the bbox centroid would then
+ * fail to keep the selected node visually dominant/centered. Instead
+ * this computes, per axis, the largest symmetric half-extent any member
+ * needs around the selected node (`maxDX`/`maxDY`) and picks the
+ * largest scale for which that whole symmetric extent still fits (minus
+ * NAVIGABLE_EDGE_PADDING_PX of safety margin) — a deliberately
+ * conservative (never-clips) fit, not a tight bbox fit.
+ *
+ * The result is then capped at this node's own stylistic per-level
+ * scale (READABLE_SCALE_BY_LEVEL) — a sparse neighborhood must never
+ * zoom in CLOSER than the node's normal readable scale just because it
+ * technically could (contract G) — and capped at MAX_GUIDED_SCALE so an
+ * unusually dense neighborhood still zooms out only as far as
+ * readability allows it to. MIN_GUIDED_SCALE, unlike MAX, is applied
+ * ONLY when the neighborhood still fits at that scale — if even
+ * MIN_GUIDED_SCALE would clip a navigable node (a dense neighborhood
+ * with the panel open, say), the smaller fit-driven scale wins instead
+ * (contract F) — navigation completeness always beats a readability
+ * preference, never the whole-graph-fit scale though.
+ *
+ * Pure — no DOM, no layout/topology mutation, no provider work. Members
+ * NOT included by the caller (e.g. distant previously-expanded
+ * branches) never enter this computation at all, which is what makes
+ * them structurally unable to affect guided scale (contract H).
+ */
+export function computeGuidedFramingTransform(
+  members: readonly GuidedNeighborhoodMember[],
+  selectedNodeId: string,
+  selectedLevel: 0 | 1 | 2 | 3,
+  boundsOrigin: { minX: number; minY: number },
+  viewport: ViewportRect,
+  padding = 0.92,
+): FitTransform | null {
+  const selected = members.find(m => m.id === selectedNodeId);
+  if (!selected || viewport.width <= 0 || viewport.height <= 0) return null;
+
+  let maxDX = 0;
+  let maxDY = 0;
+  for (const m of members) {
+    maxDX = Math.max(maxDX, Math.abs(m.x - selected.x) + m.width / 2);
+    maxDY = Math.max(maxDY, Math.abs(m.y - selected.y) + m.height / 2);
+  }
+  const neededW = Math.max(1, maxDX * 2);
+  const neededH = Math.max(1, maxDY * 2);
+  const paddedViewportW = Math.max(1, viewport.width - NAVIGABLE_EDGE_PADDING_PX * 2);
+  const paddedViewportH = Math.max(1, viewport.height - NAVIGABLE_EDGE_PADDING_PX * 2);
+  const fitScale = Math.min(paddedViewportW / neededW, paddedViewportH / neededH) * padding;
+
+  const rawScale = Math.min(READABLE_SCALE_BY_LEVEL[selectedLevel], fitScale);
+  // Navigation completeness has priority over the readable-scale floor:
+  // only lift a too-small rawScale up to MIN_GUIDED_SCALE when the
+  // neighborhood actually fits there — otherwise keep the smaller,
+  // fit-driven scale so nothing gets clipped.
+  const scale = Math.min(MAX_GUIDED_SCALE, fitScale >= MIN_GUIDED_SCALE ? Math.max(MIN_GUIDED_SCALE, rawScale) : rawScale);
+
+  return {
+    x: viewport.width / 2 - (selected.x - boundsOrigin.minX) * scale,
+    y: viewport.height / 2 - (selected.y - boundsOrigin.minY) * scale,
+    scale,
+  };
+}
+
+/** Pure — computes the transform that frames an svgW×svgH content box inside a viewport rect. Exported for direct contract testing (STUDYMAP_UX_PHASE1). */
+export function computeFitTransform(rect: ViewportRect, svgW: number, svgH: number, maxScale = 1.2, padding = 0.92): FitTransform {
+  const scaleX = rect.width / svgW;
+  const scaleY = rect.height / svgH;
+  const scale = Math.min(scaleX, scaleY, maxScale) * padding;
+  return {
+    x: (rect.width - svgW * scale) / 2,
+    y: (rect.height - svgH * scale) / 2,
+    scale,
+  };
+}
+
+/** Pure — true when the content box (under the given transform) is fully visible inside rect plus a margin. Exported for direct contract testing (STUDYMAP_UX_PHASE1). */
+export function isBoundsComfortable(transform: FitTransform, svgW: number, svgH: number, rect: ViewportRect, marginRatio = 0.08): boolean {
+  const marginX = rect.width * marginRatio;
+  const marginY = rect.height * marginRatio;
+  const screenMinX = transform.x;
+  const screenMinY = transform.y;
+  const screenMaxX = transform.x + svgW * transform.scale;
+  const screenMaxY = transform.y + svgH * transform.scale;
+  return screenMinX >= -marginX && screenMinY >= -marginY
+    && screenMaxX <= rect.width + marginX && screenMaxY <= rect.height + marginY;
+}
+
+/**
+ * Pure — word-wraps text into at most maxLines lines of at most maxChars
+ * each, truncating with an ellipsis where needed (including a single
+ * unbroken token longer than a whole line). Exported for direct
+ * contract testing (STUDYMAP_LIVE_UX_HARDENING text-overflow fix) — the
+ * SVG node renderer additionally clips with an actual <clipPath> so no
+ * text can ever escape its node rect regardless of what this returns.
+ */
+export function wrapNodeText(text: string, maxChars: number, maxLines: number): string[] {
+  const words = (text || '').split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = '';
+  for (const rawWord of words) {
+    const w = rawWord.length > maxChars ? rawWord.slice(0, maxChars - 1) + '…' : rawWord;
+    if ((current + ' ' + w).trim().length <= maxChars) {
+      current = (current + ' ' + w).trim();
+    } else {
+      if (current) lines.push(current);
+      current = w;
+      if (lines.length >= maxLines) break;
+    }
+  }
+  if (current && lines.length < maxLines) lines.push(current);
+  if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length + 3 && !lines[maxLines - 1].endsWith('…')) {
+    lines[maxLines - 1] = lines[maxLines - 1].slice(0, maxChars - 1) + '…';
+  }
+  return lines;
+}
+
+/**
+ * Pure — the exact same tree-layout algorithm previously inlined as
+ * MindMap's own useMemo hooks (measureSubtree/layout/bounds), extracted
+ * unchanged so it can be contract-tested directly (STUDYMAP_UX_PHASE1).
+ * Topology (which nodes/edges exist, their IDs) is entirely determined
+ * by `data`/`expandedSet` — this function only computes WHERE to draw
+ * them, never what exists.
+ */
+export function computeMindMapLayout(data: MindMapData, expandedSet: Set<string>): { layout: PositionedNode[]; bounds: { minX: number; maxX: number; minY: number; maxY: number } } {
+  const measureSubtree = (node: MapNode, level: number): number => {
+    const baseHeight = NODE_HEIGHTS[level as 0 | 1 | 2 | 3] || 80;
+    const isExpanded = expandedSet.has(node.id);
+    const children = node.children || [];
+    if (!isExpanded || children.length === 0) return baseHeight;
+
+    const gap = level === 0 ? V_GAP_BRANCH : level === 1 ? V_GAP_LEAF : V_GAP_DETAIL;
+    const childrenHeight = children.reduce((sum, child, i) => {
+      return sum + measureSubtree(child, level + 1) + (i > 0 ? gap : 0);
+    }, 0);
+
+    return Math.max(baseHeight, childrenHeight);
+  };
+
+  const result: PositionedNode[] = [];
+  const rootExpanded = expandedSet.has(data.root.id);
+  const branches = rootExpanded ? (data.root.children || []) : [];
+
+  const mid = Math.ceil(branches.length / 2);
+  const rightBranches = branches.slice(0, mid);
+  const leftBranches = branches.slice(mid);
+
+  const totalRightHeight = rightBranches.reduce((sum, b, i) =>
+    sum + measureSubtree(b, 1) + (i > 0 ? V_GAP_BRANCH : 0), 0);
+  const totalLeftHeight = leftBranches.reduce((sum, b, i) =>
+    sum + measureSubtree(b, 1) + (i > 0 ? V_GAP_BRANCH : 0), 0);
+
+  const maxHeight = Math.max(totalRightHeight, totalLeftHeight, NODE_HEIGHTS[0]);
+  const centerY = Math.max(maxHeight / 2, 400);
+  const centerX = 800;
+
+  result.push({
+    node: data.root,
+    x: centerX,
+    y: centerY,
+    level: 0,
+    side: 'right',
+    color: '#d6b26f',
+    width: NODE_WIDTHS[0],
+    height: NODE_HEIGHTS[0],
+    expanded: true,
+  });
+
+  const placeSubtree = (
+    node: MapNode, level: number, side: 'left' | 'right', color: string,
+    startY: number, parentX: number, parentY: number,
+  ): number => {
+    const subtreeHeight = measureSubtree(node, level);
+    const nodeY = startY + subtreeHeight / 2;
+    const nodeW = NODE_WIDTHS[level as 0 | 1 | 2 | 3] || 220;
+    const parentW = NODE_WIDTHS[(level - 1) as 0 | 1 | 2 | 3] || 280;
+
+    const nodeX = side === 'right'
+      ? parentX + parentW / 2 + H_GAP + nodeW / 2
+      : parentX - parentW / 2 - H_GAP - nodeW / 2;
+
+    result.push({
+      node, x: nodeX, y: nodeY, level, side, color, parentX, parentY,
+      width: nodeW, height: NODE_HEIGHTS[level as 0 | 1 | 2 | 3] || 80,
+      expanded: expandedSet.has(node.id),
+    });
+
+    const isExpanded = expandedSet.has(node.id);
+    const children = node.children || [];
+    if (!isExpanded || children.length === 0) return subtreeHeight;
+
+    const gap = level === 0 ? V_GAP_BRANCH : level === 1 ? V_GAP_LEAF : V_GAP_DETAIL;
+    let childStartY = nodeY - subtreeHeight / 2;
+    children.forEach((child, i) => {
+      if (i > 0) childStartY += gap;
+      const childHeight = placeSubtree(child, level + 1, side, color, childStartY, nodeX, nodeY);
+      childStartY += childHeight;
+    });
+
+    return subtreeHeight;
+  };
+
+  let yCursor = centerY - totalRightHeight / 2;
+  rightBranches.forEach((branch, i) => {
+    if (i > 0) yCursor += V_GAP_BRANCH;
+    const color = BRANCH_COLORS[i % BRANCH_COLORS.length];
+    const h = placeSubtree(branch, 1, 'right', color, yCursor, centerX, centerY);
+    yCursor += h;
+  });
+
+  yCursor = centerY - totalLeftHeight / 2;
+  leftBranches.forEach((branch, i) => {
+    if (i > 0) yCursor += V_GAP_BRANCH;
+    const color = BRANCH_COLORS[(i + rightBranches.length) % BRANCH_COLORS.length];
+    const h = placeSubtree(branch, 1, 'left', color, yCursor, centerX, centerY);
+    yCursor += h;
+  });
+
+  const layout = result;
+  let bounds: { minX: number; maxX: number; minY: number; maxY: number };
+  if (layout.length === 0) {
+    bounds = { minX: 0, maxX: 1600, minY: 0, maxY: 800 };
+  } else {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    layout.forEach(n => {
+      minX = Math.min(minX, n.x - n.width / 2);
+      maxX = Math.max(maxX, n.x + n.width / 2);
+      minY = Math.min(minY, n.y - n.height / 2);
+      maxY = Math.max(maxY, n.y + n.height / 2);
+    });
+    bounds = { minX: minX - 80, maxX: maxX + 80, minY: minY - 80, maxY: maxY + 80 };
+  }
+
+  return { layout, bounds };
+}
 
 function MindMap({
   data,
@@ -313,6 +635,11 @@ function MindMap({
   onToggleExpand,
   focusNodeId,
   studiedSet,
+  reserveRight = 0,
+  reserveBottom = 0,
+  guidedMode = true,
+  previousNodeId = null,
+  onGuidedBack,
 }: {
   data: MindMapData;
   selectedId: string | null;
@@ -321,6 +648,32 @@ function MindMap({
   onToggleExpand: (id: string) => void;
   focusNodeId?: string | null;
   studiedSet: Set<string>;
+  // STUDYMAP_PATH_NAVIGATION: the node the student navigated FROM (top
+  // of the guided navigation stack) — rendered as a compact, screen-
+  // space "back anchor" overlay, NEVER as a graph-space camera-bounds
+  // member (see getNavigableNeighborhoodIds — this is exactly what was
+  // removed from the bounds computation to fix the ~20% zoom-out bug).
+  previousNodeId?: string | null;
+  onGuidedBack?: () => void;
+  // STUDYMAP_UX_PHASE2: pixels of the container's own rect currently
+  // covered by a floating/overlay inspector panel (medium-screen
+  // floating variant, or a future partial mobile sheet) — the
+  // containerRef rect itself does NOT shrink for an overlay panel (it's
+  // position:absolute/fixed, not a flex sibling), so without this the
+  // focus-camera effect would center a node behind the panel. A
+  // desktop sidebar panel (flex sibling) already shrinks the measured
+  // rect on its own, so reserveRight/reserveBottom stay 0 for it.
+  reserveRight?: number;
+  reserveBottom?: number;
+  // GUIDED_STUDYMAP: default ON — Study Map is a guided study surface,
+  // not a freely pannable technical graph. Disables drag/wheel/manual
+  // zoom/fit-to-screen so camera movement is exclusively programmatic
+  // (the focus-camera effect below). The manual-camera plumbing itself
+  // (manualCameraRef, onMouseDown/onWheel/fitToScreen,
+  // computeFitTransform) is intentionally NOT removed — it stays
+  // reusable/reachable by setting guidedMode={false} — this prop only
+  // gates whether user input can reach it.
+  guidedMode?: boolean;
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -358,140 +711,29 @@ function MindMap({
     }
   }, [selectedId, expandedSet, onSelect, onToggleExpand]);
   // ─── Calcular altura total de un subárbol ───
-  const measureSubtree = useCallback((node: MapNode, level: number): number => {
-    const baseHeight = NODE_HEIGHTS[level as 0|1|2|3] || 80;
-    const isExpanded = expandedSet.has(node.id);
-    const children = node.children || [];
-    if (!isExpanded || children.length === 0) return baseHeight;
+  // Layout/bounds computation lives in the pure, exported
+  // computeMindMapLayout() (STUDYMAP_UX_PHASE1) — same algorithm as
+  // before, just relocated so it's directly contract-testable.
+  // STUDYMAP_SMOOTH_LOCAL_NAVIGATION: DEV-only performance diagnostic —
+  // counts, never material content. Proves (rather than merely claims)
+  // that layout/tree recomputation is per-NAVIGATION, not per-frame, and
+  // that a guided animation performs exactly one React state sync.
+  const perfRef = useRef({ layoutComputations: 0, transformStateSyncs: 0, activeGuidedAnimations: 0 });
+  const { layout, bounds } = useMemo(() => {
+    if (process.env.NODE_ENV !== 'production') perfRef.current.layoutComputations++;
+    return computeMindMapLayout(data, expandedSet);
+  }, [data, expandedSet]);
 
-    const gap = level === 0 ? V_GAP_BRANCH : level === 1 ? V_GAP_LEAF : V_GAP_DETAIL;
-    const childrenHeight = children.reduce((sum, child, i) => {
-      return sum + measureSubtree(child, level + 1) + (i > 0 ? gap : 0);
-    }, 0);
-
-    return Math.max(baseHeight, childrenHeight);
-  }, [expandedSet]);
-
-  // ─── Layout horizontal: izquierda/derecha desde el root ───
-  const layout = useMemo<PositionedNode[]>(() => {
-    const result: PositionedNode[] = [];
-    const rootExpanded = expandedSet.has(data.root.id);
-    const branches = rootExpanded ? (data.root.children || []) : [];
-
-    // Dividir ramas: mitad izquierda, mitad derecha
-    const mid = Math.ceil(branches.length / 2);
-    const rightBranches = branches.slice(0, mid);
-    const leftBranches = branches.slice(mid);
-
-    // Calcular altura total de cada lado
-    const totalRightHeight = rightBranches.reduce((sum, b, i) =>
-      sum + measureSubtree(b, 1) + (i > 0 ? V_GAP_BRANCH : 0), 0);
-    const totalLeftHeight = leftBranches.reduce((sum, b, i) =>
-      sum + measureSubtree(b, 1) + (i > 0 ? V_GAP_BRANCH : 0), 0);
-
-    const maxHeight = Math.max(totalRightHeight, totalLeftHeight, NODE_HEIGHTS[0]);
-    const centerY = Math.max(maxHeight / 2, 400);
-    const centerX = 800;
-
-    // Root
-    result.push({
-      node: data.root,
-      x: centerX,
-      y: centerY,
-      level: 0,
-      side: 'right',
-      color: '#d6b26f',
-      width: NODE_WIDTHS[0],
-      height: NODE_HEIGHTS[0],
-      expanded: true,
-    });
-
-    // ─── Función recursiva para posicionar subárbol ───
-    const placeSubtree = (
-      node: MapNode,
-      level: number,
-      side: 'left' | 'right',
-      color: string,
-      startY: number,
-      parentX: number,
-      parentY: number
-    ): number => {
-      const subtreeHeight = measureSubtree(node, level);
-      const nodeY = startY + subtreeHeight / 2;
-      const nodeW = NODE_WIDTHS[level as 0|1|2|3] || 220;
-      const parentW = NODE_WIDTHS[(level - 1) as 0|1|2|3] || 280;
-
-      const nodeX = side === 'right'
-        ? parentX + parentW / 2 + H_GAP + nodeW / 2
-        : parentX - parentW / 2 - H_GAP - nodeW / 2;
-
-      result.push({
-        node,
-        x: nodeX,
-        y: nodeY,
-        level,
-        side,
-        color,
-        parentX,
-        parentY,
-        width: nodeW,
-        height: NODE_HEIGHTS[level as 0|1|2|3] || 80,
-        expanded: expandedSet.has(node.id),
-      });
-
-      const isExpanded = expandedSet.has(node.id);
-      const children = node.children || [];
-      if (!isExpanded || children.length === 0) return subtreeHeight;
-
-      const gap = level === 0 ? V_GAP_BRANCH : level === 1 ? V_GAP_LEAF : V_GAP_DETAIL;
-      let childStartY = nodeY - subtreeHeight / 2;
-      children.forEach((child, i) => {
-        if (i > 0) childStartY += gap;
-        const childHeight = placeSubtree(child, level + 1, side, color, childStartY, nodeX, nodeY);
-        childStartY += childHeight;
-      });
-
-      return subtreeHeight;
-    };
-
-    // Posicionar ramas derechas
-    let yCursor = centerY - totalRightHeight / 2;
-    rightBranches.forEach((branch, i) => {
-      if (i > 0) yCursor += V_GAP_BRANCH;
-      const color = BRANCH_COLORS[i % BRANCH_COLORS.length];
-      const h = placeSubtree(branch, 1, 'right', color, yCursor, centerX, centerY);
-      yCursor += h;
-    });
-
-    // Posicionar ramas izquierdas
-    yCursor = centerY - totalLeftHeight / 2;
-    leftBranches.forEach((branch, i) => {
-      if (i > 0) yCursor += V_GAP_BRANCH;
-      const color = BRANCH_COLORS[(i + rightBranches.length) % BRANCH_COLORS.length];
-      const h = placeSubtree(branch, 1, 'left', color, yCursor, centerX, centerY);
-      yCursor += h;
-    });
-
-    return result;
-  }, [data, expandedSet, measureSubtree]);
-
-  // Calcular dimensiones del SVG
-  const bounds = useMemo(() => {
-    if (layout.length === 0) return { minX: 0, maxX: 1600, minY: 0, maxY: 800 };
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    layout.forEach(n => {
-      minX = Math.min(minX, n.x - n.width / 2);
-      maxX = Math.max(maxX, n.x + n.width / 2);
-      minY = Math.min(minY, n.y - n.height / 2);
-      maxY = Math.max(maxY, n.y + n.height / 2);
-    });
-    return {
-      minX: minX - 80,
-      maxX: maxX + 80,
-      minY: minY - 80,
-      maxY: maxY + 80,
-    };
-  }, [layout]);
+  // GUIDED_STUDYMAP visual context: presentation-only proximity set for
+  // the focused node — itself, its immediate parent, and its direct
+  // children. Never removes/hides academic structure (computeMindMapLayout/
+  // expandedSet are untouched) — only drives an opacity multiplier below,
+  // so "distant" nodes read as de-emphasized while remaining fully present
+  // in the DOM/data.
+  const focusEmphasisIds = useMemo(
+    () => (focusNodeId ? getNavigableNeighborhoodIds(data.root, focusNodeId) : null),
+    [data.root, focusNodeId],
+  );
 
   const svgW = bounds.maxX - bounds.minX;
   const svgH = bounds.maxY - bounds.minY;
@@ -536,63 +778,249 @@ function MindMap({
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [dragging, setDragging] = useState(false);
 
-  useEnergyLines(canvasRef, chargeState, energyLines, transform, bounds);
+  // STUDYMAP_SMOOTH_LOCAL_NAVIGATION: the imperative "live" camera value.
+  // `transform` (React state) remains the source of truth at REST
+  // (drag/wheel/+/-/fitToScreen/smart-fit, and the one sync at the end
+  // of a guided animation); `transformRef`/`contentRef` are the hot path
+  // DURING a guided animation, written directly every rAF tick with no
+  // React state update and therefore no MindMap re-render — see the
+  // focus-camera effect below. Kept in sync with `transform` state here
+  // so any consumer reading transformRef.current between animations
+  // always sees the correct settled value.
+  const transformRef = useRef(transform);
+  const boundsRef = useRef(bounds);
+  const contentRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    transformRef.current = transform;
+    if (contentRef.current) {
+      contentRef.current.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`;
+    }
+  }, [transform.x, transform.y, transform.scale]);
+  useLayoutEffect(() => { boundsRef.current = bounds; }, [bounds]);
+
+  useEnergyLines(canvasRef, chargeState, energyLines, transformRef, boundsRef);
   const dragStart = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-fit inicial
-  const didInitialFit = useRef(false);
-  useEffect(() => {
-    if (!containerRef.current || didInitialFit.current) return;
-    if (layout.length === 0) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const scaleX = rect.width / svgW;
-    const scaleY = rect.height / svgH;
-    const scale = Math.min(scaleX, scaleY, 1.2) * 0.92;
-    const x = (rect.width - svgW * scale) / 2;
-    const y = (rect.height - svgH * scale) / 2;
-    setTransform({ x, y, scale });
-    didInitialFit.current = true;
-  }, [svgW, svgH, layout.length]);
+  // STUDYMAP_UX_PHASE1 smart fit — replaces the old "fit exactly once"
+  // guard. Two concerns, handled separately:
+  //
+  // 1. COORDINATE COMPENSATION: the SVG/canvas draw every node at
+  //    (n.x - bounds.minX, n.y - bounds.minY) — expanding/collapsing a
+  //    branch anywhere can shift bounds.minX/minY, which would silently
+  //    slide EVERY already-visible node under a held-still transform.
+  //    Whenever bounds.minX/minY change, we shift transform.x/y by the
+  //    exact opposite delta first, so content the user is already
+  //    looking at never drifts on its own.
+  // 2. COMFORT-ZONE RE-FIT: only actually recenter/rescale the camera
+  //    when the (now coordinate-compensated) content no longer fits
+  //    comfortably inside the viewport — never blindly on every
+  //    expandedSet change — and never at all once the user has taken
+  //    manual control (drag/wheel), so their camera is always respected.
+  const manualCameraRef = useRef(false);
+  const prevBoundsOriginRef = useRef<{ minX: number; minY: number } | null>(null);
 
-  // Cámara animada hacia el nodo enfocado
+  useEffect(() => {
+    if (!containerRef.current || layout.length === 0) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const prevOrigin = prevBoundsOriginRef.current;
+    prevBoundsOriginRef.current = { minX: bounds.minX, minY: bounds.minY };
+
+    if (prevOrigin === null) {
+      // First layout ever rendered — always fit, showing everything
+      // currently visible (root + its expanded branches) framed
+      // comfortably, never just the root alone.
+      setTransform(computeFitTransform(rect, svgW, svgH));
+      return;
+    }
+
+    if (focusNodeId) {
+      // STUDYMAP_LIVE_UX_HARDENING: a selected/focused node owns the
+      // camera — the dedicated focus-camera effect below recenters on
+      // it explicitly on every layout change. Two effects independently
+      // calling setTransform for the same layout change was the exact
+      // cause of the selected node ending up awkwardly positioned after
+      // branch expansion (this effect's fit and the focus effect's
+      // recenter animation racing/overwriting each other). Bounds-origin
+      // bookkeeping above is still updated; just don't move the camera here.
+      return;
+    }
+
+    if (manualCameraRef.current) {
+      // The user is in control — only compensate for the coordinate
+      // shift (so their current view doesn't silently drift), never
+      // recenter/rescale on their behalf.
+      const dx = (bounds.minX - prevOrigin.minX)
+      const dy = (bounds.minY - prevOrigin.minY)
+      if (dx !== 0 || dy !== 0) {
+        setTransform(t => ({ ...t, x: t.x - dx * t.scale, y: t.y - dy * t.scale }));
+      }
+      return;
+    }
+
+    setTransform(t => {
+      const dx = bounds.minX - prevOrigin.minX;
+      const dy = bounds.minY - prevOrigin.minY;
+      const compensated = (dx !== 0 || dy !== 0) ? { ...t, x: t.x - dx * t.scale, y: t.y - dy * t.scale } : t;
+
+      // Comfort-zone check: is the ENTIRE content box still visible
+      // inside the viewport (with a margin), under the compensated
+      // transform? If yes, leave the camera exactly as-is.
+      return isBoundsComfortable(compensated, svgW, svgH, rect) ? compensated : computeFitTransform(rect, svgW, svgH);
+    });
+  }, [bounds.minX, bounds.minY, bounds.maxX, bounds.maxY, svgW, svgH, layout.length, focusNodeId]);
+
+  // GUIDED_LOCAL_FRAMING: cámara animada hacia el nodo enfocado — la
+  // ÚNICA fuente de verdad para centrar cuando hay un nodo seleccionado
+  // (ver el bypass del smart-fit arriba). Ya NO encuadra solo el nodo
+  // seleccionado: encuadra el nodo + su vecindario navegable local
+  // (focusEmphasisIds — el mismo set que ya maneja la atenuación visual
+  // arriba), para que el estudiante siempre vea sus próximas opciones de
+  // navegación sin tener que cerrar el panel. Nodos lejanos/expandidos
+  // en otras ramas NUNCA entran en `neighborhoodMembers`, así que NUNCA
+  // pueden influir en la escala guiada (contrato E). Anima x/y Y scale
+  // juntos — nunca hacia un fit-to-all. Se re-ejecuta en cada cambio de
+  // layout (expand/collapse) para que el nodo seleccionado siga
+  // encuadrado una vez el layout se asienta.
   useEffect(() => {
     if (!focusNodeId || !containerRef.current) return;
+    if (manualCameraRef.current) return; // el usuario tiene el control — no le quitamos la cámara
     const node = layout.find(n => n.node.id === focusNodeId);
     if (!node) return;
     const rect = containerRef.current.getBoundingClientRect();
-    // Centrar el nodo en pantalla manteniendo escala actual
-    const targetX = rect.width / 2 - (node.x - bounds.minX) * transform.scale;
-    const targetY = rect.height / 2 - (node.y - bounds.minY) * transform.scale;
+    // "Usable viewport" != el contenedor completo: reserva espacio para
+    // la barra de estado inferior y los controles de zoom (siempre
+    // presentes, superpuestos dentro de este mismo contenedor) para que
+    // el nodo centrado no quede tapado detrás de ellos.
+    const BOTTOM_CHROME_RESERVE = 72;
+    // STUDYMAP_UX_PHASE2: reserveRight/reserveBottom cover the case the
+    // sidebar variant never needed — a floating/overlay inspector that
+    // visually covers part of this SAME rect without shrinking it. A
+    // sidebar panel (flex sibling) already shrinks rect.width on its
+    // own, so both reserves stay 0 for it and this reduces to the
+    // original centering behavior.
+    const effectiveWidth = Math.max(200, rect.width - reserveRight);
+    const effectiveHeight = Math.max(200, rect.height - BOTTOM_CHROME_RESERVE - reserveBottom);
 
-    // Animar suavemente
-    const startX = transform.x;
-    const startY = transform.y;
+    let targetX: number;
+    let targetY: number;
+    let nodeTargetScale: number;
+    if (guidedMode) {
+      // GUIDED_LOCAL_FRAMING: neighborhood = focusEmphasisIds (selected
+      // node + immediate parent + direct children — the SAME set the
+      // opacity/visual-emphasis logic already uses, so "what looks
+      // emphasized" and "what the camera frames" are always the same
+      // set by construction). Rendered relation-detail nodes are
+      // already ordinary tree children for a leaf (see
+      // projectStudyMapToTree), so they are already included here as
+      // direct children — no separate relation-edge lookup needed.
+      const neighborhoodIds = focusEmphasisIds || new Set([focusNodeId]);
+      const neighborhoodMembers: GuidedNeighborhoodMember[] = layout
+        .filter(n => neighborhoodIds.has(n.node.id))
+        .map(n => ({ id: n.node.id, x: n.x, y: n.y, width: n.width, height: n.height }));
+      const framing = computeGuidedFramingTransform(
+        neighborhoodMembers, focusNodeId, node.level as 0 | 1 | 2 | 3,
+        { minX: bounds.minX, minY: bounds.minY }, { width: effectiveWidth, height: effectiveHeight },
+      );
+      targetX = framing ? framing.x : effectiveWidth / 2 - (node.x - bounds.minX) * READABLE_SCALE_BY_LEVEL[node.level as 0 | 1 | 2 | 3];
+      targetY = framing ? framing.y : effectiveHeight / 2 - (node.y - bounds.minY) * READABLE_SCALE_BY_LEVEL[node.level as 0 | 1 | 2 | 3];
+      nodeTargetScale = framing ? framing.scale : READABLE_SCALE_BY_LEVEL[node.level as 0 | 1 | 2 | 3];
+    } else {
+      nodeTargetScale = transform.scale;
+      targetX = effectiveWidth / 2 - (node.x - bounds.minX) * nodeTargetScale;
+      targetY = effectiveHeight / 2 - (node.y - bounds.minY) * nodeTargetScale;
+    }
+
+    // Animar suavemente. STUDYMAP_SMOOTH_LOCAL_NAVIGATION: read the start
+    // point from transformRef (the live imperative value), never from
+    // `transform` React state — if a PREVIOUS guided animation was
+    // interrupted mid-flight by this same effect re-running (a new
+    // navigation started before the old one finished), state only ever
+    // gets synced at an animation's natural completion, so it can lag
+    // behind exactly where the camera visually stopped. The ref is
+    // always current.
+    const startX = transformRef.current.x;
+    const startY = transformRef.current.y;
+    const startScale = transformRef.current.scale;
+
+    // CAMERA_FOCUS_UX: si el nodo ya está prácticamente en la posición
+    // Y escala objetivo (re-selección del mismo nodo, o ya estaba bien
+    // encuadrado), no animamos nada — evita saltos/parpadeos innecesarios
+    // de cámara, y evita un "pulso" de zoom cuando dos nodos vecinos
+    // comparten exactamente el mismo nivel/escala objetivo.
+    if (Math.abs(targetX - startX) < 1 && Math.abs(targetY - startY) < 1 && Math.abs(nodeTargetScale - startScale) < 0.01) return;
     const dur = 600;
     const t0 = performance.now();
     let raf = 0;
+    const isDev = process.env.NODE_ENV !== 'production';
+    let frameCount = 0;
+    if (isDev) perfRef.current.activeGuidedAnimations++;
+    // STUDYMAP_SMOOTH_LOCAL_NAVIGATION perf fix: this used to call
+    // setTransform() (React state) on EVERY frame — a full MindMap
+    // re-render (re-running the entire layout.map(...) node/edge JSX,
+    // recomputing wrapText/colors/emphasis for every rendered node) up
+    // to 60 times per second, the dominant cause of the reported jank.
+    // The hot path now writes ONLY to transformRef + the DOM node
+    // directly (contentRef), completely bypassing React for every
+    // intermediate frame. React state is synchronized exactly ONCE, on
+    // the final frame — needed for the info-bar %, drag-start baseline,
+    // and so the NEXT effect run (next navigation) sees a settled value.
     const tick = (now: number) => {
+      if (isDev) frameCount++;
       const t = Math.min(1, (now - t0) / dur);
       const ease = 1 - Math.pow(1 - t, 3); // ease-out-cubic
-      setTransform(prev => ({
-        ...prev,
-        x: startX + (targetX - startX) * ease,
-        y: startY + (targetY - startY) * ease,
-      }));
-      if (t < 1) raf = requestAnimationFrame(tick);
+      const nx = startX + (targetX - startX) * ease;
+      const ny = startY + (targetY - startY) * ease;
+      const ns = startScale + (nodeTargetScale - startScale) * ease;
+      transformRef.current = { x: nx, y: ny, scale: ns };
+      if (contentRef.current) {
+        contentRef.current.style.transform = `translate(${nx}px, ${ny}px) scale(${ns})`;
+      }
+      if (t < 1) {
+        raf = requestAnimationFrame(tick);
+      } else {
+        setTransform({ x: nx, y: ny, scale: ns });
+        if (isDev) {
+          perfRef.current.transformStateSyncs++;
+          // DEV-only diagnostic — counts only, never material content.
+          // Proves: layout/tree recompute count stays flat across an
+          // animation (no per-frame recompute), exactly one React state
+          // sync happens per navigation, and at most one guided
+          // animation is ever active at a time.
+          console.info('[studymap-camera-perf]', JSON.stringify({
+            frames: frameCount,
+            renderedNodeCount: layout.length,
+            expandedNodeCount: expandedSet.size,
+            layoutComputationsTotal: perfRef.current.layoutComputations,
+            transformStateSyncsTotal: perfRef.current.transformStateSyncs,
+            activeGuidedAnimations: perfRef.current.activeGuidedAnimations,
+          }));
+        }
+      }
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [focusNodeId, layout]);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (isDev) perfRef.current.activeGuidedAnimations--;
+    };
+  }, [focusNodeId, layout, reserveRight, reserveBottom, guidedMode, focusEmphasisIds]);
 
+  // GUIDED_STUDYMAP: in guided mode (the default), every user-driven
+  // camera entry point below is a no-op — camera movement becomes
+  // exclusively programmatic (the focus-camera effect). The functions
+  // themselves are kept intact (not deleted) so a future guidedMode={false}
+  // consumer still gets full free-pan/zoom behavior for free.
   const onMouseDown = (e: React.MouseEvent) => {
+    if (guidedMode) return;
     if ((e.target as Element).closest('.node-clickable, .expand-btn')) return;
+    manualCameraRef.current = true; // user takes control — smart-fit stops recentering on its own
     setDragging(true);
     dragStart.current = { x: e.clientX, y: e.clientY, tx: transform.x, ty: transform.y };
   };
 
   const onMouseMove = (e: React.MouseEvent) => {
-    if (!dragging) return;
+    if (guidedMode || !dragging) return;
     setTransform(t => ({
       ...t,
       x: dragStart.current.tx + (e.clientX - dragStart.current.x),
@@ -603,40 +1031,25 @@ function MindMap({
   const onMouseUp = () => setDragging(false);
 
   const onWheel = (e: React.WheelEvent) => {
+    if (guidedMode) return;
+    manualCameraRef.current = true; // user takes control — smart-fit stops recentering on its own
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     setTransform(t => ({ ...t, scale: Math.max(0.2, Math.min(3, t.scale * delta)) }));
   };
 
   const fitToScreen = () => {
+    if (guidedMode) return;
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const scaleX = rect.width / svgW;
-    const scaleY = rect.height / svgH;
-    const scale = Math.min(scaleX, scaleY, 1) * 0.92;
-    const x = (rect.width - svgW * scale) / 2;
-    const y = (rect.height - svgH * scale) / 2;
-    setTransform({ x, y, scale });
+    // Explicit ask from the user to reframe — resume smart auto-fit
+    // afterward, and resync the compensation baseline so the NEXT
+    // bounds change doesn't compute a stale delta against pre-fit state.
+    manualCameraRef.current = false;
+    prevBoundsOriginRef.current = { minX: bounds.minX, minY: bounds.minY };
+    setTransform(computeFitTransform(rect, svgW, svgH, 1));
   };
 
-  const wrapText = (text: string, maxChars: number, maxLines: number): string[] => {
-    const words = (text || '').split(/\s+/);
-    const lines: string[] = [];
-    let current = '';
-    for (const w of words) {
-      if ((current + ' ' + w).trim().length <= maxChars) {
-        current = (current + ' ' + w).trim();
-      } else {
-        if (current) lines.push(current);
-        current = w;
-        if (lines.length >= maxLines) break;
-      }
-    }
-    if (current && lines.length < maxLines) lines.push(current);
-    if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length + 3) {
-      lines[maxLines - 1] = lines[maxLines - 1].slice(0, maxChars - 1) + '…';
-    }
-    return lines;
-  };
+  const wrapText = wrapNodeText;
 
   return (
     <div
@@ -667,10 +1080,21 @@ function MindMap({
         backgroundSize: '40px 40px',
       }} />
 
-      <div style={{
+      {/* STUDYMAP_SMOOTH_LOCAL_NAVIGATION: `transform` is deliberately NOT
+          in this style object — it is driven imperatively (see
+          contentRef/transformRef above and the focus-camera rAF tick
+          below) so a camera animation never needs a React re-render to
+          move, and an unrelated incidental re-render (e.g. hover) mid-
+          animation can never stomp the in-flight imperative value with a
+          stale declarative one. */}
+      <div ref={contentRef} style={{
         position: 'absolute', top: 0, left: 0,
-        transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
         transformOrigin: '0 0',
+        // STUDYMAP_SMOOTH_LOCAL_NAVIGATION: hints the browser to promote
+        // this layer to its own GPU compositing layer, so the imperative
+        // per-frame transform writes above are pure compositing (move/
+        // scale an already-rasterized layer) rather than a repaint.
+        willChange: 'transform',
         cursor: dragging ? 'grabbing' : 'grab',
         width: svgW, height: svgH,
       }}>
@@ -691,8 +1115,11 @@ function MindMap({
             const hasChildren = (n.node.children || []).length > 0;
             const isExpanded = n.expanded;
 
-            const labelMaxChars = isRoot ? 24 : isBranch ? 22 : isLeaf ? 22 : 20;
-            const descMaxChars = isRoot ? 36 : isBranch ? 32 : isLeaf ? 30 : 28;
+            // Reduced in proportion to the STUDYMAP_UX_PHASE1 node-width
+            // compaction above, so wrapped text keeps fitting the
+            // (now smaller) boxes instead of overflowing them.
+            const labelMaxChars = isRoot ? 20 : isBranch ? 19 : isLeaf ? 19 : 17;
+            const descMaxChars = isRoot ? 30 : isBranch ? 27 : isLeaf ? 25 : 24;
             const labelMaxLines = 2;
             const descMaxLines = isRoot ? 3 : isBranch ? 3 : isLeaf ? 2 : 2;
 
@@ -718,9 +1145,24 @@ function MindMap({
             const borderColor = n.color;
             const textColor = 'var(--text-primary)';
             const descColor = 'var(--text-muted)';
+            // GUIDED_STUDYMAP visual context: full emphasis for the
+            // focused node and its immediate parent/children, secondary
+            // for everything else while a node is focused, unchanged
+            // (fully opaque) when nothing is focused. Presentation only.
+            // GUIDED_LOCAL_FRAMING: strengthened de-emphasis (was 0.35) —
+            // distant rendered nodes (outside the guided-camera's own
+            // local neighborhood) must read as clearly secondary, never
+            // competing with the current local study neighborhood.
+            const nodeOpacity = !focusEmphasisIds || focusEmphasisIds.has(n.node.id) ? 1 : 0.22;
+            // STUDYMAP_NAVIGABLE_VIEWPORT_FIT: dominance must survive the
+            // camera zooming OUT to fit more navigable options — a subtle
+            // glow reinforces "this is where you are" independent of the
+            // node's actual on-screen size, never by keeping it
+            // geometrically huge at the cost of clipping neighbors.
+            const dominanceGlow = isSel ? 'drop-shadow(0 0 10px color-mix(in srgb, var(--gold) 70%, transparent))' : 'none';
 
             return (
-              <g key={n.node.id} className="node-clickable" onClick={() => handleNodeClick(n.node)} onMouseEnter={() => setHoveredId(n.node.id)} onMouseLeave={() => setHoveredId(null)} style={{ cursor: 'pointer' }}>
+              <g key={n.node.id} className="node-clickable" onClick={() => handleNodeClick(n.node)} onMouseEnter={() => setHoveredId(n.node.id)} onMouseLeave={() => setHoveredId(null)} style={{ cursor: 'pointer', opacity: nodeOpacity, filter: dominanceGlow, transition: 'opacity 400ms ease, filter 400ms ease' }}>
                 {/* Sombra */}
                 <rect
                   x={left + 3} y={top + 5}
@@ -737,6 +1179,24 @@ function MindMap({
                   stroke={borderColor}
                   strokeWidth={isSel ? 4 : isRoot ? 3.5 : isBranch ? 3 : 2}
                 />
+                {/* STUDYMAP_FINAL_POLISH: a quiet outer ring marks "nearby
+                    navigable options" (in the guided camera's local
+                    frame, but not the current node itself) — a subtle,
+                    consistent third state between "current" (thick solid
+                    stroke + glow above) and "distant" (already
+                    de-emphasized via opacity). Presentation only. */}
+                {!isSel && focusEmphasisIds && focusEmphasisIds.has(n.node.id) && (
+                  <rect
+                    x={left - 4} y={top - 4}
+                    width={w + 8} height={h + 8}
+                    rx={(isRoot ? 22 : isBranch ? 18 : 14) + 4}
+                    fill="none"
+                    stroke={borderColor}
+                    strokeWidth={1.5}
+                    strokeDasharray="3 4"
+                    opacity={0.55}
+                  />
+                )}
                 {/* Acento lateral */}
                 {!isRoot && (
                   <rect
@@ -747,6 +1207,20 @@ function MindMap({
                     fill={borderColor}
                   />
                 )}
+
+                {/* STUDYMAP_LIVE_UX_HARDENING text-overflow root cause:
+                    the group below referenced clipPath={`url(#clip-...)`}
+                    but no <clipPath> element with that id was ever
+                    defined anywhere in the document — an SVG reference to
+                    a nonexistent clip path renders UNCLIPPED, which is
+                    exactly why long descriptions/labels visibly escaped
+                    their node rectangles. This defines the actual clip
+                    region, matching the node's own rect exactly, so
+                    nothing can ever render outside it regardless of text
+                    length/language/accents/unbroken tokens. */}
+                <clipPath id={`clip-${n.node.id}`}>
+                  <rect x={left} y={top} width={w} height={h} rx={isRoot ? 22 : isBranch ? 18 : 14} />
+                </clipPath>
 
                 {/* Contenido con clip */}
                 <g clipPath={`url(#clip-${n.node.id})`}>
@@ -829,8 +1303,11 @@ function MindMap({
         }}
       />
 
-      {/* Controles */}
-      <div style={{ position: 'absolute', bottom: 20, right: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {/* Controles — GUIDED_STUDYMAP: manual zoom/fit is a user-driven
+          camera override, incompatible with "camera movement becomes
+          programmatic only" in guided mode, so the whole control cluster
+          is hidden (not merely disabled) while guidedMode is on. */}
+      {!guidedMode && <div style={{ position: 'absolute', bottom: 20, right: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
         {[
           { label: '+', action: () => setTransform(t => ({ ...t, scale: Math.min(3, t.scale * 1.2) })) },
           { label: '⊙', action: fitToScreen, title: 'Ajustar a pantalla' },
@@ -852,7 +1329,59 @@ function MindMap({
             {btn.label}
           </button>
         ))}
-      </div>
+      </div>}
+
+      {/* STUDYMAP_PATH_NAVIGATION: back anchor — a compact, SCREEN-SPACE
+          overlay (like the info bar/zoom controls), never a graph-space
+          node. It represents the previous node in the guided navigation
+          stack WITHOUT ever entering the camera's bounds computation —
+          this is precisely what keeps it from dragging the scale down
+          just because the real previous node might be far away. */}
+      {guidedMode && focusNodeId && previousNodeId && onGuidedBack && (() => {
+        const previousNode = findNodeById(data.root, previousNodeId);
+        if (!previousNode) return null;
+        const previousLayout = layout.find(n => n.node.id === previousNodeId);
+        const currentLayout = layout.find(n => n.node.id === focusNodeId);
+        const side = computeBackAnchorSide(
+          previousLayout ? { x: previousLayout.x, y: previousLayout.y } : null,
+          currentLayout ? { x: currentLayout.x, y: currentLayout.y } : { x: 0, y: 0 },
+        );
+        const rawLabel = previousNode.label || '';
+        const shortLabel = rawLabel.length > 22 ? `${rawLabel.slice(0, 22)}…` : rawLabel;
+        // STUDYMAP_FINAL_POLISH: gold accent (StudyAL's own navigation
+        // color, matching the Tour/view-switcher chips) instead of a
+        // neutral gray pill, and a separated arrow glyph — reads as
+        // "part of map navigation", not a generic floating toast. Same
+        // position/side logic, same onClick, same conditions — purely
+        // visual.
+        return (
+          <button
+            onClick={onGuidedBack}
+            title={rawLabel ? `Volver a ${rawLabel}` : 'Volver'}
+            style={{
+              position: 'absolute',
+              bottom: 76,
+              ...(side === 'right' ? { right: 20 } : { left: 20 }),
+              maxWidth: 230,
+              padding: '7px 14px 7px 12px',
+              borderRadius: 999,
+              display: 'flex', alignItems: 'center', gap: 6,
+              border: '1.5px solid color-mix(in srgb, var(--gold) 55%, var(--border-color2))',
+              background: 'color-mix(in srgb, var(--bg-card) 94%, transparent)',
+              color: 'var(--text-secondary)',
+              fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+              fontFamily: 'var(--font-body)',
+              boxShadow: '0 4px 14px rgba(0,0,0,0.32)',
+              zIndex: 20,
+            }}
+          >
+            <span style={{ color: 'var(--gold)', fontWeight: 900 }}>←</span>
+            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {shortLabel ? `Regresar a ${shortLabel}` : 'Volver'}
+            </span>
+          </button>
+        );
+      })()}
 
       {/* Info bottom */}
       <div style={{
@@ -862,149 +1391,9 @@ function MindMap({
         padding: '6px 12px', borderRadius: 8,
         border: '1px solid var(--border-color2)',
       }}>
-        {Math.round(transform.scale * 100)}% · arrastra para mover · scroll para zoom · click en concepto para estudiarlo
-      </div>
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════
-// VISTA CARDS
-// ════════════════════════════════════════════════
-
-function CardsView({ data }: { data: MindMapData }) {
-  const branches = data.root.children || [];
-  const [expandedBranches, setExpandedBranches] = useState<Set<string>>(new Set(branches.map(b => b.id)));
-
-  const toggleBranch = (id: string) => {
-    setExpandedBranches(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
-  return (
-    <div style={{ height: '100%', overflowY: 'auto', background: 'var(--bg-primary)', padding: '24px 32px 60px' }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-        <div style={{
-          padding: 24, borderRadius: 16, marginBottom: 28,
-          background: 'linear-gradient(135deg, color-mix(in srgb, var(--gold) 18%, var(--bg-card)), color-mix(in srgb, var(--gold) 8%, var(--bg-card)))',
-          border: '2px solid var(--gold)',
-          boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-            <div style={{ fontSize: 40 }}>{data.root.emoji || '🎯'}</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 26, fontWeight: 900, color: 'var(--gold)', fontFamily: "var(--font-body)", marginBottom: 6 }}>
-                {data.root.label}
-              </div>
-              {data.root.description && (
-                <div style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.6, fontFamily: "var(--font-body)" }}>
-                  {data.root.description}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {branches.map((branch, bi) => {
-          const color = branch.color || BRANCH_COLORS[bi % BRANCH_COLORS.length];
-          const isExpanded = expandedBranches.has(branch.id);
-          const leaves = branch.children || [];
-
-          return (
-            <div key={branch.id} style={{ marginBottom: 20 }}>
-              <button
-                onClick={() => toggleBranch(branch.id)}
-                style={{
-                  width: '100%', textAlign: 'left',
-                  padding: '14px 18px', borderRadius: 14,
-                  background: 'var(--bg-card)',
-                  borderLeft: `6px solid ${color}`,
-                  border: `2px solid color-mix(in srgb, ${color} 40%, transparent)`,
-                  cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  marginBottom: isExpanded ? 12 : 0,
-                  boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
-                }}
-              >
-                <span style={{ fontSize: 24 }}>{branch.emoji || '●'}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: color, fontFamily: "var(--font-body)" }}>
-                    {branch.label}
-                  </div>
-                  {branch.description && (
-                    <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2, fontFamily: "var(--font-body)" }}>
-                      {branch.description}
-                    </div>
-                  )}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 700, marginRight: 8 }}>
-                  {leaves.length} concepto{leaves.length !== 1 ? 's' : ''}
-                </div>
-                <span style={{ color, fontSize: 14, transform: isExpanded ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>▶</span>
-              </button>
-
-              {isExpanded && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12, paddingLeft: 16 }}>
-                  {leaves.map((leaf) => {
-                    const details = leaf.children || [];
-                    return (
-                      <div key={leaf.id} style={{
-                        padding: '14px 16px', borderRadius: 12,
-                        background: 'var(--bg-card)',
-                        border: `1.5px solid color-mix(in srgb, ${color} 35%, transparent)`,
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-                      }}>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6, fontFamily: "var(--font-body)", lineHeight: 1.3 }}>
-                          {leaf.label}
-                        </div>
-                        {leaf.description && (
-                          <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: details.length || leaf.page ? 10 : 0, fontFamily: "var(--font-body)" }}>
-                            {leaf.description}
-                          </div>
-                        )}
-                        {details.length > 0 && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: leaf.page ? 8 : 0 }}>
-                            {details.map(d => (
-                              <div key={d.id} style={{
-                                padding: '7px 10px', borderRadius: 8,
-                                background: `color-mix(in srgb, ${color} 12%, var(--bg-card2))`,
-                                borderLeft: `3px solid ${color}`,
-                              }}>
-                                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 1, fontFamily: "var(--font-body)" }}>
-                                  {d.label}
-                                </div>
-                                {d.description && (
-                                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.4, fontFamily: "var(--font-body)" }}>
-                                    {d.description}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {leaf.page && (
-                          <div style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                            padding: '2px 8px', borderRadius: 999,
-                            background: `color-mix(in srgb, ${color} 20%, var(--bg-card2))`,
-                            border: `1px solid color-mix(in srgb, ${color} 40%, transparent)`,
-                            fontSize: 10, fontWeight: 700, color,
-                            fontFamily: "var(--font-body)",
-                          }}>
-                            📄 p.{leaf.page}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {guidedMode
+          ? `${Math.round(transform.scale * 100)}% · click en un concepto para estudiarlo`
+          : `${Math.round(transform.scale * 100)}% · arrastra para mover · scroll para zoom · click en concepto para estudiarlo`}
       </div>
     </div>
   );
@@ -1219,9 +1608,31 @@ function DetailPanel({ node, onClose }: { node: MapNode | null; onClose: () => v
 // RENDERIZADOR MARKDOWN ESTILO ALAI CHAT
 // ════════════════════════════════════════════════
 
+/**
+ * Renders a single inline `$...$` LaTeX math span via KaTeX — reuses the
+ * SAME existing mature math infrastructure already used elsewhere in the
+ * app (components/academic/AcademicContent.tsx: katex + katex/dist/katex.min.css,
+ * already globally loaded in app/layout.tsx). ENJOYER_LANGUAGE_MATH_FIDELITY:
+ * no new math library added; rendering only ever changes PRESENTATION —
+ * it never alters, guesses, or "repairs" the LaTeX source string itself.
+ * A malformed/unsupported expression falls back to plain text rather
+ * than throwing or inventing notation.
+ */
+function InlineMath({ latex }: { latex: string }) {
+  let html: string | null = null;
+  try {
+    html = katex.renderToString(latex, { throwOnError: false, displayMode: false, output: 'html' });
+  } catch {
+    html = null;
+  }
+  if (html === null) return <span>{`$${latex}$`}</span>;
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
 function renderInline(text: string, key?: string | number): React.ReactNode {
-  // **bold**
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  // **bold** and $inline math$ — math is checked first so a formula
+  // containing no asterisks is never accidentally split by the bold pass.
+  const parts = text.split(/(\*\*[^*]+\*\*|\$[^$\n]+\$)/g);
   return (
     <>
       {parts.map((part, i) => {
@@ -1231,6 +1642,9 @@ function renderInline(text: string, key?: string | number): React.ReactNode {
               {part.slice(2, -2)}
             </strong>
           );
+        }
+        if (part.startsWith('$') && part.endsWith('$') && part.length > 2) {
+          return <InlineMath key={`${key}-${i}`} latex={part.slice(1, -1)} />;
         }
         return <span key={`${key}-${i}`}>{part}</span>;
       })}
@@ -1498,6 +1912,180 @@ function findParentChain(root: MapNode, targetId: string, chain: MapNode[] = [])
   return null;
 }
 
+/**
+ * STUDYMAP_PATH_NAVIGATION: canonical definition of the guided camera's
+ * FORWARD study neighborhood — used BOTH to drive the guided camera's
+ * local-fit framing and the visual emphasis/de-emphasis opacity, so
+ * "what the camera frames" and "what reads as emphasized" are always
+ * the exact same set by construction.
+ *
+ * Product correction (this phase, superseding STUDYMAP_NAVIGABLE_
+ * VIEWPORT_FIT's sibling-inclusion): including the immediate PARENT and
+ * ALL its siblings worked for a small branch (a handful of sibling
+ * leaves) but broke catastrophically one level up — selecting any of
+ * root's ~13 branches made "siblings" mean "every other root branch",
+ * forcing the camera to zoom out to fit the entire root neighborhood
+ * (~20-30% scale) exactly like the old whole-graph fit this feature
+ * exists to avoid. The parent is no longer part of the graph-space
+ * camera bounds at all: it is represented ONLY as a compact, fixed-
+ * footprint screen-space "back anchor" overlay (see the back-anchor
+ * render logic in MindMap) that can never influence scale, however far
+ * away it actually sits.
+ *
+ * This is now a pure FORWARD walk: the selected/current node plus its
+ * own direct children only (one level down, never sideways or up).
+ * Rendered relation-detail nodes need no separate handling: for a leaf,
+ * projectStudyMapToTree (app/api/alai-studyal-map/route.ts) already
+ * surfaces its relations as ordinary `type:'detail'` tree CHILDREN, so
+ * they are already included via the "children" step below. For root,
+ * "direct children" is exactly the set of root branches — the same
+ * overview the initial smart-fit already shows, so returning to root
+ * via Back reproduces that same accepted overview framing for free.
+ *
+ * Returns ids only — the CALLER (MindMap) is responsible for
+ * intersecting this against `layout` (what's actually currently
+ * rendered/expanded).
+ */
+export function getNavigableNeighborhoodIds(root: MapNode, selectedNodeId: string): Set<string> | null {
+  const chain = findParentChain(root, selectedNodeId);
+  if (!chain || !chain.length) return null;
+  const selectedNode = chain[chain.length - 1];
+  const ids = new Set<string>([selectedNodeId]);
+  for (const child of selectedNode.children || []) ids.add(child.id);
+  return ids;
+}
+
+/**
+ * STUDYMAP_SMOOTH_LOCAL_NAVIGATION: the canonical "guided visible
+ * context" — the MINIMAL expandedSet needed to render the current
+ * study location: the structural ancestor path (root down to the
+ * current node — computeMindMapLayout only lays out a node's children
+ * when the node ITSELF is in expandedSet, so every ancestor must be
+ * present for the current node to be positioned/visible at all) plus
+ * the current node itself (to reveal ITS OWN immediate forward
+ * children/relation-details).
+ *
+ * Deliberately does NOT reference the navigation stack — a node visited
+ * earlier in the session (root's history) has no bearing on what should
+ * be expanded NOW; keeping it expanded is exactly the "old unrelated
+ * branches accumulate behind the student" bug this fixes. The
+ * conceptual signature includes the stack only to document that it was
+ * considered and intentionally excluded from the expansion decision;
+ * the previous location is represented ONLY by the screen-space back
+ * anchor (see MindMap), never by residual graph expansion.
+ *
+ * Replacing (not merging into) expandedSet with this result on every
+ * guided navigation (forward selection AND Back) is what keeps the
+ * rendered/expanded node count bounded to "current path + immediate
+ * options" instead of growing indefinitely across a session — which is
+ * also a direct performance win: fewer simultaneously-rendered SVG
+ * nodes/edges makes every camera animation frame cheaper.
+ *
+ * Never touches studiedSet/explanationsByNodeId — those are entirely
+ * separate state, keyed by node id, indifferent to visual expansion.
+ */
+export function getGuidedVisibleContext(
+  root: MapNode,
+  currentNodeId: string | null,
+  _navigationStack?: readonly string[],
+): Set<string> {
+  if (!currentNodeId) return new Set();
+  const chain = findParentChain(root, currentNodeId);
+  if (!chain || !chain.length) return new Set();
+  return new Set(chain.map(n => n.id));
+}
+
+/**
+ * STUDYMAP_EXPAND_COLLAPSE_REGRESSION: the ancestor path REQUIRED to
+ * render currentNodeId at all (root down to its PARENT — excludes
+ * currentNodeId itself), used ONLY by forward node-selection
+ * (onSelect), never by Back.
+ *
+ * Root cause of the regression this fixes: getGuidedVisibleContext
+ * above always includes currentNodeId itself, so calling it from
+ * onSelect (which fires BEFORE onToggleExpand in the same click — see
+ * handleNodeClick) pre-emptively marked the JUST-CLICKED node as
+ * "already expanded" before toggleExpand's own add/remove decision ran.
+ * toggleExpand then saw the node as already-expanded on EVERY click
+ * (even the very first one on a freshly collapsed branch) and
+ * immediately collapsed it again — net effect: branches never
+ * appeared to open.
+ *
+ * Fix: onSelect normalizes ONLY the ancestor path (this function),
+ * explicitly preserving whatever expand/collapse state the clicked
+ * node already had (via getGuidedForwardExpansion below) — leaving
+ * toggleExpand's own pre-click-state add/remove decision authoritative
+ * for the clicked node itself, exactly as it always was. Back
+ * continues to use the inclusive getGuidedVisibleContext unchanged
+ * (see STUDYMAP_SMOOTH_LOCAL_NAVIGATION's final report: Back has no
+ * competing toggle-intent to preserve, so always revealing the
+ * destination's own children is correct there).
+ */
+export function getGuidedAncestorPath(root: MapNode, currentNodeId: string | null): Set<string> {
+  if (!currentNodeId) return new Set();
+  const chain = findParentChain(root, currentNodeId);
+  if (!chain || chain.length < 2) return new Set();
+  return new Set(chain.slice(0, -1).map(n => n.id));
+}
+
+/**
+ * STUDYMAP_EXPAND_COLLAPSE_REGRESSION: composes the guided ancestor
+ * path with the clicked node's OWN pre-click expansion state —
+ * `nextExpandedSet = guidedAncestorPath ∪ (previouslyExpanded ?
+ * {currentNodeId} : {})` — never `guidedAncestorPath` alone. This is
+ * what lets toggleExpand's own functional update (which runs right
+ * after this, in the same click, reading THIS result as its `prev`)
+ * correctly see the node's true pre-click membership and decide
+ * add-vs-remove itself, while unrelated old branches still collapse
+ * away (only the ancestor path + the clicked node's own prior state
+ * survive the normalization).
+ */
+export function getGuidedForwardExpansion(
+  root: MapNode,
+  currentNodeId: string,
+  previousExpandedSet: ReadonlySet<string>,
+): Set<string> {
+  const next = getGuidedAncestorPath(root, currentNodeId);
+  if (previousExpandedSet.has(currentNodeId)) next.add(currentNodeId);
+  return next;
+}
+
+/**
+ * STUDYMAP_PATH_NAVIGATION: lightweight, client-only, UI-navigation
+ * stack — deliberately NOT persisted (see final report: session-local
+ * only, same lifetime as expandedSet/selectedNode, never written to
+ * DurableFreeStudyMapState) and completely independent of studiedSet/
+ * explanationsByNodeId/Enjoyer identity. `push` records where the
+ * student is navigating FROM (so Back can return there exactly);
+ * `pop` is the Back action itself.
+ */
+export function pushGuidedNavigation(stack: readonly string[], fromNodeId: string | null): string[] {
+  if (!fromNodeId) return [...stack];
+  return [...stack, fromNodeId];
+}
+
+export function popGuidedNavigation(stack: readonly string[]): { stack: string[]; targetNodeId: string | null } {
+  if (!stack.length) return { stack: [...stack], targetNodeId: null };
+  return { stack: stack.slice(0, -1), targetNodeId: stack[stack.length - 1] };
+}
+
+/**
+ * STUDYMAP_PATH_NAVIGATION: which side of the current node the back
+ * anchor chip should render on, following the actual spatial direction
+ * of the previous node when its position is still known (e.g. still
+ * rendered in `layout`) — a purely cosmetic, deterministic choice, pure
+ * function for direct testing.
+ */
+export function computeBackAnchorSide(
+  previous: { x: number; y: number } | null,
+  current: { x: number; y: number },
+): 'left' | 'right' | 'top' | 'bottom' {
+  if (!previous) return 'left';
+  const dx = previous.x - current.x;
+  const dy = previous.y - current.y;
+  return Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'top' : 'bottom');
+}
+
 
 function findNodeById(root: MapNode, targetId: string | null | undefined): MapNode | null {
   if (!targetId) return null;
@@ -1509,6 +2097,14 @@ function findNodeById(root: MapNode, targetId: string | null | undefined): MapNo
   return null;
 }
 
+/** Every real Enjoyer leaf-node id (real Enjoyer target) among a node and its descendants — used to scope explain_node grounding for both a single leaf and an entire branch. */
+function collectLeafNodeIds(node: MapNode): string[] {
+  if (node.type === 'leaf') return [node.id];
+  const ids: string[] = [];
+  for (const child of node.children || []) ids.push(...collectLeafNodeIds(child));
+  return ids;
+}
+
 function StudyPanel({
   node,
   mapData,
@@ -1517,9 +2113,12 @@ function StudyPanel({
   materialText,
   materia,
   tema,
+  sessionId,
   explanationsByNodeId,
   onPersistExplanation,
   isMobile,
+  isFloating,
+  panelRef,
 }: {
   node: MapNode | null;
   mapData: MindMapData;
@@ -1528,9 +2127,19 @@ function StudyPanel({
   materialText: string;
   materia?: string;
   tema?: string;
+  sessionId?: string | null;
   explanationsByNodeId: Record<string, StudyMapExplanationState>;
+  // STUDYMAP_UX_PHASE2: medium-screen tier — a floating/overlay card
+  // instead of either the desktop sidebar (which permanently shrinks
+  // the map) or the mobile full-screen drawer. Purely presentational.
+  isFloating?: boolean;
   onPersistExplanation: (nodeId: string, explanation: StudyMapExplanationState) => void;
   isMobile?: boolean;
+  // STUDYMAP_NAVIGABLE_VIEWPORT_FIT: lets the parent measure the panel's
+  // ACTUAL rendered footprint (getBoundingClientRect) instead of relying
+  // only on a nominal width+margin constant, which can drift from what
+  // is really on screen. Purely a DOM measurement hook — no behavior.
+  panelRef?: (el: HTMLElement | null) => void;
 }) {
   const showingRoot = !node || node.id === mapData.root.id;
   const current = node || mapData.root;
@@ -1550,6 +2159,129 @@ function StudyPanel({
   const [errExp, setErrExp] = useState('');
   const attemptRef = useRef<Record<string, number>>({});
 
+  // STUDYMAP_NODE_PROVIDER_LOOP root cause: `explanationsByNodeId` and
+  // `onPersistExplanation` are props recreated with a NEW identity on
+  // every parent render (an inline object fallback and an inline arrow
+  // function respectively). They were previously in this effect's own
+  // dependency array, so ANY unrelated parent re-render — not just a
+  // genuine node selection — re-fired this provider-backed fetch. Mirror
+  // them into refs, synced every render but read WITHOUT being effect
+  // dependencies, so this component is immune to the parent's prop
+  // identity churn regardless of whether the parent ever memoizes them.
+  const explanationsByNodeIdRef = useRef(explanationsByNodeId);
+  explanationsByNodeIdRef.current = explanationsByNodeId;
+  const onPersistExplanationRef = useRef(onPersistExplanation);
+  onPersistExplanationRef.current = onPersistExplanation;
+
+  // Single-flight guard for explanation requests, keyed by node id —
+  // mirrors the exact pattern already proven for map generation
+  // (activeGenerationKeyRef). At most one active explanation request per
+  // node identity; rapid re-clicks of the same node cannot duplicate it.
+  const activeExplainKeyRef = useRef<string | null>(null);
+
+  /**
+   * COST SAFETY INVARIANT (STUDYMAP_NODE_PROVIDER_LOOP, unified in
+   * STUDYMAP_LIVE_UX_HARDENING): this function is the ONLY place that
+   * calls the grounded explain_node route for the study panel — leaf
+   * AND branch/category nodes both go through it (a leaf sends its own
+   * id, a branch sends every real Enjoyer id among its descendant
+   * leaves). /api/alai-studyal-chat is NEVER called automatically from
+   * Study Map node selection anymore — that legacy fallback is gone.
+   * Root is never explainable (deterministic-only, see the render).
+   */
+  const requestNodeExplanation = useCallback(async (
+    targetNode: MapNode, parent: MapNode | undefined, signal: AbortSignal, trigger: 'lifecycle' | 'explicit_user',
+  ) => {
+    const key = targetNode.id;
+    if (activeExplainKeyRef.current === key) return;
+    const persisted = explanationsByNodeIdRef.current[key];
+    if (persisted) {
+      setExplicacion(persisted);
+      setErrExp('');
+      setLoadingExp(false);
+      return;
+    }
+
+    // STUDYMAP_LIVE_UX_HARDENING unification: ONE explanation path for
+    // every explainable node type. A leaf sends its own single real
+    // Enjoyer node id; a branch/category sends every real Enjoyer node
+    // id among its descendant leaves (computed here, client-side, from
+    // the tree StudyPanel already has — never re-derived server-side
+    // from anything but real node ids). Root is never explainable here
+    // (see the auto-effect and the render below — root content stays
+    // fully deterministic, 0 provider calls, ever).
+    const leafIds = collectLeafNodeIds(targetNode);
+    if (!leafIds.length || !sessionId) return;
+
+    activeExplainKeyRef.current = key;
+    const attempt = (attemptRef.current[key] || 0) + 1;
+    attemptRef.current[key] = attempt;
+
+    setLoadingExp(true);
+    setErrExp('');
+    setExplicacion(null);
+
+    // DEV-safe cost-guard diagnostic — never logs material content, only
+    // the identity/trigger of a provider-backed action, so an accidental
+    // automatic call is immediately visible in the dev console.
+    if (process.env.NODE_ENV !== 'production') {
+      console.info('[studymap-cost-guard]', JSON.stringify({
+        action: 'explain_node', sessionId: sessionId || null, nodeId: key, trigger,
+      }));
+    }
+
+    try {
+      const res = await fetch('/api/alai-studyal-map', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          mode: 'explain_node',
+          sessionId,
+          unitIds: leafIds,
+          materia: materia || '',
+          tema: tema || '',
+        }),
+        signal,
+      });
+      const json = await res.json();
+      const data = {
+        success: json.success, answer: json.explanation?.answer,
+        sourcePages: json.explanation?.sourcePages, suggestedFollowups: json.explanation?.suggestedFollowups,
+        pedagogicalNote: json.explanation?.pedagogicalNote,
+        error: json.error,
+      };
+
+      if (signal.aborted) return;
+
+      if (data.success && data.answer) {
+        const result: StudyMapExplanationState = {
+          answer: data.answer,
+          sourcePages: data.sourcePages || [],
+          suggestedFollowups: data.suggestedFollowups || [],
+          pedagogicalNote: data.pedagogicalNote || '',
+        };
+        onPersistExplanationRef.current(key, result);
+        if (attemptRef.current[key] === attempt) setExplicacion(result);
+      } else if (attemptRef.current[key] === attempt) {
+        setErrExp(data.error || 'No se pudo generar la explicación');
+      }
+    } catch (e: any) {
+      if (!signal.aborted && attemptRef.current[key] === attempt) {
+        setErrExp(e?.message || 'Error de conexión');
+      }
+    } finally {
+      if (activeExplainKeyRef.current === key) activeExplainKeyRef.current = null;
+      if (!signal.aborted && attemptRef.current[key] === attempt) setLoadingExp(false);
+    }
+  }, [sessionId, materia, tema]);
+
+  // Automatic path — EVERY explainable node (leaf AND branch/category).
+  // Root never auto-fetches: its content stays fully deterministic (see
+  // the render below). Selecting a node is always the trigger — there
+  // is no separate "explain this" button anymore (STUDYMAP_LIVE_UX_HARDENING
+  // unification: the leaf/branch distinction is an implementation
+  // detail, never exposed to the student).
   useEffect(() => {
     if (!current || showingRoot) {
       setExplicacion(null);
@@ -1558,7 +2290,7 @@ function StudyPanel({
       return;
     }
 
-    const persisted = explanationsByNodeId[current.id];
+    const persisted = explanationsByNodeIdRef.current[current.id];
     if (persisted) {
       setExplicacion(persisted);
       setErrExp('');
@@ -1566,159 +2298,22 @@ function StudyPanel({
       return;
     }
 
-    let cancelled = false;
-    const attempt = (attemptRef.current[current.id] || 0) + 1;
-    attemptRef.current[current.id] = attempt;
-
-    setLoadingExp(true);
-    setErrExp('');
     setExplicacion(null);
+    setErrExp('');
+    setLoadingExp(false);
 
-    const pregunta = `Eres un profesor enseñando el concepto "${current.label}"${parentNode ? ` dentro de la categoría "${parentNode.label}"` : ''}.
+    if (!sessionId || !collectLeafNodeIds(current).length) return;
 
-═══════════════════════════════════════════
-TU MISIÓN
-═══════════════════════════════════════════
-Enseñar este concepto al estudiante usando SOLO el material disponible. Tu objetivo es que entienda profundamente, no solo memorizar.
-
-═══════════════════════════════════════════
-REGLA #1 — ELIGE LAS SECCIONES INTELIGENTEMENTE
-═══════════════════════════════════════════
-NO uses una plantilla fija. Analiza qué TIPO de concepto es y elige entre 3 y 6 secciones del catálogo de abajo, las que MEJOR se adapten a este concepto específico.
-
-CATÁLOGO DE SECCIONES (elige solo las útiles):
-
-📝 PARA TODOS LOS CONCEPTOS (casi siempre útil):
-- "## 💡 Lo esencial" — Definición clara en 2-3 oraciones (úsalo casi siempre)
-- "## ✨ Para recordarlo" — Truco mnemónico, palabra clave, asociación memorable (úsalo casi siempre)
-
-📅 PARA PERSONAS, EVENTOS, FECHAS HISTÓRICAS:
-- "## 📅 Cuándo y dónde" — Fechas, lugares, contexto temporal
-- "## 👤 Quién fue / quiénes participaron" — Personas involucradas
-- "## 🌍 Contexto de la época" — Situación histórica/cultural
-
-🔬 PARA TEORÍAS, MODELOS, CONCEPTOS CIENTÍFICOS:
-- "## 🔬 Cómo funciona" — Mecanismo, proceso interno
-- "## ⚗️ Fórmula o estructura" — Ecuaciones, diagramas verbales, componentes
-- "## 🧪 Postulados / Principios" — Reglas o leyes que define
-- "## 🔢 Datos clave" — Números, constantes, valores específicos
-
-⚙️ PARA PROCESOS, PROCEDIMIENTOS, MÉTODOS:
-- "## 📋 Pasos" — Lista ordenada
-- "## ⚙️ Cómo se aplica" — Casos de uso reales
-- "## ⚠️ Errores comunes" — Qué evitar
-
-💼 PARA APLICACIONES, IMPACTO, RESULTADOS:
-- "## 🎯 Por qué importa" — Relevancia en el tema o el mundo
-- "## 💥 Impacto / consecuencias" — Qué cambió
-- "## 🚀 Aplicaciones reales" — Dónde se usa hoy
-
-🧩 PARA CONCEPTOS RELACIONALES:
-- "## 🔗 Cómo se conecta" — Relación con otros conceptos del material
-- "## ⚖️ Comparación" — Si el material compara con algo (usa tabla markdown si aplica)
-- "## 🆚 Diferencias clave" — Distinciones importantes
-
-💬 SECCIONES OPCIONALES (úsalas si suman):
-- "## 🧩 Ejemplo del material" — SOLO si el material da un ejemplo concreto
-- "## 💬 Cita textual" — SOLO si hay una frase memorable del material para citar (usa formato > "cita")
-- "## ⚠️ Confusión común" — SOLO si el concepto se suele confundir con otra cosa
-- "## 🎓 Para profundizar" — Conexiones avanzadas si el material las menciona
-
-═══════════════════════════════════════════
-REGLA #2 — EJEMPLOS DE BUENA SELECCIÓN
-═══════════════════════════════════════════
-
-CONCEPTO: "Nacimiento de una figura histórica" (dato biográfico)
-✅ Secciones: 💡 Lo esencial → 📅 Cuándo y dónde → 🌍 Contexto de la época → ✨ Para recordarlo
-❌ NO uses: Fórmula, Pasos, Cómo funciona
-
-CONCEPTO: "Modelo científico específico" (teoría científica)
-✅ Secciones: 💡 Lo esencial → 🔬 Cómo funciona → 🧪 Postulados → ⚗️ Estructura → 🎯 Por qué importa → ✨ Para recordarlo
-❌ NO uses: Quién fue, Contexto de la época
-
-CONCEPTO: "Mitosis celular" (proceso biológico)
-✅ Secciones: 💡 Lo esencial → 📋 Pasos → 🔬 Cómo funciona → 🧩 Ejemplo → ✨ Para recordarlo
-
-CONCEPTO: "Super Bowl LI" (evento)
-✅ Secciones: 💡 Lo esencial → 📅 Cuándo y dónde → 💥 Impacto → 🔢 Datos clave → ✨ Para recordarlo
-
-CONCEPTO: "Estrategia de marketing de Apple" (caso de negocio)
-✅ Secciones: 💡 Lo esencial → 🚀 Aplicaciones reales → 💥 Impacto → 🎯 Por qué importa → ✨ Para recordarlo
-
-CONCEPTO: "Teorema de Pitágoras" (fórmula matemática)
-✅ Secciones: 💡 Lo esencial → ⚗️ Fórmula → 🧩 Ejemplo → ⚙️ Cómo se aplica → ✨ Para recordarlo
-
-═══════════════════════════════════════════
-REGLA #3 — CALIDAD DEL CONTENIDO
-═══════════════════════════════════════════
-- USA ÚNICAMENTE el material como fuente. NO inventes.
-- Datos REALES: nombres, fechas, números, citas EXACTAS del material.
-- Si el material no cubre algo, OMITE esa sección entera (no rellenes con humo).
-- Cada sección debe aportar información DIFERENTE (no repitas lo mismo en distintas secciones).
-- Sé claro, directo, pedagógico. Como un profesor real, no como un robot de plantilla.
-
-═══════════════════════════════════════════
-REGLA #4 — FORMATO
-═══════════════════════════════════════════
-- Cada sección empieza con "## emoji Título" en línea propia
-- Después del título, salto de línea, y el contenido en párrafo natural
-- Entre secciones, DOBLE salto de línea
-- Si una sección tiene lista de pasos: usa "1. Paso uno." en líneas separadas
-- Si una sección tiene tabla comparativa: usa markdown | ... | ... |
-- Si citas el material: usa formato > "cita textual"
-- Usa **negrita** para términos clave dentro del texto
-
-═══════════════════════════════════════════
-CONCEPTO A ENSEÑAR
-═══════════════════════════════════════════
-Concepto: "${current.label}"
-Categoría: "${parentNode?.label || 'General'}"
-Pista breve previa: "${current.description || 'Sin descripción previa'}"
-
-Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES del catálogo, y enseña este concepto usando SOLO el material. NO sigas una plantilla fija. Adapta tu respuesta al concepto específico.`;
-
-    fetch('/api/alai-studyal-chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify({
-        message: pregunta,
-        materialText: materialText,
-        history: [],
-        materia: materia || '',
-        tema: tema || '',
-      }),
-    })
-      .then(r => r.json())
-      .then(data => {
-        if (cancelled || attemptRef.current[current.id] !== attempt) return;
-        if (data.success && data.answer) {
-          const result: StudyMapExplanationState = {
-            answer: data.answer,
-            inMaterial: data.inMaterial,
-            outsideMaterialNote: data.outsideMaterialNote || '',
-            sourcePages: data.sourcePages || [],
-            suggestedFollowups: data.suggestedFollowups || [],
-          };
-          onPersistExplanation(current.id, result);
-          setExplicacion(result);
-        } else {
-          setErrExp(data.error || 'No se pudo generar la explicación');
-        }
-      })
-      .catch(e => {
-        if (!cancelled && attemptRef.current[current.id] === attempt) {
-          setErrExp(e?.message || 'Error de conexión');
-        }
-      })
-      .finally(() => {
-        if (!cancelled && attemptRef.current[current.id] === attempt) {
-          setLoadingExp(false);
-        }
-      });
-
-    return () => { cancelled = true; };
-  }, [current.id, current.label, current.description, parentNode?.label, showingRoot, materialText, materia, tema, explanationsByNodeId, onPersistExplanation]);
+    const controller = new AbortController();
+    void requestNodeExplanation(current, parentNode, controller.signal, 'lifecycle');
+    return () => {
+      controller.abort();
+      if (activeExplainKeyRef.current === current.id) activeExplainKeyRef.current = null;
+    };
+    // Deliberately NOT depending on explanationsByNodeId/onPersistExplanation
+    // (read via refs above) — see the STUDYMAP_NODE_PROVIDER_LOOP comment
+    // above requestNodeExplanation.
+  }, [current, showingRoot, sessionId, requestNodeExplanation]);
 
   const Section = ({ icon, title, color: c, children }: any) => (
     <div>
@@ -1738,11 +2333,14 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
     </div>
   );
 
-  // Mobile: overlay drawer when node selected, hidden otherwise
-  if (isMobile && !node) return null;
+  // STUDYMAP_UX_PHASE2: the panel is an inspector for a SELECTED node —
+  // with nothing selected it collapses away entirely (on every screen
+  // tier) so the map stays the dominant surface, instead of previously
+  // showing a permanent root-overview panel on desktop/medium.
+  if (!node) return null;
 
   return (
-    <aside style={{
+    <aside ref={panelRef} style={{
       ...(isMobile ? {
         position: 'fixed',
         inset: 0,
@@ -1755,8 +2353,33 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
         minHeight: 0,
         overflow: 'hidden',
         overflowX: 'hidden',
+      } : isFloating ? {
+        // Medium screens: a floating card OVER the map — never a flex
+        // sibling that permanently shrinks it. Anchored to the nearest
+        // positioned ancestor (the map/panel row already has
+        // position:relative). Its footprint is reserved from the
+        // camera's usable viewport via reserveRight (see MindMap).
+        position: 'absolute',
+        top: 16,
+        right: 16,
+        bottom: 16,
+        width: 400,
+        maxWidth: 'calc(100% - 32px)',
+        zIndex: 150,
+        background: 'var(--bg-card)',
+        border: '1.5px solid var(--border-color2)',
+        borderRadius: 16,
+        boxShadow: '0 12px 40px rgba(0,0,0,0.28)',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+        overflow: 'hidden',
       } : {
-        width: 440,
+        // Desktop: a narrower sidebar (was 440px) that only occupies
+        // flex space while a node is selected — collapsing away
+        // entirely (see the `if (!node) return null` above) is what
+        // makes it "collapsible" rather than a permanent fixture.
+        width: 380,
         flexShrink: 0,
         background: 'var(--bg-card)',
         borderLeft: '1.5px solid var(--border-color2)',
@@ -1766,79 +2389,87 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
         overflow: 'hidden',
       }),
     }}>
-      {/* Header */}
+      {/* Header — STUDYMAP_FINAL_POLISH: tighter vertical rhythm, a
+          slightly quieter eyebrow/close affordance, and a single
+          consistent "pill" style shared by the page badge and the
+          source badges further down, so the header reads as one clear
+          hierarchy (kind → path → title → page) instead of competing
+          bold elements. */}
       <div style={{
-        padding: '14px 18px',
+        padding: '13px 16px',
         borderBottom: '1px solid var(--border-color2)',
-        background: `linear-gradient(180deg, color-mix(in srgb, ${color} 14%, var(--bg-card)), var(--bg-card))`,
+        background: `linear-gradient(180deg, color-mix(in srgb, ${color} 12%, var(--bg-card)), var(--bg-card))`,
         flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <div style={{
-            fontSize: 10, fontWeight: 800, color, letterSpacing: 1.5,
-            textTransform: 'uppercase', fontFamily: "var(--font-body)",
+            fontSize: 10, fontWeight: 800, color, letterSpacing: 1.2,
+            textTransform: 'uppercase', fontFamily: "var(--font-body)", opacity: 0.9,
           }}>
-            📚 {typeLabel}
+            {typeLabel}
           </div>
-          {(isMobile || !showingRoot) && (
-            <button onClick={onClose} title="Cerrar"
+          {/* STUDYMAP_UX_PHASE2: the panel only ever renders with a real
+              selected node now (see the `if (!node) return null` gate
+              above) — closing it is always a meaningful action, on
+              every screen tier, so the button is no longer conditional
+              on `showingRoot`. */}
+          <button onClick={onClose} title="Cerrar"
               style={{
-                width: 26, height: 26, borderRadius: 6, border: 'none',
-                background: 'var(--bg-secondary)', color: 'var(--text-muted)',
-                cursor: 'pointer', fontSize: 14, fontWeight: 700,
+                width: 24, height: 24, borderRadius: 7, border: 'none',
+                background: 'var(--bg-secondary)', color: 'var(--text-faint)',
+                cursor: 'pointer', fontSize: 12, fontWeight: 700,
               }}>✕</button>
-          )}
         </div>
 
         {breadcrumb.length > 0 && (
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap',
-            marginTop: 8, fontSize: 11, color: 'var(--text-faint)',
+            display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap',
+            marginTop: 6, fontSize: 11, color: 'var(--text-faint)',
             fontFamily: "var(--font-body)",
           }}>
             {breadcrumb.map((b) => (
-              <span key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                 <button onClick={() => onJumpToNode(b)} style={{
                   background: 'transparent', border: 'none',
                   color: b.color || 'var(--text-muted)', cursor: 'pointer',
-                  fontSize: 11, fontWeight: 700, padding: '2px 4px',
+                  fontSize: 11, fontWeight: 700, padding: '2px 3px',
                   fontFamily: "var(--font-body)",
                 }}>
-                  {b.emoji} {b.label}
+                  {b.label}
                 </button>
-                <span style={{ opacity: 0.5 }}>›</span>
+                <span style={{ opacity: 0.4 }}>›</span>
               </span>
             ))}
           </div>
         )}
 
         <div style={{
-          fontSize: 22, fontWeight: 900, color: 'var(--text-primary)',
-          fontFamily: "var(--font-body)", marginTop: 10, lineHeight: 1.2,
-          display: 'flex', alignItems: 'flex-start', gap: 10,
+          fontSize: 19, fontWeight: 800, color: 'var(--text-primary)',
+          fontFamily: "var(--font-body)", marginTop: 8, lineHeight: 1.25,
+          display: 'flex', alignItems: 'flex-start', gap: 8,
         }}>
-          {current.emoji && <span style={{ fontSize: 28, lineHeight: 1 }}>{current.emoji}</span>}
+          {current.emoji && <span style={{ fontSize: 24, lineHeight: 1 }}>{current.emoji}</span>}
           <span style={{ flex: 1 }}>{current.label}</span>
         </div>
 
         {current.page && (
           <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '3px 10px', borderRadius: 999, marginTop: 10,
-            background: `color-mix(in srgb, ${color} 18%, var(--bg-card))`,
-            border: `1px solid ${color}`,
-            fontSize: 11, fontWeight: 700, color,
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '2px 9px', borderRadius: 999, marginTop: 8,
+            background: `color-mix(in srgb, ${color} 14%, var(--bg-card))`,
+            border: `1px solid color-mix(in srgb, ${color} 55%, transparent)`,
+            fontSize: 10.5, fontWeight: 700, color,
             fontFamily: "var(--font-body)",
           }}>
-            📄 Página {current.page}
+            📄 p.{current.page}
           </div>
         )}
       </div>
 
       {/* Body */}
       <div style={{
-        flex: 1, overflowY: 'auto', padding: '20px 22px',
-        display: 'flex', flexDirection: 'column', gap: 22,
+        flex: 1, overflowY: 'auto', padding: '18px 20px',
+        display: 'flex', flexDirection: 'column', gap: 18,
       }}>
         {/* Root: estado introductorio */}
         {showingRoot && (
@@ -1858,6 +2489,21 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
               🎯 <strong style={{ color: 'var(--text-primary)' }}>Click en cualquier concepto del mapa</strong> y aquí aparecerá la explicación profunda de ALAI: definición, ejemplo, por qué importa y trucos para recordarlo.
             </div>
           </>
+        )}
+
+        {/* Rare edge case: a node with no real Enjoyer leaf descendants
+            (e.g. an empty grouping) — nothing to ground an explanation
+            in, so no request is ever attempted (see collectLeafNodeIds
+            in the auto-effect). Every normal leaf/branch node is
+            explained automatically on selection — no button needed. */}
+        {!showingRoot && !collectLeafNodeIds(current).length && !explicacion && !loadingExp && !errExp && (
+          <div style={{
+            padding: '14px 16px', borderRadius: 12,
+            background: 'var(--bg-card2)', border: '1.5px dashed var(--text-faint)',
+            fontSize: 13, color: 'var(--text-muted)', fontFamily: "var(--font-body)",
+          }}>
+            Este grupo no tiene contenido del material para explicar.
+          </div>
         )}
 
         {/* Cargando explicación */}
@@ -1895,23 +2541,20 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
           <>
             <AlaiMarkdown text={explicacion.answer || ''} color={color} />
 
+            {/* STUDYMAP_FINAL_POLISH: cleaner source presentation — one
+                quiet line instead of a bordered/boxed callout, less
+                visual competition with the explanation text above it. */}
             {explicacion.sourcePages && explicacion.sourcePages.length > 0 && (
               <div style={{
-                display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
-                padding: '8px 12px', borderRadius: 10,
-                background: `color-mix(in srgb, ${color} 8%, var(--bg-card2))`,
-                border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
+                display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap',
+                fontSize: 11, color: 'var(--text-faint)', fontFamily: "var(--font-body)",
               }}>
-                <span style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 700, fontFamily: "var(--font-body)" }}>
-                  📄 Fuentes:
-                </span>
+                <span style={{ fontWeight: 700 }}>Fuentes</span>
                 {explicacion.sourcePages.map((p: number) => (
                   <span key={p} style={{
-                    padding: '2px 8px', borderRadius: 999,
-                    background: `color-mix(in srgb, ${color} 18%, var(--bg-card))`,
-                    border: `1px solid ${color}`,
-                    fontSize: 11, fontWeight: 700, color,
-                    fontFamily: "var(--font-body)",
+                    padding: '1px 7px', borderRadius: 999,
+                    background: `color-mix(in srgb, ${color} 12%, transparent)`,
+                    fontWeight: 700, color,
                   }}>
                     p.{p}
                   </span>
@@ -1919,7 +2562,23 @@ Ahora: analiza qué tipo de concepto es, elige las 3-6 secciones MÁS ÚTILES de
               </div>
             )}
 
-
+            {/* Honest provenance (STUDYMAP_FINAL_LIVE_HARDENING): any
+                pedagogical enrichment the model added beyond the [UNIT]
+                block is shown here, visually distinct and WITHOUT the
+                "Fuentes: p.X" badge above — that badge only ever covers
+                `explicacion.answer`, never this note. */}
+            {explicacion.pedagogicalNote && (
+              <div style={{
+                padding: '10px 12px', borderRadius: 10,
+                background: 'var(--bg-card2)',
+                border: '1.5px dashed var(--text-faint)',
+              }}>
+                <div style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 700, marginBottom: 4, fontFamily: "var(--font-body)" }}>
+                  💡 Para entenderlo mejor (no viene del material)
+                </div>
+                <AlaiMarkdown text={explicacion.pedagogicalNote} color={color} />
+              </div>
+            )}
           </>
         )}
 
@@ -1958,7 +2617,19 @@ const LOAD_STEPS = [
 // MAIN
 // ════════════════════════════════════════════════
 
-type ViewMode = 'map' | 'cards' | 'outline';
+type ViewMode = 'map' | 'outline';
+
+/**
+ * STUDYMAP_FINAL_POLISH: Cards mode was removed entirely. A session
+ * persisted before this change may still have `view: 'cards'` saved —
+ * restoring it verbatim would land on a view that no longer exists and
+ * renders nothing. Any value other than the current valid ViewModes
+ * (a stale 'cards', or anything else unrecognized) safely falls back
+ * to 'map', the primary experience.
+ */
+function sanitizeViewMode(value: unknown): ViewMode {
+  return value === 'outline' ? 'outline' : 'map';
+}
 
 export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onBack, masteryContext, sessionId, sourceSelection }: Props) {
   const [loading, setLoading] = useState(true);
@@ -1970,12 +2641,81 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
   const [exportMsg, setExportMsg] = useState('');
   const [expandedSet, setExpandedSet] = useState<Set<string>>(new Set());
   const [lastExpandedId, setLastExpandedId] = useState<string | null>(null);
+  // STUDYMAP_PATH_NAVIGATION: session-local guided navigation history —
+  // deliberately NOT part of DurableFreeStudyMapState/persistPatch (see
+  // final report for the persistence decision). Independent of
+  // studiedSet/explanationsByNodeId/Enjoyer identity — pure UI back-
+  // stack, reset on remount like expandedSet/selectedNode already are.
+  const [guidedNavStack, setGuidedNavStack] = useState<string[]>([]);
   const [materialText, setMaterialText] = useState<string>('');
   const [studiedSet, setStudiedSet] = useState<Set<string>>(new Set());
   const [showGuidedTour, setShowGuidedTour] = useState(false);
+  // STUDYMAP_FINAL_POLISH: toolbar overflow menu — houses the
+  // secondary/admin-like "Regenerar" action so the primary row (Mapa/
+  // Outline, Tour, progress, Exportar) stays uncluttered. Purely
+  // presentational local UI state.
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [tourIndex, setTourIndex] = useState(0);
   const [reloadToken, setReloadToken] = useState(0);
+  // Estado de preparación localizada (ver lib/materialBrain/toolPreparation.ts).
+  const [preparingMessage, setPreparingMessage] = useState<string | null>(null);
+  const preparationAttemptRef = useRef(0);
+  const preparationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (preparationTimerRef.current) clearTimeout(preparationTimerRef.current);
+  }, []);
   const isMobile = useIsMobile();
+
+  // STUDYMAP_UX_PHASE2: a third, medium-screen tier — its own tiny
+  // listener, deliberately NOT folded into the shared useIsMobile hook
+  // (used by many unrelated pages/components; this tier is Study-Map-
+  // specific). Medium screens get a floating/overlay inspector instead
+  // of either the desktop sidebar (permanently shrinks the map) or the
+  // mobile full-screen drawer.
+  const [isMediumScreen, setIsMediumScreen] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMediumScreen(window.innerWidth >= 768 && window.innerWidth < 1280);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+  const isFloatingPanel = isMediumScreen && !isMobile;
+  // STUDYMAP_UX_PHASE2 fallback: matches the floating panel's own
+  // nominal CSS footprint (width 400 + 16px margin on each side) — used
+  // ONLY before a real measurement is available (first paint) or if
+  // measurement ever fails, per STUDYMAP_NAVIGABLE_VIEWPORT_FIT's
+  // "use the real measured panel footprint where possible" below.
+  const FLOATING_PANEL_RESERVE = 400 + 16 + 16;
+
+  // STUDYMAP_NAVIGABLE_VIEWPORT_FIT: measure the floating panel's ACTUAL
+  // rendered footprint (its left edge to the right edge of the same
+  // positioned ancestor the camera's own container measures against)
+  // rather than trusting only the nominal constant above, which could
+  // silently drift from a future CSS change (responsive maxWidth, a
+  // content-driven width, etc).
+  const [floatingPanelEl, setFloatingPanelEl] = useState<HTMLElement | null>(null);
+  const floatingPanelRef = useCallback((el: HTMLElement | null) => setFloatingPanelEl(el), []);
+  const [measuredFloatingReserve, setMeasuredFloatingReserve] = useState<number | null>(null);
+  useEffect(() => {
+    if (!floatingPanelEl) { setMeasuredFloatingReserve(null); return; }
+    const measure = () => {
+      const panelRect = floatingPanelEl.getBoundingClientRect();
+      const anchor = floatingPanelEl.offsetParent;
+      const anchorRect = anchor instanceof HTMLElement ? anchor.getBoundingClientRect() : null;
+      // Distance from the panel's own left edge to the right edge of its
+      // positioned ancestor = exactly how much of that ancestor's width
+      // is unusable for the map — covers the panel's width AND its own
+      // right-side margin in one measurement, whatever they actually are.
+      const reserve = anchorRect ? Math.max(0, anchorRect.right - panelRect.left) : panelRect.width + 16;
+      setMeasuredFloatingReserve(reserve);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(floatingPanelEl);
+    window.addEventListener('resize', measure);
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
+  }, [floatingPanelEl]);
+  const floatingPanelReserve = measuredFloatingReserve ?? FLOATING_PANEL_RESERVE;
 
   const effectiveSourceSelection = useMemo(
     () => sourceSelection || buildSourceSelectionFromMaterials(materiales, seleccion),
@@ -1985,6 +2725,14 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
   const fingerprint = effectiveSourceSelection.fingerprint;
   const generationAttemptRef = useRef(0);
   const persistedStateRef = useRef<DurableFreeStudyMapState>(initialFreeStudyMapState());
+  // Single-flight guard for the mount/regeneration effect below, keyed by
+  // the EXACT authority identity (session + Enjoyer fingerprint). The
+  // effect's dependency array includes authorizedStatus/authorizedSource
+  // (fetched only for the unrelated "explain node" feature) and can
+  // re-run mid-flight — without this guard that re-run fires a second,
+  // fully duplicate POST /api/alai-studyal-map (same root cause already
+  // fixed in Truquitos).
+  const activeGenerationKeyRef = useRef<string | null>(null);
 
   const persistState = useCallback((nextState: DurableFreeStudyMapState) => {
     persistedStateRef.current = nextState;
@@ -1999,6 +2747,20 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
     persistState(nextState);
   }, [persistState]);
 
+  // Stable identity for StudyPanel's onPersistExplanation prop — defense
+  // in depth alongside StudyPanel's own ref-based decoupling
+  // (STUDYMAP_NODE_PROVIDER_LOOP): an inline arrow here would still be a
+  // new function every render even though StudyPanel no longer depends
+  // on it for effect triggering.
+  const handlePersistNodeExplanation = useCallback((nodeId: string, explanation: StudyMapExplanationState) => {
+    persistPatch({
+      explanationsByNodeId: {
+        ...(persistedStateRef.current.explanationsByNodeId || {}),
+        [nodeId]: explanation,
+      },
+    });
+  }, [persistPatch]);
+
   const applyPersistedState = useCallback((state: DurableFreeStudyMapState, combinedText: string) => {
     persistedStateRef.current = state;
     setMaterialText(combinedText);
@@ -2012,7 +2774,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
       : [];
     setExpandedSet(new Set(expandedIds));
     setStudiedSet(new Set(state.studiedNodeIds || []));
-    setView((state.view || 'map') as ViewMode);
+    setView(sanitizeViewMode(state.view));
     setShowGuidedTour(Boolean(state.showGuidedTour));
     setTourIndex(Number.isFinite(state.tourIndex) ? state.tourIndex : 0);
 
@@ -2034,10 +2796,45 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
     setShowGuidedTour(false);
     setTourIndex(0);
     setLastExpandedId(null);
+    setGuidedNavStack([]);
     setError(null);
     setLoading(true);
     setReloadToken(value => value + 1);
   }, [sessionId, fingerprint]);
+
+  // Flattened traversal order for the guided tour — computed once per
+  // mapData, not per navigation step.
+  const tourNodes = useMemo<MapNode[]>(() => {
+    if (!mapData) return [];
+    const ordered: MapNode[] = [];
+    const traverse = (n: MapNode) => { ordered.push(n); (n.children || []).forEach(traverse); };
+    traverse(mapData.root);
+    return ordered;
+  }, [mapData]);
+
+  /**
+   * STUDYMAP_UX_PHASE1: progressive tour reveal — expands ONLY the
+   * ancestor chain of the target tour node (never the whole tree at
+   * once). Fully deterministic, 0 provider calls: it only derives
+   * expandedSet from the already-generated mapData.
+   */
+  const revealTourNode = useCallback((idx: number) => {
+    if (!mapData) return;
+    const target = tourNodes[idx];
+    if (!target) return;
+    const chain = findParentChain(mapData.root, target.id) || [target];
+    const chainIds = new Set(chain.map(n => n.id));
+    setExpandedSet(chainIds);
+    setTourIndex(idx);
+    setSelectedNode(target);
+    setLastExpandedId(target.id);
+    persistPatch({
+      expandedNodeIds: [...chainIds],
+      showGuidedTour: true,
+      tourIndex: idx,
+      selectedNodeId: target.id,
+    });
+  }, [mapData, tourNodes, persistPatch]);
 
   useEffect(() => {
     if (!loading) return;
@@ -2048,17 +2845,41 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
   useEffect(() => {
     let cancelled = false;
     let startedAttempt: number | null = null;
+    // Hoisted to effect scope (not just inside run()) so the cleanup
+    // below can release the SAME key this invocation may have claimed —
+    // see the cleanup's own comment for why this matters.
+    const generationKey = `${sessionId}::${fingerprint}`;
+    // Releasing the guard on an interrupted cleanup (fixed previously) is
+    // necessary but NOT sufficient on its own: without also cancelling
+    // the actual in-flight fetch, an interrupted invocation's request
+    // keeps running to completion in the background, and the next
+    // invocation starts a SECOND, fully duplicate request — exactly the
+    // "two POST /api/alai-studyal-map ~10s apart" live symptom. The
+    // AbortController ties fetch cancellation to the same cleanup that
+    // already releases the guard, so at most one request is ever truly
+    // in flight for this identity.
+    const controller = new AbortController();
 
     const run = async () => {
       try {
-        if (authorizedStatus === 'loading' || authorizedStatus === 'idle') return;
-        if (authorizedStatus === 'error' || !authorizedSource) {
-          setError(authorizedError || 'No se pudo resolver la fuente autorizada.');
+        if (!sessionId) {
+          setError('No se pudo identificar la sesión Free para guardar este mapa.');
           setLoading(false);
           return;
         }
 
-        const combinedText = authorizedSource.combinedText;
+        // Single-flight: a generation for this EXACT identity already in
+        // flight (started by an earlier run of this same effect) is
+        // authoritative — its own completion handler will persist/apply
+        // the result. Bail out instead of re-deriving state and firing a
+        // duplicate request.
+        if (activeGenerationKeyRef.current === generationKey) return;
+
+        // materialText es SOLO para la función "explicar nodo" (chat de
+        // dudas) — nunca autoridad del mapa en sí, que ahora viene
+        // exclusivamente del StudyalMaterialEnjoyer persistido resuelto
+        // server-side.
+        const combinedText = authorizedSource?.combinedText || '';
         let restoredState = initialFreeStudyMapState();
         const restoredEnvelope = readFreeToolState<DurableFreeStudyMapState>(sessionId, fingerprint, 'studymap');
 
@@ -2088,7 +2909,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
           setSelectedNode(null);
           setExpandedSet(new Set());
           setStudiedSet(new Set(restoredState.studiedNodeIds || []));
-          setView((restoredState.view || 'map') as ViewMode);
+          setView(sanitizeViewMode(restoredState.view));
           setShowGuidedTour(Boolean(restoredState.showGuidedTour));
           setTourIndex(Number.isFinite(restoredState.tourIndex) ? restoredState.tourIndex : 0);
           setError(restoredState.error || 'La generación se interrumpió. Puedes reintentar.');
@@ -2099,21 +2920,29 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
         const started = beginFreeStudyMap(restoredState);
         generationAttemptRef.current = started.attempt;
         startedAttempt = started.attempt;
+        activeGenerationKeyRef.current = generationKey;
         persistState(started);
 
         setLoading(true);
         setError(null);
+        setPreparingMessage(null);
         setMaterialText(combinedText);
+
+        if (process.env.NODE_ENV !== 'production') {
+          console.info('[studymap-cost-guard]', JSON.stringify({
+            action: 'map_generation', sessionId: sessionId || null, fingerprint, trigger: 'lifecycle',
+          }));
+        }
 
         const res = await fetch('/api/alai-studyal-map', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            texto: combinedText,
+            sessionId,
             materia: materia?.nombre || materia?.name || '',
             tema: tema?.nombre || tema?.name || '',
-            masteryContext,
           }),
+          signal: controller.signal,
         });
 
         if (cancelled) return;
@@ -2121,6 +2950,33 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
         const data = await res.json();
 
         if (cancelled || generationAttemptRef.current !== started.attempt) return;
+
+        // FAST-ENTRY: source ya está listo pero el enriquecimiento rico
+        // sigue corriendo en background. NO es un error — el mapa se
+        // prepara solo. Mensaje localizado + continuación automática
+        // (sin botón Reintentar, sin volver atrás, sin pantalla global
+        // de preparación). El resto de Free Mode sigue abierto.
+        if (isBrainEnrichingResponse(res.status, data)) {
+          const nextAttempt = preparationAttemptRef.current + 1;
+          preparationAttemptRef.current = nextAttempt;
+          // El intento no falló: se abandona limpiamente (status idle,
+          // sin error persistido) para poder reintentarlo solo.
+          persistState(abandonFreeStudyMap(persistedStateRef.current, started.attempt));
+          startedAttempt = null;
+        activeGenerationKeyRef.current = null;
+          setPreparingMessage(toolPreparationMessage('studyMap', nextAttempt));
+          setError(null);
+          if (shouldContinuePreparation(nextAttempt)) {
+            preparationTimerRef.current = setTimeout(
+              () => setReloadToken(value => value + 1),
+              TOOL_PREPARATION_POLL_MS,
+            );
+          } else {
+            // Política acotada agotada: se deja de fingir progreso.
+            setLoading(false);
+          }
+          return;
+        }
 
         if (!data.success || !data.mapa) {
           const failed = failFreeStudyMap(
@@ -2130,6 +2986,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
           );
           persistState(failed);
           startedAttempt = null;
+        activeGenerationKeyRef.current = null;
           setError(data.error || 'No se pudo generar el mapa mental.');
           setLoading(false);
           return;
@@ -2147,7 +3004,14 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
           };
         };
 
-        const mapa: MindMapData = { ...data.mapa, root: assignIds(data.mapa.root) };
+        const mapa: MindMapData = {
+          ...data.mapa,
+          root: assignIds(data.mapa.root),
+          // Additive, backward-compatible: absent for maps generated
+          // before this field existed. Lets a resumed session restore
+          // coverage/visibility without recomputing anything.
+          ...(data.grounding ? { grounding: data.grounding } : {}),
+        };
 
         const completed = completeFreeStudyMap(
           persistedStateRef.current,
@@ -2156,9 +3020,19 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
         );
         persistState(completed);
         startedAttempt = null;
+        activeGenerationKeyRef.current = null;
         applyPersistedState(completed, combinedText);
         setLoading(false);
       } catch (e: any) {
+        if (controller.signal.aborted) {
+          // Cleanly interrupted by this effect's own cleanup (React
+          // StrictMode's dev double-invoke, or a genuine fast unmount) —
+          // never a real failure. The cleanup below already reverts
+          // persisted state and releases the single-flight guard; doing
+          // either again here would race with (and could clobber) a
+          // fresh invocation that has already started its own request.
+          return;
+        }
         const failed = failFreeStudyMap(
           persistedStateRef.current,
           generationAttemptRef.current,
@@ -2166,6 +3040,7 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
         );
         persistState(failed);
         startedAttempt = null;
+        activeGenerationKeyRef.current = null;
         if (!cancelled) {
           setError(e?.message || 'Error de conexión');
           setLoading(false);
@@ -2176,11 +3051,26 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
     run();
     return () => {
       cancelled = true;
+      controller.abort();
       // This effect invocation started a generation but never reached a
       // terminal state (React StrictMode double-invoke, or a genuine fast
       // unmount) — revert the 'generating' write so the next mount starts
       // clean instead of reporting a false "interrupted" error.
-      if (startedAttempt !== null) persistState(abandonFreeStudyMap(persistedStateRef.current, startedAttempt));
+      if (startedAttempt !== null) {
+        persistState(abandonFreeStudyMap(persistedStateRef.current, startedAttempt));
+        // ROOT CAUSE FIX (STUDYMAP_LOADING_LIFECYCLE): every terminal path
+        // inside run() clears activeGenerationKeyRef itself, but an
+        // invocation interrupted BEFORE reaching one of those paths (e.g.
+        // React StrictMode's mount->cleanup->mount dev double-invoke, or a
+        // fast unmount while the fetch is still in flight) never did.
+        // Without this, the guard is left permanently set to this exact
+        // sessionId::fingerprint key, so the NEXT invocation's own
+        // single-flight check (`activeGenerationKeyRef.current ===
+        // generationKey`) silently bails out forever — zero fetch, zero
+        // error, loading stuck at its initial `true`. Only release the
+        // key if it still belongs to THIS invocation (never a newer one).
+        if (activeGenerationKeyRef.current === generationKey) activeGenerationKeyRef.current = null;
+      }
     };
   }, [
     sessionId,
@@ -2235,6 +3125,49 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
     setLastExpandedId(id);
   }, [mapData, persistPatch]);
 
+  // STUDYMAP_PATH_NAVIGATION: Back is the ONLY thing that pops the
+  // guided navigation stack — it deliberately does NOT go through the
+  // same code path as onSelect (which pushes), so a Back navigation
+  // never re-pushes the node it just left. Independent of studiedSet
+  // (never touches it) and of explanationsByNodeId (StudyPanel's own
+  // persisted-explanation lookup is keyed by node id, unaffected by how
+  // the student arrived at that id). Zero provider calls — this is a
+  // pure client-side selection change, identical in kind to any other
+  // node selection.
+  const handleGuidedBack = useCallback(() => {
+    if (!mapData) return;
+    setGuidedNavStack(prev => {
+      const { stack, targetNodeId } = popGuidedNavigation(prev);
+      if (targetNodeId) {
+        const target = findNodeById(mapData.root, targetNodeId);
+        if (target) {
+          setSelectedNode(target);
+          setLastExpandedId(targetNodeId);
+          // STUDYMAP_SMOOTH_LOCAL_NAVIGATION: Back restores the
+          // destination node's OWN local context (its ancestor path +
+          // itself) — never whatever happened to still be expanded from
+          // later, unrelated exploration. Same normalization as forward
+          // navigation, so "walking backward" feels identical to
+          // "walking forward" rather than dragging stale state with it.
+          setExpandedSet(getGuidedVisibleContext(mapData.root, targetNodeId));
+        }
+      }
+      return stack;
+    });
+  }, [mapData]);
+
+  // Preparación localizada: mensaje propio del Study Map, continuación
+  // automática, sin Reintentar y sin forzar volver atrás.
+  if (preparingMessage) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, zIndex: 9999, padding: 24 }}>
+        <div style={{ fontSize: 48 }}>🗺️</div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--gold)', fontFamily: 'var(--font-body)', textAlign: 'center' }}>{preparingMessage}</div>
+        <button onClick={onBack} style={{ padding: '10px 24px', borderRadius: 12, border: '2px solid var(--text-primary)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>← Volver al proceso</button>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 32, zIndex: 9999 }}>
@@ -2284,36 +3217,38 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#f8f6f0', display: 'flex', flexDirection: 'column', zIndex: 9999 }}>
       <div style={{
-        display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14,
-        padding: isMobile ? '8px 12px' : '12px 20px',
+        display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10,
+        padding: isMobile ? '8px 10px' : '10px 18px',
         background: 'var(--bg-card)',
         borderBottom: '1.5px solid var(--border-color2)',
         flexShrink: 0, zIndex: 10,
-        overflowX: 'hidden',
-        flexWrap: 'nowrap',
+        flexWrap: isMobile ? 'wrap' : 'nowrap',
+        rowGap: 6,
       }}>
-        <button onClick={onBack} style={{
-          border: '2px solid var(--text-primary)', background: 'var(--bg-card)',
-          color: 'var(--text-primary)', borderRadius: 12, padding: '8px 14px',
-          fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: "var(--font-body)",
-          boxShadow: '3px 4px 0 var(--text-primary)',
-        }}>← volver al proceso</button>
+        <button onClick={onBack} title="Volver al proceso" style={{
+          border: '1.5px solid var(--border-color2)', background: 'transparent',
+          color: 'var(--text-muted)', borderRadius: 10, padding: isMobile ? '7px 10px' : '7px 12px',
+          fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: "var(--font-body)",
+          flexShrink: 0, whiteSpace: 'nowrap',
+        }}>{isMobile ? '←' : '← Volver al proceso'}</button>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--gold)', fontFamily: "var(--font-body)", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <div style={{ flex: 1, minWidth: 0, order: isMobile ? 3 : 0, flexBasis: isMobile ? '100%' : undefined }}>
+          <div style={{ fontSize: isMobile ? 15 : 17, fontWeight: 900, color: 'var(--gold)', fontFamily: "var(--font-body)", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             🗺️ {mapData.title}
           </div>
-          {mapData.summary && (
+          {mapData.summary && !isMobile && (
             <div style={{ fontSize: 12, color: 'var(--text-faint)', fontFamily: "var(--font-body)", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {mapData.summary}
             </div>
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border-color2)' }}>
+        {/* STUDYMAP_FINAL_POLISH: Mapa is the primary experience — the
+            view switcher stays first-class in the toolbar; Cards has
+            been removed entirely (see final report). */}
+        <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border-color2)', flexShrink: 0 }}>
           {([
             { key: 'map', label: '🗺️ Mapa' },
-            { key: 'cards', label: '🎴 Cards' },
             { key: 'outline', label: '📋 Outline' },
           ] as { key: ViewMode; label: string }[]).map(v => (
             <button key={v.key} onClick={() => {
@@ -2333,53 +3268,19 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
         <button
           onClick={() => {
             if (!mapData) return;
-            const allNodes: MapNode[] = [];
-            const traverse = (n: MapNode) => {
-              allNodes.push(n);
-              (n.children || []).forEach(traverse);
-            };
-            traverse(mapData.root);
-            const all = new Set<string>();
-            allNodes.forEach(n => all.add(n.id));
-            const first = allNodes[0] || null;
-            setExpandedSet(all);
             setShowGuidedTour(true);
-            setTourIndex(0);
-            if (first) {
-              setSelectedNode(first);
-              setLastExpandedId(first.id);
-            }
-            persistPatch({
-              expandedNodeIds: [...all],
-              showGuidedTour: true,
-              tourIndex: 0,
-              selectedNodeId: first?.id || null,
-            });
+            revealTourNode(0);
           }}
           title="Lectura guiada"
           style={{
-            padding: '7px 13px', borderRadius: 10,
+            padding: '7px 11px', borderRadius: 10,
             border: showGuidedTour ? '1.5px solid var(--gold)' : '1.5px solid var(--border-color2)',
             background: showGuidedTour ? 'color-mix(in srgb, var(--gold) 15%, transparent)' : 'transparent',
             color: showGuidedTour ? 'var(--gold)' : 'var(--text-muted)',
             fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "var(--font-body)",
+            flexShrink: 0,
           }}
-        >🔊 Tour</button>
-
-        <button
-          onClick={() => {
-            if (!confirm('¿Regenerar el mapa con un análisis nuevo? El actual se perderá.')) return;
-            resetAndReload();
-          }}
-          title="Regenerar mapa"
-          style={{
-            padding: '7px 13px', borderRadius: 10,
-            border: '1.5px solid var(--border-color2)',
-            background: 'transparent',
-            color: 'var(--text-muted)',
-            fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "var(--font-body)",
-          }}
-        >🔁 Regenerar</button>
+        >🔊{isMobile ? '' : ' Tour'}</button>
 
         {mapData.totalConcepts && (
           <div style={{
@@ -2388,17 +3289,61 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
             background: studiedSet.size > 0 ? 'color-mix(in srgb, #10b981 15%, var(--bg-card))' : 'color-mix(in srgb, var(--gold) 15%, var(--bg-card))',
             border: studiedSet.size > 0 ? '1.5px solid #10b981' : '1.5px solid var(--gold)',
             fontSize: 12, fontWeight: 700, color: studiedSet.size > 0 ? '#10b981' : 'var(--gold)', fontFamily: "var(--font-body)",
+            flexShrink: 0, whiteSpace: 'nowrap',
           }}>
             {studiedSet.size > 0 && <span>✓</span>}
             {studiedSet.size} / {mapData.totalConcepts + 1}
           </div>
         )}
 
-        <button onClick={handleExport} style={{
-          padding: '7px 13px', borderRadius: 10,
+        <button onClick={handleExport} title="Exportar" style={{
+          padding: '7px 11px', borderRadius: 10,
           border: '1.5px solid var(--border-color2)', background: 'transparent',
           color: 'var(--text-muted)', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "var(--font-body)",
-        }}>{exportMsg || '↓ Exportar'}</button>
+          flexShrink: 0, whiteSpace: 'nowrap',
+        }}>{exportMsg || (isMobile ? '↓' : '↓ Exportar')}</button>
+
+        {/* STUDYMAP_FINAL_POLISH: "Regenerar" is a destructive, admin-
+            like action (it discards the current map) — demoted out of
+            the primary row into a small overflow menu so it no longer
+            competes visually with everyday navigation actions. */}
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <button
+            onClick={() => setShowMoreMenu(v => !v)}
+            title="Más opciones"
+            style={{
+              width: 32, height: 32, borderRadius: 10,
+              border: '1.5px solid var(--border-color2)',
+              background: showMoreMenu ? 'var(--bg-secondary)' : 'transparent',
+              color: 'var(--text-muted)', fontSize: 16, fontWeight: 800, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+            }}
+          >⋯</button>
+          {showMoreMenu && (
+            <>
+              <div onClick={() => setShowMoreMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 20 }} />
+              <div style={{
+                position: 'absolute', top: '110%', right: 0, zIndex: 21,
+                minWidth: 190, padding: 6, borderRadius: 12,
+                background: 'var(--bg-card)', border: '1.5px solid var(--border-color2)',
+                boxShadow: '0 10px 30px rgba(0,0,0,0.4)',
+              }}>
+                <button
+                  onClick={() => {
+                    setShowMoreMenu(false);
+                    if (!confirm('¿Regenerar el mapa con un análisis nuevo? El actual se perderá.')) return;
+                    resetAndReload();
+                  }}
+                  style={{
+                    width: '100%', textAlign: 'left', padding: '9px 12px', borderRadius: 8,
+                    border: 'none', background: 'transparent', color: 'var(--text-muted)',
+                    fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: "var(--font-body)",
+                  }}
+                >🔁 Regenerar mapa</button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       <div style={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden' }}>
@@ -2409,7 +3354,40 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
                 data={mapData}
                 selectedId={selectedNode?.id || null}
                 onSelect={(n) => {
+                  // STUDYMAP_PATH_NAVIGATION: record where we're
+                  // navigating FROM (the current focus, before it
+                  // changes) so Back can return exactly there — a real
+                  // traversal history, not just "go to tree parent".
+                  // Guarded so re-selecting the SAME node (no-op click)
+                  // never pushes a redundant history entry.
+                  setGuidedNavStack(prev => (lastExpandedId && lastExpandedId !== n.id) ? pushGuidedNavigation(prev, lastExpandedId) : prev);
                   setSelectedNode(n);
+                  // STUDYMAP_EXPAND_COLLAPSE_REGRESSION: normalize
+                  // (replace, never merge) expandedSet to the new
+                  // current node's ANCESTOR PATH ONLY, explicitly
+                  // preserving the clicked node's own PRE-CLICK
+                  // expand/collapse state (getGuidedForwardExpansion) —
+                  // this is what keeps old unrelated branches from
+                  // accumulating WITHOUT stomping on the clicked node's
+                  // own state before onToggleExpand's functional update
+                  // (which runs right after this, in the same click —
+                  // see handleNodeClick) gets to decide add-vs-remove
+                  // for that node itself. The previous version used the
+                  // INCLUSIVE getGuidedVisibleContext here, which always
+                  // marked the just-clicked node as already-expanded
+                  // before toggleExpand ran — toggleExpand then always
+                  // saw "already expanded" and immediately collapsed it
+                  // back, so branches never appeared to open. Functional
+                  // form is required so this reads the TRUE pre-click
+                  // expandedSet, not a stale closure value.
+                  if (mapData) setExpandedSet(prev => getGuidedForwardExpansion(mapData.root, n.id, prev));
+                  // CAMERA_FOCUS_UX: toggleExpand already sets focusNodeId
+                  // for expand/collapse clicks, but a leaf click (or
+                  // re-selecting an already-expanded node) only ever
+                  // called onSelect — the camera never followed those
+                  // selections. Every selection that opens the panel must
+                  // drive the same focus-camera effect, not just expand.
+                  setLastExpandedId(n.id);
                   setStudiedSet(prev => {
                     const next = new Set(prev);
                     next.add(n.id);
@@ -2424,6 +3402,9 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
                 onToggleExpand={toggleExpand}
                 focusNodeId={lastExpandedId}
                 studiedSet={studiedSet}
+                reserveRight={isFloatingPanel && selectedNode ? floatingPanelReserve : 0}
+                previousNodeId={guidedNavStack.length ? guidedNavStack[guidedNavStack.length - 1] : null}
+                onGuidedBack={handleGuidedBack}
               />
             </div>
             <StudyPanel
@@ -2431,6 +3412,14 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
               mapData={mapData}
               onClose={() => {
                 setSelectedNode(null);
+                // STUDYMAP_UX_PHASE2: release camera focus so the
+                // pre-existing smart-fit comfort-zone check (it already
+                // re-runs whenever focusNodeId changes — see the effect
+                // above) re-measures the NOW-uncovered/regrown viewport
+                // and refits only if the current framing is no longer
+                // comfortable. Reuses existing camera machinery — no
+                // new recentering logic.
+                setLastExpandedId(null);
                 persistPatch({ selectedNodeId: null });
               }}
               onJumpToNode={(n) => {
@@ -2441,42 +3430,24 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
               materialText={materialText}
               materia={materia?.nombre || materia?.name || ''}
               tema={tema?.nombre || tema?.name || ''}
-              explanationsByNodeId={persistedStateRef.current.explanationsByNodeId || {}}
-              onPersistExplanation={(nodeId, explanation) => {
-                persistPatch({
-                  explanationsByNodeId: {
-                    ...(persistedStateRef.current.explanationsByNodeId || {}),
-                    [nodeId]: explanation,
-                  },
-                });
-              }}
+              sessionId={sessionId}
+              explanationsByNodeId={persistedStateRef.current.explanationsByNodeId || EMPTY_EXPLANATIONS_BY_NODE_ID}
+              onPersistExplanation={handlePersistNodeExplanation}
               isMobile={isMobile}
+              isFloating={isFloatingPanel}
+              panelRef={isFloatingPanel ? floatingPanelRef : undefined}
             />
 
             {showGuidedTour && mapData && (() => {
-              const allNodes: MapNode[] = [];
-              const traverse = (n: MapNode) => {
-                allNodes.push(n);
-                (n.children || []).forEach(traverse);
-              };
-              traverse(mapData.root);
-              const total = allNodes.length;
-              const current = allNodes[tourIndex];
-              const progress = Math.round(((tourIndex + 1) / total) * 100);
+              const total = tourNodes.length;
+              const current = tourNodes[tourIndex];
+              const progress = total > 0 ? Math.round(((tourIndex + 1) / total) * 100) : 0;
 
+              // Progressive reveal (STUDYMAP_UX_PHASE1): expands only the
+              // ancestor chain of the target node, never the whole tree.
               const goTo = (idx: number) => {
                 if (idx < 0 || idx >= total) return;
-                setTourIndex(idx);
-                const n = allNodes[idx];
-                if (n) {
-                  setSelectedNode(n);
-                  setLastExpandedId(n.id);
-                  persistPatch({
-                    tourIndex: idx,
-                    showGuidedTour: true,
-                    selectedNodeId: n.id,
-                  });
-                }
+                revealTourNode(idx);
               };
 
               return (
@@ -2553,7 +3524,6 @@ export default function ALAIStudyMap({ materiales, seleccion, tema, materia, onB
             })()}
           </div>
         )}
-        {view === 'cards' && <CardsView data={mapData} />}
         {view === 'outline' && <OutlineView data={mapData} />}
       </div>
 

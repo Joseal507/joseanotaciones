@@ -39,6 +39,7 @@ export interface TrueFalseQuestion extends QuizQuestionBase {
 export interface FillBlankQuestion extends QuizQuestionBase {
   type: 'fill_blank';
   answer: string;
+  wordBank?: string[];
 }
 
 export interface MatchingPair {

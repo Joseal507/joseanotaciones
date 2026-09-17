@@ -1,18 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { alaiJson } from '../../../../lib/alai';
+import { detectLanguage } from '../../../../lib/detectLanguage';
 import { getMaterialText, getMaterial } from '../../../../lib/materials/repository';
 import { downloadFromR2 } from '../../../../lib/materials/storage';
 import { extractText } from '../../../../lib/materials/extractors';
+import {
+  analyzePdfPageVisual,
+  buildVisionGateTelemetry,
+  chunkVisualPagesIntoBatches,
+  logVisionGateTelemetry,
+  selectPagesNeedingVisualAnalysis,
+  VISUAL_PAGE_BATCH_SIZE,
+} from '../../../../lib/materials/visualPageAnalysis';
+import {
+  buildVisualPageCacheIdentity,
+  getOrAnalyzeVisualPage,
+  WorkerVisualPageAnalysisStore,
+} from '../../../../lib/materials/visualPageCache';
+import {
+  analyzePdfPagesContentSignals,
+  computeMaterialContentFingerprint,
+  computePdfPageFingerprint,
+} from '../../../../lib/materials/pageContentSignals';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../../lib/auth/options';
 import {
   enrichBlueprintHeuristics,
   evaluateBlueprintQuality,
 } from '../../../../lib/adaptive/blueprintQuality';
-import { buildSourceSelectionSnapshot, filterTextToSelectedPages, stripNonInstructionalBoilerplate } from '../../../../lib/adaptive/sourceSelection';
+import { buildSourceSelectionSnapshot, deriveAuthorizedPageUnits, filterTextToSelectedPages, stripNonInstructionalBoilerplate } from '../../../../lib/adaptive/sourceSelection';
+import { getOrCreateStudyalMaterialEnjoyer, lookupStudyalMaterialEnjoyer, WorkerMaterialEnjoyerStore, MATERIAL_ENJOYER_ACADEMIC_VERSION } from '../../../../lib/adaptive/materialEnjoyer';
 
 export const maxDuration = 180;
 export const dynamic = 'force-dynamic';
+
+const visualPageAnalysisStore = new WorkerVisualPageAnalysisStore();
 
 interface DocumentTopic {
   id: string;
@@ -24,6 +46,7 @@ interface DocumentTopic {
 }
 
 type BlueprintAuditIssueKind = 'omission' | 'invention' | 'other' | 'audit_failure';
+export type BlueprintAuditStatus = 'passed' | 'warning' | 'unavailable' | 'invalid' | 'verified_issue';
 
 interface BlueprintAuditIssue {
   kind: BlueprintAuditIssueKind;
@@ -34,6 +57,18 @@ export interface BlueprintAuditReport {
   passed: boolean;
   issues: BlueprintAuditIssue[];
   uncoveredFragments: string[];
+  status?: 'passed' | 'warning' | 'unavailable' | 'invalid';
+}
+
+interface BlueprintPageDisposition {
+  status: 'represented' | 'no_extractable_text' | 'uncovered_with_content' | 'excluded_low_content';
+  reason: string;
+  charCount: number;
+}
+
+export interface BlueprintCertificationEvidence {
+  pageDispositions?: Record<string, BlueprintPageDisposition>;
+  auditMaterialId?: string;
 }
 
 function slugify(text: string): string {
@@ -145,13 +180,6 @@ function estimateAnalysisMaxTokens(sectionChunk: string): number {
   return clampInt(base + estimatedBlocks * 240, min, max);
 }
 
-function estimateVisionMaxTokens(existingText: string): number {
-  const cleanLen = stripEditorialNoise(existingText).length;
-  if (cleanLen < 120) return 750;
-  if (cleanLen < 220) return 600;
-  return 450;
-}
-
 function normalizeForMatch(text: string): string {
   return String(text || '')
     .toLowerCase()
@@ -256,61 +284,6 @@ function deriveSourceSpansFromTopicText(
     : [];
 }
 
-// PASO 0: Enriquecer páginas con poco texto usando Gemini Vision
-// Auditoría de garantías (verificación post-misión, GARANTÍA 2, test case
-// 10 CONFIRMADO): un fallo de red/HTTP de esta llamada (distinto de "la
-// página no tenía nada relevante que describir") no tenía NINGÚN reintento
-// — un solo hipo transitorio dejaba esa página con su texto pobre/vacío
-// original para siempre, sin log estructurado más allá de un console.warn,
-// exactamente "contenido visual necesario desapareciendo silenciosamente".
-// singleVisionAttempt lanza (en vez de devolver '') específicamente para
-// los casos de fallo real (HTTP no-ok, excepción de red/parseo) — nunca
-// para una respuesta 200 con contenido corto/vacío, que es un juicio de
-// CONTENIDO legítimo del modelo, no un fallo que un reintento vaya a
-// arreglar. enrichPageWithVision reintenta UNA vez solo ante ese throw.
-// Auditoría de garantías (verificación post-misión, GARANTÍA 2): extraídas
-// como funciones puras/exportadas para poder probarse directamente (sin
-// red, sin reimplementar la lógica en el test) que (a) la selección de
-// páginas que necesitan visión depende SOLO de cuánto texto extraíble
-// tiene cada página — nunca de una cuota — y (b) el batching nunca
-// descarta candidatas, solo agrupa para acotar concurrencia.
-export const VISION_MAX_CHARS = 80;
-export const VISION_BATCH_SIZE = 2;
-
-export function selectPagesNeedingVision(
-  fullPageMap: Map<number, string>,
-  allowedPages: number | number[],
-  stripNoise: (text: string) => string = stripEditorialNoise,
-): number[] {
-  const poorPages: number[] = [];
-  const pages = Array.isArray(allowedPages)
-    ? [...new Set(allowedPages)].sort((a, b) => a - b)
-    : Array.from({ length: allowedPages }, (_, index) => index + 1);
-  for (const p of pages) {
-    const rawText = fullPageMap.get(p) || '';
-    const cleanText = stripNoise(rawText);
-    const cleanLen = cleanText.length;
-    const raw = rawText.trim().toLowerCase();
-    const isEmpty = !raw || raw === '(página vacía)' || raw === '(pagina vacia)' || cleanLen === 0;
-    const isNearlyEmpty = cleanLen > 0 && cleanLen <= VISION_MAX_CHARS;
-    if (isEmpty || isNearlyEmpty) poorPages.push(p);
-  }
-  poorPages.sort((a, b) => {
-    const aLen = stripNoise(fullPageMap.get(a) || '').length;
-    const bLen = stripNoise(fullPageMap.get(b) || '').length;
-    return aLen - bLen;
-  });
-  return poorPages;
-}
-
-export function chunkIntoBatches<T>(items: T[], batchSize: number): T[][] {
-  const batches: T[][] = [];
-  for (let i = 0; i < items.length; i += batchSize) {
-    batches.push(items.slice(i, i + batchSize));
-  }
-  return batches;
-}
-
 // Auditoría de garantías (verificación post-misión, A1.2): extractDocumentStructure
 // recibía SIEMPRE `pageMap` (construido ANTES del enriquecimiento visual, y
 // que nunca gana nuevas keys de página) — una página puramente visual (texto
@@ -339,115 +312,11 @@ export function attachSourceFiguresToBlocks<T extends {materialId?:string;pages?
   })
 }
 
-async function singleVisionAttempt(
-  pageNum: number,
-  pdfBuffer: Buffer,
-  maxTokens: number,
-  openrouterKey: string,
-): Promise<string> {
-  const base64 = pdfBuffer.toString('base64');
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${openrouterKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://studyal.app',
-      'X-Title': 'StudyAL Vision',
-    },
-    body: JSON.stringify({
-      model: 'google/gemini-2.5-flash',
-      max_tokens: maxTokens,
-      messages: [{
-        role: 'user',
-        content: [
-          {
-            type: 'image_url',
-            image_url: {
-              url: `data:application/pdf;base64,${base64}`,
-            },
-          },
-          {
-            type: 'text',
-            text: `Focus ONLY on page ${pageNum} of this document.
-This page appears to contain visual content (diagrams, charts, images, slides) with limited extractable text.
-
-Your task:
-1. Extract ALL text visible anywhere on this page — including inside diagrams, charts, labels, captions, and slide elements.
-2. Describe any visual content (graphs, diagrams, illustrations) and what they communicate.
-3. Write in the same language as the document content.
-
-Return a thorough description of the content on page ${pageNum} only. Be specific.`,
-          },
-        ],
-      }],
-    }),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`VISION_HTTP_${res.status}:${errText.slice(0, 100)}`);
-  }
-
-  const data = await res.json();
-  return data?.choices?.[0]?.message?.content ?? '';
-}
-
-// Auditoría de garantías (verificación post-misión, GARANTÍA 1 de esta
-// ronda: "VISUAL FAILURE MUST AFFECT COVERAGE AUTHORITY"): antes esta
-// función devolvía '' tanto si el proveedor genuinamente no encontró nada
-// que describir en la página (contenido corto, resultado LEGÍTIMO) como si
-// TODOS los intentos fallaron técnicamente (HTTP/red, fallo REAL) — el
-// caller no podía distinguir "página analizada sin nada relevante" de
-// "página NUNCA analizada". Eso permitía que una página realmente
-// requerida quedara sin enriquecer y el blueprint se certificara "listo"
-// de todos modos, con solo un console.warn como rastro. `status` hace esa
-// distinción explícita y es AUTORIDAD real de coverage (ver
-// certifyBlueprint más abajo), no solo telemetría.
-export type VisionEnrichmentStatus = 'enriched' | 'no_content' | 'failed' | 'no_api_key';
-export interface VisionEnrichmentOutcome {
-  status: VisionEnrichmentStatus;
-  text: string;
-}
-
-export async function enrichPageWithVision(
-  pageNum: number,
-  pdfBuffer: Buffer,
-  materialName: string,
-  existingText: string = '',
-): Promise<VisionEnrichmentOutcome> {
-  const openrouterKey = process.env.OPENROUTER_API_KEY;
-  if (!openrouterKey) {
-    console.warn(`  ⚠️ Sin OPENROUTER_API_KEY para visión en página ${pageNum}`);
-    return { status: 'no_api_key', text: '' };
-  }
-
-  const maxTokens = estimateVisionMaxTokens(existingText);
-  const MAX_VISION_ATTEMPTS = 2;
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_VISION_ATTEMPTS; attempt++) {
-    try {
-      const enriched = await singleVisionAttempt(pageNum, pdfBuffer, maxTokens, openrouterKey);
-      if (enriched.length > 50) {
-        console.log(`  🖼️ Página ${pageNum} enriquecida con visión: ${enriched.length} chars${attempt > 1 ? ` (intento ${attempt})` : ''}`);
-        return { status: 'enriched', text: enriched };
-      }
-      // Respuesta legítima del proveedor (sin throw) pero sin contenido
-      // relevante — la página SÍ fue analizada, simplemente no había nada
-      // que describir. Nunca es "failed": un reintento no cambiaría esto.
-      return { status: 'no_content', text: '' };
-    } catch (e: any) {
-      lastError = e;
-      console.warn(`  ⚠️ Vision error página ${pageNum} (intento ${attempt}/${MAX_VISION_ATTEMPTS}): ${e?.message}`);
-    }
-  }
-  console.warn(`  ⚠️ Página ${pageNum}: visión agotó ${MAX_VISION_ATTEMPTS} intentos, queda sin enriquecer: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
-  return { status: 'failed', text: '' };
-}
-
 // PASO 1: Detectar topics — basado en contenido real, sin límites artificiales
 async function extractDocumentStructure(
   pageMap: Map<number, string>,
   materialName: string,
+  materialLanguage: 'es' | 'en',
 ): Promise<DocumentTopic[]> {
   const pageEntries = Array.from(pageMap.entries())
     .filter(([_, text]) => text.trim().length > 30)
@@ -480,10 +349,13 @@ async function extractDocumentStructure(
       ? `This is part ${chunkIndex + 1} of ${totalChunks} of the document.`
       : 'This is the complete document.';
 
+    const languageName = materialLanguage === 'es' ? 'SPANISH' : materialLanguage === 'en' ? 'ENGLISH' : 'the source document\'s own language';
     return `You are an expert analyst. ${contextNote}
 
 Document: "${materialName}"
 Pages in this section: ${pageList}
+
+LANGUAGE — MANDATORY: the source document is written in ${languageName}. Write "title", "description", and every other text field you generate in ${languageName} — the SAME language as the document. NEVER default to English if the document is not in English. This instruction overrides the language of these very instructions and of the example below.
 
 This document may be of ANY type: textbook, novel, history, law, medicine, philosophy, math, science, literature, manual, or any other domain. Adapt your analysis to the actual content.
 
@@ -500,6 +372,7 @@ CRITICAL RULES:
 4. Topic titles must be SPECIFIC to the actual content — describe exactly what this section is about, not a generic category.
 5. Every page in [${pageList}] must be assigned to exactly one topic.
 6. Do NOT create topics named "Introduction", "Overview", "Section 1", or any generic placeholder.
+7. "title" and "description" MUST be written in ${languageName}, matching the document's own language — never English unless the document itself is in English.
 
 ROLES — assign the role that best fits this topic within the document:
 - foundation: background, context, prerequisites, biography, setting, who/what/when/where
@@ -512,12 +385,12 @@ ROLES — assign the role that best fits this topic within the document:
 Document content:
 ${sample}
 
-Return ONLY valid JSON. Every page listed in [${pageList}] must appear in exactly one topic:
+Return ONLY valid JSON. Every page listed in [${pageList}] must appear in exactly one topic. The field names below ("title", "description", "pages", "role") stay in English, but their VALUES must be written in ${languageName}:
 {
   "topics": [
     {
-      "title": "Specific descriptive title (5-10 words)",
-      "description": "One precise sentence describing what this topic covers",
+      "title": "Specific descriptive title (5-10 words) — IN ${languageName}",
+      "description": "One precise sentence describing what this topic covers — IN ${languageName}",
       "pages": [1, 2],
       "role": "foundation | problem | mechanism | application | integration | context"
     }
@@ -548,16 +421,16 @@ Return ONLY valid JSON. Every page listed in [${pageList}] must appear in exactl
       }
       console.warn(`  ⚠️ Chunk ${i + 1} sin topics — usando fallback por página`);
       return chunk.map(([pageNum]) => ({
-        title: `${materialName} — Page ${pageNum}`,
-        description: `Content from page ${pageNum}`,
+        title: materialLanguage === 'es' ? `${materialName} — Página ${pageNum}` : `${materialName} — Page ${pageNum}`,
+        description: materialLanguage === 'es' ? `Contenido de la página ${pageNum}` : `Content from page ${pageNum}`,
         pages: [pageNum],
         role: 'mechanism',
       }));
     } catch (e: any) {
       console.error(`  ❌ Chunk ${i + 1} failed: ${e?.message}`);
       return chunk.map(([pageNum]) => ({
-        title: `${materialName} — Page ${pageNum}`,
-        description: `Content from page ${pageNum}`,
+        title: materialLanguage === 'es' ? `${materialName} — Página ${pageNum}` : `${materialName} — Page ${pageNum}`,
+        description: materialLanguage === 'es' ? `Contenido de la página ${pageNum}` : `Content from page ${pageNum}`,
         pages: [pageNum],
         role: 'mechanism',
       }));
@@ -605,10 +478,18 @@ async function analyzeTopic(
   materialName: string,
   topicIndex: number,
   totalTopics: number,
+  materialLanguage: 'es' | 'en',
 ): Promise<any[]> {
   if (!topicText.trim() || topicText.trim().length < 30) return [];
 
-  const langHint = /[áéíóúüñÁÉÍÓÚÜÑ]/.test(topicText) ? 'es' : 'en';
+  // ENJOYER_LANGUAGE_MATH_FIDELITY: materialLanguage is resolved ONCE
+  // per material (see the call site) from a representative sample
+  // spanning multiple pages — never recomputed per-topic/per-chunk here.
+  // A single topic's own text can be short/atypical (proper nouns,
+  // formulas, a page with few words) and previously produced a
+  // different langHint than its siblings, which is exactly how a
+  // Spanish document could end up with SOME English topics.
+  const langHint = materialLanguage;
 
   const cleanText = topicText.trim();
 
@@ -697,6 +578,7 @@ CRITICAL — PRESERVE MODALITY (facts vs opinions):
    - "The formula is E=mc²" → FACT → extract directly
    - "This theory revolutionized physics" → VALUATION → "The material argues this theory revolutionized physics"
 5d. If the source is an argumentative essay, opinion piece, or persuasive text, preserve the argumentative modality throughout — do not present arguments as neutral facts.
+5e. FORMULA FIDELITY (ENJOYER_LANGUAGE_MATH_FIDELITY): when extracting a kind="formula" block, write the formula as LaTeX between single dollar signs, e.g. $K_p = K_c(RT)^{\Delta n}$ — use "_" for subscripts, "^" for exponents, "\frac{a}{b}" for fractions/ratios, and reproduce the EXACT variables, coefficients, parentheses, and Greek letters (Δ, etc.) as they appear in the source text. NEVER reconstruct a formula from general chemistry/physics/math knowledge, and NEVER "simplify" or "correct" it — the source text is the only authority, even if it looks incomplete or unconventional. If the source formula cannot be represented faithfully, describe it in words instead of guessing at notation.
 5. Extract ALL of the following when present:
    - Mathematical or logical formulas → kind="formula"
    - Definitions of specific terms → kind="definition"
@@ -806,9 +688,10 @@ Return ONLY valid JSON — no markdown, no code fences, no extra text:
 
         // Retry 2: prompt ULTRA-SIMPLE — pedir menos campos, JSON más corto
         try {
-          const langHintRetry = /[áéíóúüñÁÉÍÓÚÜÑ]/.test(textChunks[i]) ? 'SPANISH' : 'ENGLISH';
+          // Reuses the SAME materialLanguage resolved once for this
+          // material — never recomputed per-chunk (ENJOYER_LANGUAGE_MATH_FIDELITY).
           const simplePrompt = `Extract 3-6 key knowledge blocks from this text about "${topic.title}".
-Language: ${langHintRetry}.
+Language: ${langHint === 'es' ? 'SPANISH' : 'ENGLISH'}.
 
 TEXT:
 ${textChunks[i].slice(0, 5000)}
@@ -841,14 +724,14 @@ Return ONLY valid JSON, no extra text. Keep summaries to 1-2 sentences:
           const firstHalf = textChunks[i].slice(0, splitPoint).trim();
           const secondHalf = textChunks[i].slice(splitPoint).trim();
 
-          const langHintSplit = /[áéíóúüñÁÉÍÓÚÜÑ]/.test(textChunks[i]) ? 'SPANISH' : 'ENGLISH';
           let recoveredBlocks = 0;
 
           for (const [halfIdx, halfText] of [firstHalf, secondHalf].entries()) {
             if (halfText.length < 50) continue;
             try {
+              // Same materialLanguage, never recomputed per-half.
               const halfPrompt = `Extract 2-4 key knowledge blocks from this text about "${topic.title}".
-Language: ${langHintSplit}.
+Language: ${langHint === 'es' ? 'SPANISH' : 'ENGLISH'}.
 
 TEXT:
 ${halfText.slice(0, 3000)}
@@ -1223,7 +1106,7 @@ async function auditBlueprint(
     .join('\n')
     .slice(0, 800);
 
-  const langHint = /[áéíóúüñÁÉÍÓÚÜÑ]/.test(sourceSample) ? 'es' : 'en';
+  const langHint = detectLanguage(sourceSample, 'es');
 
   const prompt = `Audit: does this knowledge map cover the source document?
 Document: "${materialName}"
@@ -1289,6 +1172,7 @@ Every item in "issues" MUST be an object with exactly this shape:
       passed,
       issues,
       uncoveredFragments: result?.uncoveredFragments || [],
+      status: passed ? 'passed' : 'warning',
     };
   } catch (e: any) {
     console.warn(`⚠️ Auditoría falló: ${e?.message} — reintentando con prompt mínimo...`);
@@ -1327,16 +1211,70 @@ Every item in "issues" MUST be an object with exactly this shape:
         passed: retryPassed,
         issues: retryAudit.issues,
         uncoveredFragments: retryAudit.uncoveredFragments,
+        status: retryPassed ? 'passed' : 'warning',
       };
-    } catch {
+    } catch (retryError: any) {
       console.warn(`❌ Auditoría: ambos intentos fallaron — BLOQUEANDO`);
+      const invalidContract = String(e?.message || '').startsWith('AUDIT_INVALID_') ||
+        String(retryError?.message || '').startsWith('AUDIT_INVALID_');
       return {
         passed: false,
         issues: [{ kind: 'audit_failure', message: 'La auditoría independiente no pudo ejecutarse' }],
         uncoveredFragments: [],
+        status: invalidContract ? 'invalid' : 'unavailable',
       };
     }
   }
+}
+
+function pagesClaimedByAuditFinding(message: string): number[] {
+  const pages = new Set<number>();
+  const pattern = /(?:p(?:á|a)gina|page|p\.)\s*#?\s*(\d+)/gi;
+  for (const match of String(message || '').matchAll(pattern)) pages.add(Number(match[1]));
+  return [...pages].filter(Number.isFinite);
+}
+
+export function classifyBlueprintAudit(
+  audit: BlueprintAuditReport,
+  evidence: BlueprintCertificationEvidence = {},
+): {
+  auditStatus: BlueprintAuditStatus;
+  verifiedIssues: BlueprintAuditIssue[];
+  advisoryIssues: BlueprintAuditIssue[];
+  verifiedUncoveredFragments: string[];
+} {
+  const dispositions = evidence.pageDispositions || {};
+  const verifiedIssues: BlueprintAuditIssue[] = [];
+  const advisoryIssues: BlueprintAuditIssue[] = [];
+  const verifiedUncoveredFragments: string[] = [];
+
+  for (const issue of audit.issues || []) {
+    const claimedPages = pagesClaimedByAuditFinding(issue.message);
+    const verifiedOmission = issue.kind === 'omission' && claimedPages.some(page =>
+      Object.entries(dispositions).some(([key, disposition]) =>
+        key.endsWith(`:${page}`) &&
+        (!evidence.auditMaterialId || key.startsWith(`${evidence.auditMaterialId}:`)) &&
+        disposition.status === 'uncovered_with_content'
+      )
+    );
+    if (verifiedOmission) {
+      verifiedIssues.push(issue);
+      if ((audit.uncoveredFragments || []).includes(issue.message)) verifiedUncoveredFragments.push(issue.message);
+    } else {
+      advisoryIssues.push(issue);
+    }
+  }
+
+  const hasDeterministicUncoveredPage = Object.values(dispositions)
+    .some(disposition => disposition.status === 'uncovered_with_content');
+  const rawFailureStatus = audit.status === 'invalid' || audit.status === 'unavailable'
+    ? audit.status
+    : audit.issues.some(issue => issue.kind === 'audit_failure') ? 'unavailable' : null;
+  const auditStatus: BlueprintAuditStatus = hasDeterministicUncoveredPage || verifiedIssues.length > 0
+    ? 'verified_issue'
+    : rawFailureStatus || (audit.passed && advisoryIssues.length === 0 ? 'passed' : 'warning');
+
+  return { auditStatus, verifiedIssues, advisoryIssues, verifiedUncoveredFragments };
 }
 
 // PASO 3.5: Reparación de huecos detectados por auditoría
@@ -1362,7 +1300,7 @@ async function repairCoverageGaps(
     .map(([num, txt]) => `[Página ${num}]\n${txt}`)
     .join('\n\n');
 
-  const langHint = /[áéíóúüñÁÉÍÓÚÜÑ]/.test(fullText) ? 'es' : 'en';
+  const langHint = detectLanguage(fullText, 'es');
 
   for (const gap of audit.uncoveredFragments.slice(0, 6)) {
     if (gap.length < 5) continue;
@@ -1479,12 +1417,16 @@ export function certifyBlueprint(
   quality: any,
   audit: BlueprintAuditReport,
   failedVisualPages: Array<{ material: string; page: number }> = [],
+  evidence: BlueprintCertificationEvidence = {},
 ): {
   coverageCertified: boolean;
   planGenerationAllowed: boolean;
   certificationReasons: string[];
+  auditStatus: BlueprintAuditStatus;
+  auditWarnings: string[];
 } {
   const reasons: string[] = [];
+  const auditAssessment = classifyBlueprintAudit(audit, evidence);
 
   if (failedVisualPages.length > 0) {
     const pageList = failedVisualPages.map(f => `${f.material} p.${f.page}`).join(', ');
@@ -1524,19 +1466,15 @@ export function certifyBlueprint(
     reasons.push(`Topics sin bloques con páginas asignadas (contenido detectado pero nunca convertido en bloque de enseñanza): ${titles}`);
   }
 
-  // Condición 2: auditoría de IA — BLOQUEANTE si falla o no se ejecutó
-  if (audit.issues.some(issue => issue.kind === 'audit_failure')) {
-    // Auditoría no ejecutada — bloquear siempre
-    reasons.push('AUDIT_FAILED: La auditoría independiente no pudo ejecutarse. El blueprint no puede certificarse.');
-  } else if (!audit.passed && audit.issues.length > 0) {
-    // Auditoría ejecutada pero encontró problemas graves
-    const seriousIssues = audit.uncoveredFragments.length > 2 ||
-      audit.issues.some(issue => issue.kind === 'omission' || issue.kind === 'invention');
-    if (seriousIssues) {
-      for (const issue of audit.issues.slice(0, 3)) reasons.push(`Auditoría: ${issue.message}`);
-    } else {
-      console.log(`ℹ️ Auditoría: ${audit.issues.length} issue(s) menores — no bloquean`);
-    }
+  // Condición 2: el auditor aporta hallazgos, pero solo la evidencia de
+  // cobertura determinista puede convertirlos en autoridad bloqueante.
+  const uncoveredPages = Object.entries(evidence.pageDispositions || {})
+    .filter(([, disposition]) => disposition.status === 'uncovered_with_content');
+  for (const [sourcePage, disposition] of uncoveredPages) {
+    reasons.push(`UNCOVERED_ACADEMIC_PAGE: ${sourcePage} — ${disposition.reason}`);
+  }
+  for (const issue of auditAssessment.verifiedIssues.slice(0, 3)) {
+    reasons.push(`Auditoría verificada: ${issue.message}`);
   }
 
   // Condición 3: bloques con sourceSpans
@@ -1553,7 +1491,58 @@ export function certifyBlueprint(
   const coverageCertified = reasons.length === 0;
   const planGenerationAllowed = coverageCertified;
 
-  return { coverageCertified, planGenerationAllowed, certificationReasons: reasons };
+  const auditWarnings = auditAssessment.advisoryIssues.map(issue => issue.message);
+  return {
+    coverageCertified,
+    planGenerationAllowed,
+    certificationReasons: reasons,
+    auditStatus: auditAssessment.auditStatus,
+    auditWarnings,
+  };
+}
+
+/**
+ * StudyalMaterialEnjoyer Phase 1 — lookup-only read path. Used by Free
+ * Mode's debug viewer (and by any future non-Adaptive consumer) to
+ * read the SAME persisted, purely material-derived analysis Adaptive
+ * already generated for this exact source selection — NEVER
+ * generates. If nothing is persisted yet for this fingerprint, this
+ * returns `{ status: 'missing' }`; it never falls back to a different
+ * fingerprint's analysis and never triggers a provider call.
+ */
+export async function GET(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as { id?: string } | undefined)?.id;
+  if (!userId) return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
+
+  const url = new URL(req.url);
+  let materialIds: string[];
+  let selectedPages: Record<string, number[]>;
+  try {
+    materialIds = JSON.parse(url.searchParams.get('materialIds') || '[]');
+    selectedPages = JSON.parse(url.searchParams.get('selectedPages') || '{}');
+  } catch {
+    return NextResponse.json({ error: 'INVALID_PARAMS' }, { status: 400 });
+  }
+
+  const sourceSelection = buildSourceSelectionSnapshot(materialIds, selectedPages);
+  const requestedFingerprint = String(url.searchParams.get('fingerprint') || '');
+  if (!requestedFingerprint || requestedFingerprint !== sourceSelection.fingerprint) {
+    return NextResponse.json({ error: 'FINGERPRINT_MISMATCH', fingerprint: sourceSelection.fingerprint }, { status: 409 });
+  }
+
+  for (const materialId of sourceSelection.materialIds) {
+    if (!await getMaterial(materialId, userId)) {
+      return NextResponse.json({ error: `MATERIAL_NOT_FOUND:${materialId}` }, { status: 422 });
+    }
+  }
+
+  const store = new WorkerMaterialEnjoyerStore();
+  const restored = await lookupStudyalMaterialEnjoyer(sourceSelection.fingerprint, store);
+  if (!restored) {
+    return NextResponse.json({ status: 'missing', fingerprint: sourceSelection.fingerprint });
+  }
+  return NextResponse.json({ status: 'ready', fingerprint: sourceSelection.fingerprint, ...(restored as object) });
 }
 
 export async function POST(req: NextRequest) {
@@ -1577,6 +1566,24 @@ export async function POST(req: NextRequest) {
     const claimedFingerprint = body.sourceSelection?.fingerprint;
     if (claimedFingerprint && claimedFingerprint !== sourceSelection.fingerprint) {
       return NextResponse.json({ success: false, error: 'SOURCE_SELECTION_FINGERPRINT_MISMATCH' }, { status: 409 });
+    }
+
+    if (req.signal?.aborted) {
+      return NextResponse.json({ success: false, error: 'cancelled', cancelled: true }, { status: 499 });
+    }
+
+    // StudyalMaterialEnjoyer Phase 1 — RESTORE FIRST: this exact
+    // material/page selection may already have a persisted, purely
+    // material-derived analysis (generated by a prior Adaptive call,
+    // or by Free Mode's own lookup-only read never regenerating).
+    // Same fingerprint => same authority => zero new provider calls.
+    // Skipped for a genuinely forced regeneration (body.forceRegenerate).
+    const materialEnjoyerStore = new WorkerMaterialEnjoyerStore();
+    if (body.forceRegenerate !== true) {
+      const restored = await lookupStudyalMaterialEnjoyer(sourceSelection.fingerprint, materialEnjoyerStore);
+      if (restored) {
+        return NextResponse.json(restored as object);
+      }
     }
 
     console.info('[adaptive-source-selection]', JSON.stringify({
@@ -1615,20 +1622,33 @@ export async function POST(req: NextRequest) {
     const materialsWithText = await Promise.all(rawMaterials.map(async (m) => {
       let text = m.text || '';
       let buffer: Buffer | null = null;
-      if (!text && m.materialId) {
+      // Formatos convertibles (docx/pptx/odt/rtf) alimentan Adaptive como su
+      // normalized.pdf — misma pedagogía, distinta frontera de corpus. Si
+      // la conversión sigue en curso, no hay corpus autorizable todavía.
+      if (userId && m.materialId) {
         try {
-          const materialText = await getMaterialText(m.materialId);
-          text = materialText?.raw_text || '';
-        } catch (e) { console.warn(`DB error for ${m.materialId}:`, e); }
-        if (!text && userId) {
-          try {
-            const material = await getMaterial(m.materialId, userId);
-            if (material?.storage_key) {
-              buffer = await downloadFromR2(material.storage_key);
-              const result = await extractText(buffer, material.kind as any, material.mime_type, m.materialName);
+          const material = await getMaterial(m.materialId, userId);
+          if (material?.conversion_status === 'processing' || material?.conversion_status === 'failed') {
+            throw new Error(`MATERIAL_CONVERSION_${material.conversion_status.toUpperCase()}:${m.materialId}`);
+          }
+          if (!text) {
+            try {
+              const materialText = await getMaterialText(m.materialId);
+              text = materialText?.raw_text || '';
+            } catch (e) { console.warn(`DB error for ${m.materialId}:`, e); }
+          }
+          if (!text) {
+            const studyStorageKey = material ? (material.normalized_storage_key || material.storage_key) : '';
+            const studyKind = material ? (material.normalized_kind || material.kind) : 'pdf';
+            if (studyStorageKey) {
+              buffer = await downloadFromR2(studyStorageKey);
+              const result = await extractText(buffer, studyKind as any, material!.mime_type, m.materialName);
               text = result.text || '';
             }
-          } catch (e) { console.warn(`R2 error for ${m.materialId}:`, e); }
+          }
+        } catch (e: any) {
+          if (String(e?.message || '').startsWith('MATERIAL_CONVERSION_')) throw e;
+          console.warn(`Material/R2 error for ${m.materialId}:`, e);
         }
       }
       text = filterTextToSelectedPages(text, m.selectedPages);
@@ -1679,24 +1699,14 @@ export async function POST(req: NextRequest) {
       // PASO 1: Extraer estructura usando muestra compacta
       // fullPageMap tiene el texto completo por página (para el análisis)
       // pageMap tiene la muestra compacta (para detectar topics)
-      const fullPageMap = new Map<number, string>();
-      for (const [pageNum, _] of pageMap.entries()) {
-        // Reconstruir con texto completo desde el texto original
-        const pageMarkerRe = new RegExp(`\\[P[aá]gina ${pageNum}\\][\\s\\S]*?(?=\\[P[aá]gina \\d+\\]|$)`, 'i');
-        const match = pageMarkerRe.exec(m.text);
-        if (match) {
-          const rawPage = stripEditorialNoise(match[0].replace(/\[P[aá]gina \d+\]/gi, '').trim());
-          if (rawPage.length > 20) fullPageMap.set(pageNum, rawPage);
-        } else {
-          // fallback: usar lo que ya tenemos en pageMap
-          fullPageMap.set(pageNum, pageMap.get(pageNum) || '');
-        }
-      }
+      // Autoridad textual canónica: conserva también páginas cortas y usa el
+      // mismo parser que aplica la selección autorizada. `pageMap` es una
+      // muestra para topics y deliberadamente descarta <=20 chars; no puede
+      // decidir costos de Vision.
+      const fullPageMap = new Map<number, string>(deriveAuthorizedPageUnits(m.text, m.selectedPages)
+        .map(unit => [unit.page, stripEditorialNoise(unit.text)]));
 
-      // PASO 1.5: Enriquecer páginas realmente pobres con Gemini Vision
-      // Solo considerar páginas cuyo texto útil quede corto tras limpiar boilerplate/editorial.
-      const MIN_VISUAL_TEXT = 40;
-      const MAX_VISUAL_TEXT = 260;
+      // PASO 1.5: aplicar la política visual canónica compartida con Material Brain.
 
       // Obtener el buffer del PDF para visión — reutiliza el ya descargado
       // en materialsWithText si existe (perf audit, Codex), evitando una
@@ -1707,8 +1717,9 @@ export async function POST(req: NextRequest) {
           const { getMaterial } = await import('../../../../lib/materials/repository');
           const { downloadFromR2 } = await import('../../../../lib/materials/storage');
           const mat = await getMaterial(m.materialId, userId);
-          if (mat?.storage_key) {
-            pdfBuf = await downloadFromR2(mat.storage_key);
+          const visionKey = mat ? (mat.normalized_storage_key || mat.storage_key) : '';
+          if (visionKey) {
+            pdfBuf = await downloadFromR2(visionKey);
           }
         }
       } catch (e: any) {
@@ -1718,10 +1729,27 @@ export async function POST(req: NextRequest) {
       if (pdfBuf) {
         // Visión SOLO para páginas realmente vacías o casi vacías
         // (portadas de sección, diapositivas de imagen, páginas sin texto extraíble)
-        const poorPages = selectPagesNeedingVision(fullPageMap, m.selectedPages);
+        let visualSignals;
+        try {
+          visualSignals = await analyzePdfPagesContentSignals({
+            pdfBuffer: pdfBuf,
+            selectedPages: m.selectedPages,
+            extractedTextByPage: fullPageMap,
+          });
+        } catch (error: any) {
+          console.warn('⚠️ No se pudo analizar inteligencia visual; usando selección conservadora:', error?.message);
+        }
+        // Un fallo de inteligencia visual no es evidencia de contenido visual
+        // perdido. Falla cerrado para costo: cero llamadas hasta disponer de
+        // señales deterministas, en vez de degradar a `chars <= threshold`.
+        const gateRows = buildVisionGateTelemetry(m.selectedPages, visualSignals || []);
+        logVisionGateTelemetry(`adaptive_blueprint:${m.materialId}`, gateRows);
+        const poorPages = selectPagesNeedingVisualAnalysis(fullPageMap, m.selectedPages,
+          { policy: 'intelligent', signals: visualSignals || [] });
 
         if (poorPages.length > 0) {
-          console.log(`🖼️ ${poorPages.length} páginas con poco texto → enriqueciendo con visión: p.${poorPages.join(', ')}`);
+          console.log(`🖼️ Vision enrichment: ${m.selectedPages.length} selected, ${poorPages.length} candidates, ${m.selectedPages.length - poorPages.length} skipped: p.${poorPages.join(', ')}`);
+          const materialFingerprint = computeMaterialContentFingerprint(pdfBuf);
 
           // Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, A1
           // CONFIRMADO P1): antes se descartaban TOTALMENTE las candidatas
@@ -1730,27 +1758,42 @@ export async function POST(req: NextRequest) {
           // descarte). El cap ahora limita CONCURRENCIA/BATCH, no
           // cobertura total — se procesan TODAS las candidatas, en batches
           // acotados para no disparar 429s.
-          for (const viBatch of chunkIntoBatches(poorPages, VISION_BATCH_SIZE)) {
+          for (const viBatch of chunkVisualPagesIntoBatches(poorPages, VISUAL_PAGE_BATCH_SIZE)) {
             await Promise.all(viBatch.map(async (pageNum) => {
-              const outcome = await enrichPageWithVision(
-                pageNum,
-                pdfBuf!,
-                m.materialName,
-                fullPageMap.get(pageNum) || '',
-              );
-              if (outcome.status === 'enriched') {
+              const pageFingerprint = computePdfPageFingerprint(materialFingerprint, pageNum);
+              const identity = buildVisualPageCacheIdentity({
+                materialFingerprint,
+                page: pageNum,
+                pageFingerprint,
+              });
+              const outcome = await getOrAnalyzeVisualPage({
+                identity,
+                store: visualPageAnalysisStore,
+                analyze: () => analyzePdfPageVisual({
+                  page: pageNum,
+                  pdfBuffer: pdfBuf!,
+                  materialId: m.materialId,
+                  materialName: m.materialName,
+                  existingText: fullPageMap.get(pageNum) || '',
+                  stripNoise: stripEditorialNoise,
+                  contentFingerprint: materialFingerprint,
+                  pageFingerprint,
+                  pageMetrics: visualSignals?.find(signal => signal.page === pageNum),
+                }),
+              });
+              if (outcome.status === 'success') {
                 const existing = fullPageMap.get(pageNum) || '';
                 fullPageMap.set(pageNum, existing + '\n\n[Visual content]\n' + outcome.text);
                 const sourceFigure=buildPageSourceFigure(m.materialId,pageNum,outcome.text)
                 if(sourceFigure)detectedSourceFigures.push(sourceFigure)
               }
               // Auditoría de garantías (verificación post-misión, GARANTÍA 1
-              // de esta ronda): 'failed' es la ÚNICA salida que significa
+              // de esta ronda): 'failed' o 'partial' significa que la página
               // "esta página requerida NUNCA fue analizada" — 'no_content'
               // significa que SÍ se analizó y genuinamente no había nada
-              // relevante (no es un hueco de cobertura). Solo 'failed' se
+              // relevante (no es un hueco de cobertura). Ambos fallos de calidad se
               // registra como autoridad de coverage, no solo telemetría.
-              if (outcome.status === 'failed') {
+              if (outcome.status === 'failed' || outcome.status === 'partial') {
                 failedVisualPages.push({ material: m.materialName, page: pageNum });
               }
             }));
@@ -1769,8 +1812,26 @@ export async function POST(req: NextRequest) {
       // el contenido enriquecido de vuelta a pageMap antes de detectar topics.
       syncVisualEnrichmentToPageMap(pageMap, fullPageMap);
 
-      console.log(`🗺️  Extrayendo estructura...`);
-      const topics = await extractDocumentStructure(pageMap, m.materialName);
+      // ENJOYER_LANGUAGE_MATH_FIDELITY: resolve the material's academic
+      // language ONCE here, from a sample spread across multiple pages
+      // (never just the first page, which can be an atypical title/cover
+      // page) — then propagate the SAME value through topic extraction
+      // and every topic's concept analysis below. No extra provider
+      // call: detectLanguage() is a pure, deterministic, local function.
+      // This is what topic titles were missing — analyzeTopic() already
+      // received a per-topic language hint, but extractDocumentStructure()
+      // (the function that actually WRITES topic titles/descriptions)
+      // had no language signal or directive in its prompt at all.
+      const languageSamplePages = Array.from(fullPageMap.entries()).sort(([a], [b]) => a - b);
+      const languageSample = languageSamplePages
+        .filter(([, text]) => text && text.trim().length > 20)
+        .map(([, text]) => text.trim())
+        .join(' ')
+        .slice(0, 4000);
+      const materialLanguage = detectLanguage(languageSample, 'es');
+
+      console.log(`🗺️  Extrayendo estructura (idioma: ${materialLanguage})...`);
+      const topics = await extractDocumentStructure(pageMap, m.materialName, materialLanguage);
       allTopics.push(...topics);
 
       // PASO 2: Analizar cada topic con texto COMPLETO (no la muestra)
@@ -1798,7 +1859,7 @@ export async function POST(req: NextRequest) {
           }
 
           const blocks = await analyzeTopic(
-            topic, topicText, topics, m.materialName, i + batchIdx, topics.length
+            topic, topicText, topics, m.materialName, i + batchIdx, topics.length, materialLanguage
           );
 
           console.log(`  ✅ "${topic.title}": ${blocks.length} bloques`);
@@ -1995,12 +2056,19 @@ export async function POST(req: NextRequest) {
       validMaterials[validMaterials.length - 1]?.materialName || 'Material',
     );
 
-    // PASO 3.5: Si la auditoría encontró huecos, reparar y re-auditar
-    if (audit.uncoveredFragments && audit.uncoveredFragments.length > 0) {
+    // PASO 3.5: reparar únicamente huecos cuya página con contenido esté
+    // confirmada como descubierta por el inventario determinista. Un texto
+    // plausible del auditor sin esa evidencia permanece como advertencia.
+    const auditedMaterialId = validMaterials[validMaterials.length - 1]?.materialId || '';
+    const preRepairAuditAssessment = classifyBlueprintAudit(audit, {
+      pageDispositions,
+      auditMaterialId: auditedMaterialId,
+    });
+    if (preRepairAuditAssessment.verifiedUncoveredFragments.length > 0) {
       const repairedBlocks = await repairCoverageGaps(
         blueprint,
         lastMaterialPageMap,
-        audit,
+        { uncoveredFragments: preRepairAuditAssessment.verifiedUncoveredFragments },
         validMaterials[validMaterials.length - 1]?.materialName || 'Material',
       );
 
@@ -2051,14 +2119,26 @@ export async function POST(req: NextRequest) {
           const nextBlockId = (blueprint.blocks || []).length;
           for (let i = 0; i < uniqueRepaired.length; i++) {
             const rb = uniqueRepaired[i];
+            const repairedMaterialId = validMaterials[validMaterials.length - 1]?.materialId || '';
             blueprint.blocks.push({
               ...rb,
               id: `block_${nextBlockId + i}`,
               globalOrder: nextBlockId + i,
-              materialId: validMaterials[validMaterials.length - 1]?.materialId || '',
+              materialId: repairedMaterialId,
               materialName: validMaterials[validMaterials.length - 1]?.materialName || '',
               firstPage: (rb.pages || [])[0] || 0,
             });
+            for (const page of rb.pages || []) {
+              const sourcePageKey = `${repairedMaterialId}:${page}`;
+              const disposition = pageDispositions[sourcePageKey];
+              if (disposition) {
+                pageDispositions[sourcePageKey] = {
+                  ...disposition,
+                  status: 'represented',
+                  reason: 'Página cubierta por reparación verificada',
+                };
+              }
+            }
           }
           console.log(`♻️ Blueprint expandido: ${blueprint.blocks.length} bloques (${uniqueRepaired.length} nuevos, ${repairedBlocks.length - uniqueRepaired.length} duplicados descartados)`);
         } else {
@@ -2072,7 +2152,13 @@ export async function POST(req: NextRequest) {
     }
 
     // PASO 4: Certificación determinista
-    const certification = certifyBlueprint(blueprint, quality, audit, failedVisualPages);
+    const certification = certifyBlueprint(
+      blueprint,
+      quality,
+      audit,
+      failedVisualPages,
+      { pageDispositions, auditMaterialId: auditedMaterialId },
+    );
 
     console.log(`\n══════════════════════════════════════════════`);
     console.log(`✅ Blueprint completado`);
@@ -2099,8 +2185,13 @@ export async function POST(req: NextRequest) {
       return bks.length > 0 ? Math.round((withSpans / bks.length) * 100) : 0;
     })();
 
-    return NextResponse.json({
+    const responsePayload = {
       success: true,
+      // ENJOYER_LANGUAGE_MATH_FIDELITY migration stamp — see
+      // isMatchingFingerprint() in lib/adaptive/materialEnjoyer.ts. Any
+      // persisted payload without this exact value is treated as stale
+      // and regenerated once, never reused blindly forever.
+      enjoyerAcademicVersion: MATERIAL_ENJOYER_ACADEMIC_VERSION,
       blueprint,
       quality: {
         ...quality,
@@ -2111,12 +2202,27 @@ export async function POST(req: NextRequest) {
         failedVisualPages,
         auditExecuted: !audit.issues.some(issue => issue.kind === 'audit_failure'),
         auditPassed: audit.passed,
+        auditStatus: certification.auditStatus,
         auditIssues: audit.issues,
+        auditWarnings: certification.auditWarnings,
         spanCoverage,
         pageDispositions: (rawBlueprint as any).pageDispositions || {},
         pagesWithUncoveredContent: (rawBlueprint as any).pagesWithUncoveredContent || [],
       },
-    });
+    };
+
+    // StudyalMaterialEnjoyer Phase 1 — persist under the exact source
+    // selection fingerprint so the NEXT call for this SAME selection
+    // (from Adaptive again, or from Free Mode) restores this instead
+    // of re-running extraction/vision/topic-building. Best-effort: a
+    // storage failure must never fail an otherwise-successful response.
+    try {
+      await materialEnjoyerStore.set(sourceSelection.fingerprint, responsePayload);
+    } catch (persistError: any) {
+      console.error('[StudyalMaterialEnjoyer] persist failed (non-fatal):', persistError?.message || persistError);
+    }
+
+    return NextResponse.json(responsePayload);
 
   } catch (e: any) {
     console.error('Blueprint error:', e);

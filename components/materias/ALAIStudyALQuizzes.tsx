@@ -1,18 +1,37 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import type { ReactNode } from 'react';
 import { useMasteryReporter } from '../../hooks/useMastery';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import confetti from 'canvas-confetti';
 import { detectContentLanguage } from '../../lib/detectLanguage';
 import MathText from '../MathText';
+import { AcademicContent } from '../academic/AcademicContent';
+import { matchWrittenAnswer } from '../../lib/quiz/academicEquivalence';
+import { isGradedQuizEvaluation, safeUngradedEvaluation, type QuizEvaluationFeedback } from '../../lib/quiz/evaluationFeedback';
 import MatchingCanvas from './MatchingCanvas';
+import { EnjoyerQuizQuestionPrompt } from './EnjoyerQuizQuestionPrompt';
+import { FillBlankPresentation } from '../quiz/FillBlankPresentation';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
-import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
+import type { SourceEvidence } from '../../lib/materials/sourceEvidence';
+import {
+  mapEnjoyerQuizResponseQuestions,
+  nextEnjoyerQuizAdvanceRetry,
+  resumeEnjoyerQuizAdvance,
+  resolveEnjoyerQuizDisplayedTotal,
+  shouldRequestEnjoyerQuizBackgroundAdvance,
+} from '../../lib/quiz/enjoyerProgressiveUi';
+import {
+  availableQuizHelpActions, consumeQuizHelp, createQuizHelpEffect,
+  QUIZ_HELP_EXHAUSTED_MESSAGE, QUIZ_HELP_LIMIT,
+  type QuizHelpAction, type QuizHelpEffect,
+} from '../../lib/materialBrain/quiz/help';
 
 const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false });
+const createUpcomingAllocationSeed = () => globalThis.crypto?.randomUUID?.() || `quiz-${Date.now()}`;
 
 // ─── Tipos ────────────────────────────────────────────────────
 type QuizState = 'setup' | 'generating' | 'playing' | 'results' | 'review';
@@ -28,17 +47,27 @@ type QuestionType =
 interface Question {
   id: string;
   type: QuestionType;
+  difficulty?: Difficulty;
   question: string;
   options?: string[];
   correctAnswer?: any;
   correctAnswers?: number[];
   explanation?: string;
   wordBank?: string[];
+  answer?: string;
   pairs?: { left: string; right: string }[];
   acceptedAnswers?: string[];
   sourcePage?: number;
   sourceMaterial?: string;
   sourceMaterialName?: string;
+  grounding?: {
+    planId: string;
+    candidateId?: string;
+    sourceUnitIds: string[];
+    sourceRelationIds: string[];
+    evidence: SourceEvidence[];
+    supportingText: string;
+  };
 }
 
 interface HistoryEntry {
@@ -46,16 +75,10 @@ interface HistoryEntry {
   userAnswer: any;
   correct: boolean;
   timeMs: number;
-  evaluation?: {
-    nivel: string;
-    porcentaje: number;
-    analisis: string;
-    respuestaCorrecta: string;
-    explicacion: string;
-    consejo?: string;
-    detalles?: string[];
-  };
+  evaluation?: QuizEvaluationFeedback & { detalles?: string[] };
 }
+
+const QUIZ_CONTINUITY_VERSION = '4.0.0-enjoyer';
 
 interface PersistedQuizState {
   quizState: QuizState;
@@ -63,6 +86,7 @@ interface PersistedQuizState {
   selectedTypes: QuestionType[];
   questionCount: number;
   customCount: string;
+  requestedCount: number;
   questions: Question[];
   currentIndex: number;
   userAnswer: any;
@@ -71,6 +95,62 @@ interface PersistedQuizState {
   quizStartTime: number;
   questionStartTime: number;
   quizContext: string;
+  artifactIdentity?: string;
+  generationId?: string;
+  authorityFingerprint?: string;
+  configFingerprint?: string;
+  quizVersion?: string;
+  questionIds?: string[];
+  helpsUsed: number;
+  helpsRemaining: number;
+  helpEffectsByQuestion?: Record<string, QuizHelpEffect[]>;
+  generationManifest?: QuizGenerationManifestSummary | null;
+  completedCoverage?: QuizCoveragePreview | null;
+  advancePaused?: boolean;
+  advanceFailedAttempts?: number;
+}
+
+interface QuizGenerationManifestSummary {
+  totalSlots: number;
+  readyCount: number;
+  status: 'generating' | 'ready' | 'failed';
+  presentedOrder?: string[];
+  rejectionCounts?: Record<string, number>;
+  completionReason?: 'requested_limit_reached' | 'scope_exhausted' | 'quality_exhausted';
+}
+
+interface QuizCoveragePreview {
+  totalAssessableTargets: number;
+  coveredTargetCount: number;
+  uncoveredTargetCount: number;
+  estimatedCoveragePercent: number;
+  mode: 'first_pass' | 'practice';
+  representedSupportedTypeCount: number;
+  supportedSelectedTypeCount: number;
+  assessablePageCount: number;
+  sourceRegionCount: number;
+  supportedSelectedTypes: QuestionType[];
+  unsupportedSelectedTypes: Array<{ type: QuestionType; reason?: string }>;
+}
+
+export function QuizProgressiveGenerationRecovery({ paused, onRetry }: {
+  paused: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <>
+      {!paused && <div className="saq-spinner" />}
+      <h3>{paused ? 'La generación está pausada' : 'Preparando la siguiente pregunta…'}</h3>
+      <p>{paused
+        ? 'Las preguntas ya creadas siguen guardadas. Puedes continuar desde el mismo quiz.'
+        : 'Tu progreso ya está guardado.'}</p>
+      {paused && (
+        <button type="button" data-quiz-generation-retry className="saq-action-btn" onClick={onRetry}>
+          Reintentar generación
+        </button>
+      )}
+    </>
+  );
 }
 
 const BODY = "var(--font-body)";
@@ -98,17 +178,23 @@ const TYPE_META: Record<QuestionType, { icon: string; label: string }> = {
   short_answer:    { icon: '📝', label: 'Respuesta Corta' },
 };
 
-// ─── Verificador de respuestas ────────────────────────────────
-function normAnswer(s: string): string {
-  return String(s || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9ñ\s]/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+const HELP_LABEL: Record<QuizHelpAction, string> = {
+  hint: 'Pista', eliminate_two: 'Eliminar 2 opciones', discard_incorrect: 'Descartar 1 incorrecta',
+  review_evidence: 'Revisar evidencia', reveal_letter: 'Revelar una letra',
+  discard_connection: 'Descartar conexión imposible', key_concept: 'Concepto clave',
+};
+const HELP_MODAL_TITLE: Record<QuizHelpAction, string> = {
+  hint: 'Pista', eliminate_two: 'Dos opciones descartadas', discard_incorrect: 'Una opción descartada',
+  review_evidence: 'Revisa esta parte', reveal_letter: 'Una letra revelada',
+  discard_connection: 'Conexión descartada', key_concept: 'Concepto clave',
+};
+const QUIZ_REPORT_REASONS = [
+  'Pregunta incorrecta', 'Respuesta correcta incorrecta', 'Pregunta confusa',
+  'Opciones malas o ambiguas', 'Pregunta repetida', 'No corresponde al material',
+  'Error visual', 'Otro',
+];
 
+// ─── Verificador de respuestas ────────────────────────────────
 function getExpectedAnswers(q: Question): string[] {
   const anyQ = q as any;
   if (q.acceptedAnswers?.length) return q.acceptedAnswers;
@@ -183,9 +269,8 @@ function scoreWrittenLocal(q: Question, userAnswer: any): {
   expected: string;
 } {
   const expectedList = getExpectedAnswers(q);
-  const user = normAnswer(String(userAnswer ?? ''));
-
-  const exact = expectedList.some(e => normAnswer(e) === user);
+  const match = matchWrittenAnswer(String(userAnswer ?? ''), expectedList);
+  const exact = match === 'exact' || match === 'academic_equivalence';
 
   if (exact) {
     return {
@@ -265,8 +350,22 @@ export default function ALAIStudyALQuizzes({
   const [selectedTypes, setSelectedTypes] = useState<QuestionType[]>(['multiple_choice']);
   const [questionCount, setQuestionCount] = useState(10);
   const [customCount, setCustomCount]     = useState('');
+  const [requestedCount, setRequestedCount] = useState(10);
+  const [artifactIdentity, setArtifactIdentity] = useState<string | null>(null);
+  const [generationId, setGenerationId] = useState<string | null>(null);
+  const [generationManifest, setGenerationManifest] = useState<QuizGenerationManifestSummary | null>(null);
+  const [allocationSeed, setAllocationSeed] = useState(createUpcomingAllocationSeed);
   const [genError, setGenError]           = useState<string | null>(null);
   const [quizContext, setQuizContext]     = useState('');
+  const [coveragePreview, setCoveragePreview] = useState<QuizCoveragePreview | null>(null);
+  const [coverageLoading, setCoverageLoading] = useState(false);
+  const [coverageFingerprint, setCoverageFingerprint] = useState<string | null>(null);
+  const [completedCoverage, setCompletedCoverage] = useState<QuizCoveragePreview | null>(null);
+  const [isCompleting, setIsCompleting] = useState(false);
+  const [completionError, setCompletionError] = useState<string | null>(null);
+  const [isLocalRetry, setIsLocalRetry] = useState(false);
+  const quizMountedAtRef = useRef(typeof performance !== 'undefined' ? performance.now() : 0);
+  const generationStartedAtRef = useRef(0);
 
   // ── Juego ──────────────────────────────────────────────────
   const [questions, setQuestions]   = useState<Question[]>([]);
@@ -274,6 +373,14 @@ export default function ALAIStudyALQuizzes({
   const [userAnswer, setUserAnswer]     = useState<any>(null);
   const [isLocked, setIsLocked]         = useState(false);
   const [history, setHistory]           = useState<HistoryEntry[]>([]);
+  const [helpsUsed, setHelpsUsed] = useState(0);
+  const [helpEffectsByQuestion, setHelpEffectsByQuestion] = useState<Record<string, QuizHelpEffect[]>>({});
+  const [activeHelpEffect, setActiveHelpEffect] = useState<QuizHelpEffect | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState('');
+  const [reportComment, setReportComment] = useState('');
+  const [reportStatus, setReportStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
+  const helpsRemaining = Math.max(0, QUIZ_HELP_LIMIT - helpsUsed);
 
   const [quizStartTime, setQuizStartTime] = useState(0);
   const [questionStartTime, setQuestionStartTime] = useState(0);
@@ -286,13 +393,109 @@ export default function ALAIStudyALQuizzes({
   const generationAttemptRef = useRef(0);
   const generationControllerRef = useRef<AbortController | null>(null);
   const evaluationBusyRef = useRef(false);
+  const [pendingEvaluation, setPendingEvaluation] = useState<{ questionId: string; feedback: QuizEvaluationFeedback } | null>(null);
+  const completionBusyRef = useRef(false);
+  const advanceBusyRef = useRef(false);
+  const [advancePollNonce, setAdvancePollNonce] = useState(0);
+  const [advancePaused, setAdvancePaused] = useState(false);
+  const [advanceFailedAttempts, setAdvanceFailedAttempts] = useState(0);
+  const advanceFailureCountRef = useRef(0);
+  const advanceRetryTimerRef = useRef<number | null>(null);
+  const hydrationGenerationRef = useRef(0);
+  const hydratedAuthorityRef = useRef<string | null>(null);
+  const latestPersistPayloadRef = useRef<{ sessionId: string; fingerprint: string; state: PersistedQuizState } | null>(null);
   const effectiveSourceSelection = useMemo(
     () => (sourceSelection as SourceSelectionSnapshot | undefined) || buildSourceSelectionFromMaterials(materiales, seleccion),
     [sourceSelection, materiales, seleccion],
   );
-  const { result: authorizedSource, status: authorizedStatus, error: authorizedError } = useAuthorizedSource(effectiveSourceSelection, 'ALAIStudyALQuizzes');
+  // Coverage is derived from immutable completed Quiz evidence; no AI call is involved.
+  const [coverageError, setCoverageError] = useState<{ code: string; detail?: string } | null>(null);
 
   useEffect(() => {
+    if (!continuityReady || quizState !== 'setup' || !sessionId) return;
+    if (coverageFingerprint === effectiveSourceSelection.fingerprint) return;
+    const controller = new AbortController();
+    const coverageStartedAt = performance.now();
+    setCoverageLoading(true);
+    setCoveragePreview(null);
+    setCoverageError(null);
+    void (async () => {
+      try {
+        const response = await fetch('/api/alai-studyal-quizzes', {
+          method: 'POST', credentials: 'same-origin', signal: controller.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'coverage', sessionId,
+            sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
+            config: {
+              questionCount: 100,
+              difficulty: 'medium',
+              questionTypes: Object.keys(TYPE_META),
+            },
+          }),
+        });
+        const body = await response.json();
+        if (controller.signal.aborted) return;
+        if (response.ok && body?.success && body?.coverage) {
+          setCoveragePreview(body.coverage);
+          setCoverageFingerprint(effectiveSourceSelection.fingerprint);
+          setCoverageError(null);
+          console.info('[Quiz V2][performance]', JSON.stringify({
+            stage: 'coverage_ready',
+            fingerprint: effectiveSourceSelection.fingerprint,
+            elapsedMs: Math.round(performance.now() - coverageStartedAt),
+            providerCalls: 0,
+          }));
+        } else {
+          setCoveragePreview(null);
+          // Fix 4: Set fingerprint to current so derived coverageLoading expression becomes false.
+          // Without this, coverageFingerprint !== effectiveSourceSelection.fingerprint stays true forever.
+          setCoverageFingerprint(effectiveSourceSelection.fingerprint);
+          const errorCode = body?.error || (response.status === 422 ? 'INVALID_ASSESSMENT_DESIGN' : 'GENERATION_FAILED');
+          setCoverageError({ code: errorCode, detail: body?.detail });
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setCoveragePreview(null);
+          // Fix 4: Also terminate on network error so spinner doesn't persist.
+          setCoverageFingerprint(effectiveSourceSelection.fingerprint);
+          setCoverageError({ code: 'NETWORK_ERROR' });
+        }
+      } finally {
+        if (!controller.signal.aborted) setCoverageLoading(false);
+      }
+    })();
+    return () => {
+      controller.abort();
+    };
+  }, [continuityReady, quizState, sessionId, effectiveSourceSelection.fingerprint, coveragePreview, coverageFingerprint]);
+
+  useEffect(() => {
+    const authorityKey = `${sessionId || ''}:${effectiveSourceSelection.fingerprint}`;
+    const hydrationToken = ++hydrationGenerationRef.current;
+    hydratedAuthorityRef.current = null;
+    latestPersistPayloadRef.current = null;
+    setContinuityReady(false);
+    setQuestions([]);
+    setCurrentIndex(0);
+    setUserAnswer(null);
+    setIsLocked(false);
+    setHistory([]);
+    setHelpsUsed(0);
+    setHelpEffectsByQuestion({});
+    setQuizStartTime(0);
+    setQuestionStartTime(Date.now());
+    setQuizContext('');
+    setArtifactIdentity(null);
+    setGenerationManifest(null);
+    advanceFailureCountRef.current = 0;
+    setAdvanceFailedAttempts(0);
+    setAdvancePaused(false);
+    setCompletedCoverage(null);
+    setCompletionError(null);
+    setQuizState('setup');
+    let cancelled = false;
+    (async () => {
     const restored = readFreeToolState<PersistedQuizState>(
       sessionId,
       effectiveSourceSelection.fingerprint,
@@ -300,39 +503,177 @@ export default function ALAIStudyALQuizzes({
     );
     if (restored) {
       const saved = restored.state;
+      // Restore inert setup fields unconditionally (safe).
       setDifficulty(saved.difficulty || 'medium');
       setSelectedTypes(Array.isArray(saved.selectedTypes) && saved.selectedTypes.length ? saved.selectedTypes : ['multiple_choice']);
       setQuestionCount(Number(saved.questionCount || 10));
       setCustomCount(String(saved.customCount || ''));
-      setQuestions(Array.isArray(saved.questions) ? saved.questions : []);
-      setCurrentIndex(Math.max(0, Number(saved.currentIndex || 0)));
-      setUserAnswer(saved.userAnswer ?? null);
-      setIsLocked(saved.isLocked === true);
-      setHistory(Array.isArray(saved.history) ? saved.history : []);
-      setQuizStartTime(Number(saved.quizStartTime || 0));
-      setQuestionStartTime(Number(saved.questionStartTime || Date.now()));
-      setQuizContext(String(saved.quizContext || ''));
-      const restoredPhase = saved.quizState === 'generating' ? 'setup' : (saved.quizState || 'setup');
-      setQuizState(restoredPhase);
-      if (saved.quizState === 'generating') {
-        setGenError('La generación anterior se interrumpió. Puedes reintentar sin perder tu sesión.');
+      const savedRequested = Number(saved.requestedCount || saved.questionCount || 10);
+      setRequestedCount(savedRequested);
+
+      // Blocker 1: server artifact is the ONLY academic authority. Local
+      // persistence is progress state. We RESOLVE the authoritative artifact
+      // via the server (lookup mode) and compare identity + ordered IDs.
+      const savedQuestions = Array.isArray(saved.questions) ? saved.questions : [];
+      const savedHistory = Array.isArray(saved.history) ? saved.history : [];
+      const versionMatches = saved.quizVersion === QUIZ_CONTINUITY_VERSION;
+      const identityPresent = typeof saved.artifactIdentity === 'string' && saved.artifactIdentity.length > 0;
+      const savedManifestTotal = Number(saved.generationManifest?.totalSlots || 0);
+      const localSelfConsistent = versionMatches && identityPresent
+        && savedQuestions.length <= savedRequested
+        && (saved.generationManifest?.status === 'generating'
+          ? savedManifestTotal > 0 && savedQuestions.length <= savedManifestTotal
+          : savedManifestTotal > 0
+            ? savedQuestions.length === savedManifestTotal
+            : savedQuestions.length === savedRequested)
+        && Array.isArray(saved.questionIds)
+        && saved.questionIds.length === savedQuestions.length
+        && saved.questionIds.every((id: string, i: number) => id === savedQuestions[i]?.id);
+
+      let serverAuthoritative: { identity: string; questions: any[]; manifest?: QuizGenerationManifestSummary;
+        completedCoverage?: QuizCoveragePreview } | null = null;
+      if (localSelfConsistent && ['playing', 'results', 'review'].includes(saved.quizState) && sessionId) {
+        const restoreController = new AbortController();
+        const restoreTimeout = window.setTimeout(() => restoreController.abort(), 8000);
+        try {
+          const lookupRes = await fetch('/api/alai-studyal-quizzes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              mode: 'lookup',
+              sessionId,
+              sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
+              generationId: saved.generationId,
+              config: {
+                questionCount: savedRequested,
+                difficulty: saved.difficulty || 'medium',
+                questionTypes: Array.isArray(saved.selectedTypes) && saved.selectedTypes.length
+                  ? saved.selectedTypes : ['multiple_choice'],
+              },
+            }),
+            signal: restoreController.signal,
+          });
+          if (lookupRes.ok) {
+            const lookupBody = await lookupRes.json();
+            if (lookupBody?.success && (lookupBody?.status === 'ready' || lookupBody?.status === 'generating')
+              && typeof lookupBody?.artifactIdentity === 'string'
+              && Array.isArray(lookupBody?.quiz)
+              && lookupBody.quiz.length <= savedRequested) {
+              serverAuthoritative = { identity: lookupBody.artifactIdentity, questions: lookupBody.quiz,
+                manifest: lookupBody.manifest || undefined };
+              if (saved.quizState !== 'playing' && lookupBody.status === 'ready') {
+                const completionRes = await fetch('/api/alai-studyal-quizzes', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+                  body: JSON.stringify({
+                    mode: 'complete', sessionId, generationId: saved.generationId,
+                    sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
+                    config: { questionCount: savedRequested, difficulty: saved.difficulty || 'medium',
+                      questionTypes: Array.isArray(saved.selectedTypes) && saved.selectedTypes.length
+                        ? saved.selectedTypes : ['multiple_choice'] },
+                    answers: savedHistory.map(entry => ({ questionId: entry.question.id, answer: entry.userAnswer })),
+                  }),
+                  signal: restoreController.signal,
+                });
+                if (completionRes.ok) {
+                  const completionBody = await completionRes.json();
+                  if (completionBody?.status === 'completed' && completionBody?.coverage) {
+                    serverAuthoritative.completedCoverage = completionBody.coverage;
+                  }
+                }
+              }
+            }
+          }
+        } catch { /* ignore — treat as no authority */ }
+        finally { window.clearTimeout(restoreTimeout); }
       }
-      if (saved.quizState === 'playing' && saved.quizStartTime) {
-        setElapsed(Math.max(0, Math.floor((Date.now() - saved.quizStartTime) / 1000)));
+
+      if (cancelled || hydrationGenerationRef.current !== hydrationToken) return;
+
+      const serverIdentityMatches = Boolean(serverAuthoritative
+        && serverAuthoritative.identity === saved.artifactIdentity);
+      const serverQuestionsMatch = Boolean(serverAuthoritative
+        && serverAuthoritative.questions.length >= (saved.questionIds || []).length
+        && (saved.questionIds || []).every((id, i) => serverAuthoritative!.questions[i]?.id === id));
+      const canRestoreSession = ['playing', 'results', 'review'].includes(saved.quizState)
+        && localSelfConsistent && serverIdentityMatches && serverQuestionsMatch
+        && (saved.quizState === 'playing' || Boolean(serverAuthoritative?.completedCoverage));
+
+      if (canRestoreSession) {
+        // Use the SERVER-supplied questions as academic authority; local
+        // saved.questions is not trusted. Local progress is layered on top.
+        const restoredQuestions = mapEnjoyerQuizResponseQuestions(serverAuthoritative!.questions as Question[]);
+        setQuestions(restoredQuestions);
+        setCurrentIndex(Math.max(0, Number(saved.currentIndex || 0)));
+        setUserAnswer(saved.userAnswer ?? null);
+        setIsLocked(saved.isLocked === true);
+        setHistory(savedHistory);
+        const restoredHelpsUsed = saved.helpsUsed ?? (QUIZ_HELP_LIMIT - Number(saved.helpsRemaining ?? QUIZ_HELP_LIMIT));
+        setHelpsUsed(Math.min(QUIZ_HELP_LIMIT, Math.max(0, Number(restoredHelpsUsed || 0))));
+        setHelpEffectsByQuestion(saved.helpEffectsByQuestion || {});
+        setQuizStartTime(Number(saved.quizStartTime || 0));
+        setQuestionStartTime(Number(saved.questionStartTime || Date.now()));
+        setQuizContext(String(saved.quizContext || ''));
+        setArtifactIdentity(saved.artifactIdentity || null);
+        setGenerationId(saved.generationId || null);
+        setGenerationManifest(serverAuthoritative!.manifest || saved.generationManifest || null);
+        const restoredAdvanceFailures = Math.max(0, Number(saved.advanceFailedAttempts || 0));
+        advanceFailureCountRef.current = restoredAdvanceFailures;
+        setAdvanceFailedAttempts(restoredAdvanceFailures);
+        setAdvancePaused(saved.advancePaused === true && restoredAdvanceFailures > 0);
+        setCompletedCoverage(serverAuthoritative!.completedCoverage || saved.completedCoverage || null);
+        setQuizState(saved.quizState);
+        if (saved.quizStartTime) {
+          setElapsed(Math.max(0, Math.floor((Date.now() - saved.quizStartTime) / 1000)));
+        }
+      } else {
+        // Legacy 2.1 / incomplete / stale envelope — discard playing state,
+        // return to setup. Preserve setup selections above.
+        setQuestions([]);
+        setCurrentIndex(0);
+        setUserAnswer(null);
+        setIsLocked(false);
+        setHistory([]);
+        setHelpsUsed(0);
+        setHelpEffectsByQuestion({});
+        setQuizStartTime(0);
+        setQuestionStartTime(Date.now());
+        setQuizContext('');
+        setArtifactIdentity(null);
+        setGenerationId(null);
+        setGenerationManifest(null);
+        setQuizState('setup');
+        if (saved.quizState === 'generating') {
+          setGenError('La generación anterior se interrumpió. Puedes reintentar sin perder tu sesión.');
+        } else if (saved.quizState === 'playing') {
+          setGenError('Tu quiz anterior es incompatible con la versión actual. Genera uno nuevo.');
+        }
       }
     }
-    setContinuityReady(true);
+    if (!cancelled && hydrationGenerationRef.current === hydrationToken) {
+      hydratedAuthorityRef.current = authorityKey;
+      setContinuityReady(true);
+      console.info('[Quiz V2][performance]', JSON.stringify({
+        stage: 'setup_or_resume_ready',
+        fingerprint: effectiveSourceSelection.fingerprint,
+        elapsedMs: Math.round(performance.now() - quizMountedAtRef.current),
+        providerCalls: 0,
+      }));
+    }
+    })();
+    return () => { cancelled = true; };
   }, [sessionId, effectiveSourceSelection.fingerprint]);
 
-  const latestPersistPayloadRef = useRef<{ sessionId: string; fingerprint: string; state: PersistedQuizState } | null>(null);
   useEffect(() => {
-    if (!continuityReady || !sessionId) return;
+    const authorityKey = `${sessionId || ''}:${effectiveSourceSelection.fingerprint}`;
+    if (!continuityReady || !sessionId || hydratedAuthorityRef.current !== authorityKey) return;
     const payload: PersistedQuizState = {
       quizState,
       difficulty,
       selectedTypes,
       questionCount,
       customCount,
+      requestedCount,
       questions,
       currentIndex,
       userAnswer,
@@ -341,16 +682,33 @@ export default function ALAIStudyALQuizzes({
       quizStartTime,
       questionStartTime,
       quizContext,
+      quizVersion: QUIZ_CONTINUITY_VERSION,
+      artifactIdentity: artifactIdentity || undefined,
+      generationId: generationId || undefined,
+      authorityFingerprint: effectiveSourceSelection.fingerprint,
+      configFingerprint: undefined,
+      questionIds: questions.map(q => q.id),
+      helpsUsed,
+      helpsRemaining,
+      helpEffectsByQuestion,
+      generationManifest,
+      completedCoverage,
+      advancePaused,
+      advanceFailedAttempts,
     };
     latestPersistPayloadRef.current = { sessionId, fingerprint: effectiveSourceSelection.fingerprint, state: payload };
     const timer = window.setTimeout(() => {
+      if (hydratedAuthorityRef.current !== authorityKey) return;
       writeFreeToolState<PersistedQuizState>(sessionId, effectiveSourceSelection.fingerprint, 'quiz', payload);
     }, 250);
     return () => window.clearTimeout(timer);
   }, [
     continuityReady, sessionId, effectiveSourceSelection.fingerprint, quizState,
-    difficulty, selectedTypes, questionCount, customCount, questions, currentIndex,
-    userAnswer, isLocked, history, quizStartTime, questionStartTime, quizContext,
+    difficulty, selectedTypes, questionCount, customCount, requestedCount,
+    questions, currentIndex, userAnswer, isLocked, history,
+    quizStartTime, questionStartTime, quizContext, artifactIdentity, generationId,
+    helpsUsed, helpsRemaining, helpEffectsByQuestion,
+    generationManifest, completedCoverage, advancePaused, advanceFailedAttempts,
   ]);
 
   // Flush the LATEST pending write synchronously on true unmount (e.g. a
@@ -366,6 +724,7 @@ export default function ALAIStudyALQuizzes({
   useEffect(() => () => {
     generationAttemptRef.current += 1;
     generationControllerRef.current?.abort();
+    if (advanceRetryTimerRef.current !== null) window.clearTimeout(advanceRetryTimerRef.current);
   }, []);
 
   // ── PDF multi-material ────────────────────────────────────
@@ -595,17 +954,6 @@ export default function ALAIStudyALQuizzes({
     return result.join('\n');
   }, []);
 
-  // ── Extraer texto real de los materiales (igual que ALAIStudyALCards) ──
-  const extractQuizText = useCallback(async (): Promise<string> => {
-    if (authorizedStatus === 'loading' || authorizedStatus === 'idle') {
-      throw new Error('La fuente autorizada todavía se está preparando.');
-    }
-    if (authorizedStatus === 'error' || !authorizedSource) {
-      throw new Error(authorizedError || 'No se pudo resolver la fuente autorizada.');
-    }
-    return authorizedSource.combinedText;
-  }, [authorizedStatus, authorizedSource, authorizedError]);
-
   // ── Generar quiz ───────────────────────────────────────────
   const generateQuiz = useCallback(async () => {
     if (generationBusyRef.current) return;
@@ -614,44 +962,78 @@ export default function ALAIStudyALQuizzes({
     generationControllerRef.current?.abort();
     const controller = new AbortController();
     generationControllerRef.current = controller;
+    advanceFailureCountRef.current = 0;
+    setAdvanceFailedAttempts(0);
+    setAdvancePaused(false);
+    if (advanceRetryTimerRef.current !== null) {
+      window.clearTimeout(advanceRetryTimerRef.current);
+      advanceRetryTimerRef.current = null;
+    }
     setQuizState('generating');
+    generationStartedAtRef.current = performance.now();
     setGenError(null);
     const finalCount = customCount
       ? Math.min(Math.max(parseInt(customCount) || 10, 1), 100)
       : questionCount;
+    const correlationId = crypto.randomUUID().slice(0, 8);
 
     try {
-      // Extraer texto real igual que flashcards
-      const texto = await extractQuizText();
-setQuizContext(
-texto.slice(0,8000)
-);
-      if (!texto.trim()) {
-        setGenError('No se pudo extraer texto del material. Verificá que el material tenga contenido.');
-        setQuizState('setup');
-        return;
-      }
-      console.log('📚 [Quiz] Texto extraído:', texto.length, 'chars');
-
+      console.log('[Quiz V2][config-handoff]', JSON.stringify({ stage: 'ui_pre_fetch', correlationId, selectedTypes, difficulty, questionCount: finalCount }));
       const res = await fetch('/api/alai-studyal-quizzes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({
-          content: texto,
-          count: finalCount,
-          nivel: difficulty,
-          tipos: selectedTypes,
-          seleccion,
-          masteryContext,
+          intent: 'new',
+          debugCorrelationId: correlationId,
+          allocationSeed,
+          sessionId,
+          sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
+          config: {
+            questionCount: finalCount,
+            difficulty,
+            questionTypes: selectedTypes,
+          },
         }),
         signal: controller.signal,
       });
       const data = await res.json();
       if (controller.signal.aborted || generationAttemptRef.current !== attempt) return;
-      if (data.success && data.quiz?.length > 0) {
-        setQuestions(data.quiz);
+      const canonicalCount = finalCount;
+      const returnedIdentity: string | null = typeof data?.artifactIdentity === 'string' && data.artifactIdentity.length > 0
+        ? data.artifactIdentity
+        : (typeof data?.artifact?.artifactIdentity === 'string' ? data.artifact.artifactIdentity : null);
+      const returnedAuthorityFp: string | undefined = data?.artifact?.sourceSelectionFingerprint;
+      const returnedConfigFp: string | undefined = data?.artifact?.configFingerprint;
+      const returnedGenerationId: string | null = typeof data?.artifact?.generationId === 'string'
+        ? data.artifact.generationId : null;
+      if (
+        res.ok
+        && data.success
+        && (data.status === 'ready' || data.status === 'generating')
+        && Array.isArray(data.quiz)
+        && data.quiz.length > 0
+        && data.quiz.length <= canonicalCount
+      ) {
+        setQuizContext('');
+        const mappedQuestions = mapEnjoyerQuizResponseQuestions(data.quiz as Question[]);
+        setQuestions(mappedQuestions);
+        setRequestedCount(canonicalCount);
+        setArtifactIdentity(returnedIdentity);
+        setGenerationId(returnedGenerationId);
+        const initialManifest = data.manifest || (data.status === 'ready'
+          ? { totalSlots: Number(data.actualQuestionCount || data.quiz.length),
+              readyCount: Number(data.actualQuestionCount || data.quiz.length), status: 'ready',
+              completionReason: data.completionReason }
+          : null);
+        setGenerationManifest(initialManifest);
+        setCompletedCoverage(null);
+        setCompletionError(null);
+        setIsLocalRetry(false);
         setCurrentIndex(0);
         setHistory([]);
+        setHelpsUsed(0);
+        setHelpEffectsByQuestion({});
         setUserAnswer(null);
         setIsLocked(false);
         setShowWordBank(false);
@@ -660,23 +1042,68 @@ texto.slice(0,8000)
         setQuestionStartTime(now);
         setElapsed(0);
         setQuizState('playing');
+        if (process.env.NODE_ENV !== 'production') {
+          const displayedTotal = resolveEnjoyerQuizDisplayedTotal({
+            manifestSlots: Number(data?.manifest?.totalSlots || 0), requestedCount: canonicalCount,
+            readyQuestions: data.quiz.length,
+          });
+          console.info('[enjoyer-quiz-ui]', JSON.stringify({
+            requestedCount: canonicalCount,
+            manifestSlots: Number(data?.manifest?.totalSlots || canonicalCount),
+            readyQuestions: data.quiz.length,
+            displayedTotal,
+            currentIndex: 0,
+            status: data.status,
+            advanceInFlight: false,
+            advanceTriggerReason: data.status === 'generating' ? 'initial_prefix_ready' : 'complete',
+          }));
+        }
+        console.info('[Quiz V2][performance]', JSON.stringify({
+          stage: 'first_question_ready', correlationId,
+          elapsedMs: Math.round(performance.now() - generationStartedAtRef.current),
+          questionCount: data.quiz.length,
+          providerCalls: Number(data?.artifact?.llmCallsUsed || 0),
+          cacheStatus: data?.cacheStatus,
+        }));
 
-        // Persist the freshly generated quiz SYNCHRONOUSLY (not via the
-        // debounced continuity effect) so a "Volver al proceso" click right
-        // after generation can never race the debounce and lose it — this
-        // is also the moment Quiz's Free-process cap is earned
-        // (lib/freeToolState.ts reads this same envelope).
         if (sessionId) {
           writeFreeToolState<PersistedQuizState>(sessionId, effectiveSourceSelection.fingerprint, 'quiz', {
             quizState: 'playing', difficulty, selectedTypes, questionCount, customCount,
-            questions: data.quiz, currentIndex: 0, userAnswer: null, isLocked: false,
+            requestedCount: canonicalCount,
+            questions: mappedQuestions, currentIndex: 0, userAnswer: null, isLocked: false,
             history: [], quizStartTime: now, questionStartTime: now,
-            quizContext: texto.slice(0, 8000),
+            quizContext: '',
+            quizVersion: QUIZ_CONTINUITY_VERSION,
+            artifactIdentity: returnedIdentity || undefined,
+            generationId: returnedGenerationId || undefined,
+            authorityFingerprint: returnedAuthorityFp || effectiveSourceSelection.fingerprint,
+            configFingerprint: returnedConfigFp,
+            questionIds: mappedQuestions.map((q: Question) => q.id),
+            helpsUsed: 0,
+            helpsRemaining: QUIZ_HELP_LIMIT,
+            helpEffectsByQuestion: {},
+            generationManifest: initialManifest,
+            completedCoverage: null,
           });
         }
-
       } else {
-        setGenError(data.error || 'No se pudieron generar preguntas. Intentá con más páginas.');
+        const errCode = data?.error || '';
+        const unavailableType = selectedTypes.length === 1 && data?.detail ? selectedTypes[0] : null;
+        const unavailableTypeMessage = unavailableType === 'matching'
+          ? 'Este material no contiene relaciones suficientes para crear preguntas de Relacionar.'
+          : unavailableType === 'multi_select'
+            ? 'Este material no contiene suficientes datos agrupables para crear preguntas de Selección Múltiple.'
+            : unavailableType
+              ? `Este material no contiene conocimiento suficiente para crear preguntas de ${TYPE_META[unavailableType].label}.`
+              : null;
+        const friendly = errCode === 'INSUFFICIENT_VALID_QUESTIONS'
+          ? 'No hay suficientes preguntas validadas para esta selección.'
+          : errCode === 'INSUFFICIENT_KNOWLEDGE'
+            ? (unavailableTypeMessage || 'Las páginas seleccionadas no contienen suficiente material para tantas preguntas.')
+            : errCode === 'RECOVERY_BUDGET_EXHAUSTED'
+              ? 'No pudimos completar el quiz en los intentos permitidos. Volvé a intentar.'
+              : (data.error || 'No se pudieron generar preguntas. Intentá con más páginas.');
+        setGenError(friendly);
         setQuizState('setup');
       }
     } catch (e: any) {
@@ -689,7 +1116,125 @@ texto.slice(0,8000)
         generationControllerRef.current = null;
       }
     }
-  }, [customCount, questionCount, difficulty, selectedTypes, seleccion, extractQuizText]);
+  }, [customCount, questionCount, difficulty, selectedTypes, sessionId, effectiveSourceSelection.fingerprint, allocationSeed]);
+
+  // Progressive generation is client-driven and sequential: once the first
+  // prefix is playable, keep filling bounded chunks in the background.
+  useEffect(() => {
+    if (!continuityReady || quizState !== 'playing' || !sessionId || !generationId || !generationManifest) return;
+    if (advancePaused) return;
+    if (!shouldRequestEnjoyerQuizBackgroundAdvance({
+      manifestSlots: generationManifest.totalSlots, requestedCount, readyQuestions: questions.length,
+      status: generationManifest.status, advanceInFlight: advanceBusyRef.current,
+    })) return;
+
+    const controller = new AbortController();
+    if (advanceRetryTimerRef.current !== null) {
+      window.clearTimeout(advanceRetryTimerRef.current);
+      advanceRetryTimerRef.current = null;
+    }
+    advanceBusyRef.current = true;
+    if (process.env.NODE_ENV !== 'production') {
+      console.info('[enjoyer-quiz-ui]', JSON.stringify({
+        requestedCount,
+        manifestSlots: generationManifest.totalSlots,
+        readyQuestions: questions.length,
+        displayedTotal: resolveEnjoyerQuizDisplayedTotal({ manifestSlots: generationManifest.totalSlots,
+          requestedCount, readyQuestions: questions.length }),
+        currentIndex,
+        status: generationManifest.status,
+        advanceInFlight: true,
+        advanceTriggerReason: 'background_fill',
+      }));
+    }
+    void (async () => {
+      let continueSequentially = false;
+      let retryDelay: number | null = null;
+      try {
+        const response = await fetch('/api/alai-studyal-quizzes', {
+          method: 'POST', credentials: 'same-origin', signal: controller.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'advance', sessionId, generationId,
+            sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
+            allocationSeed,
+            config: {
+              questionCount: requestedCount,
+              difficulty,
+              questionTypes: selectedTypes,
+            },
+          }),
+        });
+        const body = await response.json();
+        if (!response.ok || !body?.success || !Array.isArray(body.quiz)) {
+          throw new Error(body?.error || 'ADVANCE_FAILED');
+        }
+        const madeProgress = Number(body?.manifest?.readyCount || 0)
+          > Number(generationManifest?.readyCount || 0)
+        const mappedQuestions = mapEnjoyerQuizResponseQuestions(body.quiz as Question[]);
+        setQuestions(mappedQuestions);
+        setGenerationManifest(body.manifest || null);
+        if (typeof body.artifactIdentity === 'string') setArtifactIdentity(body.artifactIdentity);
+        if (typeof body?.artifact?.generationId === 'string') setGenerationId(body.artifact.generationId);
+        continueSequentially = body?.manifest?.status === 'generating';
+        if (madeProgress) {
+          advanceFailureCountRef.current = 0;
+          setAdvanceFailedAttempts(0);
+          retryDelay = 0;
+        } else if (continueSequentially) {
+          const retry = nextEnjoyerQuizAdvanceRetry(advanceFailureCountRef.current);
+          advanceFailureCountRef.current = retry.nextFailedAttempts;
+          setAdvanceFailedAttempts(retry.nextFailedAttempts);
+          if (retry.pause) {
+            continueSequentially = false;
+            setAdvancePaused(true);
+          } else retryDelay = retry.delayMs;
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.warn('[Quiz V2][progressive-advance]', error);
+          const retry = nextEnjoyerQuizAdvanceRetry(advanceFailureCountRef.current);
+          advanceFailureCountRef.current = retry.nextFailedAttempts;
+          setAdvanceFailedAttempts(retry.nextFailedAttempts);
+          if (retry.pause) {
+            setAdvancePaused(true);
+          } else {
+            continueSequentially = true;
+            retryDelay = retry.delayMs;
+          }
+        }
+      } finally {
+        advanceBusyRef.current = false;
+        if (continueSequentially && retryDelay !== null && !controller.signal.aborted) {
+          advanceRetryTimerRef.current = window.setTimeout(() => {
+            advanceRetryTimerRef.current = null;
+            setAdvancePollNonce(value => value + 1);
+          }, retryDelay);
+        }
+      }
+    })();
+    return () => {
+      controller.abort();
+      if (advanceRetryTimerRef.current !== null) {
+        window.clearTimeout(advanceRetryTimerRef.current);
+        advanceRetryTimerRef.current = null;
+      }
+    };
+  }, [
+    continuityReady, quizState, generationManifest?.status,
+    generationManifest?.readyCount, questions.length, currentIndex,
+    sessionId, generationId, effectiveSourceSelection.fingerprint,
+    allocationSeed, requestedCount, difficulty, selectedTypes, advancePollNonce, advancePaused,
+  ]);
+
+  const retryProgressiveGeneration = useCallback(() => {
+    const resumed = resumeEnjoyerQuizAdvance(generationId);
+    if (!resumed || generationManifest?.status !== 'generating') return;
+    advanceFailureCountRef.current = resumed.failedAttempts;
+    setAdvanceFailedAttempts(resumed.failedAttempts);
+    setAdvancePaused(resumed.paused);
+    setAdvancePollNonce(value => value + 1);
+  }, [generationId, generationManifest?.status]);
 
   // ── Verificar respuesta (acepta answer directo para auto-verify) ───
   const handleVerify = useCallback(async (directAnswer?: any) => {
@@ -714,6 +1259,7 @@ texto.slice(0,8000)
 
     evaluationBusyRef.current = true;
     setIsEvaluating(true);
+    setPendingEvaluation(null);
 
     let correct = checkAnswer(q, answerToCheck);
     let evaluation: HistoryEntry['evaluation'] | undefined = undefined;
@@ -803,7 +1349,10 @@ texto.slice(0,8000)
         evaluation = {
           nivel: 'correcta',
           porcentaje: 100,
-          analisis: 'Tu respuesta coincide exactamente con la respuesta esperada.',
+          analisis: 'Tu respuesta es correcta.',
+          evaluationMode: matchWrittenAnswer(String(answerToCheck), getExpectedAnswers(q)) === 'exact'
+            ? 'deterministic_exact' : 'deterministic_academic_equivalence',
+          providerAttempts: 0,
           respuestaCorrecta: local.expected,
           explicacion: q.explanation || '',
           consejo: '',
@@ -812,28 +1361,32 @@ texto.slice(0,8000)
         correct = true;
       } else {
         const expected = local.expected;
+        const evaluationController = new AbortController();
+        const evaluationTimeout = window.setTimeout(() => evaluationController.abort(), 25_000);
 
         try {
           const r = await fetch(
-            '/api/evaluar',
+            '/api/alai-studyal-quizzes',
             {
               method:'POST',
+              credentials: 'same-origin',
               headers:{
                 'Content-Type':
                 'application/json'
               },
+              signal: evaluationController.signal,
               body:JSON.stringify({
-                pregunta:q.question,
-                respuestaCorrecta:
-                  expected,
-                respuestaUsuario:
-                  String(
-                    answerToCheck
-                  ),
-                contextoMaterial:
-                  quizContext,
-                tipoPregunta:
-                  q.type
+                mode: 'evaluate',
+                sessionId,
+                generationId,
+                sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
+                config: {
+                  questionCount: requestedCount,
+                  difficulty,
+                  questionTypes: selectedTypes,
+                },
+                questionId: q.id,
+                answer: String(answerToCheck),
               })
             }
           );
@@ -841,32 +1394,29 @@ texto.slice(0,8000)
           const data =
             await r.json();
 
-          if (
-            data?.resultado
-          ) {
-
-            evaluation =
-              data.resultado;
-
-            correct =
-              Number(
-                data.resultado
-                .porcentaje || 0
-              ) >= 85;
-          }
-
+          evaluation = r.ok && isGradedQuizEvaluation(data?.resultado)
+            ? data.resultado : safeUngradedEvaluation(expected, q.explanation || '');
+          correct = isGradedQuizEvaluation(evaluation) && evaluation.nivel === 'correcta';
         } catch {
-          evaluation = {
-            nivel: 'incorrecta',
-            porcentaje: 0,
-            analisis: 'No se pudo evaluar la respuesta con IA.',
-            respuestaCorrecta: expected,
-            explicacion: q.explanation || '',
-            consejo: '',
-          };
+          evaluation = safeUngradedEvaluation(expected, q.explanation || '');
           correct = false;
+        } finally {
+          window.clearTimeout(evaluationTimeout);
         }
       }
+    }
+
+    // An unavailable/uncertain evaluator is not evidence of student performance.
+    // Keep the answer editable; retry replaces this notice without history/mastery writes.
+    if ((q.type === 'short_answer' || q.type === 'fill_blank') && evaluation && !isGradedQuizEvaluation(evaluation)) {
+      setPendingEvaluation({ questionId: q.id, feedback: evaluation });
+      evaluationBusyRef.current = false;
+      setIsEvaluating(false);
+      return;
+    }
+    if (evaluation?.evaluationMode?.startsWith('deterministic_')) {
+      console.info('[Quiz V2]', JSON.stringify({ event: 'open_answer_evaluated',
+        evaluationMode: evaluation.evaluationMode, providerAttempts: 0, finalLevel: evaluation.nivel }));
     }
 
     const entry: HistoryEntry = {
@@ -935,6 +1485,7 @@ texto.slice(0,8000)
       correct &&
       currentIndex ===
       questions.length - 1
+      && generationManifest?.status !== 'generating'
     ) {
       confetti({
         particleCount:120,
@@ -950,21 +1501,69 @@ texto.slice(0,8000)
     questions,
     currentIndex,
     history,
-    questionStartTime
+    questionStartTime,
+    generationManifest?.status,
+    sessionId,
+    generationId,
+    requestedCount,
+    difficulty,
+    selectedTypes,
+    effectiveSourceSelection.fingerprint,
   ]);
 
 // ── Siguiente pregunta ─────────────────────────────────────
-  const handleNext = useCallback(() => {
+  const handleNext = useCallback(async () => {
+    if (completionBusyRef.current) return;
     if (currentIndex < questions.length - 1) {
       setCurrentIndex(i => i + 1);
       setUserAnswer(null);
       setIsLocked(false);
       setShowWordBank(false);
       setQuestionStartTime(Date.now());
+      setActiveHelpEffect(null);
+    } else if (generationManifest?.status === 'generating') {
+      setCurrentIndex(i => i + 1);
+      setUserAnswer(null);
+      setIsLocked(false);
+      setShowWordBank(false);
+      setQuestionStartTime(Date.now());
+      setActiveHelpEffect(null);
     } else {
-      setQuizState('results');
+      if (isLocalRetry) {
+        setQuizState('results');
+        return;
+      }
+      if (!sessionId || !generationId || generationManifest?.status !== 'ready') return;
+      completionBusyRef.current = true;
+      setIsCompleting(true);
+      setCompletionError(null);
+      try {
+        const response = await fetch('/api/alai-studyal-quizzes', {
+          method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'complete', sessionId, generationId,
+            sourceSelectionFingerprint: effectiveSourceSelection.fingerprint,
+            config: { questionCount: requestedCount, difficulty, questionTypes: selectedTypes },
+            answers: history.map(entry => ({ questionId: entry.question.id, answer: entry.userAnswer })),
+          }),
+        });
+        const body = await response.json();
+        if (!response.ok || !body?.success || body?.status !== 'completed' || !body?.coverage) {
+          throw new Error(body?.error || 'QUIZ_COMPLETION_FAILED');
+        }
+        setCompletedCoverage(body.coverage);
+        setCoveragePreview(body.coverage);
+        setCoverageFingerprint(effectiveSourceSelection.fingerprint);
+        setQuizState('results');
+      } catch {
+        setCompletionError('No pudimos guardar el resultado. Intenta finalizar otra vez.');
+      } finally {
+        completionBusyRef.current = false;
+        setIsCompleting(false);
+      }
     }
-  }, [currentIndex, questions.length]);
+  }, [currentIndex, questions.length, generationManifest?.status, isCompleting, sessionId, generationId,
+    effectiveSourceSelection.fingerprint, requestedCount, difficulty, selectedTypes, history, isLocalRetry]);
 
   // ── Stats finales ──────────────────────────────────────────
   const stats = useMemo(() => {
@@ -986,7 +1585,59 @@ texto.slice(0,8000)
     setCurrentIndex(0);
     setUserAnswer(null);
     setIsLocked(false);
+    setHelpsUsed(0);
+    setHelpEffectsByQuestion({});
+    setCompletedCoverage(null);
+    setCompletionError(null);
+    setIsLocalRetry(false);
+    advanceFailureCountRef.current = 0;
+    setAdvanceFailedAttempts(0);
+    setAdvancePaused(false);
+    if (advanceRetryTimerRef.current !== null) {
+      window.clearTimeout(advanceRetryTimerRef.current);
+      advanceRetryTimerRef.current = null;
+    }
+    setAllocationSeed(createUpcomingAllocationSeed());
   }, []);
+
+  const handleQuizHelp = useCallback((action: QuizHelpAction) => {
+    const question = questions[currentIndex];
+    if (!question || isLocked) return;
+    const prior = helpEffectsByQuestion[question.id] || [];
+    if (prior.some(effect => effect.action === action)) return;
+    const effect = createQuizHelpEffect(question, action);
+    const budget = consumeQuizHelp(helpsUsed, effect);
+    if (!effect || !budget.consumed) return;
+    setHelpsUsed(budget.helpsUsed);
+    setHelpEffectsByQuestion(previous => ({
+      ...previous, [question.id]: [...(previous[question.id] || []), effect],
+    }));
+    setActiveHelpEffect(effect);
+  }, [questions, currentIndex, isLocked, helpEffectsByQuestion, helpsUsed]);
+
+  const submitQuestionReport = useCallback(async () => {
+    const question = questions[currentIndex];
+    if (!question || !reportReason || reportStatus === 'sending' || !sessionId || !generationId) return;
+    setReportStatus('sending');
+    const evidence = question.grounding?.evidence || [];
+    try {
+      const response = await fetch('/api/quiz-reports', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({
+          sessionId, generationId, artifactIdentity, questionId: question.id,
+          planId: question.grounding?.planId, candidateId: question.grounding?.candidateId,
+          questionType: question.type, difficulty: question.difficulty || difficulty,
+          sourceMaterialIds: [...new Set(evidence.map(item => item.materialId))],
+          sourcePages: [...new Set(evidence.map(item => item.page))],
+          sourceUnitIds: question.grounding?.sourceUnitIds || [],
+          sourceRelationIds: question.grounding?.sourceRelationIds || [],
+          questionText: question.question, reason: reportReason, comment: reportComment,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+      setReportStatus(response.ok ? 'success' : 'error');
+    } catch { setReportStatus('error'); }
+  }, [questions, currentIndex, reportReason, reportComment, reportStatus, sessionId, generationId, artifactIdentity, difficulty]);
 
   const handleRetryWrong = useCallback(() => {
     const wrong = history.filter(h => !h.correct).map(h => h.question);
@@ -1001,6 +1652,7 @@ texto.slice(0,8000)
     setQuizStartTime(now);
     setQuestionStartTime(now);
     setElapsed(0);
+    setIsLocalRetry(true);
     setQuizState('playing');
   }, [history]);
 
@@ -1008,7 +1660,6 @@ texto.slice(0,8000)
   const liveCorrect   = history.filter(h => h.correct).length;
   const liveIncorrect = history.filter(h => !h.correct).length;
   const currentQ      = questions[currentIndex];
-
 
   useEffect(() => {
     if (!currentQ) return;
@@ -1072,7 +1723,11 @@ texto.slice(0,8000)
     ).sort((a, b) => a - b);
   }, [activeMaterialSelectedPages, currentQ?.sourcePage]);
 
-  const isLastQ       = currentIndex === questions.length - 1;
+  const progressiveTotalQuestions = resolveEnjoyerQuizDisplayedTotal({
+    manifestSlots: generationManifest?.totalSlots, requestedCount, readyQuestions: questions.length,
+  });
+  const isLastQ       = generationManifest?.status !== 'generating'
+    && currentIndex === questions.length - 1;
   const mot           = getMotivational(stats.pct);
 
   const formatTime = (s: number) =>
@@ -1104,13 +1759,13 @@ texto.slice(0,8000)
         {quizState === 'playing' && questions.length > 0 && (
           <div className="saq-timeline-wrap">
             <div className="saq-timeline-title">
-              Pregunta <b>{currentIndex + 1} de {questions.length}</b>
+              Pregunta <b>{currentIndex + 1} de {progressiveTotalQuestions}</b>
             </div>
             <div className="saq-timeline">
               <div className="saq-timeline-line" />
               <div
                 className="saq-timeline-line-fill"
-                style={{ width: `${(currentIndex / Math.max(questions.length - 1, 1)) * 100}%` }}
+                style={{ width: `${(currentIndex / Math.max(progressiveTotalQuestions - 1, 1)) * 100}%` }}
               />
               {questions.map((_, i) => {
                 const done = i < currentIndex;
@@ -1245,8 +1900,15 @@ texto.slice(0,8000)
           }}
         >
           <AnimatePresence mode="wait">
+            {!continuityReady && (
+              <motion.div key="quiz-bootstrap" className="saq-restore-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <div className="saq-spinner" />
+                <h3>Cargando tu sesión de quiz…</h3>
+                <p>Retomando donde lo dejaste.</p>
+              </motion.div>
+            )}
             {/* ════ 1. SETUP ════ */}
-            {quizState === 'setup' && (
+            {continuityReady && quizState === 'setup' && (
               <SetupScreen
                 key="setup"
                 themeColor={themeColor}
@@ -1259,7 +1921,17 @@ texto.slice(0,8000)
                 customCount={customCount}
                 setCustomCount={setCustomCount}
                 genError={genError}
+                allocationSeed={allocationSeed}
+                coveragePreview={coverageFingerprint === effectiveSourceSelection.fingerprint ? coveragePreview : null}
+                coverageLoading={coverageLoading || coverageFingerprint !== effectiveSourceSelection.fingerprint}
+                coverageError={coverageFingerprint === effectiveSourceSelection.fingerprint ? coverageError : null}
                 onGenerate={generateQuiz}
+                onRetryCoverage={() => {
+                  // Fix 4: Clear fingerprint to re-trigger the coverage useEffect on retry.
+                  setCoverageFingerprint(null);
+                  setCoveragePreview(null);
+                  setCoverageError(null);
+                }}
               />
             )}
 
@@ -1290,10 +1962,10 @@ texto.slice(0,8000)
                   }}
                 />
                 <div style={{ fontFamily: HAND, fontSize: 34, color: 'var(--text-primary)' }}>
-                  La IA está diseñando tu examen...
+                  ALAI está creando tu quiz…
                 </div>
                 <div style={{ fontSize: 14, color: 'var(--text-faint)' }}>
-                  Analizando las páginas seleccionadas
+                  Usando el análisis académico ya preparado
                 </div>
               </motion.div>
             )}
@@ -1302,11 +1974,16 @@ texto.slice(0,8000)
             {quizState === 'playing' && currentQ && (
               <div key={`play-${currentIndex}`} className="saq-playing-grid">
                 <div className="saq-playing-center">
+                  {advancePaused && (
+                    <div className="saq-coverage-note" data-quiz-generation-paused>
+                      <QuizProgressiveGenerationRecovery paused onRetry={retryProgressiveGeneration} />
+                    </div>
+                  )}
                   <QuestionCard
                     key={`q-${currentIndex}`}
                     question={currentQ}
                     index={currentIndex}
-                    total={questions.length}
+                    total={progressiveTotalQuestions}
                     themeColor={themeColor}
                     userAnswer={userAnswer}
                     setUserAnswer={setUserAnswer}
@@ -1316,8 +1993,12 @@ texto.slice(0,8000)
                     setShowWordBank={setShowWordBank}
                     onVerify={handleVerify}
                     isEvaluating={isEvaluating}
+                    pendingEvaluation={pendingEvaluation?.questionId === currentQ.id ? pendingEvaluation.feedback : null}
                     onNext={handleNext}
                     isLast={isLastQ}
+                    isCompleting={isCompleting}
+                    completionError={completionError}
+                    helpEffects={helpEffectsByQuestion[currentQ.id] || []}
                   />
                 </div>
                 <aside className="saq-playing-side">
@@ -1363,20 +2044,39 @@ texto.slice(0,8000)
                   </div>
 
                   {/* Herramientas con atajos */}
+                  {quizContext && <div className="saq-side-card saq-help-message">{quizContext}</div>}
                   <div className="saq-side-card">
                     <h4 className="saq-side-h4">Herramientas</h4>
-                    <button className="saq-tool-btn" disabled>
-                      💡 <span>Pista</span> <kbd>P</kbd>
-                    </button>
-                    <button className="saq-tool-btn" disabled>
-                      ✂ <span>Eliminar 2 opciones</span> <kbd>E</kbd>
-                    </button>
-                    <button className="saq-tool-btn" disabled>
-                      📚 <span>Repasar este tema</span> <kbd>R</kbd>
-                    </button>
+                    <div className="saq-help-counter">Ayudas: {helpsRemaining}/3</div>
+                    {helpsRemaining === 0 ? (
+                      <p className="saq-help-message">{QUIZ_HELP_EXHAUSTED_MESSAGE}</p>
+                    ) : availableQuizHelpActions(currentQ).map(action => {
+                      const used = (helpEffectsByQuestion[currentQ.id] || []).some(effect => effect.action === action);
+                      return used ? null : (
+                        <button key={action} className="saq-tool-btn" onClick={() => handleQuizHelp(action)} disabled={isLocked}>
+                          💡 <span>{HELP_LABEL[action]}</span>
+                        </button>
+                      );
+                    })}
+                    <div className="saq-report-separator">
+                      <button className="saq-report-btn" onClick={() => {
+                        setReportReason(''); setReportComment(''); setReportStatus('idle'); setReportOpen(true);
+                      }}>⚑ Reportar</button>
+                    </div>
                   </div>
                 </aside>
               </div>
+            )}
+            {quizState === 'playing' && !currentQ && generationManifest?.status === 'generating' && (
+              <motion.div
+                key="progressive-buffer"
+                className="saq-restore-loading"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <QuizProgressiveGenerationRecovery paused={advancePaused} onRetry={retryProgressiveGeneration} />
+              </motion.div>
             )}
 
             {/* ════ 4. RESULTS ════ */}
@@ -1388,6 +2088,7 @@ texto.slice(0,8000)
                 mot={mot}
                 difficulty={difficulty}
                 selectedTypes={selectedTypes}
+                coverage={completedCoverage}
                 themeColor={themeColor}
                 onRestart={handleRestart}
                 onRetryWrong={handleRetryWrong}
@@ -1409,12 +2110,77 @@ texto.slice(0,8000)
         </div>
       </main>
 
+      {activeHelpEffect && (
+        <QuizModal title={HELP_MODAL_TITLE[activeHelpEffect.action]} onClose={() => setActiveHelpEffect(null)}>
+          <p>{activeHelpEffect.message}</p>
+          <button className="saq-modal-primary" onClick={() => setActiveHelpEffect(null)}>Continuar</button>
+        </QuizModal>
+      )}
+      {reportOpen && (
+        <QuizModal title="Reportar pregunta" onClose={() => setReportOpen(false)}>
+          {reportStatus === 'success' ? (
+            <><p>Gracias. Revisaremos esta pregunta.</p><button className="saq-modal-primary" onClick={() => setReportOpen(false)}>Cerrar</button></>
+          ) : (
+            <>
+              <label className="saq-report-label">Motivo
+                <select value={reportReason} onChange={event => setReportReason(event.target.value)} disabled={reportStatus === 'sending'}>
+                  <option value="">Selecciona un motivo</option>
+                  {QUIZ_REPORT_REASONS.map(reason => <option key={reason}>{reason}</option>)}
+                </select>
+              </label>
+              <label className="saq-report-label">Detalle opcional
+                <textarea value={reportComment} onChange={event => setReportComment(event.target.value)} maxLength={2000} disabled={reportStatus === 'sending'} />
+              </label>
+              {reportStatus === 'error' && <p className="saq-report-error">No pudimos enviar el reporte. Intenta nuevamente.</p>}
+              <button className="saq-modal-primary" disabled={!reportReason || reportStatus === 'sending'} onClick={submitQuestionReport}>
+                {reportStatus === 'sending' ? 'Enviando…' : 'Enviar reporte'}
+              </button>
+            </>
+          )}
+        </QuizModal>
+      )}
+
       <style>{SAQ_STYLES}</style>
     </div>
   );
 }
 
+function QuizModal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const panel = panelRef.current;
+    const focusable = () => [...(panel?.querySelectorAll<HTMLElement>('button,select,textarea,input,[tabindex]:not([tabindex="-1"])') || [])]
+      .filter(element => !element.hasAttribute('disabled'));
+    focusable()[0]?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
+      if (event.key !== 'Tab') return;
+      const items = focusable();
+      if (!items.length) return;
+      const first = items[0]; const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div className="saq-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+      <div ref={panelRef} className="saq-modal" role="dialog" aria-modal="true" aria-labelledby="saq-modal-title">
+        <button className="saq-modal-close" aria-label="Cerrar" onClick={onClose}>×</button>
+        <h3 id="saq-modal-title">{title}</h3>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 const SAQ_STYLES = `
+  .saq-restore-loading { min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--text-primary); }
+  .saq-restore-loading h3 { margin: 14px 0 4px; font: 800 20px var(--font-body); }
+  .saq-restore-loading p { margin: 0; color: var(--text-secondary); font: 500 13px var(--font-body); }
+  .saq-spinner { width: 34px; height: 34px; border: 3px solid color-mix(in srgb, var(--gold) 24%, transparent); border-top-color: var(--gold); border-radius: 50%; animation: saq-spin .8s linear infinite; }
+  @keyframes saq-spin { to { transform: rotate(360deg); } }
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes saqFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
@@ -1880,6 +2646,11 @@ const SAQ_STYLES = `
     cursor: pointer;
     transition: all .2s ease;
   }
+  .saq-report-separator {
+    border-top: 1px solid var(--border-color2);
+    margin-top: 12px;
+    padding-top: 10px;
+  }
   .saq-report-btn:hover {
     color: var(--gold);
     border-color: var(--gold);
@@ -2125,6 +2896,35 @@ const SAQ_STYLES = `
     cursor: not-allowed;
   }
   .saq-tool-btn span { flex: 1; }
+  .saq-help-counter { font-size: 12px; font-weight: 900; color: var(--gold); margin-bottom: 8px; }
+  .saq-count-pill.ideal { border-color: color-mix(in srgb, var(--gold) 62%, var(--border-color2)); color: var(--gold); font-weight: 900; }
+  .saq-count-pill.ideal:not(.active) { background: color-mix(in srgb, var(--gold) 7%, var(--bg-card)); }
+  /* All selected count pills share one high-contrast foreground. Keep this
+     after the ideal modifier so dynamic recommendations cannot override it. */
+  .saq-count-pill.active,
+  .saq-count-pill.ideal.active { color: #0a0a0a; }
+  .saq-recommended-slot { display: inline-grid; place-items: center; flex: 0 0 44px; }
+  .saq-recommended-slot:disabled { cursor: default; }
+  .saq-recommended-slot.reserved { visibility: hidden; }
+  .saq-recommended-spinner { width: 13px; height: 13px; border: 2px solid color-mix(in srgb, var(--gold) 28%, transparent); border-top-color: var(--gold); border-radius: 50%; animation: saq-spin .75s linear infinite; }
+  .saq-recommended-content { animation: saqFadeIn .2s ease both; white-space: nowrap; }
+  .saq-coverage-microcopy { margin: -2px 0 9px; color: var(--text-faint); font-size: 10.5px; line-height: 1.35; }
+  .saq-coverage-note { margin-top: 8px; color: var(--text-faint); font-size: 11px; line-height: 1.4; }
+  .saq-help-message { font-size: 12px; line-height: 1.45; color: var(--text-secondary); margin: 8px 0 0; }
+  .saq-report-btn { margin-top: 12px; border: 0; background: transparent; color: var(--text-faint); font: 700 12px var(--font-body); cursor: pointer; }
+  .saq-report-btn:hover { color: var(--gold); }
+  .saq-modal-backdrop { position: fixed; inset: 0; z-index: 10000; background: rgba(9,10,20,.62); backdrop-filter: blur(5px); display: grid; place-items: center; padding: 18px; }
+  .saq-modal { width: min(480px, 100%); max-height: min(680px, calc(100dvh - 36px)); overflow-y: auto; position: relative; border: 1px solid color-mix(in srgb, var(--gold) 35%, var(--border-color2)); border-radius: 22px; background: var(--bg-card); color: var(--text-primary); padding: 28px; box-shadow: 0 24px 80px rgba(0,0,0,.4); font-family: var(--font-body); }
+  .saq-modal h3 { margin: 0 36px 12px 0; font-size: 21px; }
+  .saq-modal p { line-height: 1.6; color: var(--text-secondary); }
+  .saq-modal-close { position: absolute; right: 14px; top: 12px; width: 34px; height: 34px; border: 0; border-radius: 50%; background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); font-size: 24px; cursor: pointer; }
+  .saq-modal-primary { width: 100%; margin-top: 16px; padding: 12px 16px; border: 0; border-radius: 12px; background: var(--gold); color: #18130a; font-weight: 900; cursor: pointer; }
+  .saq-modal-primary:disabled { opacity: .5; cursor: not-allowed; }
+  .saq-report-label { display: grid; gap: 7px; margin-top: 14px; font-size: 12px; font-weight: 800; }
+  .saq-report-label select, .saq-report-label textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border-color2); border-radius: 10px; background: var(--bg-main); color: var(--text-primary); padding: 10px; font: 500 14px var(--font-body); }
+  .saq-report-label textarea { min-height: 92px; resize: vertical; }
+  .saq-report-error { color: #ef4444 !important; font-size: 12px; }
+  @media (max-width: 560px) { .saq-modal { padding: 22px 18px; border-radius: 18px; } }
   .saq-tool-btn kbd {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color2);
@@ -2525,7 +3325,11 @@ function SetupScreen({
   customCount,
   setCustomCount,
   genError,
+  coveragePreview,
+  coverageLoading,
+  coverageError,
   onGenerate,
+  onRetryCoverage,
 }: any) {
   const toggleType = (t: QuestionType) => {
     setSelectedTypes((prev: QuestionType[]) => {
@@ -2539,10 +3343,6 @@ function SetupScreen({
     ? Math.min(Math.max(parseInt(customCount) || 10, 1), 100)
     : questionCount;
 
-  // Distribución estimada por tipo
-  const perType = Math.max(1, Math.floor(finalCount / Math.max(selectedTypes.length, 1)));
-  const remainder = finalCount - perType * selectedTypes.length;
-
   const TYPE_INFO: Record<QuestionType, { desc: string }> = {
     multiple_choice: { desc: 'Una sola respuesta correcta.' },
     multi_select:    { desc: 'Selecciona todas las correctas.' },
@@ -2553,6 +3353,8 @@ function SetupScreen({
   };
 
   const estimatedTime = Math.max(1, Math.round(finalCount * 0.6));
+  const unsupportedCurrentTypes = (coveragePreview?.unsupportedSelectedTypes || [])
+    .filter((item: { type: QuestionType }) => selectedTypes.includes(item.type));
 
   return (
     <motion.div
@@ -2627,10 +3429,10 @@ function SetupScreen({
         <div className="saq-row-2">
           <div>
             <div className="saq-section-label">
-              <b>2.</b> ¿Cuántas preguntas?
+              <b>2.</b> Cantidad de preguntas
             </div>
             <div className="saq-count-pills" style={{ marginBottom: 10 }}>
-              {[5, 10, 15, 20, 25, 30].map(n => {
+              {[5, 10, 15, 20, 30].map(n => {
                 const active = questionCount === n && !customCount;
                 return (
                   <button
@@ -2652,6 +3454,19 @@ function SetupScreen({
                 className="saq-count-input"
               />
             </div>
+            {!coverageLoading && coveragePreview && (
+              <div className="saq-coverage-microcopy">
+                Cobertura del material: {coveragePreview.coveredTargetCount} / {coveragePreview.totalAssessableTargets}.
+                {' '}{coveragePreview.mode === 'practice'
+                  ? 'Todo el material ya fue evaluado; este quiz reforzará la práctica.'
+                  : 'Este quiz priorizará material aún no evaluado.'}
+              </div>
+            )}
+            {coverageError && onRetryCoverage && (
+              <button type="button" onClick={onRetryCoverage} className="saq-count-pill">
+                ↺ Reintentar cobertura
+              </button>
+            )}
             <div className="saq-meta-box">
               ⏱ Tiempo estimado: <b>{estimatedTime} {estimatedTime === 1 ? 'minuto' : 'minutos'}</b>
             </div>
@@ -2682,7 +3497,6 @@ function SetupScreen({
 
         {/* CTA */}
         {genError && <div className="saq-error">⚠️ {genError}</div>}
-
         <button
           onClick={onGenerate}
           disabled={selectedTypes.length === 0}
@@ -2710,13 +3524,12 @@ function SetupScreen({
             </div>
           ) : (
             <>
-              {(Object.keys(TYPE_META) as QuestionType[]).filter(t => selectedTypes.includes(t)).map((t, i) => {
-                const count = i === 0 ? perType + remainder : perType;
+              {(Object.keys(TYPE_META) as QuestionType[]).filter(t => selectedTypes.includes(t)).map(t => {
                 return (
                   <div key={t} className="saq-card-row">
                     <span>{TYPE_META[t].icon}</span>
                     <span style={{ fontSize: 12 }}>{TYPE_META[t].label}</span>
-                    <b>{count}</b>
+                    <b>✓</b>
                   </div>
                 );
               })}
@@ -2729,6 +3542,12 @@ function SetupScreen({
                 <span style={{ color: 'var(--text-secondary)' }}>Total</span>
                 <span style={{ color: 'var(--gold)' }}>{finalCount} preguntas</span>
               </div>
+              {unsupportedCurrentTypes.length > 0 && (
+                <div className="saq-coverage-note">
+                  Sin capacidad grounded: {unsupportedCurrentTypes
+                    .map((item: { type: QuestionType }) => TYPE_META[item.type].label).join(', ')}.
+                </div>
+              )}
             </>
           )}
         </div>
@@ -2783,7 +3602,7 @@ function SectionLabel({
 // ═══════════════════════════════════════════════════════════════
 // QUESTION CARD — Hoja de cuaderno StudyAL
 // ═══════════════════════════════════════════════════════════════
-function QuestionCard({
+export function QuestionCard({
   question,
   index,
   total,
@@ -2796,8 +3615,12 @@ function QuestionCard({
   setShowWordBank,
   onVerify,
   isEvaluating,
+  pendingEvaluation,
   onNext,
   isLast,
+  isCompleting,
+  completionError,
+  helpEffects,
 }: {
   question: Question;
   index: number;
@@ -2811,12 +3634,15 @@ function QuestionCard({
   setShowWordBank: (v: boolean) => void;
   onVerify: (directAnswer?: any) => void;
   isEvaluating: boolean;
+  pendingEvaluation: QuizEvaluationFeedback | null;
   onNext: () => void;
   isLast: boolean;
+  isCompleting: boolean;
+  completionError: string | null;
+  helpEffects: QuizHelpEffect[];
 }) {
   const isCorrect = lastEntry?.correct ?? null;
   const [confidence, setConfidence] = useState<null | 'low' | 'mid' | 'high'>(null);
-
   useEffect(() => {
     setConfidence(null);
   }, [index]);
@@ -2862,12 +3688,23 @@ function QuestionCard({
         </div>
 
         {/* Pregunta */}
-        <h2 className="saq-paper-question">
-          <MathText text={question.question} />
-        </h2>
+        {question.type === 'fill_blank' ? (
+          <FillBlankPresentation
+            prompt={question.question}
+            options={(question.wordBank || []).map(word => ({ id: word, text: word }))}
+            answerIds={[String(userAnswer || '')]}
+            onAnswerIdsChange={answers => setUserAnswer(answers[0] || '')}
+            disabled={isLocked || isEvaluating}
+            emptyBlank="_____"
+          />
+        ) : (
+          <h2 className="saq-paper-question">
+            <EnjoyerQuizQuestionPrompt question={question} slot={index + 1} />
+          </h2>
+        )}
 
         {/* Opciones */}
-        <div className="saq-paper-options">
+        {question.type !== 'fill_blank' && <div className="saq-paper-options">
           <QuestionOptions
             question={question}
             userAnswer={userAnswer}
@@ -2878,8 +3715,9 @@ function QuestionCard({
             showWordBank={showWordBank}
             setShowWordBank={setShowWordBank}
             onVerifyDirect={onVerify}
+            hiddenOptionIndexes={[...new Set(helpEffects.flatMap(effect => effect.hiddenOptionIndexes || []))]}
           />
-        </div>
+        </div>}
 
         {/* Confianza (solo si no está locked) */}
         {!isLocked && (
@@ -2912,7 +3750,7 @@ function QuestionCard({
         )}
 
         {/* Feedback inline cuando ya está locked */}
-        {isLocked && (
+        {(isLocked || pendingEvaluation) && (
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -2923,7 +3761,7 @@ function QuestionCard({
               question={question}
               userAnswer={lastEntry?.userAnswer}
               themeColor={themeColor}
-              evaluation={lastEntry?.evaluation}
+              evaluation={pendingEvaluation || lastEntry?.evaluation}
             />
           </motion.div>
         )}
@@ -2931,6 +3769,7 @@ function QuestionCard({
 
       {/* Botón flotante de acción */}
       <div className="saq-action-row">
+        {completionError && <div className="saq-error">⚠️ {completionError}</div>}
         {!isLocked ? (
           (question.type === 'fill_blank' ||
             question.type === 'short_answer' ||
@@ -2938,7 +3777,7 @@ function QuestionCard({
             question.type === 'matching') ? (
             <button
               disabled={
-                userAnswer === null ||
+                isEvaluating || userAnswer === null ||
                 userAnswer === undefined ||
                 (Array.isArray(userAnswer) && userAnswer.length === 0) ||
                 (typeof userAnswer === 'string' && !userAnswer.trim())
@@ -2946,7 +3785,7 @@ function QuestionCard({
               onClick={() => onVerify()}
               className="saq-action-btn"
             >
-              {isEvaluating ? '🧠 VERIFICANDO...' : 'Responder →'}
+              {isEvaluating ? '🧠 VERIFICANDO...' : pendingEvaluation ? 'Reintentar evaluación →' : 'Responder →'}
             </button>
           ) : (
             <div className="saq-action-hint">
@@ -2957,9 +3796,10 @@ function QuestionCard({
           <button
             data-next-question
             onClick={onNext}
+            disabled={isCompleting}
             className="saq-action-btn"
           >
-            {isLast ? '✓ Ver resultados' : 'Siguiente pregunta →'}
+            {isCompleting ? 'Guardando resultado…' : isLast ? '✓ Ver resultados' : 'Siguiente pregunta →'}
           </button>
         )}
       </div>
@@ -2968,7 +3808,7 @@ function QuestionCard({
 }
 
 // ─── FeedbackBox ──────────────────────────────────────────────
-function FeedbackBox({
+export function FeedbackBox({
   correct,
   question,
   userAnswer,
@@ -2981,9 +3821,11 @@ function FeedbackBox({
   themeColor: string;
   evaluation?: HistoryEntry['evaluation'];
 }) {
-  const pct = evaluation?.porcentaje ?? (correct ? 100 : 0);
-  const state = pct >= 85 ? 'correct' : pct >= 50 ? 'partial' : 'wrong';
-  const title = state === 'correct' ? '¡Correcto!' : state === 'partial' ? 'Casi…' : 'Incorrecto';
+  const ungraded = !!evaluation && !isGradedQuizEvaluation(evaluation);
+  const pct = ungraded ? null : evaluation?.porcentaje ?? (correct ? 100 : 0);
+  const state = ungraded ? 'ungraded' : evaluation?.nivel === 'medio_correcta' ? 'partial'
+    : (pct ?? 0) >= 85 ? 'correct' : (pct ?? 0) >= 50 ? 'partial' : 'wrong';
+  const title = ungraded ? 'Evaluación pendiente' : state === 'correct' ? '¡Correcto!' : state === 'partial' ? 'Casi…' : 'Incorrecto';
   const icon = state === 'correct' ? '🎉' : state === 'partial' ? '🤏' : '💭';
 
   return (
@@ -2991,38 +3833,38 @@ function FeedbackBox({
       <div className="saq-feedback-head">
         <span className="saq-feedback-icon">{icon}</span>
         <strong>{title}</strong>
-        <span className="saq-feedback-pct">{pct}%</span>
+        {pct !== null && <span className="saq-feedback-pct">{pct}%</span>}
       </div>
 
-      <div className="saq-feedback-bar">
+      {pct !== null && <div className="saq-feedback-bar">
         <div style={{ width: `${pct}%` }} />
-      </div>
+      </div>}
 
       <div className="saq-feedback-body">
-        {evaluation?.respuestaCorrecta && (
+        {state !== 'correct' && evaluation?.respuestaCorrecta && (
           <div className="saq-feedback-row">
             <b>Respuesta correcta:</b>
-            <span>{evaluation.respuestaCorrecta}</span>
+            <AcademicContent content={evaluation.respuestaCorrecta} inline />
           </div>
         )}
 
         {evaluation?.analisis && (
           <div className="saq-feedback-row">
             <b>Análisis:</b>
-            <span>{evaluation.analisis}</span>
+            <AcademicContent content={evaluation.analisis} inline />
           </div>
         )}
 
-        {evaluation?.explicacion && (
+        {evaluation?.explicacion && evaluation.explicacion.trim() !== evaluation.analisis.trim() && (
           <div className="saq-feedback-row">
             <b>¿Por qué?</b>
-            <span>{evaluation.explicacion}</span>
+            <AcademicContent content={evaluation.explicacion} inline />
           </div>
         )}
 
-        {evaluation?.consejo && (
+        {evaluation?.consejo && evaluation.consejo.trim() !== evaluation.analisis.trim() && evaluation.consejo.trim() !== evaluation.explicacion.trim() && (
           <div className="saq-feedback-tip">
-            💡 {evaluation.consejo}
+            💡 <AcademicContent content={evaluation.consejo} inline />
           </div>
         )}
       </div>
@@ -3043,6 +3885,7 @@ function QuestionOptions({
   showWordBank,
   setShowWordBank,
   onVerifyDirect,
+  hiddenOptionIndexes,
 }: {
   question: Question;
   userAnswer: any;
@@ -3053,12 +3896,14 @@ function QuestionOptions({
   showWordBank: boolean;
   setShowWordBank: (v: boolean) => void;
   onVerifyDirect?: (answer: any) => void;
+  hiddenOptionIndexes: number[];
 }) {
   // 1. MULTIPLE CHOICE — click directo = respuesta inmediata
   if (question.type === 'multiple_choice') {
     return (
       <>
         {question.options?.map((opt, i) => {
+          if (hiddenOptionIndexes.includes(i)) return null;
           const selected = userAnswer === i;
           const showRight = isLocked && i === question.correctAnswer;
           const showWrong = isLocked && selected && i !== question.correctAnswer;
@@ -3092,6 +3937,7 @@ function QuestionOptions({
           Selecciona todas las correctas
         </div>
         {question.options?.map((opt, i) => {
+          if (hiddenOptionIndexes.includes(i)) return null;
           const selected = current.includes(i);
           const showRight = isLocked && (question.correctAnswers ?? []).includes(i);
           const showWrong = isLocked && selected && !(question.correctAnswers ?? []).includes(i);
@@ -3433,6 +4279,7 @@ function ResultsScreen({
   mot,
   difficulty,
   selectedTypes,
+  coverage,
   themeColor,
   onRestart,
   onRetryWrong,
@@ -3564,7 +4411,18 @@ function ResultsScreen({
           label={`${history.length} preguntas`}
           color="#22d3ee"
         />
+        {coverage && (
+          <MetaChip
+            icon="📚"
+            label={`Cobertura del material: ${coverage.coveredTargetCount} / ${coverage.totalAssessableTargets}`}
+            color="#4ade80"
+          />
+        )}
       </div>
+
+      {coverage?.mode === 'practice' && (
+        <div className="saq-coverage-note">Todo el material ya fue evaluado al menos una vez. Los próximos quizzes reforzarán la práctica.</div>
+      )}
 
       {/* Recomendación */}
       {wrongCount > 0 && (
@@ -3883,7 +4741,7 @@ function ReviewItem({
                     fontFamily: BODY,
                   }}
                 >
-                  <strong>Tu respuesta:</strong> {userLabel}
+                  <strong>Tu respuesta:</strong> <AcademicContent content={userLabel} inline />
                 </div>
               )}
               {q.explanation && (
@@ -3898,7 +4756,7 @@ function ReviewItem({
                     lineHeight: 1.5,
                   }}
                 >
-                  💡 {q.explanation}
+                  💡 <AcademicContent content={q.explanation} inline />
                 </div>
               )}
             </div>

@@ -1,8 +1,277 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../lib/auth/options';
 import { detectLanguage } from '../../../lib/detectLanguage';
 import { generateValidatedLegacyJson } from '../../../lib/ai/legacyRouteGeneration';
+import { getAuthoritativeFreeSession } from '../../../lib/materialBrain/quiz/sessionAuthority';
+import { getMaterial } from '../../../lib/materials/repository';
+import { lookupStudyalMaterialEnjoyer, WorkerMaterialEnjoyerStore } from '../../../lib/adaptive/materialEnjoyer';
+import type { SourceSelectionSnapshot } from '../../../lib/adaptive/sourceSelection';
+import {
+  buildStudyMapEnjoyerContext, buildStudyMapNodeExplanationContext, deterministicStudyMapTitle,
+  renderStudyMapNodeExplanationContext, STUDY_MAP_ENJOYER_AUTHORITY_TYPE, STUDY_MAP_ENJOYER_ADAPTER_VERSION,
+  type StudyMapEdge, type StudyMapEnjoyerContext, type StudyMapNode,
+} from '../../../lib/materialBrain/studyMapEnjoyerContext';
 
 export const maxDuration = 180;
+
+// ============================================================
+// StudyalMaterialEnjoyer grounded path (sessionId-based, 0 provider
+// calls) — see handleGroundedStudyMapRequest() near the POST handler.
+// The legacy texto-based chunk-extraction pipeline below remains as an
+// unreachable fallback; ALAIStudyMap.tsx no longer sends `texto`.
+//
+// Node explanation ("explain this node") is a SEPARATE, small grounded
+// mode of THIS SAME route (mode: 'explain_node') — deliberately not a
+// change to the shared /api/alai-studyal-chat endpoint, which other tools
+// (ALAIStudyALChat, Análisis's doubt chat) still use unmodified.
+// ============================================================
+
+export const __routeDeps = {
+  getServerSession,
+  getAuthoritativeFreeSession,
+  getMaterial,
+  lookupStudyalMaterialEnjoyer,
+  materialEnjoyerStore: new WorkerMaterialEnjoyerStore(),
+  generateValidatedLegacyJson,
+};
+
+const RAW_SOURCE_AUTHORITY_KEYS = ['texto', 'content', 'materialText', 'combinedText', 'rawText'];
+
+function groundedErrorResponse(code: string, status: number, detail?: string) {
+  return NextResponse.json({ success: false, error: code, ...(detail ? { detail } : {}) }, { status });
+}
+
+interface StudyMapEnjoyerLookupResult {
+  context: StudyMapEnjoyerContext | null
+  code: string
+  status: number
+}
+
+/**
+ * Resolves the EXACT-fingerprint, persisted StudyalMaterialEnjoyer for a
+ * Study Map request. Lookup-only: never builds, never regenerates,
+ * never falls back to a different fingerprint. Mirrors the same
+ * restore-only contract already proven for Exam/Flashcards/Truquitos/
+ * Análisis — duplicated here (not imported) to keep this migration
+ * isolated.
+ */
+async function resolveReadyStudyMapEnjoyer(sessionId: string, userId: string): Promise<StudyMapEnjoyerLookupResult> {
+  const freeSession = await __routeDeps.getAuthoritativeFreeSession(sessionId, userId);
+  if (!freeSession) return { context: null, code: 'SESSION_NOT_FOUND', status: 404 };
+  const sourceSelection: SourceSelectionSnapshot = freeSession.sourceSelection;
+  for (const materialId of sourceSelection.materialIds) {
+    if (!await __routeDeps.getMaterial(materialId, userId)) return { context: null, code: 'SESSION_NOT_FOUND', status: 404 };
+  }
+  const persisted = await __routeDeps.lookupStudyalMaterialEnjoyer(sourceSelection.fingerprint, __routeDeps.materialEnjoyerStore);
+  if (!persisted) return { context: null, code: 'ENJOYER_NOT_READY', status: 409 };
+  try {
+    const context = buildStudyMapEnjoyerContext(persisted, sourceSelection);
+    return { context, code: 'OK', status: 200 };
+  } catch (error: any) {
+    const code = String(error?.message || '') === 'SOURCE_SELECTION_MISMATCH' ? 'SOURCE_SELECTION_MISMATCH' : 'INVALID_ENJOYER_AUTHORITY';
+    return { context: null, code, status: 409 };
+  }
+}
+
+const KIND_LABELS_ES: Record<string, string> = {
+  concept: 'Conceptos', fact: 'Hechos', definition: 'Definiciones', formula: 'Fórmulas',
+  process: 'Procesos', example: 'Ejemplos', event_or_data: 'Eventos y datos', terminology: 'Terminología',
+};
+
+/** Presentation-only projection of the grounded graph into the existing tree-shaped StudyMapData UI — no new academic claims, just layout. */
+function projectStudyMapToTree(context: StudyMapEnjoyerContext, title: string, summary: string) {
+  const nodeById = new Map(context.nodes.map(node => [node.id, node]));
+  const edgesByNode = new Map<string, StudyMapEdge[]>();
+  for (const edge of context.edges) {
+    edgesByNode.set(edge.sourceNodeId, [...(edgesByNode.get(edge.sourceNodeId) || []), edge]);
+    edgesByNode.set(edge.targetNodeId, [...(edgesByNode.get(edge.targetNodeId) || []), edge]);
+  }
+
+  const buildLeaf = (node: StudyMapNode, colorIndex: number) => {
+    const relationDetails = (edgesByNode.get(node.id) || []).map(edge => {
+      const otherId = edge.sourceNodeId === node.id ? edge.targetNodeId : edge.sourceNodeId;
+      const other = nodeById.get(otherId);
+      const arrow = edge.sourceNodeId === node.id ? '→' : '←';
+      return {
+        id: `detail:${edge.id}:${node.id}`, type: 'detail' as const,
+        label: `${edge.type} ${arrow} ${other?.label || otherId}`,
+        description: edge.label,
+      };
+    });
+    return {
+      id: node.id, label: node.label, type: 'leaf' as const,
+      description: node.statement, page: node.pages[0],
+      emoji: assignEmoji(node.label), color: BRANCH_COLORS_ROTATION[colorIndex % BRANCH_COLORS_ROTATION.length],
+      children: relationDetails,
+    };
+  };
+
+  const branches = context.clusters.map((cluster, index) => {
+    const label = cluster.kind === 'topic_group'
+      ? (nodeById.get(cluster.nodeIds[0])?.topicTitle
+        || KIND_LABELS_ES[cluster.nodeIds.length ? (nodeById.get(cluster.nodeIds[0])?.kind || '') : ''] || 'Otros')
+      : cluster.nodeIds
+        .map(id => nodeById.get(id))
+        .sort((a, b) => (a?.importanceTier === 'critical' ? -1 : 0) - (b?.importanceTier === 'critical' ? -1 : 0))[0]?.label || 'Grupo';
+    return {
+      id: cluster.id, label, type: 'branch' as const,
+      emoji: assignEmoji(label), color: BRANCH_COLORS_ROTATION[index % BRANCH_COLORS_ROTATION.length],
+      children: cluster.nodeIds.map(id => buildLeaf(nodeById.get(id)!, index)),
+    };
+  });
+
+  return {
+    title, summary, totalConcepts: context.nodes.length,
+    root: { id: 'root', label: title, type: 'root' as const, children: branches },
+  };
+}
+
+const BRANCH_COLORS_ROTATION = ['#d6b26f', '#8ecae6', '#ffb4a2', '#a8dadc', '#f4a261', '#cdb4db', '#90be6d', '#e9c46a'];
+
+async function handleGroundedStudyMapRequest(sessionId: string, userId: string, materia: string, tema: string): Promise<NextResponse> {
+  const enjoyerLookup = await resolveReadyStudyMapEnjoyer(sessionId, userId);
+  if (!enjoyerLookup.context) return groundedErrorResponse(enjoyerLookup.code, enjoyerLookup.status);
+  const context = enjoyerLookup.context;
+
+  if (!context.nodes.length) {
+    return groundedErrorResponse('NO_MAP_TARGETS', 400, 'El material no tiene contenido representable en el mapa.');
+  }
+
+  const freeSession = await __routeDeps.getAuthoritativeFreeSession(sessionId, userId);
+  const sourceSelection: SourceSelectionSnapshot = freeSession!.sourceSelection;
+  const materialNamesById: Record<string, string> = {};
+  for (const materialId of sourceSelection.materialIds) {
+    const material = await __routeDeps.getMaterial(materialId, userId);
+    if (material) materialNamesById[materialId] = (material as any).nombre || (material as any).name || materialId;
+  }
+  const title = tema || deterministicStudyMapTitle(sourceSelection, materialNamesById);
+  const summary = `${context.nodes.length} conceptos del material${materia ? ` de ${materia}` : ''}, organizados en ${context.clusters.length} grupos.`;
+
+  const mapa = projectStudyMapToTree(context, title, summary);
+
+  return NextResponse.json({
+    success: true,
+    mapa,
+    grounding: {
+      fingerprint: context.fingerprint,
+      authorityType: STUDY_MAP_ENJOYER_AUTHORITY_TYPE,
+      adapterVersion: STUDY_MAP_ENJOYER_ADAPTER_VERSION,
+      totalMapTargets: context.coverage.totalMapTargets,
+      representedMapTargets: context.coverage.representedMapTargets,
+      coveragePercent: context.coverage.coveragePercent,
+      missingTargetIds: context.coverage.missingTargetIds,
+      totalRelationIds: context.coverage.totalRelationIds,
+      representedRelationIds: context.coverage.representedRelationIds,
+      visibleInitially: context.visibility.visibleInitially,
+      availableInMap: context.visibility.availableInMap,
+    },
+  });
+}
+
+/**
+ * Grounded "explain this node" — resolves the SAME ready persisted
+ * Enjoyer as map generation, then builds a small node-scoped context
+ * (the node + its authorized evidence + only the relations/neighbors it
+ * actually participates in). 1 provider call, 0 extraction/vision/graph
+ * work.
+ */
+/**
+ * STUDYMAP_LIVE_UX_HARDENING unification: the ONE Study Map explanation
+ * path — used for leaf nodes (a single real Enjoyer node id) AND
+ * branch/category nodes (every real Enjoyer node id among that
+ * branch's descendant leaves, computed client-side from the tree it
+ * already has). Root never calls this — its explanation stays fully
+ * deterministic client-side (0 provider calls). No PDF reanalysis, no
+ * Material Brain, no invented relations: grounding is exactly the same
+ * real Enjoyer nodes/edges whether there is 1 of them or several.
+ */
+async function handleExplainNodeRequest(sessionId: string, userId: string, nodeIds: string[], materia: string, tema: string): Promise<NextResponse> {
+  const enjoyerLookup = await resolveReadyStudyMapEnjoyer(sessionId, userId);
+  if (!enjoyerLookup.context) return groundedErrorResponse(enjoyerLookup.code, enjoyerLookup.status);
+  const context = enjoyerLookup.context;
+
+  const explanationContext = buildStudyMapNodeExplanationContext(context, nodeIds);
+  if (!explanationContext) return groundedErrorResponse('UNIT_NOT_FOUND', 404);
+
+  const groundedText = renderStudyMapNodeExplanationContext(explanationContext);
+  const { nodes, edges } = explanationContext;
+  const isGroup = nodes.length > 1;
+
+  // Deterministic, zero-extra-call language authority: the material's
+  // own text — never the browser/UI locale — decides the response
+  // language (STUDYMAP_LIVE_UX_HARDENING language root-cause fix).
+  const langHint = detectLanguage(groundedText, 'es');
+  const languageInstruction = langHint === 'es'
+    ? 'Responde EN ESPAÑOL — el material está en español, nunca cambies de idioma.'
+    : 'Respond IN ENGLISH — the material is in English, never switch languages.';
+
+  const systemPrompt = `Eres el Profesor ALAI explicando ${isGroup ? 'un grupo de conceptos relacionados' : 'UN concepto puntual'} de un mapa de estudio ya construido por StudyAL desde el material — NO vuelvas a leer el material ni inventes nada fuera de lo que se te da.
+
+AUTORIDAD — REGLAS OBLIGATORIAS:
+1. ${isGroup ? 'Los bloques [NODE ...] de abajo son la ÚNICA fuente de hechos autorizados sobre este grupo de conceptos.' : 'El bloque [NODE ...] de abajo es la ÚNICA fuente de hechos autorizados sobre este concepto.'} No inventes datos, páginas, fórmulas o nombres que no aparezcan ahí.
+2. "RELACIONES AUTORIZADAS" (si las hay) son las ÚNICAS conexiones reales que puedes mencionar entre conceptos. NUNCA digas que algo "se relaciona con" o "es similar a" algo que no esté en esa lista — aunque te parezca obvio o similar.
+3. "answer" debe contener SOLO lo directamente respaldado por los bloques [NODE] — nunca una analogía, comparación externa o dato pedagógico que no esté ahí. Adapta el lenguaje para que sea fácil de entender, pero no cambies el contenido autorizado ni la fórmula/dato si es un dato exacto.
+4. Si quieres dar una analogía, ejemplo adicional o contexto pedagógico que NO esté en los bloques [NODE], ponlo EXCLUSIVAMENTE en "pedagogicalNote" — nunca mezclado dentro de "answer". Dejar "pedagogicalNote" vacío ("") es válido y preferible si no aporta algo genuinamente útil.
+5. Sé conciso: ${isGroup ? '4-8 oraciones cubriendo el grupo como un todo coherente' : '3-6 oraciones'} en "answer", más una sección corta de "Cómo se conecta" SOLO si hay relaciones autorizadas.
+6. FÓRMULAS Y NOTACIÓN — REGLA ESTRICTA: cuando tu respuesta mencione una fórmula, ecuación o variable con subíndice/exponente/fracción que aparece en un bloque [NODE] (p.ej. "E_n = -13.6 eV / n²", "Kp = Kc(RT)^Δn"), escríbela como LaTeX entre signos de dólar simples, así: $E_n = -13.6 \text{ eV} / n^2$ — usa "_" para subíndice, "^" para exponente, "\frac{numerador}{denominador}" para fracciones, y conserva EXACTAMENTE los mismos símbolos, coeficientes, paréntesis y letras griegas (Δ, etc.) que aparecen en "CONTENIDO AUTORIZADO" o "EVIDENCE" — NUNCA la reescribas de memoria, ni la "corrijas" con tu conocimiento general de la materia, ni inventes una versión que te parezca más correcta. La fuente autorizada es la única verdad, incluso si te parece incompleta. Si no puedes representarla fielmente en LaTeX, mejor descríbela en palabras SIN escribir una notación simbólica que no estés copiando fielmente de la fuente.
+7. IDIOMA: ${languageInstruction}
+Devuelve SOLO JSON válido.`;
+
+  const userPrompt = `MATERIA: ${materia || '(sin materia)'}
+TEMA: ${tema || '(sin tema)'}
+
+${groundedText}
+
+Devuelve EXACTAMENTE este JSON:
+{
+  "answer": "explicación pedagógica SOLO respaldada por los bloques [NODE], ${isGroup ? '4-8 oraciones' : '3-6 oraciones'}, más conexiones si hay relaciones autorizadas",
+  "pedagogicalNote": "analogía o contexto adicional NO tomado del material, o cadena vacía si no aplica",
+  "usedRelationIds": []
+}`;
+
+  const parsed: any = await __routeDeps.generateValidatedLegacyJson({
+    taskType: 'session_content',
+    prompt: `${systemPrompt}\n\n${userPrompt}`,
+    maxTokens: Math.min(900 + 150 * Math.max(0, nodes.length - 1), 2400),
+    normalize: (value: any) => value,
+    validate: (value: any) => {
+      const errors: string[] = [];
+      if (!String(value?.answer || '').trim()) errors.push('STRUCTURAL_VALIDATION_FAILED:node_explanation_answer');
+      return { valid: errors.length === 0, errors };
+    },
+    telemetryContext: { route: 'study_map', phase: 'explain_node' },
+  }).catch(() => null);
+
+  if (!parsed) return groundedErrorResponse('PROVIDER_GENERATION_FAILED', 502, 'No se pudo generar la explicación grounded.');
+
+  // Traceability kept internally — never required for the UI to render,
+  // but lets a future audit confirm the answer only had access to these
+  // authorized relation/unit ids.
+  const knownRelationIds = new Set(edges.map(edge => edge.id));
+  const usedRelationIds = Array.isArray(parsed.usedRelationIds)
+    ? parsed.usedRelationIds.map((id: any) => String(id || '').trim()).filter((id: string) => knownRelationIds.has(id))
+    : [];
+  const sourcePages = Array.from(new Set(nodes.flatMap(n => n.pages))).sort((a, b) => a - b);
+
+  return NextResponse.json({
+    success: true,
+    explanation: {
+      answer: String(parsed.answer || '').trim(),
+      // Honest provenance semantics (ANALISIS_CHAT_AUDIT finding): `answer`
+      // and ONLY `answer` is claimed to be backed by `sourcePages` — any
+      // additional pedagogical enrichment the model produces is kept in
+      // this SEPARATE field, never implicitly covered by "Fuentes: p.X".
+      pedagogicalNote: String(parsed.pedagogicalNote || '').trim(),
+      sourcePages,
+      suggestedFollowups: [],
+      unitId: nodes[0].id,
+      unitIds: nodes.map(n => n.id),
+      relationIds: edges.map(edge => edge.id),
+      usedRelationIds,
+    },
+  });
+}
 
 const BRANCH_EMOJIS: Record<string, string> = {
   // Académico
@@ -107,6 +376,69 @@ function chunkText(text: string, maxChars: number): string[] {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+
+    // ─── MATERIAL BRAIN GROUNDED NODE EXPLANATION ───
+    // ALAIStudyMap.tsx sends { mode: 'explain_node', sessionId, unitId }
+    // for leaf (real Brain unit) nodes — never materialText. Isolated
+    // from /api/alai-studyal-chat, which other tools still use unchanged.
+    if (body?.mode === 'explain_node') {
+      if (RAW_SOURCE_AUTHORITY_KEYS.some(key => Object.prototype.hasOwnProperty.call(body, key))) {
+        return groundedErrorResponse('INVALID_CONFIG', 400, 'RAW_SOURCE_AUTHORITY_FORBIDDEN');
+      }
+      const sessionId = String(body?.sessionId || '').trim();
+      // Accepts either a single unitId (leaf) or an array unitIds
+      // (branch/category — every real Enjoyer node id among its
+      // descendant leaves, computed client-side). Never a client-forged
+      // arbitrary id: resolveReadyStudyMapEnjoyer + buildStudyMapNodeExplanationContext
+      // below only ever match REAL persisted Enjoyer node ids.
+      const unitIds = Array.isArray(body?.unitIds)
+        ? body.unitIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+        : (String(body?.unitId || '').trim() ? [String(body.unitId).trim()] : []);
+      if (!sessionId || !unitIds.length) return groundedErrorResponse('INVALID_CONFIG', 400, 'sessionId y unitId(s) requeridos');
+      let userId: string | null = null;
+      try {
+        const session = await __routeDeps.getServerSession(authOptions);
+        userId = (session?.user as any)?.id ?? null;
+      } catch {}
+      if (!userId) return groundedErrorResponse('UNAUTHORIZED', 401);
+      return handleExplainNodeRequest(sessionId, userId, unitIds, String(body.materia || '').trim(), String(body.tema || '').trim());
+    }
+
+    // ─── STUDYALMATERIALENJOYER GROUNDED PATH — Free Mode Study Map ───
+    // ALAIStudyMap.tsx sends { sessionId, materia, tema } and no `texto`.
+    // Autoridad académica: SOLO el StudyalMaterialEnjoyer persistido,
+    // resuelto server-side por fingerprint exacto, nunca texto crudo del
+    // cliente. 0 provider calls.
+    if (typeof body?.sessionId === 'string' && body.sessionId) {
+      if (RAW_SOURCE_AUTHORITY_KEYS.some(key => Object.prototype.hasOwnProperty.call(body, key))) {
+        return groundedErrorResponse('INVALID_CONFIG', 400, 'RAW_SOURCE_AUTHORITY_FORBIDDEN');
+      }
+      let userId: string | null = null;
+      try {
+        const session = await __routeDeps.getServerSession(authOptions);
+        userId = (session?.user as any)?.id ?? null;
+      } catch {}
+      if (!userId) return groundedErrorResponse('UNAUTHORIZED', 401);
+      return handleGroundedStudyMapRequest(
+        body.sessionId, userId, String(body.materia || '').trim(), String(body.tema || '').trim(),
+      );
+    }
+
+    // ─── LEGACY texto/content BRANCH — AUTH HARDENING (STUDYMAP_LEGACY_AUTH) ───
+    // Unreachable from the current UI (ALAIStudyMap.tsx only ever sends
+    // sessionId or mode:'explain_node'), but directly reachable over raw
+    // HTTP with no authentication at all. Must resolve a valid
+    // authenticated server session BEFORE any provider work — same
+    // primitive as the sessionId/Enjoyer branches above, never a
+    // client-supplied identity. An unauthenticated request must never
+    // reach texto parsing or any provider call.
+    let legacyUserId: string | null = null;
+    try {
+      const session = await __routeDeps.getServerSession(authOptions);
+      legacyUserId = (session?.user as any)?.id ?? null;
+    } catch { /* unauthenticated */ }
+    if (!legacyUserId) return groundedErrorResponse('UNAUTHORIZED', 401);
+
     const texto = String(body.texto || body.content || '').trim();
     const materia = String(body.materia || '').trim();
     const tema = String(body.tema || '').trim();
@@ -182,7 +514,7 @@ ${sample}
 
 ⚠️ ONLY JSON. No markdown.`;
 
-    const schema: any = await generateValidatedLegacyJson({
+    const schema: any = await __routeDeps.generateValidatedLegacyJson({
       taskType: 'session_content',
       prompt: schemaPrompt,
       maxTokens: 2500,
@@ -299,7 +631,7 @@ ${chunk}
 ⚠️ JSON only.`;
 
           try {
-            const conceptos = await generateValidatedLegacyJson<any[]>({
+            const conceptos = await __routeDeps.generateValidatedLegacyJson<any[]>({
               taskType: 'session_content',
               prompt: extractPrompt,
               maxTokens: 4000,

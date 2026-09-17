@@ -93,8 +93,14 @@ async function installFixtureRoutes(page: Page) {
     status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, quiz: quizFixture }),
   }));
 
-  await page.route('**/api/alai-studyal-cards', async route => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, flashcards: flashcardsFixture }) });
+  await page.route('**/api/flashcards-v2', async route => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      status: 'ready',
+      deck: {
+        cards: flashcardsFixture.map(c => ({ ...c, provenance: [{ materialId: 'manual-fixture', page: c.sourcePage || 1, quote: '', chunkId: '' }] })),
+        coverage: { targetedUnitIds: [], targetedRelationIds: [], coveredUnitIds: [], coveredRelationIds: [], status: 'complete', metrics: { plannedCards: flashcardsFixture.length, validCards: flashcardsFixture.length, failedCards: 0, targetedUnits: 0, coveredUnits: 0, targetedRelations: 0, coveredRelations: 0 } },
+      },
+    }) });
   });
 
   await page.route('**/api/evaluar', route => route.fulfill({

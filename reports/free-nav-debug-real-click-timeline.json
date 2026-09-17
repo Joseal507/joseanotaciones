@@ -1,0 +1,419 @@
+{
+  "timeline": [
+    {
+      "t": 1787108691396,
+      "text": "[free-nav-debug] RENDER {\"renderId\":1,\"vista\":\"lista\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":null,\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108691396,
+      "text": "[free-nav-debug] RENDER {\"renderId\":2,\"vista\":\"lista\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":null,\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108691397,
+      "text": "[free-nav-debug] EFFECT_RUN {\"effect\":\"cargar(session-bootstrap)\",\"deps\":\"status,session,router\",\"runCount\":1,\"status\":\"loading\",\"sessionRefChanged\":false,\"note\":\"first run\"}"
+    },
+    {
+      "t": 1787108691399,
+      "text": "[free-nav-debug] EFFECT_RUN {\"effect\":\"cargar(session-bootstrap)\",\"deps\":\"status,session,router\",\"runCount\":2,\"status\":\"loading\",\"sessionRefChanged\":false,\"note\":\"first run\"}"
+    },
+    {
+      "t": 1787108691399,
+      "text": "[free-nav-debug] RENDER {\"renderId\":3,\"vista\":\"lista\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":null,\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108691447,
+      "text": "[free-nav-debug] RENDER {\"renderId\":4,\"vista\":\"lista\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":null,\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108691535,
+      "text": "[free-nav-debug] RENDER {\"renderId\":5,\"vista\":\"lista\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":null,\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108691536,
+      "text": "[free-nav-debug] RENDER {\"renderId\":6,\"vista\":\"lista\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":null,\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108691536,
+      "text": "[free-nav-debug] EFFECT_RUN {\"effect\":\"cargar(session-bootstrap)\",\"deps\":\"status,session,router\",\"runCount\":3,\"status\":\"authenticated\",\"sessionRefChanged\":true,\"note\":\"session object identity changed — will call lookupMateriasDesdeDB() and setMaterias() with a NEW array reference\"}"
+    },
+    {
+      "t": 1787108691536,
+      "text": "[free-nav-debug] RENDER {\"renderId\":7,\"vista\":\"lista\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":null,\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108691536,
+      "text": "[free-nav-debug] RENDER {\"renderId\":8,\"vista\":\"lista\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":null,\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108691540,
+      "text": "[free-nav-debug] RENDER {\"renderId\":9,\"vista\":\"lista\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":null,\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108691540,
+      "text": "[free-nav-debug] RENDER {\"renderId\":10,\"vista\":\"lista\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":null,\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108691549,
+      "text": "[free-nav-debug] EFFECT_RUN {\"effect\":\"cargar(session-bootstrap)\",\"deps\":\"status,session,router\",\"runCount\":4,\"status\":\"authenticated\",\"sessionRefChanged\":true,\"note\":\"session object identity changed — will call lookupMateriasDesdeDB() and setMaterias() with a NEW array reference\"}"
+    },
+    {
+      "t": 1787108691549,
+      "text": "[free-nav-debug] RENDER {\"renderId\":11,\"vista\":\"lista\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":null,\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108691549,
+      "text": "[free-nav-debug] RENDER {\"renderId\":12,\"vista\":\"lista\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":null,\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108691600,
+      "text": "[free-nav-debug] SET_MATERIAS {\"source\":\"cargar-effect:lookupMateriasDesdeDB\",\"newArrayRefWillTriggerFindAndOpenEffect\":true,\"count\":1}"
+    },
+    {
+      "t": 1787108691603,
+      "text": "[free-nav-debug] SET_MATERIAS {\"source\":\"cargar-effect:lookupMateriasDesdeDB\",\"newArrayRefWillTriggerFindAndOpenEffect\":true,\"count\":1}"
+    },
+    {
+      "t": 1787108691606,
+      "text": "[free-nav-debug] RENDER {\"renderId\":13,\"vista\":\"lista\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":null,\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108691612,
+      "text": "[free-nav-debug] RENDER {\"renderId\":14,\"vista\":\"lista\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":null,\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108692221,
+      "text": "[free-nav-debug] VIEW_TRANSITION {\"old\":\"lista\",\"new\":\"materia\",\"reason\":\"unspecified\",\"callsite\":\"onAbrir (webpack-internal:///(app-pages-browser)/./app/materias/page.tsx:1535:29)\",\"renderId\":14,\"freeToolSessionId\":null,\"returnSessionId\":null,\"temaId\":null}"
+    },
+    {
+      "t": 1787108692222,
+      "text": "[free-nav-debug] VIEW_TRANSITION {\"old\":\"lista\",\"new\":\"materia\",\"reason\":\"unspecified\",\"callsite\":\"onAbrir (webpack-internal:///(app-pages-browser)/./app/materias/page.tsx:1535:29)\",\"renderId\":14,\"freeToolSessionId\":null,\"returnSessionId\":null,\"temaId\":null}"
+    },
+    {
+      "t": 1787108692224,
+      "text": "[free-nav-debug] RENDER {\"renderId\":15,\"vista\":\"materia\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108692226,
+      "text": "[free-nav-debug] RENDER {\"renderId\":16,\"vista\":\"materia\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":null,\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108692701,
+      "text": "[free-nav-debug] VIEW_TRANSITION {\"old\":\"materia\",\"new\":\"tema\",\"reason\":\"unspecified\",\"callsite\":\"onAbrirTema (webpack-internal:///(app-pages-browser)/./app/materias/page.tsx:1551:29)\",\"renderId\":16,\"freeToolSessionId\":null,\"returnSessionId\":null,\"temaId\":null}"
+    },
+    {
+      "t": 1787108692701,
+      "text": "[free-nav-debug] VIEW_TRANSITION {\"old\":\"materia\",\"new\":\"tema\",\"reason\":\"unspecified\",\"callsite\":\"onAbrirTema (webpack-internal:///(app-pages-browser)/./app/materias/page.tsx:1551:29)\",\"renderId\":16,\"freeToolSessionId\":null,\"returnSessionId\":null,\"temaId\":null}"
+    },
+    {
+      "t": 1787108692701,
+      "text": "[free-nav-debug] RENDER {\"renderId\":17,\"vista\":\"tema\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108692701,
+      "text": "[free-nav-debug] RENDER {\"renderId\":18,\"vista\":\"tema\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108692727,
+      "text": "[free-nav-debug] RENDER {\"renderId\":19,\"vista\":\"tema\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108692727,
+      "text": "[free-nav-debug] RENDER {\"renderId\":20,\"vista\":\"tema\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108694069,
+      "text": "[free-nav-debug] MOUNT {\"component\":\"TemaView\",\"instanceId\":\"TemaView-1-mszidh98\",\"temaId\":\"tema_e2e_repro_1\",\"returnSessionId\":null,\"timestamp\":1787108693931}"
+    },
+    {
+      "t": 1787108694069,
+      "text": "[free-nav-debug] SESSION_GET {\"trigger\":\"TemaView:refreshSessions (fires on every mount via useEffect([refreshSessions]))\",\"instanceId\":\"TemaView-1-mszidh98\",\"temaId\":\"tema_e2e_repro_1\"}"
+    },
+    {
+      "t": 1787108694072,
+      "text": "[free-nav-debug] UNMOUNT {\"component\":\"TemaView\",\"instanceId\":\"TemaView-1-mszidh98\",\"temaId\":\"tema_e2e_repro_1\",\"timestamp\":1787108693958}"
+    },
+    {
+      "t": 1787108694072,
+      "text": "[free-nav-debug] MOUNT {\"component\":\"TemaView\",\"instanceId\":\"TemaView-1-mszidh98\",\"temaId\":\"tema_e2e_repro_1\",\"returnSessionId\":null,\"timestamp\":1787108693958}"
+    },
+    {
+      "t": 1787108694084,
+      "text": "[free-nav-debug] SESSION_GET {\"trigger\":\"TemaView:refreshSessions (fires on every mount via useEffect([refreshSessions]))\",\"instanceId\":\"TemaView-1-mszidh98\",\"temaId\":\"tema_e2e_repro_1\"}"
+    },
+    {
+      "t": 1787108697024,
+      "text": "[free-nav-debug] STUDYAL_PROCESS_RENDER {\"sessionId\":\"sess_e2e_repro_1\",\"materialesLength\":1,\"sourceSelectionFingerprint\":\"cbb797b04b9e5544\",\"sessionFound\":true,\"sessionMaterialIds\":[\"mat_e2e_repro_1\"],\"sessionSelectedPages\":{\"mat_e2e_repro_1\":[1,2]},\"sessionFingerprint\":\"cbb797b04b9e5544\",\"freeToolsKeys\":[],\"progress\":0,\"totalChars\":0}"
+    },
+    {
+      "t": 1787108697024,
+      "text": "[free-nav-debug] STUDYAL_PROCESS_RENDER {\"sessionId\":\"sess_e2e_repro_1\",\"materialesLength\":1,\"sourceSelectionFingerprint\":\"cbb797b04b9e5544\",\"sessionFound\":true,\"sessionMaterialIds\":[\"mat_e2e_repro_1\"],\"sessionSelectedPages\":{\"mat_e2e_repro_1\":[1,2]},\"sessionFingerprint\":\"cbb797b04b9e5544\",\"freeToolsKeys\":[],\"progress\":0,\"totalChars\":0}"
+    },
+    {
+      "t": 1787108697071,
+      "text": "[free-nav-debug] SOURCE_RESOLUTION {\"consumer\":\"StudyALProcess\",\"instanceId\":\"useAuthorizedSource:StudyALProcess-59-mszidjtx\",\"fingerprint\":\"cbb797b04b9e5544\",\"outcome\":\"network-fetch-start\"}"
+    },
+    {
+      "t": 1787108697073,
+      "text": "[free-nav-debug] SOURCE_RESOLUTION {\"consumer\":\"StudyALProcess\",\"instanceId\":\"useAuthorizedSource:StudyALProcess-59-mszidjtx\",\"fingerprint\":\"cbb797b04b9e5544\",\"outcome\":\"unmount-leaving-fetch-in-flight\"}"
+    },
+    {
+      "t": 1787108697073,
+      "text": "[free-nav-debug] SOURCE_RESOLUTION {\"consumer\":\"StudyALProcess\",\"instanceId\":\"useAuthorizedSource:StudyALProcess-59-mszidjtx\",\"fingerprint\":\"cbb797b04b9e5544\",\"outcome\":\"inflight-hit-dedup\"}"
+    },
+    {
+      "t": 1787108697073,
+      "text": "[free-nav-debug] RENDER {\"renderId\":21,\"vista\":\"tema\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108697073,
+      "text": "[free-nav-debug] RENDER {\"renderId\":22,\"vista\":\"tema\",\"freeToolSessionId\":null,\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":null}"
+    },
+    {
+      "t": 1787108697073,
+      "text": "[free-nav-debug] STUDYAL_PROCESS_RENDER {\"sessionId\":\"sess_e2e_repro_1\",\"materialesLength\":1,\"sourceSelectionFingerprint\":\"cbb797b04b9e5544\",\"sessionFound\":true,\"sessionMaterialIds\":[\"mat_e2e_repro_1\"],\"sessionSelectedPages\":{\"mat_e2e_repro_1\":[1,2]},\"sessionFingerprint\":\"cbb797b04b9e5544\",\"freeToolsKeys\":[],\"progress\":0,\"totalChars\":0}"
+    },
+    {
+      "t": 1787108697079,
+      "text": "[free-nav-debug] STUDYAL_PROCESS_RENDER {\"sessionId\":\"sess_e2e_repro_1\",\"materialesLength\":1,\"sourceSelectionFingerprint\":\"cbb797b04b9e5544\",\"sessionFound\":true,\"sessionMaterialIds\":[\"mat_e2e_repro_1\"],\"sessionSelectedPages\":{\"mat_e2e_repro_1\":[1,2]},\"sessionFingerprint\":\"cbb797b04b9e5544\",\"freeToolsKeys\":[],\"progress\":0,\"totalChars\":0}"
+    },
+    {
+      "t": 1787108697180,
+      "text": "[free-nav-debug] STUDYAL_PROCESS_RENDER {\"sessionId\":\"sess_e2e_repro_1\",\"materialesLength\":1,\"sourceSelectionFingerprint\":\"cbb797b04b9e5544\",\"sessionFound\":true,\"sessionMaterialIds\":[\"mat_e2e_repro_1\"],\"sessionSelectedPages\":{\"mat_e2e_repro_1\":[1,2]},\"sessionFingerprint\":\"cbb797b04b9e5544\",\"freeToolsKeys\":[],\"progress\":0,\"totalChars\":0}"
+    },
+    {
+      "t": 1787108697182,
+      "text": "[free-nav-debug] STUDYAL_PROCESS_RENDER {\"sessionId\":\"sess_e2e_repro_1\",\"materialesLength\":1,\"sourceSelectionFingerprint\":\"cbb797b04b9e5544\",\"sessionFound\":true,\"sessionMaterialIds\":[\"mat_e2e_repro_1\"],\"sessionSelectedPages\":{\"mat_e2e_repro_1\":[1,2]},\"sessionFingerprint\":\"cbb797b04b9e5544\",\"freeToolsKeys\":[],\"progress\":0,\"totalChars\":0}"
+    },
+    {
+      "t": 1787108697186,
+      "text": "[free-nav-debug] SOURCE_RESOLUTION {\"consumer\":\"StudyALProcess\",\"instanceId\":\"useAuthorizedSource:StudyALProcess-59-mszidjtx\",\"fingerprint\":\"cbb797b04b9e5544\",\"outcome\":\"success-but-instance-unmounted\"}"
+    },
+    {
+      "t": 1787108697187,
+      "text": "[free-nav-debug] SOURCE_RESOLUTION {\"consumer\":\"StudyALProcess\",\"instanceId\":\"useAuthorizedSource:StudyALProcess-59-mszidjtx\",\"fingerprint\":\"cbb797b04b9e5544\",\"outcome\":\"success\"}"
+    },
+    {
+      "t": 1787108697199,
+      "text": "[free-nav-debug] STUDYAL_PROCESS_RENDER {\"sessionId\":\"sess_e2e_repro_1\",\"materialesLength\":1,\"sourceSelectionFingerprint\":\"cbb797b04b9e5544\",\"sessionFound\":true,\"sessionMaterialIds\":[\"mat_e2e_repro_1\"],\"sessionSelectedPages\":{\"mat_e2e_repro_1\":[1,2]},\"sessionFingerprint\":\"cbb797b04b9e5544\",\"freeToolsKeys\":[],\"progress\":0,\"totalChars\":40}"
+    },
+    {
+      "t": 1787108697201,
+      "text": "[free-nav-debug] STUDYAL_PROCESS_RENDER {\"sessionId\":\"sess_e2e_repro_1\",\"materialesLength\":1,\"sourceSelectionFingerprint\":\"cbb797b04b9e5544\",\"sessionFound\":true,\"sessionMaterialIds\":[\"mat_e2e_repro_1\"],\"sessionSelectedPages\":{\"mat_e2e_repro_1\":[1,2]},\"sessionFingerprint\":\"cbb797b04b9e5544\",\"freeToolsKeys\":[],\"progress\":0,\"totalChars\":40}"
+    },
+    {
+      "t": 1787108697441,
+      "text": "[free-nav-debug] VIEW_TRANSITION {\"old\":\"tema\",\"new\":\"flashcards\",\"reason\":\"StudyALProcess-hub:onOpenFlashcards:user-clicked-generate\",\"callsite\":\"onOpenFlashcards (webpack-internal:///(app-pages-browser)/./app/materias/page.tsx:1609:29)\",\"renderId\":22,\"freeToolSessionId\":null,\"returnSessionId\":null,\"temaId\":\"tema_e2e_repro_1\"}"
+    },
+    {
+      "t": 1787108697441,
+      "text": "[free-nav-debug] VIEW_TRANSITION {\"old\":\"tema\",\"new\":\"flashcards\",\"reason\":\"StudyALProcess-hub:onOpenFlashcards:user-clicked-generate\",\"callsite\":\"onOpenFlashcards (webpack-internal:///(app-pages-browser)/./app/materias/page.tsx:1609:29)\",\"renderId\":22,\"freeToolSessionId\":null,\"returnSessionId\":null,\"temaId\":\"tema_e2e_repro_1\"}"
+    },
+    {
+      "t": 1787108697443,
+      "text": "[free-nav-debug] RENDER {\"renderId\":23,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108697443,
+      "text": "[free-nav-debug] RENDER {\"renderId\":24,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108697444,
+      "text": "[free-nav-debug] UNMOUNT {\"component\":\"TemaView\",\"instanceId\":\"TemaView-1-mszidh98\",\"temaId\":\"tema_e2e_repro_1\",\"timestamp\":1787108697425}"
+    },
+    {
+      "t": 1787108697444,
+      "text": "[free-nav-debug] SOURCE_RESOLUTION {\"consumer\":\"StudyALProcess\",\"instanceId\":\"useAuthorizedSource:StudyALProcess-59-mszidjtx\",\"fingerprint\":\"cbb797b04b9e5544\",\"outcome\":\"unmount-leaving-fetch-in-flight\"}"
+    },
+    {
+      "t": 1787108697445,
+      "text": "[free-nav-debug] RENDER {\"renderId\":25,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108697445,
+      "text": "[free-nav-debug] RENDER {\"renderId\":26,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108697733,
+      "text": "[free-nav-debug] MOUNT {\"component\":\"ALAIStudyALCards\",\"instanceId\":\"ALAIStudyALCards-69-mszidkd1\",\"sessionId\":\"sess_e2e_repro_1\",\"timestamp\":1787108697730}"
+    },
+    {
+      "t": 1787108697735,
+      "text": "[free-nav-debug] SOURCE_RESOLUTION {\"consumer\":\"ALAIStudyALCards\",\"instanceId\":\"useAuthorizedSource:ALAIStudyALCards-70-mszidkd1\",\"fingerprint\":\"cbb797b04b9e5544\",\"outcome\":\"cache-hit\"}"
+    },
+    {
+      "t": 1787108697739,
+      "text": "[free-nav-debug] UNMOUNT {\"component\":\"ALAIStudyALCards\",\"instanceId\":\"ALAIStudyALCards-69-mszidkd1\",\"sessionId\":\"sess_e2e_repro_1\",\"timestamp\":1787108697736}"
+    },
+    {
+      "t": 1787108697741,
+      "text": "[free-nav-debug] MOUNT {\"component\":\"ALAIStudyALCards\",\"instanceId\":\"ALAIStudyALCards-69-mszidkd1\",\"sessionId\":\"sess_e2e_repro_1\",\"timestamp\":1787108697736}"
+    },
+    {
+      "t": 1787108697741,
+      "text": "[free-nav-debug] SOURCE_RESOLUTION {\"consumer\":\"ALAIStudyALCards\",\"instanceId\":\"useAuthorizedSource:ALAIStudyALCards-70-mszidkd1\",\"fingerprint\":\"cbb797b04b9e5544\",\"outcome\":\"cache-hit\"}"
+    },
+    {
+      "t": 1787108697782,
+      "text": "[free-nav-debug] WRITE_FREE_TOOL_STATE {\"instanceId\":\"ALAIStudyALCards-69-mszidkd1\",\"sessionId\":\"sess_e2e_repro_1\",\"cardsCount\":0}"
+    },
+    {
+      "t": 1787108698943,
+      "text": "[free-nav-debug] GENERATION_START {\"instanceId\":\"ALAIStudyALCards-69-mszidkd1\",\"generationId\":\"ALAIStudyALCards-69-mszidkd1-gen2\",\"attempt\":2,\"sessionId\":\"sess_e2e_repro_1\"}"
+    },
+    {
+      "t": 1787108698943,
+      "text": "[free-nav-debug] PROVIDER_REQUEST_START {\"instanceId\":\"ALAIStudyALCards-69-mszidkd1\",\"generationId\":\"ALAIStudyALCards-69-mszidkd1-gen2\",\"fingerprint\":\"cbb797b04b9e5544\",\"componentStillMounted\":false}"
+    },
+    {
+      "t": 1787108700519,
+      "text": "[free-nav-debug] RENDER {\"renderId\":27,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108700519,
+      "text": "[free-nav-debug] RENDER {\"renderId\":28,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108700519,
+      "text": "[free-nav-debug] EFFECT_RUN {\"effect\":\"cargar(session-bootstrap)\",\"deps\":\"status,session,router\",\"runCount\":5,\"status\":\"authenticated\",\"sessionRefChanged\":true,\"note\":\"session object identity changed — will call lookupMateriasDesdeDB() and setMaterias() with a NEW array reference\"}"
+    },
+    {
+      "t": 1787108700519,
+      "text": "[free-nav-debug] RENDER {\"renderId\":29,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108700519,
+      "text": "[free-nav-debug] RENDER {\"renderId\":30,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108700528,
+      "text": "[free-nav-debug] SET_MATERIAS {\"source\":\"cargar-effect:lookupMateriasDesdeDB\",\"newArrayRefWillTriggerFindAndOpenEffect\":true,\"count\":1}"
+    },
+    {
+      "t": 1787108700528,
+      "text": "[free-nav-debug] RENDER {\"renderId\":31,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108700528,
+      "text": "[free-nav-debug] RENDER {\"renderId\":32,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108702090,
+      "text": "[free-nav-debug] RENDER {\"renderId\":33,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108702090,
+      "text": "[free-nav-debug] RENDER {\"renderId\":34,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108702092,
+      "text": "[free-nav-debug] EFFECT_RUN {\"effect\":\"cargar(session-bootstrap)\",\"deps\":\"status,session,router\",\"runCount\":6,\"status\":\"authenticated\",\"sessionRefChanged\":true,\"note\":\"session object identity changed — will call lookupMateriasDesdeDB() and setMaterias() with a NEW array reference\"}"
+    },
+    {
+      "t": 1787108702092,
+      "text": "[free-nav-debug] RENDER {\"renderId\":35,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108702092,
+      "text": "[free-nav-debug] RENDER {\"renderId\":36,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108702101,
+      "text": "[free-nav-debug] SET_MATERIAS {\"source\":\"cargar-effect:lookupMateriasDesdeDB\",\"newArrayRefWillTriggerFindAndOpenEffect\":true,\"count\":1}"
+    },
+    {
+      "t": 1787108702101,
+      "text": "[free-nav-debug] RENDER {\"renderId\":37,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108702101,
+      "text": "[free-nav-debug] RENDER {\"renderId\":38,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108703714,
+      "text": "[free-nav-debug] RENDER {\"renderId\":39,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108703714,
+      "text": "[free-nav-debug] RENDER {\"renderId\":40,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108703717,
+      "text": "[free-nav-debug] EFFECT_RUN {\"effect\":\"cargar(session-bootstrap)\",\"deps\":\"status,session,router\",\"runCount\":7,\"status\":\"authenticated\",\"sessionRefChanged\":true,\"note\":\"session object identity changed — will call lookupMateriasDesdeDB() and setMaterias() with a NEW array reference\"}"
+    },
+    {
+      "t": 1787108703717,
+      "text": "[free-nav-debug] RENDER {\"renderId\":41,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108703717,
+      "text": "[free-nav-debug] RENDER {\"renderId\":42,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108703739,
+      "text": "[free-nav-debug] SET_MATERIAS {\"source\":\"cargar-effect:lookupMateriasDesdeDB\",\"newArrayRefWillTriggerFindAndOpenEffect\":true,\"count\":1}"
+    },
+    {
+      "t": 1787108703739,
+      "text": "[free-nav-debug] RENDER {\"renderId\":43,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108703739,
+      "text": "[free-nav-debug] RENDER {\"renderId\":44,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108705235,
+      "text": "[free-nav-debug] RENDER {\"renderId\":45,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108705235,
+      "text": "[free-nav-debug] RENDER {\"renderId\":46,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108705235,
+      "text": "[free-nav-debug] EFFECT_RUN {\"effect\":\"cargar(session-bootstrap)\",\"deps\":\"status,session,router\",\"runCount\":8,\"status\":\"authenticated\",\"sessionRefChanged\":true,\"note\":\"session object identity changed — will call lookupMateriasDesdeDB() and setMaterias() with a NEW array reference\"}"
+    },
+    {
+      "t": 1787108705235,
+      "text": "[free-nav-debug] RENDER {\"renderId\":47,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108705235,
+      "text": "[free-nav-debug] RENDER {\"renderId\":48,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108705242,
+      "text": "[free-nav-debug] SET_MATERIAS {\"source\":\"cargar-effect:lookupMateriasDesdeDB\",\"newArrayRefWillTriggerFindAndOpenEffect\":true,\"count\":1}"
+    },
+    {
+      "t": 1787108705242,
+      "text": "[free-nav-debug] RENDER {\"renderId\":49,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108705242,
+      "text": "[free-nav-debug] RENDER {\"renderId\":50,\"vista\":\"flashcards\",\"freeToolSessionId\":\"sess_e2e_repro_1\",\"returnSessionId\":null,\"resumeSessionId\":null,\"temaId\":\"tema_e2e_repro_1\",\"materiaId\":\"materia_e2e_repro_1\",\"selectedMaterialIds\":[\"mat_e2e_repro_1\"],\"flashcardsFingerprint\":\"cbb797b04b9e5544\"}"
+    },
+    {
+      "t": 1787108706967,
+      "text": "[free-nav-debug] PROVIDER_RESPONSE {\"instanceId\":\"ALAIStudyALCards-69-mszidkd1\",\"generationId\":\"ALAIStudyALCards-69-mszidkd1-gen2\",\"status\":\"ready\",\"cardsCount\":2,\"aborted\":false,\"staleAttempt\":false,\"componentStillMounted\":false}"
+    },
+    {
+      "t": 1787108707668,
+      "text": "[free-nav-debug] SET_FLASHCARDS {\"instanceId\":\"ALAIStudyALCards-69-mszidkd1\",\"generationId\":\"ALAIStudyALCards-69-mszidkd1-gen2\",\"cardsCount\":2,\"componentStillMounted\":false}"
+    },
+    {
+      "t": 1787108707707,
+      "text": "[free-nav-debug] WRITE_FREE_TOOL_STATE {\"instanceId\":\"ALAIStudyALCards-69-mszidkd1\",\"sessionId\":\"sess_e2e_repro_1\",\"cardsCount\":2}"
+    }
+  ],
+  "calls": {
+    "authSession": 9,
+    "materias": 6,
+    "studySessions": 5,
+    "enfoques": 3,
+    "alaiCards": 1
+  },
+  "deckVisible": true,
+  "bodyTextSample": "← Inicio\n🔍 Buscar\n⌘K\nSincronizado ☁️\n← Volver al proceso\nStudyAL cards\n·\nTema E2E Repro\n📘 Material\n🎴 Flashcards\n2\n‹\n1 / 2\n›\nCargando PDF...\nError al cargar el PDF\n🤖\nAI generó 2 flashcards al 100%\n🎯 Estudiar todas\n1\n☆\n⋮\n✏️ PREGUNTA\nQ1\n2\n☆\n⋮\n✏️ PREGUNTA\nQ2\n➕ Crear manualmente\n✨ Regenerar todas",
+  "bounceEventsAfterGenerate": [],
+  "temaViewMountEventsAfterGenerate": []
+}

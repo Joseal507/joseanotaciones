@@ -1,0 +1,1438 @@
+===== StudyALProcess.tsx =====
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import type { SourceSelectionSnapshot } from "../../lib/adaptive/sourceSelection";
+import { useAuthorizedSource } from "../../lib/materials/useAuthorizedSource";
+import type { MaterialMastery } from "../../lib/masteryEngine";
+import { getSessionById } from "../../lib/studySessions";
+import { computeFreeProcessProgress, type DurableFreeTool } from "../../lib/freeToolState";
+import { freeNavDebug } from "../../lib/debug/freeNavDebug";
+
+function getDocEmoji(tipo: string) {
+  if (tipo === "pdf") return "📄";
+  if (tipo === "imagen") return "🖼️";
+  if (tipo === "word") return "📃";
+  if (tipo === "ppt") return "📊";
+  if (tipo === "youtube") return "▶️";
+  return "📁";
+}
+
+function getMaterialId(material: any) {
+  return String(
+    material?.materialId ||
+    material?.id ||
+    material?.nombre ||
+    "",
+  ).trim();
+}
+
+interface Props {
+  materiales: any[];
+  temaId?: string;
+  enfoque?: string;
+  onClose: () => void;
+  onOpenCoach?: () => void;
+  onOpenFlashcards: () => void;
+  onOpenQuiz: () => void;
+  onOpenRepasar?: () => void;
+  onOpenAnalisis?: () => void;
+  onOpenAlai?: () => void;
+  onOpenExam?: () => void;
+  onOpenStudyMap?: () => void;
+  onOpenCheatCodes?: () => void;
+  onComingSoon: (label: string) => void;
+  masterySnapshot?: any;
+  masteryState?: MaterialMastery | null;
+  userId?: string | null;
+  sessionId: string;
+  sourceSelection: SourceSelectionSnapshot;
+}
+
+const VB_W = 800;
+const VB_H = 680;
+const CIRCLE = { cx: 400, cy: 340, r: 215 };
+
+function polarToXY(angleDeg: number, radius = CIRCLE.r) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+
+  return {
+    x: CIRCLE.cx + Math.cos(rad) * radius,
+    y: CIRCLE.cy + Math.sin(rad) * radius,
+  };
+}
+
+function describeArc(
+  startAngle: number,
+  endAngle: number,
+  radius = CIRCLE.r,
+) {
+  const start = polarToXY(endAngle, radius);
+  const end = polarToXY(startAngle, radius);
+  const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+
+  return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 0 ${end.x} ${end.y}`;
+}
+
+export default function StudyALProcess({
+  materiales,
+  onClose,
+  onOpenFlashcards,
+  onOpenQuiz,
+  onOpenRepasar,
+  onOpenAnalisis,
+  onOpenAlai,
+  onOpenExam,
+  onOpenStudyMap,
+  onOpenCheatCodes,
+  onComingSoon,
+  temaId,
+  userId,
+  sessionId,
+  sourceSelection,
+}: Props) {
+  const [ready, setReady] = useState(false);
+
+  const { result: authorizedSource, status: contentStatus } = useAuthorizedSource(sourceSelection, 'StudyALProcess');
+  const totalChars = authorizedSource?.totalChars || 0;
+  // Autoritativo: suma de páginas únicas seleccionadas en sourceSelection,
+  // NUNCA una estimación derivada de totalChars/coverage/chunks/vision.
+  const selectedPageCount = sourceSelection.materials.reduce(
+    (sum, material) => sum + new Set(material.selectedPages).size,
+    0,
+  );
+  const selectedDocumentCount = sourceSelection.materials.length;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setReady(true), 80);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  // ── PROGRESO DE FREE MODE — "¿qué parte del ecosistema Free ya usó el
+  // estudiante para esta selección exacta?" ────────────────────────────
+  // Derivado DIRECTAMENTE de los envelopes durables (StudySession.notes.
+  // freeTools) — la MISMA autoridad que restaura cada herramienta. No hay
+  // contador paralelo: usar exitosamente una herramienta por primera vez
+  // ya escribió su envelope (continuidad), así que el progreso es un
+  // efecto secundario gratuito de esa escritura, no un evento aparte.
+  // Recalculado en cada montaje de StudyALProcess (siempre fresco, nunca
+  // stale) — ver lib/freeToolState.ts para el contrato completo.
+  const session = getSessionById(sessionId);
+  const { totalPercent: progress, byTool } = computeFreeProcessProgress(session);
+
+  freeNavDebug('STUDYAL_PROCESS_RENDER', {
+    sessionId,
+    materialesLength: materiales.length,
+    sourceSelectionFingerprint: sourceSelection?.fingerprint,
+    sessionFound: !!session,
+    sessionMaterialIds: session?.materialIds,
+    sessionSelectedPages: session?.selectedPages,
+    sessionFingerprint: session?.sourceSelectionFingerprint,
+    freeToolsKeys: Object.keys(session?.notes?.freeTools || {}),
+    progress,
+    totalChars,
+  });
+
+  // tools[].id usa ids en español; los envelopes usan DurableFreeTool
+  // (inglés para analysis/exam). Un solo mapeo, en un solo lugar.
+  const TOOL_ID_TO_DURABLE: Record<string, DurableFreeTool> = {
+    repasar: 'repasar', analisis: 'analysis', studymap: 'studymap', truquitos: 'truquitos',
+    flashcards: 'flashcards', quiz: 'quiz', examen: 'exam', alai: 'alai',
+  };
+  const completed: Record<string, boolean> = {};
+  for (const [id, durableTool] of Object.entries(TOOL_ID_TO_DURABLE)) {
+    completed[id] = byTool[durableTool];
+  }
+
+  const tools = useMemo(
+    () => [
+      {
+        id: "repasar",
+        n: "01",
+        title: "Repasar",
+        desc: "Comprende las ideas principales del material.",
+        emoji: "📖",
+        color: "var(--gold)",
+        colorHex: "var(--gold)",
+        tape: "var(--gold)",
+        angle: 0,
+        action: () => onOpenRepasar?.(),
+      },
+      {
+        id: "analisis",
+        n: "02",
+        title: "Análisis",
+        desc: "Conecta conceptos y descubre relaciones.",
+        emoji: "🔬",
+        color: "var(--blue)",
+        colorHex: "#38bdf8",
+        tape: "#38bdf8",
+        angle: 45,
+        action: () => onOpenAnalisis?.(),
+      },
+      {
+        id: "studymap",
+        n: "03",
+        title: "Study Map",
+        desc: "Organiza el tema en un mapa visual completo.",
+        emoji: "🗺️",
+        color: "#22d3ee",
+        colorHex: "#22d3ee",
+        tape: "#22d3ee",
+        angle: 90,
+        action: () => onOpenStudyMap?.(),
+      },
+      {
+        id: "truquitos",
+        n: "04",
+        title: "Truquitos",
+        desc: "Atajos mentales para recordar mejor.",
+        emoji: "🧠",
+        color: "#a78bfa",
+        colorHex: "#a78bfa",
+        tape: "#a78bfa",
+        angle: 135,
+        action: () => onOpenCheatCodes?.(),
+      },
+      {
+        id: "flashcards",
+        n: "05",
+        title: "Flashcards",
+        desc: "Convierte la información en memoria a largo plazo.",
+        emoji: "🎴",
+        color: "var(--pink)",
+        colorHex: "#f472b6",
+        tape: "#f472b6",
+        angle: 180,
+        action: onOpenFlashcards,
+      },
+      {
+        id: "quiz",
+        n: "06",
+        title: "Quiz",
+        desc: "Pon a prueba tu comprensión.",
+        emoji: "🎯",
+        color: "#ef4444",
+        colorHex: "#ef4444",
+        tape: "#ef4444",
+        angle: 225,
+        action: onOpenQuiz,
+      },
+      {
+        id: "examen",
+        n: "07",
+        title: "Examen ALAI",
+        desc: "Simula una evaluación real.",
+        emoji: "📝",
+        color: "var(--red)",
+        colorHex: "var(--red)",
+        tape: "var(--red)",
+        angle: 270,
+        action: () => onOpenExam?.(),
+      },
+      {
+        id: "alai",
+        n: "08",
+        title: "ALAI",
+        desc: "Pregunta y profundiza sobre el material.",
+        emoji: "✨",
+        color: "var(--gold)",
+        colorHex: "var(--gold)",
+        tape: "var(--gold)",
+        angle: 315,
+        action: () => onOpenAlai?.(),
+      },
+    ],
+    [
+      onOpenRepasar,
+      onOpenAnalisis,
+      onOpenStudyMap,
+      onOpenCheatCodes,
+      onOpenFlashcards,
+      onOpenQuiz,
+      onOpenExam,
+      onOpenAlai,
+    ],
+  );
+
+  const completedCount = tools.filter(
+    (tool) => completed[tool.id],
+  ).length;
+
+  const ARC_SPAN = 40;
+  const ARROW_RADIUS = CIRCLE.r + 140;
+
+  const arrows = tools.map((tool, index) => {
+    const next = tools[(index + 1) % tools.length];
+    const startAngle = tool.angle + 16;
+    const endAngle = next.angle - 16;
+    const adjustedEnd =
+      endAngle < startAngle ? endAngle + 360 : endAngle;
+
+    return {
+      id: `arrow-${tool.id}`,
+      toColor: next.colorHex,
+      start: polarToXY(startAngle, ARROW_RADIUS),
+      end: polarToXY(adjustedEnd, ARROW_RADIUS),
+      active: Boolean(completed[tool.id] && completed[next.id]),
+    };
+  });
+
+  return (
+    <div className="sap-screen">
+      <div className="sap-board-bg" />
+      <div className="sap-board-grain" />
+
+      <div className="sap-topbar">
+        <button className="sap-back" onClick={onClose}>
+          ← volver al mapa
+        </button>
+      </div>
+
+      <main className={`sap-canvas ${ready ? "ready" : ""}`}>
+        <aside className="sap-left">
+          <div className="sap-hero">
+            <h1>
+              The Study<span>AL</span> Process
+            </h1>
+
+            <svg
+              width="260"
+              height="12"
+              viewBox="0 0 260 12"
+              className="sap-hero-underline"
+            >
+              <path
+                d="M4 7 Q 70 2 130 6 T 256 5"
+                stroke="var(--red)"
+                strokeWidth="3"
+                fill="none"
+                strokeLinecap="round"
+              />
+            </svg>
+
+            <p>Herramientas libres para dominar este material.</p>
+          </div>
+
+          <div className="sap-card">
+            <h4>Material seleccionado</h4>
+
+            <div className="sap-mat-icons">
+              {materiales.slice(0, 3).map((material: any, index: number) => (
+                <span
+                  key={material.id || index}
+                  className="sap-mat-chip"
+                >
+                  {getDocEmoji(material.tipo)}
+                </span>
+              ))}
+
+              {materiales.length > 3 && (
+                <span className="sap-mat-chip sap-mat-more">
+                  +{materiales.length - 3}
+                </span>
+              )}
+            </div>
+
+            <p className="sap-card-meta">
+              {contentStatus === "loading"
+                ? "extrayendo texto..."
+                : `${selectedPageCount} páginas · ${selectedDocumentCount} ${
+                    selectedDocumentCount === 1
+                      ? "documento"
+                      : "documentos"
+                  }`}
+            </p>
+          </div>
+
+          <div className="sap-card">
+            <h4>Tu progreso general</h4>
+
+            <div className="sap-donut-wrap">
+              <svg viewBox="0 0 120 120" className="sap-donut">
+                <circle
+                  cx="60"
+                  cy="60"
+                  r="50"
+                  stroke="var(--border-color2)"
+                  strokeWidth="10"
+                  fill="none"
+                  opacity="0.4"
+                />
+
+                <circle
+                  cx="60"
+                  cy="60"
+                  r="50"
+                  stroke="var(--gold)"
+                  strokeWidth="10"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeDasharray={`${(progress / 100) * 314} 314`}
+                  transform="rotate(-90 60 60)"
+                />
+              </svg>
+
+              <div className="sap-donut-text">
+                <strong>{progress}%</strong>
+                <small>Proceso</small>
+              </div>
+            </div>
+          </div>
+
+          <div className="sap-quote">
+            <span className="sap-quote-mark">❝</span>
+            <p>La consistencia convierte el estudio en dominio.</p>
+          </div>
+        </aside>
+
+        <section className="sap-center">
+          <svg
+            className="sap-circle-svg"
+            viewBox={`0 0 ${VB_W} ${VB_H}`}
+            preserveAspectRatio="xMidYMid meet"
+            aria-hidden
+          >
+            <defs>
+              <marker
+                id="arrowActive"
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto"
+              >
+                <path
+                  d="M0,0 L10,5 L0,10 z"
+                  fill="var(--gold)"
+                />
+              </marker>
+
+              <marker
+                id="arrowMuted"
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="6"
+                markerHeight="6"
+                orient="auto"
+              >
+                <path
+                  d="M0,0 L10,5 L0,10 z"
+                  fill="#3a3a4a"
+                />
+              </marker>
+            </defs>
+
+            <circle
+              cx={CIRCLE.cx}
+              cy={CIRCLE.cy}
+              r={CIRCLE.r}
+              fill="none"
+              stroke="#2a2a3a"
+              strokeWidth="1"
+              strokeDasharray="3 7"
+              opacity="0.5"
+            />
+
+            {tools.map((tool) => {
+              const arcPath = describeArc(
+                tool.angle - ARC_SPAN / 2,
+                tool.angle + ARC_SPAN / 2,
+              );
+
+              return (
+                <path
+                  key={`arc-${tool.id}`}
+                  d={arcPath}
+                  fill="none"
+                  stroke={
+                    completed[tool.id]
+                      ? tool.colorHex
+                      : "#2f2f40"
+                  }
+                  strokeWidth={completed[tool.id] ? 4.5 : 3}
+                  strokeLinecap="round"
+                  opacity={completed[tool.id] ? 1 : 0.85}
+                />
+              );
+            })}
+
+            {arrows.map((arrow) => {
+              const midX = (arrow.start.x + arrow.end.x) / 2;
+              const midY = (arrow.start.y + arrow.end.y) / 2;
+              const dx = midX - CIRCLE.cx;
+              const dy = midY - CIRCLE.cy;
+              const len = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+              const pushX = midX + (dx / len) * 28;
+              const pushY = midY + (dy / len) * 28;
+
+              return (
+                <path
+                  key={arrow.id}
+                  d={`M ${arrow.start.x} ${arrow.start.y} Q ${pushX} ${pushY} ${arrow.end.x} ${arrow.end.y}`}
+                  fill="none"
+                  stroke={arrow.active ? arrow.toColor : "#3a3a4a"}
+                  strokeWidth={arrow.active ? 2 : 1.5}
+                  strokeDasharray="5 5"
+                  opacity={arrow.active ? 0.85 : 0.5}
+                  markerEnd={
+                    arrow.active
+                      ? "url(#arrowActive)"
+                      : "url(#arrowMuted)"
+                  }
+                />
+              );
+            })}
+          </svg>
+
+          <div className="sap-paper-center">
+            <div className="sap-paper-tape" />
+            <div className="sap-paper-icon">📖</div>
+            <h2>
+              Trust
+              <br />
+              the Process
+            </h2>
+
+            <div className="sap-paper-stats">
+              <div>
+                📚 {selectedDocumentCount}{" "}
+                {selectedDocumentCount === 1
+                  ? "material"
+                  : "materiales"}
+              </div>
+              <div>📄 {selectedPageCount} páginas</div>
+            </div>
+
+            {completedCount === tools.length && (
+              <div className="sap-paper-done">
+                ✨ ¡Proceso completo!
+              </div>
+            )}
+          </div>
+
+          {tools.map((tool) => {
+            const point = polarToXY(
+              tool.angle,
+              CIRCLE.r + 78,
+            );
+
+            return (
+              <button
+                key={tool.id}
+                className={`sap-sticky ${
+                  completed[tool.id] ? "done" : ""
+                }`}
+                style={
+                  {
+                    "--c": tool.color,
+                    "--tape": tool.tape,
+                    left: `${(point.x / VB_W) * 100}%`,
+                    top: `${(point.y / VB_H) * 100}%`,
+                  } as React.CSSProperties
+                }
+                onClick={tool.action}
+              >
+                <div className="sap-sticky-tag">{tool.n}</div>
+                <div className="sap-sticky-tape" />
+
+                <div className="sap-sticky-head">
+                  <span className="sap-sticky-emoji">
+                    {tool.emoji}
+                  </span>
+                  <strong>{tool.title}</strong>
+                </div>
+
+                <p>{tool.desc}</p>
+              </button>
+            );
+          })}
+        </section>
+
+        <aside className="sap-right">
+          <div className="sap-card sap-card-progress">
+            <h4>Progreso de estudio</h4>
+            <strong className="sap-big-progress">
+              {progress}%
+            </strong>
+          </div>
+
+          <div className="sap-card">
+            <h4>⭐ Recomendación</h4>
+            <p className="sap-card-text">
+              Usa las herramientas en el orden que necesites.
+            </p>
+          </div>
+
+          <div className="sap-tip">
+            <span>💡</span>
+            <p>
+              Cada herramienta te acerca a tu mejor versión
+              académica.
+              <br />
+              <b>~ ALAI</b>
+            </p>
+          </div>
+        </aside>
+      </main>
+
+      <div className="sap-coming-row">
+        <small>Próximamente</small>
+
+        <div className="sap-coming-grid">
+          {[
+            ["Ejemplos", "💡"],
+            ["Presentación", "🎤"],
+            ["Audio Resumen", "🎧"],
+            ["Mapa Mental", "🧩"],
+          ].map(([label, icon]) => (
+            <button
+              key={label}
+              onClick={() => onComingSoon(label)}
+              className="sap-coming-pill"
+            >
+              <span>{icon}</span>
+              <strong>{label}</strong>
+              <em>Próximamente</em>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <style>{`
+        .sap-screen{position:fixed;inset:0;overflow:auto;background:var(--bg-primary);color:var(--text-primary)}
+        .sap-board-bg{position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 40%,color-mix(in srgb,var(--gold) 5%,transparent),transparent 55%)}
+        .sap-board-grain{position:absolute;inset:0;pointer-events:none;opacity:.07;background-image:linear-gradient(to right,color-mix(in srgb,var(--text-primary) 18%,transparent) 1px,transparent 1px),linear-gradient(to bottom,color-mix(in srgb,var(--text-primary) 18%,transparent) 1px,transparent 1px);background-size:40px 40px}
+        .sap-topbar{position:sticky;top:0;z-index:30;padding:14px 24px;background:linear-gradient(to bottom,var(--bg-primary) 70%,transparent)}
+        .sap-back{color:var(--blue);border:2px solid var(--blue);background:var(--bg-card);border-radius:14px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;box-shadow:3px 4px 0 var(--blue)}
+        .sap-canvas{position:relative;z-index:5;display:grid;grid-template-columns:210px 1fr 220px;gap:20px;padding:0 24px 18px;max-width:1500px;margin:0 auto;align-items:start;opacity:0;transform:translateY(8px);transition:.4s}
+        .sap-canvas.ready{opacity:1;transform:none}
+        .sap-hero h1{font-size:28px;line-height:1;font-weight:900;letter-spacing:-1px;margin:0}
+        .sap-hero h1 span{color:var(--red)}
+        .sap-hero p{margin:0;color:var(--text-faint);font-size:12px}
+        .sap-card{background:var(--bg-card);border:1.5px solid var(--border-color2);border-radius:14px;padding:12px;margin-bottom:12px}
+        .sap-card h4{margin:0 0 8px;font-size:12.5px;color:var(--text-secondary)}
+        .sap-card-meta,.sap-card-text{margin:6px 0 0;color:var(--text-faint);font-size:11.5px}
+        .sap-mat-icons{display:flex;gap:6px;flex-wrap:wrap}
+        .sap-mat-chip{width:34px;height:34px;display:grid;place-items:center;background:var(--bg-secondary);border:1.5px solid var(--border-color);border-radius:8px}
+        .sap-donut-wrap{position:relative;width:96px;height:96px;margin:auto}
+        .sap-donut{width:100%;height:100%}
+        .sap-donut-text{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+        .sap-donut-text strong,.sap-big-progress{font-size:28px;color:var(--gold)}
+        .sap-donut-text small{font-size:9px;color:var(--text-faint)}
+        .sap-quote{color:var(--text-faint);font-size:12px}
+        .sap-center{position:relative;width:100%;aspect-ratio:${VB_W}/${VB_H};max-width:820px;margin:auto}
+        .sap-circle-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+        .sap-paper-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-1deg);width:180px;min-height:215px;background:repeating-linear-gradient(to bottom,#f5ecd6 0 26px,#ead9b3 26px 27px);color:#1a1a1a;border:2px solid rgba(0,0,0,.3);border-radius:6px;padding:22px 14px;text-align:center;box-shadow:7px 10px 0 rgba(0,0,0,.45);z-index:7}
+        .sap-paper-tape{position:absolute;top:-12px;left:50%;width:80px;height:22px;transform:translateX(-50%) rotate(-2deg);background:var(--gold);opacity:.88}
+        .sap-paper-icon{font-size:24px}
+        .sap-paper-center h2{font-size:22px;line-height:1}
+        .sap-paper-stats{font-size:11px;font-weight:800;display:flex;flex-direction:column;gap:3px}
+        .sap-paper-done{margin-top:8px;padding:5px;background:rgba(214,178,111,.3);border:1px solid var(--gold);border-radius:8px;font-size:10px;font-weight:900}
+        .sap-sticky{position:absolute;width:148px;padding:10px 9px;background:var(--bg-card);border:2px solid var(--c);border-radius:4px;color:var(--text-primary);cursor:pointer;text-align:left;box-shadow:0 6px 18px rgba(0,0,0,.4);transform:translate(-50%,-50%);z-index:8}
+        .sap-sticky:hover{transform:translate(-50%,-50%) scale(1.06)}
+        .sap-sticky.done{background:color-mix(in srgb,var(--c) 16%,var(--bg-card))}
+        .sap-sticky-tape{position:absolute;top:-9px;left:50%;width:50px;height:13px;transform:translateX(-50%) rotate(-3deg);background:var(--tape)}
+        .sap-sticky-tag{position:absolute;top:-9px;right:8px;background:var(--c);color:#0a0a0a;font-size:9.5px;font-weight:950;padding:2px 6px;border-radius:4px}
+        .sap-sticky-head{display:flex;gap:6px;margin-bottom:4px}
+        .sap-sticky-head strong{font-size:12.5px;color:var(--c)}
+        .sap-sticky p{margin:0;font-size:10px;color:var(--text-muted)}
+        .sap-tip{background:color-mix(in srgb,var(--gold) 8%,transparent);border:1.5px dashed var(--gold-border);border-radius:12px;padding:10px;display:flex;gap:8px}
+        .sap-tip p{margin:0;font-size:11.5px;color:var(--text-muted)}
+        .sap-tip b{color:var(--gold)}
+        .sap-forecast{display:flex;justify-content:space-between;padding:8px;border-radius:10px;background:rgba(255,255,255,.03);margin-top:6px;font-size:11px}
+        .sap-forecast strong{color:var(--gold)}
+        .sap-coming-row{position:relative;z-index:5;max-width:1500px;margin:0 auto 20px;padding:0 24px;text-align:center}
+        .sap-coming-grid{display:grid;grid-template-columns:repeat(4,minmax(0,150px));gap:12px;justify-content:center}
+        .sap-coming-pill{background:var(--bg-card);border:1.5px dashed var(--border-color2);border-radius:12px;padding:12px 8px;color:var(--text-secondary);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px}
+        .sap-coming-pill em{font-size:9.5px;font-style:normal;color:var(--text-faint)}
+        @media(max-width:960px){.sap-canvas{grid-template-columns:1fr}.sap-left,.sap-right{display:grid;grid-template-columns:1fr 1fr;gap:12px}}
+        @media(max-width:640px){.sap-left,.sap-right{grid-template-columns:1fr}.sap-coming-grid{grid-template-columns:repeat(2,1fr)}.sap-sticky{width:122px}}
+      `}</style>
+    </div>
+  );
+}
+===== freeToolState.ts =====
+import type { StudySession } from './studySessions';
+import { getSessionById, updateSessionById } from './studySessions';
+
+export type DurableFreeTool = 'quiz' | 'exam' | 'flashcards' | 'repasar' | 'alai' | 'analysis' | 'studymap' | 'truquitos';
+
+// ═══════════════════════════════════════════════════════════════
+// FREE MODE PROGRESS — canonical contract (2026 simplification).
+//
+// "¿Qué parte del ecosistema Free ya utilizó el estudiante para esta
+// selección de fuente exacta?" — NOT mastery, NOT score, NOT completion.
+//
+// A tool contributes its FULL cap the first time it is used successfully
+// (a valid envelope with genuinely-generated content exists for THIS exact
+// session + sourceSelectionFingerprint), or 0 if it hasn't. There is no
+// partial credit and no separate "quality" axis — deliberately simple.
+//
+// Idempotent and leak-free BY CONSTRUCTION: this reads the SAME
+// FreeToolStateEnvelope authority used for durable continuity restore —
+// there is no separate counter to accidentally increment, and envelopes
+// are already scoped to the exact (sessionId, sourceSelectionFingerprint)
+// pair via validOwner(), so a different page selection of the same
+// materials (different fingerprint => different session) never shares
+// progress. Regenerating/reopening/refreshing just re-reads the same
+// envelope — the percentage cannot change without a genuinely NEW tool
+// being used for the first time.
+export const FREE_PROCESS_TOOL_CAPS: Record<DurableFreeTool, number> = {
+  alai: 5,
+  studymap: 7,
+  truquitos: 8,
+  analysis: 10,
+  repasar: 15,
+  quiz: 16,
+  flashcards: 18,
+  exam: 21,
+};
+
+const FREE_PROCESS_TOOL_ORDER: DurableFreeTool[] = Object.keys(FREE_PROCESS_TOOL_CAPS) as DurableFreeTool[];
+
+function isToolEnvelopeMeaningfullyUsed(tool: DurableFreeTool, state: any): boolean {
+  switch (tool) {
+    case 'flashcards':
+      return Array.isArray(state?.cards) && state.cards.length > 0;
+    case 'quiz':
+      return Array.isArray(state?.questions) && state.questions.length > 0;
+    case 'exam':
+      return Boolean(state?.exam);
+    case 'repasar': {
+      // Progreso monótono: usa `furthestPhase` (la fase MÁS AVANZADA
+      // alcanzada alguna vez en la sesión), no `phase` (la vista actual) —
+      // si no, navegar de vuelta a "Leer" antes de salir borraba el
+      // progreso aunque ya se hubiera llegado a "Explicar". Fallback a
+      // `phase` para envelopes viejos guardados antes de este campo.
+      const furthest = state?.furthestPhase || state?.phase;
+      return Boolean(furthest) && furthest !== 'preview';
+    }
+    case 'studymap':
+      return Boolean(state?.mapData);
+    case 'truquitos':
+      return Array.isArray(state?.cards) && state.cards.length > 0;
+    case 'analysis': {
+      const byType = state?.resultsByType && typeof state.resultsByType === 'object' ? state.resultsByType : {};
+      return Object.values(byType).some((entry: any) => entry?.status === 'completed');
+    }
+    case 'alai': {
+      const messages = Array.isArray(state?.messages) ? state.messages : [];
+      const hasUserQuestion = messages.some((m: any) => m?.role === 'user');
+      const hasRealAnswer = messages.some((m: any) => m?.role === 'assistant' && m?.id !== 'alai-welcome-v1');
+      return hasUserQuestion && hasRealAnswer;
+    }
+    default:
+      return false;
+  }
+}
+
+export interface FreeProcessProgress {
+  totalPercent: number;
+  byTool: Record<DurableFreeTool, boolean>;
+}
+
+export function computeFreeProcessProgress(
+  session: StudySession | null | undefined,
+): FreeProcessProgress {
+  const byTool = {} as Record<DurableFreeTool, boolean>;
+  let total = 0;
+  for (const tool of FREE_PROCESS_TOOL_ORDER) {
+    const envelope = session?.notes?.freeTools?.[tool] as FreeToolStateEnvelope | undefined;
+    const owned = Boolean(
+      envelope
+        && envelope.version === 1
+        && envelope.tool === tool
+        && session
+        && envelope.sessionId === session.id
+        && envelope.sourceSelectionFingerprint === session.sourceSelectionFingerprint,
+    );
+    const used = owned && isToolEnvelopeMeaningfullyUsed(tool, (envelope as FreeToolStateEnvelope).state);
+    byTool[tool] = used;
+    if (used) total += FREE_PROCESS_TOOL_CAPS[tool];
+  }
+  return { totalPercent: Math.min(100, total), byTool };
+}
+
+export interface FreeToolStateEnvelope<T = unknown> {
+  version: 1;
+  tool: DurableFreeTool;
+  sessionId: string;
+  sourceSelectionFingerprint: string;
+  revision: number;
+  updatedAt: number;
+  state: T;
+}
+
+function validOwner(
+  session: StudySession | null,
+  sessionId: string,
+  fingerprint: string,
+): session is StudySession {
+  return Boolean(
+    session
+      && session.id === sessionId
+      && session.processMode === 'free'
+      && session.sourceSelectionFingerprint === fingerprint,
+  );
+}
+
+export function readFreeToolState<T>(
+  sessionId: string | null | undefined,
+  fingerprint: string,
+  tool: DurableFreeTool,
+): FreeToolStateEnvelope<T> | null {
+  if (!sessionId || !fingerprint) return null;
+  const session = getSessionById(sessionId);
+  if (!validOwner(session, sessionId, fingerprint)) return null;
+  const candidate = session.notes?.freeTools?.[tool] as FreeToolStateEnvelope<T> | undefined;
+  if (
+    !candidate
+    || candidate.version !== 1
+    || candidate.tool !== tool
+    || candidate.sessionId !== sessionId
+    || candidate.sourceSelectionFingerprint !== fingerprint
+    || !Number.isFinite(candidate.revision)
+  ) return null;
+  return candidate;
+}
+
+export function writeFreeToolState<T>(
+  sessionId: string | null | undefined,
+  fingerprint: string,
+  tool: DurableFreeTool,
+  state: T,
+): FreeToolStateEnvelope<T> | null {
+  if (!sessionId || !fingerprint) return null;
+  let written: FreeToolStateEnvelope<T> | null = null;
+  updateSessionById(sessionId, session => {
+    if (!validOwner(session, sessionId, fingerprint)) return session;
+    const previous = session.notes?.freeTools?.[tool] as FreeToolStateEnvelope<T> | undefined;
+    written = {
+      version: 1,
+      tool,
+      sessionId,
+      sourceSelectionFingerprint: fingerprint,
+      revision: Math.max(0, Number(previous?.revision || 0)) + 1,
+      updatedAt: Date.now(),
+      state,
+    };
+    return {
+      ...session,
+      notes: {
+        ...(session.notes || {}),
+        freeTools: {
+          ...(session.notes?.freeTools || {}),
+          [tool]: written,
+        },
+      },
+    };
+  });
+  return written;
+}
+===== TemaView: navegación del modo libre =====
+    // localStorage has nothing cached for this tema (quota failure, or a
+    // genuinely cold device) — it only gets populated once refreshSessions()'s
+    // async syncSessionsFromServer() resolves. Without this guard, this
+    // effect ran with that still-empty activeSessions on the very first
+    // render, found no match, and permanently cleared a resumeSessionId
+    // that was correctly restored from the URL — before the server lookup
+    // ever had a chance to prove the session real. Once cleared to null,
+    // the early-return above prevented ever re-checking it against the
+    // later-populated activeSessions.
+    if (sessionsRestoring) return;
+
+    const resumeSession = activeSessions.find((s) => s.id === resumeSessionId);
+    if (!resumeSession) {
+      setResumeSessionId(null);
+      setStudyMode("free");
+      return;
+    }
+
+    const resumeKey = [...(resumeSession.materialIds || [])].map(String).sort().join(',');
+
+    // Fuente real de selección actual:
+    // 1) selectedDocs si ya está listo
+    // 2) seleccionResult si todavía se está hidratando
+    const currentMaterialIds =
+      selectedDocs.length > 0
+        ? selectedDocs.map((d: any) => getMaterialKey(d)).filter(Boolean)
+        : Array.isArray(seleccionResult) && seleccionResult.length > 0
+          ? seleccionResult.map((r: any) => String(r?.materialId || '')).filter(Boolean)
+          : [];
+
+    const currentKey = [...currentMaterialIds].sort().join(',');
+
+    // Si todavía no hay selección reconstruida, NO limpiar la sesión.
+    // Esto evita que al volver desde /sesion se pierda el resumeSessionId
+    // antes de que React termine de hidratar selectedIds/seleccionResult.
+    if (!currentKey) return;
+
+    if (resumeKey !== currentKey) {
+      setResumeSessionId(null);
+      if (!chosenModeRef.current) {
+        setStudyMode("free");
+      }
+    }
+  }, [selectedDocs, seleccionResult, resumeSessionId, activeSessions, sessionsRestoring]);
+
+
+  useEffect(() => {
+    if (!pendingCoachTool) return;
+    if (showCoach) return;
+
+    const currentSel =
+      Array.isArray(seleccionResult) && seleccionResult.length
+        ? seleccionResult
+        : undefined;
+
+    const tool = pendingCoachTool;
+    setPendingCoachTool(null);
+
+    requestAnimationFrame(() => {
+      const toolMap: Record<string, () => void> = {
+        repasar: () => onOpenRepasar?.(selectedDocs, currentSel as any, ensureFreeSessionForTool(selectedDocs, resumeSessionId)),
+        analisis: () => onOpenAnalisis?.(selectedDocs, currentSel as any, ensureFreeSessionForTool(selectedDocs, resumeSessionId)),
+        flashcards: () => onOpenFlashcards?.(selectedDocs, currentSel as any, ensureFreeSessionForTool(selectedDocs, resumeSessionId)),
+        quiz: () => onOpenQuiz?.(selectedDocs, currentSel as any, ensureFreeSessionForTool(selectedDocs, resumeSessionId)),
+        examen: () => onOpenExam?.(selectedDocs, currentSel as any, ensureFreeSessionForTool(selectedDocs, resumeSessionId)),
+        alai: () => onOpenAlai?.(selectedDocs, currentSel as any, ensureFreeSessionForTool(selectedDocs, resumeSessionId)),
+        studymap: () => setShowStudyMap(true),
+        truquitos: () => setShowCheatCodes(true),
+      };
+
+      toolMap[tool]?.();
+    });
+  }, [
+    pendingCoachTool,
+    showCoach,
+    seleccionResult,
+    selectedDocs,
+    resumeSessionId,
+    onOpenRepasar,
+    onOpenAnalisis,
+    onOpenFlashcards,
+    onOpenQuiz,
+    onOpenExam,
+    onOpenAlai,
+  ]);
+
+  const energyLines: CurveLine[] = useMemo(() => {
+    return curves.map((c) => {
+      const isActive =
+        hoveredNode === c.t.id ||
+        hoveredNode === c.f.id ||
+        !!c.t.selected ||
+        expanded.includes(c.t.id);
+      return {
+        key: c.connKey,
+        fromX: c.fromX,
+        fromY: c.fromY,
+        ctrlX: c.ctrlX,
+        ctrlY: c.ctrlY,
+        toX: c.toX,
+        toY: c.toY,
+    && brainFingerprint === freeSourceSelection.fingerprint;
+  // P0 "preparar antes de entrar a Free Mode": the hub itself (not just
+  // individual tools) now waits for academicStability terminal
+  // (stable_rich/stable_degraded), never merely brainStatus==='ready'
+  // (source-only). requireStability:true + tool:null is the HUB-level
+  // gate — the single entry condition is academicStability ∈
+  // {stable_rich, stable_degraded}, never sourceReady/unitsReady alone.
+  const freePreparationGate = resolveMaterialPreparationGate(
+    brainFingerprintMatches ? brainStatus : 'building',
+    openFree && selectedDocs.length > 0,
+    null,
+    brainFingerprintMatches ? brainCapabilities : null,
+    true,
+  );
+
+  if (openFree)
+    return (
+      <>
+        {freePreparationGate.shouldGate ? (
+          <MaterialPreparationScreen
+            mode={freePreparationGate.mode!}
+            preparation={brainPreparation}
+            onRetry={freePreparationGate.mode === 'failed' ? onBrainRecheck : undefined}
+            onBack={() => {
+              setOpenFree(false);
+              chosenModeRef.current = null;
+              refreshSessions();
+            }}
+          />
+        ) : (
+        <StudyALProcess
+        userId={userId || undefined}
+        masteryState={reconstructedMasteryState}
+        masterySnapshot={masterySnapshot}
+
+        temaId={tema?.id}
+        sessionId={resumeSessionId || ''}
+        sourceSelection={freeSourceSelection}
+        enfoque={enfoqueElegido || 'teorico'}
+        onOpenStudyMap={() => {
+          setShowStudyMap(true);
+          setOpenFree(false);
+        }}
+        onOpenCheatCodes={() => {
+          setShowCheatCodes(true);
+          setOpenFree(false);
+        }}
+        materiales={selectedDocs}
+        onOpenCoach={() => {
+          setCoachBackToProcess(true);
+          setOpenFree(false);
+          setShowCoach(true);
+        }}
+        onClose={() => {
+          setOpenFree(false);
+          chosenModeRef.current = null; // Limpiar modo elegido al cerrar
+          // NO borrar studyMode al cerrar
+          // para que "seguir estudiando" recuerde el modo correcto
+          refreshSessions();
+        }}
+        onOpenAnalisis={() => {
+          const matsSeleccionados = selectedDocs;
+          onOpenAnalisis?.(
+            matsSeleccionados,
+            Array.isArray(seleccionResult) && seleccionResult.length
+              ? seleccionResult
+              : undefined,
+            resumeSessionId || null,
+          );
+        }}
+        onOpenFlashcards={() => {
+          const matsSeleccionados = selectedDocs;
+          const rawSel = Array.isArray(seleccionResult) ? seleccionResult : [];
+
+          const normalizePages = (value: any): number[] => {
+            if (Array.isArray(value)) {
+              return Array.from(
+                new Set(
+                  value
+                    .map((n: any) => Number(n))
+                    .filter((n: number) => Number.isFinite(n) && n > 0),
+                ),
+              ).sort((a: number, b: number) => a - b);
+            }
+
+            if (value && typeof value === "object") {
+              const start = Number(
+                value.start ??
+                  value.from ??
+                  value.startPage ??
+                  value.paginaInicial,
+              );
+              const end = Number(
+                value.end ?? value.to ?? value.endPage ?? value.paginaFinal,
+              );
+
+              if (
+                Number.isFinite(start) &&
+                Number.isFinite(end) &&
+                start > 0 &&
+                end >= start
+              ) {
+                return Array.from(
+                  { length: end - start + 1 },
+                  (_, i) => start + i,
+                );
+              }
+            }
+
+            return [];
+          };
+
+          const normalizedSel = matsSeleccionados
+            .map((mat: any, idx: number) => {
+              const matMaterialId = String(
+                mat?.materialId || mat?.material_id || mat?.id || "",
+              );
+              const matDocumentId = String(mat?.id || "");
+
+              const rawByMaterialIndex =
+                rawSel.find(
+                  (candidate: any) => Number(candidate?.materialIndex) === idx,
+                ) || null;
+
+              const rawById =
+                rawSel.find((candidate: any) => {
+                  const nestedCandidate =
+                    candidate?.material ||
+                    candidate?.documento ||
+                    candidate?.doc ||
+                    candidate?.source ||
+                    candidate?.file ||
+                    null;
+
+                  const candidateIds = [
+                    candidate?.materialId,
+                    candidate?.material_id,
+                    candidate?.documentId,
+                    candidate?.document_id,
+                    candidate?.docId,
+                    candidate?.doc_id,
+                    candidate?.id,
+                    nestedCandidate?.materialId,
+                    nestedCandidate?.material_id,
+                    nestedCandidate?.id,
+                  ]
+                    .filter(Boolean)
+                    .map((v: any) => String(v));
+
+                  return (
+                    candidateIds.includes(matMaterialId) ||
+                    candidateIds.includes(matDocumentId)
+                  );
+                }) || null;
+
+              const item: any =
+                rawByMaterialIndex ?? rawById ?? rawSel[idx] ?? null;
+              if (!item) return null;
+
+              const pages =
+                [
+                  item?.pages,
+                  item?.selectedPages,
+                  item?.paginasSeleccionadas,
+                  item?.paginas,
+                  item?.pageNumbers,
+                  item?.range,
+                  item?.selection,
+                ]
+                  .map(normalizePages)
+                  .find((arr: any) => Array.isArray(arr) && arr.length > 0) ||
+                [];
+
+              const text =
+                item?.text ||
+                item?.texto ||
+                item?.content ||
+                item?.contenido ||
+                item?.selectedText ||
+                item?.rawText ||
+                item?.extract ||
+                item?.selected?.text ||
+                undefined;
+
+              if (!pages.length && !text) return null;
+
+              return {
+                materialId: matMaterialId,
+                documentId: matDocumentId,
+                materialIndex: idx,
+                pages,
+                text,
+              };
+            })
+            .filter(Boolean);
+
+          console.log("📑 RAW seleccionResult:", rawSel);
+          console.log("✅ NORMALIZED seleccionResult:", normalizedSel);
+          console.log(
+            "📘 matsSeleccionados:",
+            matsSeleccionados.map((m: any) => m.materialId || m.id),
+          );
+
+          // Única autoridad de identidad de sesión — ver el mismo fix y
+          // comentario en onOpenRepasar más abajo (mismatch de
+          // sourceSelectionFingerprint por recrear la sesión con
+          // selectedPages recalculadas en vez de reutilizar resumeSessionId).
+          const savedSessionId = ensureFreeSessionForTool(matsSeleccionados, resumeSessionId);
+
+          onOpenFlashcards?.(
+            matsSeleccionados,
+            normalizedSel.length ? normalizedSel : undefined,
+            savedSessionId,
+          );
+        }}
+        onOpenQuiz={() => {
+          const matsSeleccionados = selectedDocs;
+          const rawSel = Array.isArray(seleccionResult) ? seleccionResult : [];
+
+          const normalizePages = (value: any): number[] => {
+            if (Array.isArray(value)) {
+              return Array.from(
+                new Set(
+                  value
+                    .map((n: any) => Number(n))
+                    .filter((n: number) => Number.isFinite(n) && n > 0),
+                ),
+              ).sort((a: number, b: number) => a - b);
+            }
+            if (value && typeof value === "object") {
+              const start = Number(
+                value.start ??
+                  value.from ??
+                  value.startPage ??
+                  value.paginaInicial,
+              );
+              const end = Number(
+                value.end ?? value.to ?? value.endPage ?? value.paginaFinal,
+              );
+              if (
+                Number.isFinite(start) &&
+                Number.isFinite(end) &&
+                start > 0 &&
+                end >= start
+              ) {
+                return Array.from(
+                  { length: end - start + 1 },
+                  (_, i) => start + i,
+                );
+              }
+            }
+            return [];
+          };
+
+          const normalizedSel = matsSeleccionados
+            .map((mat: any, idx: number) => {
+              const matMaterialId = String(
+                mat?.materialId || mat?.material_id || mat?.id || "",
+              );
+              const matDocumentId = String(mat?.id || "");
+              const rawByIndex =
+                rawSel.find((c: any) => Number(c?.materialIndex) === idx) ||
+                null;
+              const rawById =
+                rawSel.find((c: any) => {
+                  const ids = [
+                    c?.materialId,
+                    c?.material_id,
+                    c?.documentId,
+                    c?.id,
+                  ]
+                    .filter(Boolean)
+                    .map((v: any) => String(v));
+                  return (
+                    ids.includes(matMaterialId) || ids.includes(matDocumentId)
+                  );
+                }) || null;
+              const item: any = rawByIndex ?? rawById ?? rawSel[idx] ?? null;
+              if (!item) return null;
+              const pages =
+                [item?.pages, item?.selectedPages, item?.paginas, item?.range]
+                  .map(normalizePages)
+                  .find((arr: any) => Array.isArray(arr) && arr.length > 0) ||
+                [];
+              const text =
+                item?.text || item?.texto || item?.content || undefined;
+              if (!pages.length && !text) return null;
+              return {
+                materialId: matMaterialId,
+                documentId: matDocumentId,
+                materialIndex: idx,
+                pages,
+                text,
+              };
+            })
+            .filter(Boolean);
+
+          onOpenQuiz?.(
+            matsSeleccionados,
+            normalizedSel.length ? normalizedSel : undefined,
+            ensureFreeSessionForTool(matsSeleccionados, resumeSessionId),
+          );
+        }}
+        onOpenRepasar={() => {
+          const matsSeleccionados = selectedDocs;
+          const rawSel = Array.isArray(seleccionResult) ? seleccionResult : [];
+
+          const normalizePages = (value: any): number[] => {
+            if (Array.isArray(value)) {
+              return Array.from(
+                new Set(
+                  value
+                    .map((n: any) => Number(n))
+                    .filter((n: number) => Number.isFinite(n) && n > 0),
+                ),
+              ).sort((a: number, b: number) => a - b);
+            }
+            if (value && typeof value === "object") {
+              const start = Number(
+                value.start ??
+                  value.from ??
+                  value.startPage ??
+                  value.paginaInicial,
+              );
+              const end = Number(
+                value.end ?? value.to ?? value.endPage ?? value.paginaFinal,
+              );
+              if (
+                Number.isFinite(start) &&
+                Number.isFinite(end) &&
+                start > 0 &&
+                end >= start
+              ) {
+                return Array.from(
+                  { length: end - start + 1 },
+                  (_, i) => start + i,
+                );
+              }
+            }
+            return [];
+          };
+
+          const normalizedSel = matsSeleccionados
+            .map((mat: any, idx: number) => {
+              const matMaterialId = String(
+                mat?.materialId || mat?.material_id || mat?.id || "",
+              );
+              const matDocumentId = String(mat?.id || "");
+              const rawByIndex =
+                rawSel.find((c: any) => Number(c?.materialIndex) === idx) ||
+                null;
+              const rawById =
+                rawSel.find((c: any) => {
+                  const ids = [
+                    c?.materialId,
+                    c?.material_id,
+                    c?.documentId,
+                    c?.id,
+                  ]
+                    .filter(Boolean)
+                    .map((v: any) => String(v));
+                  return (
+                    ids.includes(matMaterialId) || ids.includes(matDocumentId)
+                  );
+                }) || null;
+              const item: any = rawByIndex ?? rawById ?? rawSel[idx] ?? null;
+              if (!item) return null;
+
+              const pages =
+                [item?.pages, item?.selectedPages, item?.paginas, item?.range]
+                  .map(normalizePages)
+                  .find((arr: any) => Array.isArray(arr) && arr.length > 0) ||
+                [];
+
+              const text =
+                item?.text ||
+                item?.texto ||
+                item?.content ||
+                item?.contenido ||
+                item?.selectedText ||
+                undefined;
+              if (!pages.length && !text) return null;
+
+              return {
+                materialId: matMaterialId,
+                documentId: matDocumentId,
+                materialIndex: idx,
+                pages,
+                text,
+              };
+            })
+            .filter(Boolean);
+
+          // Única autoridad de identidad de sesión: si resumeSessionId ya
+          // apunta a una sesión válida, ensureFreeSessionForTool() la
+          // reutiliza tal cual (sin recalcular selectedPages/fingerprint).
+          // Antes, este handler armaba su PROPIO pagesByMat desde
+          // normalizedSel (que acá suele venir vacío — no es el resultado
+          // recién confirmado del picker) y llamaba upsertSession() con
+          // selectedPages=undefined; como el fingerprint de "sin
+          // selectedPages" (documento completo vacío) no coincidía con el
+          // de la sesión ya creada por SeleccionPaginas-confirm
+          // (selectedPages explícitas), findSession() no la encontraba y
+          // se creaba una sesión DUPLICADA con un sourceSelectionFingerprint
+          // distinto — la causa real del mismatch entre freeSourceSelection
+          // (TemaView/StudyALProcess) y lo que recalculaba ALAIStudyALRepasar.
+          const savedSessionId = ensureFreeSessionForTool(matsSeleccionados, resumeSessionId);
+
+          onOpenRepasar?.(
+            matsSeleccionados,
+            normalizedSel.length ? normalizedSel : undefined,
+            savedSessionId,
+          );
+        }}
+        onOpenAlai={() => {
+          const matsSeleccionados = selectedDocs;
+          const rawSel = Array.isArray(seleccionResult) ? seleccionResult : [];
+
+          const normalizePages = (value: any): number[] => {
+            if (Array.isArray(value)) {
+              return Array.from(
+                new Set(
+                  value
+                    .map((n: any) => Number(n))
+                    .filter((n: number) => Number.isFinite(n) && n > 0),
+                ),
+              ).sort((a: number, b: number) => a - b);
+            }
+            if (value && typeof value === "object") {
+              const start = Number(
+                value.start ??
+                  value.from ??
+                  value.startPage ??
+                  value.paginaInicial,
+              );
+              const end = Number(
+                value.end ?? value.to ?? value.endPage ?? value.paginaFinal,
+              );
+              if (
+                Number.isFinite(start) &&
+                Number.isFinite(end) &&
+                start > 0 &&
+                end >= start
+              ) {
+                return Array.from(
+                  { length: end - start + 1 },
+                  (_, i) => start + i,
+                );
+              }
+            }
+            return [];
+===== package.json scripts =====
+{
+  "scripts": {
+    "test:free-source-authority": "node --import tsx scripts/tests/free-mode-source-authority-contracts.ts",
+    "test:canonical-auth": "node --import tsx scripts/tests/canonical-auth-identity-contracts.ts",
+    "test:xp-ledger": "node --import tsx scripts/tests/xp-ledger-contracts.ts",
+    "test:study-data-integrity": "node --import tsx scripts/tests/study-data-integrity-contracts.ts",
+    "test:free-tool-continuity": "node --import tsx scripts/tests/free-tool-continuity-contracts.ts",
+    "test:free-flashcards-repasar": "node --import tsx scripts/tests/free-flashcards-repasar-continuity-contracts.ts",
+    "test:target-freeze": "node --import tsx scripts/tests/repasar-flashcards-target-freeze-contracts.ts",
+    "test:free-alai": "node --import tsx scripts/tests/free-alai-continuity-contracts.ts",
+    "test:free-analysis": "node --import tsx scripts/tests/free-analysis-continuity-contracts.ts",
+    "test:free-mastery-storm": "node --import tsx scripts/tests/free-mastery-update-storm-contracts.ts",
+    "test:question-types": "node --import tsx scripts/tests/question-type-layer-contracts.ts",
+    "test:session-final-transition": "node --import tsx scripts/tests/session-final-transition-contracts.ts",
+    "test:adaptive-generality": "node --import tsx scripts/tests/adaptive-generality-static-contracts.ts && node --import tsx scripts/tests/adaptive-generality-generative-contracts.ts",
+    "test:academic-domain": "node --import tsx scripts/tests/academic-domain-question-contracts.ts && node --import tsx scripts/tests/falcons-session-teach-revalidation-contract.ts",
+    "test:session-preparation": "node --import tsx scripts/tests/session-preparation-factory-contracts.ts",
+    "test:teaching-content": "node --import tsx scripts/tests/teaching-content-contracts.ts",
+    "test:evaluation-planner": "node --import tsx scripts/tests/evaluation-planner-contracts.ts",
+    "test:evaluation-block-repair": "node --import tsx scripts/tests/evaluation-block-migration-repair-contracts.ts",
+    "test:adaptive-canonical-evaluation": "node --import tsx scripts/tests/adaptive-canonical-evaluation-contracts.ts && node --import tsx scripts/tests/prepared-recovery-round-contracts.ts",
+    "test:adaptive-matching-recovery": "node --import tsx scripts/tests/adaptive-matching-recovery-contracts.ts && node --import tsx scripts/tests/prepared-recovery-round-contracts.ts",
+    "test:adaptive-reliability": "node --import tsx scripts/tests/adaptive-real-source-authority-contracts.ts && node --import tsx scripts/tests/adaptive-existing-program-restore-contracts.ts && node --import tsx scripts/tests/adaptive-session-reliability-chaos-contracts.ts && node --import tsx scripts/tests/adaptive-session-failure-injection-contracts.ts && node --import tsx scripts/tests/adaptive-session-prefetch-lifecycle-contracts.ts && node --import tsx scripts/tests/adaptive-session-button-state-contracts.ts && node --import tsx scripts/tests/adaptive-session-restore-chaos-contracts.ts",
+    "pretest": "node --import tsx scripts/tests/adaptive-source-snapshot-contracts.ts && node --import tsx scripts/tests/adaptive-text-only-runtime-contracts.ts && node --import tsx scripts/tests/structured-teaching-layout-contracts.ts && node --import tsx scripts/tests/provider-policy-contracts.ts && node --import tsx scripts/tests/adaptive-provider-route-contracts.ts && node --import tsx scripts/tests/adaptive-dead-cluster-barrier-contracts.ts && node --import tsx scripts/tests/adaptive-numeric-scoring-contracts.ts && node --import tsx scripts/tests/session-preparation-factory-contracts.ts && node --import tsx scripts/tests/preparation-final-coverage-parity-contracts.ts && node --import tsx scripts/tests/factkey-question-coverage-contracts.ts && node --import tsx scripts/tests/academic-content-properties.ts && node --import tsx scripts/tests/assessment-blueprint-contracts.ts && node --import tsx scripts/tests/assessment-blueprint-factkey-objective-contracts.ts && node --import tsx scripts/tests/assessment-demonstration-coverage-contracts.ts && node --import tsx scripts/tests/matching-single-source-of-truth-contracts.ts && node --import tsx scripts/tests/session-evaluation-block-contracts.ts && node --import tsx scripts/tests/adaptive-session-kind-contracts.ts && node --import tsx scripts/tests/adaptive-recovery-target-contracts.ts && node --import tsx scripts/tests/adaptive-recovery-target-alignment-integration-contracts.ts && node --import tsx scripts/tests/session-final-transition-contracts.ts && node --import tsx scripts/tests/adaptive-canonical-evaluation-contracts.ts && node --import tsx scripts/tests/ai-generation-pipeline-contracts.ts && node --import tsx scripts/tests/session-content-generation-pipeline-contracts.ts && node --import tsx scripts/tests/study-session-persistence-contracts.ts && node --import tsx scripts/tests/adaptive-resume-contracts.ts && node --import tsx scripts/tests/adaptive-program-completion-authority-contracts.ts && node --import tsx scripts/tests/adaptive-program-completion-invariant-contracts.ts && node --import tsx scripts/tests/academic-content-formula-blank-contracts.ts && node --import tsx scripts/tests/session-preparation-technical-retry-contracts.ts && node --import tsx scripts/tests/question-similarity-format-safety-contracts.ts && node --import tsx scripts/tests/question-validation-shape-fuzzing-contracts.ts && node --import tsx scripts/tests/matching-academic-validity-contracts.ts && node --import tsx scripts/tests/cognitive-format-fit-contracts.ts && node --import tsx scripts/tests/recovery-strategy-r1-r5-contracts.ts && node --import tsx scripts/tests/recovery-strategy-round-escalation-contracts.ts && node --import tsx scripts/tests/session-teach-numeric-problem-prompt-contract.ts && node --import tsx scripts/tests/generation-history-signals-contracts.ts && node --import tsx scripts/tests/adaptive-evaluation-simulations.ts && node --import tsx scripts/tests/hint-assistance-independence-contracts.ts && node --import tsx scripts/tests/lazy-hydration-target-authority-contracts.ts && node --import tsx scripts/tests/session-check-integrity-contracts.ts && node --import tsx scripts/tests/integrated-adversarial-scenario.ts && node --import tsx scripts/tests/mcq-feedback-consistency-contracts.ts && node --import tsx scripts/tests/numeric-equivalence-grading-contracts.ts && node --import tsx scripts/tests/word-bank-render-contracts.ts && node --import tsx scripts/tests/recovery-cognitive-escalation-contracts.ts && node --import tsx scripts/tests/reteach-register-personalization-contracts.ts && node --import tsx scripts/tests/chat-assistance-wiring-contracts.ts && node --import tsx scripts/tests/introduction-outline-derivation-contracts.ts && node --import tsx scripts/tests/final-review-synthesis-contracts.ts && node --import tsx scripts/tests/reteach-error-evidence-contracts.ts && node --import tsx scripts/tests/written-grading-format-feedback-contracts.ts && node --import tsx scripts/tests/real-session-quality-contracts.ts && node --import tsx scripts/tests/session-preparation-provider-resilience-contracts.ts && node --import tsx scripts/tests/groq-fallback-cost-policy-contracts.ts && node --import tsx scripts/tests/recovery-strategy-exhaustion-vs-abandonment-contracts.ts && node --import tsx scripts/tests/session-prefetch-contracts.ts && node --import tsx scripts/tests/session-prefetch-invalidation-contracts.ts && node --import tsx scripts/tests/session-lifecycle-state-machine-contracts.ts && node --import tsx scripts/tests/session-persistence-restart-equivalence-contracts.ts && node --import tsx scripts/tests/session-idempotent-preparation-concurrency-contracts.ts && node --import tsx scripts/tests/plan-session-consistency-contracts.ts && node --import tsx scripts/tests/session-persistence-server-restart-contracts.ts && node --import tsx scripts/tests/session-teach-original-failure-reproduction.ts && node --import tsx scripts/tests/dev-tool-canonical-answer-contracts.ts && node --import tsx scripts/tests/blueprint-empty-topic-certification-contracts.ts && node --import tsx scripts/tests/study-sessions-worker-row-mapping-contracts.ts && node --import tsx scripts/tests/cancellation-provider-call-avoidance-contracts.ts && node --import tsx scripts/tests/persistence-cross-device-round-trip-contracts.ts && node --import tsx scripts/tests/free-studymap-truquitos-continuity-contracts.ts && node --import tsx scripts/tests/generation-attempt-tracker-contracts.ts && node --import tsx scripts/tests/free-process-canonical-nav-progress-contracts.ts && node --import tsx scripts/tests/free-mode-source-authority-contracts.ts && node --import tsx scripts/tests/free-tool-continuity-contracts.ts && node --import tsx scripts/tests/free-flashcards-repasar-continuity-contracts.ts && node --import tsx scripts/tests/free-alai-continuity-contracts.ts && node --import tsx scripts/tests/free-analysis-continuity-contracts.ts && node --import tsx scripts/tests/free-mastery-update-storm-contracts.ts && node --import tsx scripts/tests/free-whole-document-session-identity-contracts.ts && node --import tsx scripts/tests/free-session-concurrent-identity-contracts.ts && node --import tsx scripts/tests/visual-typography-contracts.ts && node --import tsx scripts/tests/material-brain-academic-role-contracts.ts",
+    "simulate:v3:smoke": "node --import tsx scripts/simulation/adaptive-v3/runSmoke.ts",
+    "simulate:v3:deterministic": "node --import tsx scripts/simulation/adaptive-v3/runDeterministic.ts",
+    "test": "node --import tsx scripts/tests/adaptive-evaluation-mode-contracts.ts && node --import tsx scripts/tests/adaptive-evaluation-contracts.ts && node --import tsx scripts/tests/adaptive-matching-recovery-contracts.ts && node --import tsx scripts/tests/adaptive-v3-product-flow.ts && node --import tsx scripts/tests/adaptive-v3-interaction-flow.ts && node --import tsx scripts/tests/adaptive-v3-bohr-product-contracts.ts && node --import tsx scripts/tests/simulation-strategy-metrics.ts && node --import tsx scripts/tests/phase2-evidence.ts && node --import tsx scripts/tests/phase3-telemetry.ts && node --import tsx scripts/tests/phase4-assistance-context.ts && node --import tsx scripts/tests/phase5-pedagogical-decisions.ts && node --import tsx scripts/tests/phase6-consistency.ts && node --import tsx scripts/tests/phase7-e2e.ts && node --import tsx scripts/tests/phase8-program-completion.ts && node --import tsx scripts/tests/phase9-canonical-mastery.ts && node --import tsx scripts/tests/phase10-pedagogical-contracts.ts && node --import tsx scripts/tests/adaptive-learning-experience-contracts.ts",
+    "test:adaptive-v3-bohr": "node --import tsx scripts/tests/adaptive-v3-bohr-regression.ts",
+    "test:adaptive-resume": "node --import tsx scripts/tests/adaptive-resume-contracts.ts",
+    "test:material-brain-core": "node --import tsx scripts/tests/material-brain-core-contracts.ts",
+    "test:material-brain-lifecycle": "node --import tsx scripts/tests/material-brain-lifecycle-contracts.ts",
+    "test:material-brain-production-bridge": "node --import tsx scripts/tests/material-brain-production-bridge-contracts.ts",
+    "test:flashcards-v2": "node --import tsx scripts/tests/flashcards-v2-contracts.ts",
+    "test:flashcards-v2:real": "node --import tsx scripts/tests/flashcards-v2-real-ai-contracts.ts",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "simulate": "node --import tsx scripts/simulate-local.ts",
+    "regression": "node --import tsx scripts/simulate-local.ts all novato",
+    "simulate-pdf": "node --import tsx scripts/simulate-pdf.ts",
+    "regression-pdf": "node --import tsx scripts/simulate-pdf.ts scripts/fixtures/ novato",
+    "full-session": "node --import tsx scripts/full-session.ts",
+    "simulate-mastery": "node --import tsx scripts/simulate-mastery.ts",
+    "simulate-batch": "node --import tsx scripts/simulate-batch.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:real-materials": "playwright test --config=playwright.real-materials.config.ts",
+    "test:e2e:adaptive-real-materials": "playwright test tests/e2e/adaptive-real-materials-flow.spec.ts"
+  }
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 
 const Document = dynamic(() => import('react-pdf').then(m => m.Document), { ssr: false });
@@ -30,6 +30,7 @@ interface Material {
   archivoMime?: string;
   materialId?: string;
   contenido?: string;
+  conversion_status?: string;
 }
 
 export interface SeleccionResult {
@@ -49,7 +50,24 @@ interface Props {
 }
 
 type MaterialTipo = 'pdf' | 'docx' | 'pptx' | 'image' | 'txt' | 'otro';
+type EstadoMaterial = 'ready' | 'processing' | 'failed';
 
+// docx/pptx/odt/rtf (y sus variantes legacy doc/ppt) se normalizan a PDF
+// server-side (document-converter) — el picker NUNCA vuelve a parsear el
+// archivo original para estos, siempre pregunta al servidor vía
+// download-url cuál es el estado real (autoridad única, nunca el prop
+// conversion_status que puede quedar viejo en datos ya persistidos).
+const KINDS_NORMALIZADOS_A_PDF = new Set(['docx', 'pptx', 'odt', 'rtf']);
+
+function esConvertible(m: Material): boolean {
+  const kind = (m.kind || m.tipo || '').toLowerCase();
+  return KINDS_NORMALIZADOS_A_PDF.has(kind);
+}
+
+// Clasificación por archivo — solo para materiales que NO pasan por
+// conversión (pdf nativo, imagen, txt). Para convertibles, el tipo
+// efectivo lo decide exclusivamente la respuesta de download-url (ver
+// tipoResueltoPorMat), nunca esta función.
 function detectarTipo(m: Material): MaterialTipo {
   const nombre = (m.nombre || '').toLowerCase();
   const mime = (m.archivoMime || '').toLowerCase();
@@ -79,6 +97,9 @@ interface PaginaExtraida {
   layout?: 'titulo' | 'titulo-contenido' | 'imagen-texto' | 'solo-imagen' | 'texto';
 }
 
+const POLL_INTERVAL_MS = 3000;
+const POLL_MAX_ATTEMPTS = 20; // ~60s de auto-poll antes de exigir reintento manual
+
 export default function SeleccionPaginas({
   materiales, enfoque, temaId, themeColor, onCancel, onConfirm,
 }: Props) {
@@ -91,6 +112,14 @@ export default function SeleccionPaginas({
   const [rangoDesde, setRangoDesde] = useState<Record<string, number>>({});
   const [rangoHasta, setRangoHasta] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+
+  // Estado de normalización por material (solo aplica a convertibles).
+  // 'ready' = normalized.pdf listo → se pagina como cualquier PDF.
+  const [estadoPorMat, setEstadoPorMat] = useState<Record<string, EstadoMaterial>>({});
+  const [conversionErrorPorMat, setConversionErrorPorMat] = useState<Record<string, string>>({});
+  const [tipoResueltoPorMat, setTipoResueltoPorMat] = useState<Record<string, MaterialTipo>>({});
+  const pollAttemptsRef = useRef<Record<string, number>>({});
+  const [pollTick, setPollTick] = useState(0);
 
   // Cargar selección guardada
   useEffect(() => {
@@ -109,131 +138,131 @@ export default function SeleccionPaginas({
     } catch {}
   }, [temaId, enfoque, materiales]);
 
-  // Resolver URLs + extraer
+  // Resuelve UN material — autoridad única: download-url. Para
+  // convertibles (docx/pptx/odt/rtf) nunca se toca el archivo original;
+  // 200 con kind==='pdf' es la única forma de mostrar páginas. Usada tanto
+  // en la carga inicial como en el poll de 'processing' y el reintento
+  // manual de 'failed' — mismo camino, sin duplicar lógica.
+  const resolverMaterial = useCallback(async (m: Material, blobsToRevoke?: string[]) => {
+    const tipoArchivo = detectarTipo(m);
+    const convertible = esConvertible(m);
+
+    try {
+      // Atajos (base64/archivoUrl ya en memoria) solo tienen sentido para
+      // contenido que el picker va a interpretar tal cual — nunca para
+      // convertibles, donde SIEMPRE hay que preguntarle al servidor cuál
+      // es el estado real de la normalización.
+      if (!convertible && m.archivoBase64) {
+        const mime = m.archivoMime || 'application/octet-stream';
+        const bytes = atob(m.archivoBase64);
+        const arr = new Uint8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+        const blob = new Blob([arr], { type: mime });
+        const url = URL.createObjectURL(blob);
+        blobsToRevoke?.push(url);
+        await procesarConUrl(m, tipoArchivo, url, arr.buffer);
+        return;
+      }
+      if (!convertible && m.archivoUrl) {
+        await procesarConUrl(m, tipoArchivo, m.archivoUrl, null);
+        return;
+      }
+
+      const remoteId = m.materialId || m.id;
+      if (!remoteId) {
+        setPdfErrors(prev => ({ ...prev, [m.id]: 'Este material no tiene ID válido para acceder al archivo' }));
+        return;
+      }
+
+      const res = await fetch(`/api/materials/${remoteId}/download-url`, { credentials: 'same-origin' });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 409 && data?.code === 'MATERIAL_CONVERSION_PENDING') {
+        setEstadoPorMat(prev => ({ ...prev, [m.id]: 'processing' }));
+        return;
+      }
+      if (res.status === 409 && data?.code === 'MATERIAL_CONVERSION_FAILED') {
+        setEstadoPorMat(prev => ({ ...prev, [m.id]: 'failed' }));
+        setConversionErrorPorMat(prev => ({ ...prev, [m.id]: data?.conversionError || 'La conversión a PDF falló.' }));
+        return;
+      }
+      if (!res.ok) {
+        setPdfErrors(prev => ({ ...prev, [m.id]: data?.error ? `No se pudo obtener el archivo: ${data.error}` : `No se pudo obtener el archivo (${res.status})` }));
+        return;
+      }
+
+      if (convertible && data.kind !== 'pdf') {
+        // Material convertible cuya conversión nunca se disparó (legacy,
+        // de antes de este pipeline). Dispararla ahora — nunca caer a
+        // parseo client-side como alternativa.
+        setEstadoPorMat(prev => ({ ...prev, [m.id]: 'processing' }));
+        try {
+          await fetch('/api/materials/upload/complete', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ materialId: remoteId }),
+          });
+        } catch {}
+        return;
+      }
+
+      if (data.kind === 'pdf') {
+        setEstadoPorMat(prev => ({ ...prev, [m.id]: 'ready' }));
+        setTipoResueltoPorMat(prev => ({ ...prev, [m.id]: 'pdf' }));
+        setPdfUrls(prev => ({ ...prev, [m.id]: data.url }));
+        return;
+      }
+
+      await procesarConUrl(m, tipoArchivo, data.url, null);
+    } catch (e: any) {
+      console.error('Error procesando', m.nombre, e);
+      setPdfErrors(prev => ({ ...prev, [m.id]: e?.message || 'Error procesando' }));
+    }
+  }, []);
+
+  // Solo para NO convertibles: imagen/txt. PDF nativo también pasa por
+  // acá si algún día llega con archivoBase64/archivoUrl directo.
+  async function procesarConUrl(m: Material, tipo: MaterialTipo, url: string, buffer: ArrayBuffer | null) {
+    if (tipo === 'pdf') {
+      setEstadoPorMat(prev => ({ ...prev, [m.id]: 'ready' }));
+      setPdfUrls(prev => ({ ...prev, [m.id]: url }));
+      return;
+    }
+    if (tipo === 'image') {
+      setImageUrls(prev => ({ ...prev, [m.id]: url }));
+      setExtraidasPorMat(prev => ({ ...prev, [m.id]: [{ numero: 1, texto: '' }] }));
+      setPaginasPorMat(prev => ({ ...prev, [m.id]: 1 }));
+      setSelecciones(prev => (prev[m.id]?.size ? prev : { ...prev, [m.id]: new Set([1]) }));
+      return;
+    }
+    if (tipo === 'txt') {
+      if (!buffer) {
+        const r = await fetch(url);
+        buffer = await r.arrayBuffer();
+      }
+      const texto = new TextDecoder('utf-8').decode(buffer);
+      const paginas = dividirTextoEnPaginas(texto);
+      setExtraidasPorMat(prev => ({ ...prev, [m.id]: paginas }));
+      setPaginasPorMat(prev => ({ ...prev, [m.id]: paginas.length }));
+      setSelecciones(prev => {
+        if (prev[m.id]?.size) return prev;
+        const all = new Set<number>();
+        for (let i = 1; i <= paginas.length; i++) all.add(i);
+        return { ...prev, [m.id]: all };
+      });
+      setRangoDesde(prev => ({ ...prev, [m.id]: prev[m.id] || 1 }));
+      setRangoHasta(prev => ({ ...prev, [m.id]: prev[m.id] || paginas.length || 1 }));
+    }
+  }
+
+  // Carga inicial
   useEffect(() => {
     let cancelled = false;
     const blobsToRevoke: string[] = [];
 
     const cargar = async () => {
       setLoading(true);
-
-      const urlsPdf: Record<string, string> = {};
-      const urlsImg: Record<string, string> = {};
-      const errors: Record<string, string> = {};
-      const extraidas: Record<string, PaginaExtraida[]> = {};
-
-      await Promise.all(materiales.map(async (m) => {
-        const tipo = detectarTipo(m);
-        try {
-          let url: string | null = null;
-          let buffer: ArrayBuffer | null = null;
-
-          if (m.archivoBase64) {
-            const mime = m.archivoMime || 'application/octet-stream';
-            const bytes = atob(m.archivoBase64);
-            const arr = new Uint8Array(bytes.length);
-            for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-            const blob = new Blob([arr], { type: mime });
-            url = URL.createObjectURL(blob);
-            blobsToRevoke.push(url);
-            buffer = arr.buffer;
-          } else if (m.archivoUrl) {
-            url = m.archivoUrl;
-          } else {
-            const remoteId = m.materialId || m.id;
-
-            if (remoteId) {
-              const res = await fetch(`/api/materials/${remoteId}/download-url`, {
-                credentials: 'same-origin',
-              });
-
-              if (res.ok) {
-                const data = await res.json();
-                url = data.url;
-              } else {
-                const data = await res.json().catch(() => ({}));
-                errors[m.id] = data?.error
-                  ? `No se pudo obtener el archivo: ${data.error}`
-                  : `No se pudo obtener el archivo (${res.status})`;
-                return;
-              }
-            } else {
-              errors[m.id] = 'Este material no tiene ID válido para acceder al archivo';
-              return;
-            }
-          }
-
-          if (!url) { errors[m.id] = 'Sin URL'; return; }
-
-          if (tipo === 'pdf') {
-            urlsPdf[m.id] = url;
-          } else if (tipo === 'image') {
-            urlsImg[m.id] = url;
-            extraidas[m.id] = [{ numero: 1, texto: '' }];
-          } else if (tipo === 'docx') {
-            if (!buffer) {
-              const r = await fetch(url);
-              buffer = await r.arrayBuffer();
-            }
-            extraidas[m.id] = await extraerDocxClient(buffer);
-          } else if (tipo === 'pptx') {
-            if (!buffer) {
-              const r = await fetch(url);
-              buffer = await r.arrayBuffer();
-            }
-            extraidas[m.id] = await extraerPptxClient(buffer);
-          } else if (tipo === 'txt') {
-            if (!buffer) {
-              const r = await fetch(url);
-              buffer = await r.arrayBuffer();
-            }
-            const texto = new TextDecoder('utf-8').decode(buffer);
-            extraidas[m.id] = dividirTextoEnPaginas(texto);
-          }
-        } catch (e: any) {
-          console.error('Error procesando', m.nombre, e);
-          errors[m.id] = e?.message || 'Error procesando';
-        }
-      }));
-
-      if (cancelled) return;
-
-      setPdfUrls(urlsPdf);
-      setImageUrls(urlsImg);
-      setPdfErrors(errors);
-      setExtraidasPorMat(extraidas);
-
-      const initPaginas: Record<string, number> = {};
-      setSelecciones(prevSel => {
-        const next = { ...prevSel };
-        for (const m of materiales) {
-          const tipo = detectarTipo(m);
-          if (tipo !== 'pdf') {
-            const paginas = extraidas[m.id] || [];
-            initPaginas[m.id] = paginas.length;
-            if (!next[m.id] || next[m.id].size === 0) {
-              const all = new Set<number>();
-              for (let i = 1; i <= paginas.length; i++) all.add(i);
-              next[m.id] = all;
-            }
-          }
-        }
-        return next;
-      });
-      setPaginasPorMat(prev => ({ ...prev, ...initPaginas }));
-
-      const rd: Record<string, number> = {};
-      const rh: Record<string, number> = {};
-      for (const m of materiales) {
-        const tipo = detectarTipo(m);
-        const total = tipo === 'pdf' ? 0 : (extraidas[m.id]?.length || 0);
-        rd[m.id] = 1;
-        rh[m.id] = total || 1;
-      }
-      setRangoDesde(prev => ({ ...rd, ...prev }));
-      setRangoHasta(prev => ({ ...rh, ...prev }));
-
-      setLoading(false);
+      await Promise.allSettled(materiales.map(m => resolverMaterial(m, blobsToRevoke)));
+      if (!cancelled) setLoading(false);
     };
 
     cargar();
@@ -244,6 +273,36 @@ export default function SeleccionPaginas({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [materiales.map(m => m.id).join(',')]);
+
+  // Poll de materiales 'processing' — nunca spinner infinito: se detiene
+  // solo (auto) a los ~60s y queda un botón de reintento manual visible
+  // todo el tiempo en el estado 'processing'.
+  useEffect(() => {
+    const enProceso = materiales.filter(m => estadoPorMat[m.id] === 'processing');
+    if (!enProceso.length) return;
+    const t = setTimeout(() => {
+      for (const m of enProceso) {
+        const intentos = (pollAttemptsRef.current[m.id] || 0) + 1;
+        pollAttemptsRef.current[m.id] = intentos;
+        if (intentos > POLL_MAX_ATTEMPTS) continue; // requiere click manual de acá en más
+        resolverMaterial(m);
+      }
+      setPollTick(t => t + 1);
+    }, POLL_INTERVAL_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estadoPorMat, pollTick, materiales, resolverMaterial]);
+
+  const reintentarMaterial = useCallback((m: Material) => {
+    pollAttemptsRef.current[m.id] = 0;
+    setConversionErrorPorMat(prev => { const next = { ...prev }; delete next[m.id]; return next; });
+    setEstadoPorMat(prev => ({ ...prev, [m.id]: 'processing' }));
+    const remoteId = m.materialId || m.id;
+    fetch('/api/materials/upload/complete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ materialId: remoteId }),
+    }).finally(() => resolverMaterial(m));
+  }, [resolverMaterial]);
 
   const handlePDFLoaded = useCallback((matId: string, numPages: number) => {
     setPaginasPorMat(prev => ({ ...prev, [matId]: numPages }));
@@ -365,13 +424,13 @@ export default function SeleccionPaginas({
               color: 'var(--text-primary)',
               transform: 'rotate(-0.5deg)',
               display: 'inline-block',
-            }}>📑 Selecciona partes</h1>
+            }}>📑 Elegir qué estudiar</h1>
             <div style={{ fontFamily: HAND, fontSize: 17, color: 'var(--text-muted)' }}>
               ~ enfoque {enfoqueEmoji} {enfoqueLabel} ~
             </div>
           </div>
           <p style={{ margin: '4px 0 0', fontFamily: BODY, fontSize: 14, color: 'var(--text-muted)' }}>
-            Elige qué partes querés estudiar. Lo no seleccionado no se analiza.
+            Elegí partes específicas, o "Seleccionar todo" para el documento completo. Lo no seleccionado no se analiza.
           </p>
         </div>
 
@@ -420,7 +479,7 @@ export default function SeleccionPaginas({
         {loading && <CenterMsg emoji="⏳" title="Cargando materiales..." />}
 
         {!loading && materiales.map((m, idx) => {
-          const tipo = detectarTipo(m);
+          const tipo = tipoResueltoPorMat[m.id] || detectarTipo(m);
           const total = paginasPorMat[m.id] || 0;
           const sel = selecciones[m.id] || new Set<number>();
           return (
@@ -437,6 +496,9 @@ export default function SeleccionPaginas({
               imageUrl={imageUrls[m.id]}
               paginasExtraidas={extraidasPorMat[m.id] || []}
               error={pdfErrors[m.id]}
+              estado={estadoPorMat[m.id]}
+              conversionError={conversionErrorPorMat[m.id]}
+              onReintentar={() => reintentarMaterial(m)}
               rangoDesde={rangoDesde[m.id] || 1}
               rangoHasta={rangoHasta[m.id] || total || 1}
               onRangoDesde={(n) => setRangoDesde(prev => ({ ...prev, [m.id]: n }))}
@@ -460,6 +522,7 @@ function MaterialSection({
   material, tipo, index, totalMateriales,
   total, seleccionadas, themeColor,
   pdfUrl, imageUrl, paginasExtraidas, error,
+  estado, conversionError, onReintentar,
   rangoDesde, rangoHasta,
   onRangoDesde, onRangoHasta, onAplicarRango,
   onSeleccionarTodo, onLimpiar, onTogglePagina,
@@ -471,6 +534,7 @@ function MaterialSection({
   themeColor: string;
   pdfUrl?: string; imageUrl?: string;
   paginasExtraidas: PaginaExtraida[]; error?: string;
+  estado?: EstadoMaterial; conversionError?: string; onReintentar: () => void;
   rangoDesde: number; rangoHasta: number;
   onRangoDesde: (n: number) => void; onRangoHasta: (n: number) => void;
   onAplicarRango: () => void;
@@ -484,8 +548,11 @@ function MaterialSection({
   const tipoLabel = tipo === 'pdf' ? 'PDF' : tipo === 'docx' ? 'Word' :
                     tipo === 'pptx' ? 'PowerPoint' : tipo === 'image' ? 'Imagen' :
                     tipo === 'txt' ? 'Texto' : 'Archivo';
-  const unidadLabel = tipo === 'pptx' ? 'diapositiva' : tipo === 'image' ? 'imagen' : 'página';
-  const unidadPlural = tipo === 'pptx' ? 'diapositivas' : tipo === 'image' ? 'imágenes' : 'páginas';
+  const unidadLabel = tipo === 'pptx' ? 'diapositiva' : tipo === 'image' ? 'imagen' :
+                      tipo === 'docx' ? 'sección' : tipo === 'txt' ? 'bloque' : 'página';
+  const unidadPlural = tipo === 'pptx' ? 'diapositivas' : tipo === 'image' ? 'imágenes' :
+                       tipo === 'docx' ? 'secciones' : tipo === 'txt' ? 'bloques' : 'páginas';
+  const unidadPluralCap = unidadPlural.charAt(0).toUpperCase() + unidadPlural.slice(1);
 
   return (
     <div style={{
@@ -564,7 +631,7 @@ function MaterialSection({
             display: 'flex', alignItems: 'center', gap: 8,
             fontFamily: HAND, fontSize: 16, color: 'var(--text-primary)',
           }}>
-            <span>{unidadPlural === 'imágenes' ? 'Imágenes' : 'Páginas'} de</span>
+            <span>{unidadPluralCap} de</span>
             <input type="text" inputMode="numeric" pattern="[0-9]*"
               value={rangoDesde}
               onChange={e => {
@@ -616,6 +683,35 @@ function MaterialSection({
         </div>
       )}
 
+      {!error && estado === 'processing' && (
+        <CenterMsg emoji="⏳" title="Preparando documento..."
+          sub="Convirtiendo a PDF para poder mostrarte las páginas. Esto no debería tardar más de un minuto." />
+      )}
+
+      {!error && estado === 'failed' && (
+        <div style={{
+          textAlign: 'center', padding: 30,
+          background: 'color-mix(in srgb, #f87171 10%, var(--bg-card))',
+          border: '2px dashed #f87171', borderRadius: 12,
+        }}>
+          <div style={{ fontSize: 36, marginBottom: 8 }}>⚠️</div>
+          <div style={{ fontFamily: HAND, fontSize: 19, color: '#f87171', fontWeight: 700, marginBottom: 6 }}>
+            Este material no pudo prepararse.
+          </div>
+          {conversionError && (
+            <div style={{ fontFamily: BODY, fontSize: 13, color: 'var(--text-muted)', marginBottom: 14 }}>
+              {conversionError}
+            </div>
+          )}
+          <button onClick={onReintentar} style={{
+            padding: '10px 22px', borderRadius: 10,
+            border: '2px solid #f87171', background: 'transparent',
+            color: '#f87171', fontFamily: HAND, fontSize: 16, fontWeight: 800,
+            cursor: 'pointer',
+          }}>🔁 Reintentar</button>
+        </div>
+      )}
+
       {!error && tipo === 'pdf' && pdfUrl && (
         <Document
           file={pdfUrl}
@@ -648,20 +744,16 @@ function MaterialSection({
         />
       )}
 
-      {!error && (tipo === 'pptx' || tipo === 'docx' || tipo === 'txt') && paginasExtraidas.length > 0 && (
+      {!error && tipo === 'txt' && paginasExtraidas.length > 0 && (
         <ThumbsGrid
           total={paginasExtraidas.length} seleccionadas={seleccionadas}
           themeColor={themeColor} onToggle={onTogglePagina}
           label={unidadLabel}
-          renderThumb={(n: number) => {
-            const p = paginasExtraidas[n - 1];
-            if (tipo === 'pptx') return <SlideThumb pagina={p} />;
-            return <PageThumb pagina={p} />;
-          }}
+          renderThumb={(n: number) => <PageThumb pagina={paginasExtraidas[n - 1]} />}
         />
       )}
 
-      {!error && (tipo === 'pptx' || tipo === 'docx' || tipo === 'txt') && paginasExtraidas.length === 0 && (
+      {!error && tipo === 'txt' && paginasExtraidas.length === 0 && (
         <CenterMsg emoji="⏳" title="Extrayendo contenido..." />
       )}
     </div>
@@ -704,6 +796,7 @@ function ThumbsGrid({
                 : '2px 3px 0 var(--border-color)',
               opacity: sel ? 1 : 0.55,
               width: '100%',
+              display: 'flex', justifyContent: 'center',
             }}>
               {renderThumb(pageNum)}
               {!sel && (
@@ -737,172 +830,7 @@ function ThumbsGrid({
 }
 
 // ═══════════════════════════════════════════════
-// SLIDE THUMB (PPTX) — formato apaisado, título + bullets + imágenes
-// ═══════════════════════════════════════════════
-function SlideThumb({ pagina }: { pagina: PaginaExtraida }) {
-  const W = 320;
-  const H = 180; // ratio 16:9
-
-  const hayImagenes = pagina.imagenes && pagina.imagenes.length > 0;
-  const imgPrincipal = hayImagenes ? pagina.imagenes![0] : null;
-
-  return (
-    <div style={{
-      width: '100%', aspectRatio: '16/9',
-      background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-      position: 'relative', overflow: 'hidden',
-      padding: 10, boxSizing: 'border-box',
-      display: 'flex', flexDirection: 'column',
-      fontFamily: BODY,
-    }}>
-      {/* Imagen de fondo si hay (sutil) */}
-      {imgPrincipal && (
-        <div style={{
-          position: 'absolute', inset: 0,
-          backgroundImage: `url(${imgPrincipal})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          opacity: 0.18,
-          filter: 'saturate(0.8)',
-        }} />
-      )}
-
-      {/* Línea decorativa arriba */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0,
-        height: 3,
-        background: 'linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%)',
-      }} />
-
-      {/* Título */}
-      {pagina.titulo && (
-        <div style={{
-          fontSize: 11, fontWeight: 800,
-          color: '#1e293b',
-          marginBottom: 6,
-          lineHeight: 1.2,
-          position: 'relative', zIndex: 1,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical' as any,
-          borderBottom: '1px solid #e2e8f0',
-          paddingBottom: 4,
-        }}>
-          {pagina.titulo}
-        </div>
-      )}
-
-      {/* Layout flexible: si hay imagen + texto = side by side */}
-      <div style={{
-        flex: 1, display: 'flex', gap: 6,
-        position: 'relative', zIndex: 1,
-        overflow: 'hidden',
-      }}>
-        {/* Bullets */}
-        {pagina.bullets && pagina.bullets.length > 0 && (
-          <div style={{
-            flex: hayImagenes ? '1 1 60%' : '1 1 100%',
-            display: 'flex', flexDirection: 'column',
-            gap: 2,
-            overflow: 'hidden',
-          }}>
-            {pagina.bullets.slice(0, 6).map((b, i) => (
-              <div key={i} style={{
-                fontSize: 7.5, lineHeight: 1.3,
-                color: '#334155',
-                display: 'flex', gap: 4,
-                alignItems: 'flex-start',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}>
-                <span style={{ color: '#3b82f6', fontWeight: 900, flexShrink: 0 }}>•</span>
-                <span style={{
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}>{b}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Imagen principal si hay */}
-        {imgPrincipal && pagina.bullets && pagina.bullets.length > 0 && (
-          <div style={{
-            flex: '0 0 35%',
-            background: `url(${imgPrincipal})`,
-            backgroundSize: 'contain',
-            backgroundPosition: 'center',
-            backgroundRepeat: 'no-repeat',
-            borderRadius: 3,
-          }} />
-        )}
-
-        {/* Si NO hay bullets pero sí imagen → imagen grande centrada */}
-        {imgPrincipal && (!pagina.bullets || pagina.bullets.length === 0) && (
-          <div style={{
-            flex: 1,
-            background: `url(${imgPrincipal})`,
-            backgroundSize: 'contain',
-            backgroundPosition: 'center',
-            backgroundRepeat: 'no-repeat',
-          }} />
-        )}
-
-        {/* Si NO hay nada → placeholder */}
-        {!pagina.titulo && (!pagina.bullets || pagina.bullets.length === 0) && !imgPrincipal && (
-          <div style={{
-            flex: 1, display: 'flex',
-            alignItems: 'center', justifyContent: 'center',
-            color: '#cbd5e1', fontSize: 10,
-          }}>
-            Diapositiva {pagina.numero}
-          </div>
-        )}
-      </div>
-
-      {/* Número de slide en esquina */}
-      <div style={{
-        position: 'absolute', bottom: 4, right: 6,
-        fontSize: 7, color: '#94a3b8',
-        fontWeight: 700,
-      }}>
-        {pagina.numero}
-      </div>
-
-      {/* Miniaturas adicionales si hay >1 imagen */}
-      {pagina.imagenes && pagina.imagenes.length > 1 && (
-        <div style={{
-          position: 'absolute', bottom: 4, left: 6,
-          display: 'flex', gap: 2,
-        }}>
-          {pagina.imagenes.slice(1, 4).map((img, i) => (
-            <div key={i} style={{
-              width: 16, height: 16,
-              background: `url(${img})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              borderRadius: 2,
-              border: '1px solid rgba(0,0,0,0.1)',
-            }} />
-          ))}
-          {pagina.imagenes.length > 4 && (
-            <div style={{
-              fontSize: 7, color: '#94a3b8',
-              alignSelf: 'flex-end', fontWeight: 700,
-            }}>+{pagina.imagenes.length - 4}</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════
-// PAGE THUMB (DOCX/TXT) — formato hoja vertical
+// PAGE THUMB (TXT) — formato hoja vertical
 // ═══════════════════════════════════════════════
 function PageThumb({ pagina }: { pagina: PaginaExtraida }) {
   return (
@@ -959,124 +887,6 @@ function PageThumb({ pagina }: { pagina: PaginaExtraida }) {
       </div>
     </div>
   );
-}
-
-// ═══════════════════════════════════════════════
-// EXTRACTORES
-// ═══════════════════════════════════════════════
-
-async function extraerDocxClient(buffer: ArrayBuffer): Promise<PaginaExtraida[]> {
-  try {
-    const mammoth = await import('mammoth');
-    const result = await mammoth.extractRawText({ arrayBuffer: buffer });
-    return dividirTextoEnPaginas(result.value || '');
-  } catch (e) {
-    console.error('DOCX extract error:', e);
-    return [];
-  }
-}
-
-async function extraerPptxClient(buffer: ArrayBuffer): Promise<PaginaExtraida[]> {
-  try {
-    const JSZip = (await import('jszip')).default;
-    const zip = await JSZip.loadAsync(buffer);
-
-    // 1. Mapear todas las imágenes a dataURL
-    const mediaFiles = Object.keys(zip.files).filter(f => /^ppt\/media\//.test(f));
-    const mediaMap: Record<string, string> = {};
-    for (const mf of mediaFiles) {
-      try {
-        const data = await zip.files[mf].async('uint8array');
-        const ext = mf.split('.').pop()?.toLowerCase() || 'png';
-        const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
-                   : ext === 'gif' ? 'image/gif'
-                   : ext === 'svg' ? 'image/svg+xml'
-                   : 'image/png';
-        // Convertir a base64
-        let binary = '';
-        for (let i = 0; i < data.length; i++) binary += String.fromCharCode(data[i]);
-        const base64 = btoa(binary);
-        const fileName = mf.split('/').pop()!;
-        mediaMap[fileName] = `data:${mime};base64,${base64}`;
-      } catch {}
-    }
-
-    // 2. Slides + sus rels
-    const slideFiles = Object.keys(zip.files)
-      .filter(f => /^ppt\/slides\/slide\d+\.xml$/.test(f))
-      .sort((a, b) => {
-        const na = parseInt(a.match(/slide(\d+)/)?.[1] ?? '0');
-        const nb = parseInt(b.match(/slide(\d+)/)?.[1] ?? '0');
-        return na - nb;
-      });
-
-    const paginas: PaginaExtraida[] = [];
-
-    for (let i = 0; i < slideFiles.length; i++) {
-      const slideFile = slideFiles[i];
-      const slideNum = parseInt(slideFile.match(/slide(\d+)/)?.[1] ?? '0');
-      const xml = await zip.files[slideFile].async('string');
-
-      // ─── Extraer textos por <a:p> (párrafo) ───
-      // Cada <a:p> = un bullet/párrafo
-      const parrafos: string[] = [];
-      const parrafoMatches = xml.match(/<a:p[^>]*>[\s\S]*?<\/a:p>/g) ?? [];
-      for (const p of parrafoMatches) {
-        // Dentro del párrafo, juntar todos los <a:t>
-        const textos = (p.match(/<a:t[^>]*>([\s\S]*?)<\/a:t>/g) ?? [])
-          .map(t => {
-            const m = t.match(/<a:t[^>]*>([\s\S]*?)<\/a:t>/);
-            return m?.[1] || '';
-          })
-          .map(t =>
-            t
-              .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&apos;/g, "'")
-            .trim()
-          )
-          .filter(Boolean);
-        const todoP = textos.join(' ').trim();
-        if (todoP) parrafos.push(todoP);
-      }
-
-      // ─── Detectar título y bullets ───
-      let titulo = parrafos[0] || `Diapositiva ${slideNum}`;
-      // Si el título es muy largo, recortar
-      if (titulo.length > 80) titulo = titulo.slice(0, 80) + '...';
-      const bullets = parrafos.slice(1);
-
-      // ─── Buscar imágenes referenciadas en esta slide ───
-      const relsFile = `ppt/slides/_rels/slide${slideNum}.xml.rels`;
-      const imagenes: string[] = [];
-      if (zip.files[relsFile]) {
-        const relsXml = await zip.files[relsFile].async('string');
-        // Buscar Target="../media/imagenX.png"
-        const targetMatches = relsXml.match(/Target="[^"]*media\/[^"]+"/g) ?? [];
-        for (const t of targetMatches) {
-          const m = t.match(/media\/([^"]+)/);
-          if (m && mediaMap[m[1]]) {
-            imagenes.push(mediaMap[m[1]]);
-          }
-        }
-      }
-
-      paginas.push({
-        numero: slideNum,
-        titulo,
-        texto: parrafos.join('\n'),
-        bullets,
-        imagenes,
-      });
-    }
-
-    return paginas;
-  } catch (e) {
-    console.error('PPTX extract error:', e);
-    return [];
-  }
 }
 
 function dividirTextoEnPaginas(texto: string): PaginaExtraida[] {
