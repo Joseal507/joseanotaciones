@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { alaiJson } from '../../../../lib/alai';
-import { detectLanguage } from '../../../../lib/detectLanguage';
+import { aggregateMaterialLanguage, detectMaterialLanguage, normalizeMaterialLanguage, resolveMaterialLanguage, academicLanguageInstruction } from '../../../../lib/materialLanguage';
 import { getMaterialText, getMaterial } from '../../../../lib/materials/repository';
 import { downloadFromR2 } from '../../../../lib/materials/storage';
 import { extractText } from '../../../../lib/materials/extractors';
@@ -313,10 +313,11 @@ export function attachSourceFiguresToBlocks<T extends {materialId?:string;pages?
 }
 
 // PASO 1: Detectar topics — basado en contenido real, sin límites artificiales
-async function extractDocumentStructure(
+export async function extractDocumentStructure(
   pageMap: Map<number, string>,
   materialName: string,
-  materialLanguage: 'es' | 'en',
+  materialLanguage: string,
+  onLanguageResolved?: (language: string) => void,
 ): Promise<DocumentTopic[]> {
   const pageEntries = Array.from(pageMap.entries())
     .filter(([_, text]) => text.trim().length > 30)
@@ -349,12 +350,13 @@ async function extractDocumentStructure(
       ? `This is part ${chunkIndex + 1} of ${totalChunks} of the document.`
       : 'This is the complete document.';
 
-    const languageName = materialLanguage === 'es' ? 'SPANISH' : materialLanguage === 'en' ? 'ENGLISH' : 'the source document\'s own language';
+    const languageName = materialLanguage === 'und' ? 'the source document\'s dominant language' : materialLanguage;
     return `You are an expert analyst. ${contextNote}
 
 Document: "${materialName}"
 Pages in this section: ${pageList}
 
+${academicLanguageInstruction(materialLanguage)}
 LANGUAGE — MANDATORY: the source document is written in ${languageName}. Write "title", "description", and every other text field you generate in ${languageName} — the SAME language as the document. NEVER default to English if the document is not in English. This instruction overrides the language of these very instructions and of the example below.
 
 This document may be of ANY type: textbook, novel, history, law, medicine, philosophy, math, science, literature, manual, or any other domain. Adapt your analysis to the actual content.
@@ -387,6 +389,7 @@ ${sample}
 
 Return ONLY valid JSON. Every page listed in [${pageList}] must appear in exactly one topic. The field names below ("title", "description", "pages", "role") stay in English, but their VALUES must be written in ${languageName}:
 {
+  "materialLanguage": "BCP-47 language tag of the dominant source language",
   "topics": [
     {
       "title": "Specific descriptive title (5-10 words) — IN ${languageName}",
@@ -414,23 +417,25 @@ Return ONLY valid JSON. Every page listed in [${pageList}] must appear in exactl
         maxTokens: chunkMaxTokens,
         json: true,
       });
+      const reportedLanguage = normalizeMaterialLanguage(result?.materialLanguage);
+      if (materialLanguage === 'und' && reportedLanguage && reportedLanguage !== 'und') onLanguageResolved?.(reportedLanguage);
       const raw = result?.topics;
       if (Array.isArray(raw) && raw.length > 0) {
         console.log(`  ✅ ${raw.length} topics en chunk ${i + 1}`);
         return raw;
       }
       console.warn(`  ⚠️ Chunk ${i + 1} sin topics — usando fallback por página`);
-      return chunk.map(([pageNum]) => ({
-        title: materialLanguage === 'es' ? `${materialName} — Página ${pageNum}` : `${materialName} — Page ${pageNum}`,
-        description: materialLanguage === 'es' ? `Contenido de la página ${pageNum}` : `Content from page ${pageNum}`,
+      return chunk.map(([pageNum, sourceText]) => ({
+        title: sourceText.trim().split(/\n/)[0].slice(0, 100),
+        description: sourceText.trim().slice(0, 300),
         pages: [pageNum],
         role: 'mechanism',
       }));
     } catch (e: any) {
       console.error(`  ❌ Chunk ${i + 1} failed: ${e?.message}`);
-      return chunk.map(([pageNum]) => ({
-        title: materialLanguage === 'es' ? `${materialName} — Página ${pageNum}` : `${materialName} — Page ${pageNum}`,
-        description: materialLanguage === 'es' ? `Contenido de la página ${pageNum}` : `Content from page ${pageNum}`,
+      return chunk.map(([pageNum, sourceText]) => ({
+        title: sourceText.trim().split(/\n/)[0].slice(0, 100),
+        description: sourceText.trim().slice(0, 300),
         pages: [pageNum],
         role: 'mechanism',
       }));
@@ -471,14 +476,14 @@ Return ONLY valid JSON. Every page listed in [${pageList}] must appear in exactl
 }
 
 // PASO 2: Analizar el contenido de un topic
-async function analyzeTopic(
+export async function analyzeTopic(
   topic: DocumentTopic,
   topicText: string,
   allTopics: DocumentTopic[],
   materialName: string,
   topicIndex: number,
   totalTopics: number,
-  materialLanguage: 'es' | 'en',
+  materialLanguage: string,
 ): Promise<any[]> {
   if (!topicText.trim() || topicText.trim().length < 30) return [];
 
@@ -528,7 +533,8 @@ DOCUMENT: "${materialName}"
 SECTION: "${topic.title}"
 SECTION ROLE: ${topic.role}
 POSITION: section ${topicIndex + 1} of ${totalTopics}, chunk ${chunkIndex + 1} of ${totalChunks}
-LANGUAGE: Write ALL output in ${langHint === 'es' ? 'SPANISH' : 'ENGLISH'} — never mix languages.
+${academicLanguageInstruction(materialLanguage)}
+LANGUAGE: Write ALL output in ${langHint === 'und' ? 'the source material language' : langHint} — never mix languages.
 
 This document may be of ANY type: science, history, literature, law, medicine, philosophy, mathematics, manual, narrative, or any other domain. Extract knowledge appropriate to the actual content type.
 
@@ -691,7 +697,8 @@ Return ONLY valid JSON — no markdown, no code fences, no extra text:
           // Reuses the SAME materialLanguage resolved once for this
           // material — never recomputed per-chunk (ENJOYER_LANGUAGE_MATH_FIDELITY).
           const simplePrompt = `Extract 3-6 key knowledge blocks from this text about "${topic.title}".
-Language: ${langHint === 'es' ? 'SPANISH' : 'ENGLISH'}.
+${academicLanguageInstruction(materialLanguage)}
+Language: ${langHint === 'und' ? 'the source material language' : langHint}.
 
 TEXT:
 ${textChunks[i].slice(0, 5000)}
@@ -731,7 +738,8 @@ Return ONLY valid JSON, no extra text. Keep summaries to 1-2 sentences:
             try {
               // Same materialLanguage, never recomputed per-half.
               const halfPrompt = `Extract 2-4 key knowledge blocks from this text about "${topic.title}".
-Language: ${langHint === 'es' ? 'SPANISH' : 'ENGLISH'}.
+${academicLanguageInstruction(materialLanguage)}
+Language: ${langHint === 'und' ? 'the source material language' : langHint}.
 
 TEXT:
 ${halfText.slice(0, 3000)}
@@ -1044,6 +1052,8 @@ function normalizeBlueprint(rawBlueprint: any): any {
 
   return {
     version: 3, createdAt: rawBlueprint.createdAt || Date.now(),
+    materialLanguage: rawBlueprint.materialLanguage,
+    materialLanguages: rawBlueprint.materialLanguages,
     materials: rawBlueprint.materials || [],
     sourceSelection: rawBlueprint.sourceSelection,
     sourceSelectionFingerprint: rawBlueprint.sourceSelectionFingerprint,
@@ -1106,11 +1116,11 @@ async function auditBlueprint(
     .join('\n')
     .slice(0, 800);
 
-  const langHint = detectLanguage(sourceSample, 'es');
+  const langHint = resolveMaterialLanguage(blueprint);
 
   const prompt = `Audit: does this knowledge map cover the source document?
 Document: "${materialName}"
-Respond in ${langHint === 'es' ? 'SPANISH' : 'ENGLISH'}.
+Respond in ${langHint === 'und' ? 'the source material language' : langHint}.
 
 SOURCE (first pages sample):
 ${sourceSample}
@@ -1300,7 +1310,7 @@ async function repairCoverageGaps(
     .map(([num, txt]) => `[Página ${num}]\n${txt}`)
     .join('\n\n');
 
-  const langHint = detectLanguage(fullText, 'es');
+  const langHint = resolveMaterialLanguage(blueprint);
 
   for (const gap of audit.uncoveredFragments.slice(0, 6)) {
     if (gap.length < 5) continue;
@@ -1330,7 +1340,7 @@ async function repairCoverageGaps(
     const relevantText = relevantPages
       .map(p => `[Página ${p}]\n${fullPageMap.get(p) || ''}`)
       .join('\n\n')
-      .slice(0, 4000);
+      ;
 
     if (!relevantText || relevantText.length < 50) continue;
 
@@ -1358,7 +1368,7 @@ Return ONLY valid JSON:
 
     try {
       const result = await alaiJson({
-        messages: [{ role: 'user', content: repairPrompt }],
+        messages: [{ role: 'user', content: academicLanguageInstruction(langHint) + '\n' + repairPrompt }],
         temperature: 0.1,
         maxTokens: 1500,
         json: true,
@@ -1669,6 +1679,8 @@ export async function POST(req: NextRequest) {
 
     const allBlocks: any[] = [];
     const allTopics: DocumentTopic[] = [];
+    const materialLanguages: Record<string, string> = {};
+    const languageWeights: Record<string, number> = {};
     let globalOrder = 0;
     // Auditoría de garantías (verificación post-misión, GARANTÍA 1 de esta
     // ronda: "VISUAL FAILURE MUST AFFECT COVERAGE AUTHORITY"): páginas
@@ -1828,10 +1840,15 @@ export async function POST(req: NextRequest) {
         .map(([, text]) => text.trim())
         .join(' ')
         .slice(0, 4000);
-      const materialLanguage = detectLanguage(languageSample, 'es');
+      let materialLanguage = detectMaterialLanguage(languageSample);
+      materialLanguages[m.materialId] = materialLanguage;
+      languageWeights[m.materialId] = languageSample.length;
 
       console.log(`🗺️  Extrayendo estructura (idioma: ${materialLanguage})...`);
-      const topics = await extractDocumentStructure(pageMap, m.materialName, materialLanguage);
+      const topics = await extractDocumentStructure(pageMap, m.materialName, materialLanguage, resolved => {
+        if (materialLanguage === 'und') materialLanguage = resolved;
+      });
+      materialLanguages[m.materialId] = materialLanguage;
       allTopics.push(...topics);
 
       // PASO 2: Analizar cada topic con texto COMPLETO (no la muestra)
@@ -2013,6 +2030,10 @@ export async function POST(req: NextRequest) {
 
     const rawBlueprint = {
       version: 2, createdAt: Date.now(),
+      materialLanguage: aggregateMaterialLanguage(Object.entries(materialLanguages).map(([id, language]) => ({
+        language, weight: languageWeights[id] || 0,
+      }))),
+      materialLanguages,
       sourceSelectionFingerprint: sourceSelection.fingerprint,
       sourceSelection: sourceSelection,
       materials: validMaterials.map((m, i) => ({
@@ -2192,6 +2213,7 @@ export async function POST(req: NextRequest) {
       // persisted payload without this exact value is treated as stale
       // and regenerated once, never reused blindly forever.
       enjoyerAcademicVersion: MATERIAL_ENJOYER_ACADEMIC_VERSION,
+      materialLanguage: blueprint.materialLanguage,
       blueprint,
       quality: {
         ...quality,

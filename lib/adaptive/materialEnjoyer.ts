@@ -1,3 +1,4 @@
+import { withMaterialLanguage } from '../materialLanguage'
 import { getMaterialResult, saveMaterialResult } from '../materials/repository'
 
 // ============================================================
@@ -62,7 +63,12 @@ export interface MaterialEnjoyerStore {
 export class WorkerMaterialEnjoyerStore implements MaterialEnjoyerStore {
   async get(fingerprint: string): Promise<unknown | null> {
     const result = await getMaterialResult(enjoyerMaterialId(fingerprint), MATERIAL_ENJOYER_ENFOQUE, MATERIAL_ENJOYER_RESULT_TYPE)
-    return result?.payload ?? null
+    if (!result?.payload) return null
+    const payload = withMaterialLanguage(result.payload)
+    if (JSON.stringify(payload) !== JSON.stringify(result.payload)) {
+      try { await this.set(fingerprint, payload) } catch { /* Metadata backfill must never hide valid restored work. */ }
+    }
+    return payload
   }
 
   async set(fingerprint: string, payload: unknown): Promise<void> {
@@ -103,9 +109,9 @@ export async function getOrCreateStudyalMaterialEnjoyer(
 ): Promise<StudyalMaterialEnjoyerLookup> {
   const existing = await store.get(fingerprint)
   if (existing && isMatchingFingerprint(existing, fingerprint)) {
-    return { status: 'restored', payload: existing }
+    return { status: 'restored', payload: withMaterialLanguage(existing) }
   }
-  const payload = await generate()
+  const payload = withMaterialLanguage(await generate())
   await store.set(fingerprint, payload)
   return { status: 'generated', payload }
 }
@@ -116,7 +122,7 @@ export async function lookupStudyalMaterialEnjoyer(
 ): Promise<unknown | null> {
   try {
     const existing = await store.get(fingerprint)
-    return existing && isMatchingFingerprint(existing, fingerprint) ? existing : null
+    return existing && isMatchingFingerprint(existing, fingerprint) ? withMaterialLanguage(existing) : null
   } catch {
     return null
   }

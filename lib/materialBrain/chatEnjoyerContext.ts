@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage, academicLanguageInstruction } from '../materialLanguage'
 import type { SourceSelectionSnapshot } from '../adaptive/sourceSelection'
 import { CHAT_LIMITS, type ChatEvidence, type RetrievalOutcome, type SourcePolicy } from '../alai-chat/contracts'
 import { detectChatIntent, detectSourcePolicy } from '../alai-chat/intent'
@@ -51,6 +52,7 @@ export interface ChatEnjoyerRelation {
 }
 
 export interface ChatEnjoyerContext {
+  materialLanguage?: string
   fingerprint: string
   targets: ChatEnjoyerTarget[]
   relations: ChatEnjoyerRelation[]
@@ -173,10 +175,11 @@ export function buildChatEnjoyerContext(payload: unknown, selection: SourceSelec
     const kind = String(item.kind || 'academic_item').trim()
     if (!sourceItemId || seenIds.has(sourceItemId) || !label || !content) continue
     if (NON_ACADEMIC_KINDS.has(normalize(kind))) continue
-    const exactIdentity = `${normalize(label)}::${normalize(content)}`
-    if (seenExactContent.has(exactIdentity)) continue
     const materialIds = strings(item.materialIds)
     const materialId = String(item.materialId || (materialIds.length === 1 ? materialIds[0] : '') || (selection.materialIds.length === 1 ? selection.materialIds[0] : '') || '')
+    // Identity is scoped per material: identical wording in two materials is two independent sources.
+    const exactIdentity = `${materialId}::${normalize(label)}::${normalize(content)}`
+    if (seenExactContent.has(exactIdentity)) continue
     const itemSpans = spans(item.sourceSpans)
     const itemPages = pages(item.pages).length ? pages(item.pages) : pages(itemSpans.map(span => span.page))
     const authorized = selectedPages.get(materialId)
@@ -220,7 +223,7 @@ export function buildChatEnjoyerContext(payload: unknown, selection: SourceSelec
     targetBySourceItemId.get(to)?.relationIds.push(id)
   }
 
-  return { fingerprint: selection.fingerprint, targets, relations }
+  return { materialLanguage: resolveMaterialLanguage(payload), fingerprint: selection.fingerprint, targets, relations }
 }
 
 // ============================================================
@@ -345,6 +348,7 @@ export interface ChatRetrievalDiagnostics {
 }
 
 export interface ChatRetrievalResult {
+  materialLanguage?: string
   targets: ChatEnjoyerTarget[]
   relations: ChatEnjoyerRelation[]
   pages: number[]
@@ -478,6 +482,7 @@ export function retrieveForChat(params: {
   const pages = Array.from(new Set(selected.flatMap(target => target.pages))).sort((a, b) => a - b)
 
   return {
+    materialLanguage: params.context.materialLanguage,
     targets: selected, relations, pages, materials, mode,
     materialRetrievalOutcome: mode === 'GENERAL_ONLY' ? 'not_checked' : selected.length ? 'supported' : 'no_relevant_target',
     evidence: selected.flatMap(target => target.materialId ? [{ targetId: target.id, materialId: target.materialId, pages: target.pages }] : []),
@@ -486,8 +491,8 @@ export function retrieveForChat(params: {
 }
 
 /** Structured, id-tagged prompt block — the ONLY authorized content the provider may cite as "from the material". Bounded by retrieveForChat(), never the whole Enjoyer universe. */
-export function renderChatEnjoyerContext(retrieval: Pick<ChatRetrievalResult, 'targets' | 'relations'>): string {
-  const lines: string[] = []
+export function renderChatEnjoyerContext(retrieval: Pick<ChatRetrievalResult, 'targets' | 'relations' | 'materialLanguage'>): string {
+  const lines: string[] = [academicLanguageInstruction(retrieval.materialLanguage, true)]
   if (retrieval.targets.length) {
     lines.push('=== MATERIAL AUTORIZADO (StudyalMaterialEnjoyer) ===')
     for (const target of retrieval.targets) {

@@ -1,5 +1,5 @@
 import type { SourceSelectionSnapshot } from '../adaptive/sourceSelection'
-import { detectLanguage } from '../detectLanguage'
+import { resolveMaterialLanguage } from '../materialLanguage'
 
 export const TRUQUITOS_ENJOYER_AUTHORITY_TYPE = 'studyal_material_enjoyer' as const
 export const TRUQUITOS_ENJOYER_ADAPTER_VERSION = 'truquitos-enjoyer-1.0.0'
@@ -52,7 +52,7 @@ export interface TruquitoEnjoyerRelation {
 
 export interface TruquitosEnjoyerContext {
   fingerprint: string
-  language: 'es' | 'en'
+  language: string
   targets: TruquitoEnjoyerTarget[]
   relations: TruquitoEnjoyerRelation[]
 }
@@ -304,17 +304,7 @@ export function buildTruquitosEnjoyerContext(payload: unknown, selection: Source
     })
   }
 
-  const authorityLang = typeof (authority as any).language === 'string'
-    ? (authority as any).language
-    : typeof (authority as any).lang === 'string'
-      ? (authority as any).lang
-      : null
-  const sampleText = items.map(item => `${item.label} ${item.content}`).slice(0, 15).join(' ')
-  const language: 'es' | 'en' = authorityLang && String(authorityLang).toLowerCase().startsWith('en')
-    ? 'en'
-    : authorityLang && String(authorityLang).toLowerCase().startsWith('es')
-      ? 'es'
-      : detectLanguage(sampleText, 'es')
+  const language = resolveMaterialLanguage(payload)
 
   return { fingerprint: selection.fingerprint, language, targets, relations }
 }

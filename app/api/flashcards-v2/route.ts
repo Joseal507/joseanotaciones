@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
         { status: 202 },
       )
     }
-    const deck = await __routeDeps.generateEnjoyerFlashcardDeck(enjoyer, scope, { language: body?.language })
+    const deck = await __routeDeps.generateEnjoyerFlashcardDeck(enjoyer, scope, {})
     await deckStore.set(scope.fingerprint, deck)
     return NextResponse.json({ status: deck.meta.status, deck } satisfies FlashcardsV2Response, { status: 200 })
   } catch (err: any) {

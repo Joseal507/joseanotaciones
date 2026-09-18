@@ -1,3 +1,4 @@
+import { academicLanguageInstruction } from '../../../lib/materialLanguage'
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
@@ -101,7 +102,7 @@ function computeChatConfidence(
 }
 
 function buildGroundedChatPrompt(params: {
-  message: string; groundedContext: string; conversation: ChatConversationContext;
+  message: string; groundedContext: string; materialLanguage?: string; conversation: ChatConversationContext;
   history: { role: string; content: string }[]; materia: string; tema: string;
 }): string {
   const presentation = {
@@ -116,7 +117,8 @@ function buildGroundedChatPrompt(params: {
     : params.conversation.sourcePolicy === 'GENERAL_ONLY'
       ? 'Responde con conocimiento académico general. No necesitas respaldo del material ni debes rechazar por su ausencia. externalKnowledgeUsed=true. No atribuyas hechos al material.'
       : 'Puedes usar evidencia y conocimiento general. Si no hay evidencia relevante, responde con conocimiento general y externalKnowledgeUsed=true. Cuando combines ambos, separa "En tu material" y "Como contexto general". Ejemplos y explicaciones añadidos que no estén en la evidencia cuentan como conocimiento general.';
-  return `Eres ALAI, tutor académico conversacional. Resuelve la petición actual con una respuesta completa y proporcional.
+  return `${academicLanguageInstruction(params.materialLanguage, true)}
+Eres ALAI, tutor académico conversacional. Resuelve la petición actual con una respuesta completa y proporcional.
 POLÍTICA OBLIGATORIA: ${params.conversation.sourcePolicy}.
 ${policy}
 Una búsqueda acotada no prueba ausencia en todo un documento. No afirmes que algo no existe/no aparece en el PDF.
@@ -362,7 +364,7 @@ async function generateGroundedChatTurn(body: Record<string, unknown>, userId: s
     : await __routeDeps.generateValidatedLegacyJson({
         taskType: 'explanation',
         prompt: buildGroundedChatPrompt({
-          message, groundedContext: generationPolicy === 'GENERAL_ONLY' ? '' : renderChatEnjoyerContext(retrieval), conversation: { ...resolved.context, sourcePolicy: generationPolicy },
+          materialLanguage: context.materialLanguage, message, groundedContext: generationPolicy === 'GENERAL_ONLY' ? '' : renderChatEnjoyerContext(retrieval), conversation: { ...resolved.context, sourcePolicy: generationPolicy },
           history, materia: String(body.materia || '').slice(0, 160), tema: String(body.tema || '').slice(0, 160),
         }),
         temperature: 0.24,

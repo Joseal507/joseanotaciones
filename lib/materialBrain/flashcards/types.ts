@@ -154,6 +154,8 @@ export interface FlashcardPlan {
 }
 
 export interface GeneratedFlashcard extends PlannedCard {
+  /** Canonical academic language of the source material (persisted Enjoyer authority). */
+  materialLanguage?: string
   question: string
   answer: string
   /** Provenance del Brain (unit.provenance / relation.provenance), no del material crudo. */

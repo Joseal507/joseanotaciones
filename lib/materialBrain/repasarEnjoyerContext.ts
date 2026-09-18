@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage } from '../materialLanguage'
 import type { SourceSelectionSnapshot } from '../adaptive/sourceSelection'
 import type {
   RepasarGroundedContext,
@@ -105,11 +106,12 @@ export function buildRepasarEnjoyerGroundedContext(
     const statement = String(item.summary || item.content || item.statement || '').trim()
     if (!id || seenIds.has(id) || !label || !statement || nonAcademicKinds.has(kind)) return
 
-    const identity = canonicalIdentity(label, statement)
+    const materialIds = strings(item.materialIds)
+    const materialId = String(item.materialId || materialIds[0] || (selection.materialIds.length === 1 ? selection.materialIds[0] : '') || '').trim()
+    // Identity is scoped per material: identical wording in two materials is two independent sources.
+    const identity = `${materialId}::${canonicalIdentity(label, statement)}`
     if (seenExact.has(identity)) return
 
-    const materialIds = strings(item.materialIds)
-    const materialId = String(item.materialId || materialIds[0] || selection.materialIds[0] || '').trim()
     const itemSpans = spans(item.sourceSpans)
     const itemPages = pages(item.pages).length ? pages(item.pages) : pages(itemSpans.map(span => span.page))
     const allowedPages = selectedPages.get(materialId)
@@ -125,7 +127,7 @@ export function buildRepasarEnjoyerGroundedContext(
     // label/framing: merge into the existing target instead of creating
     // a second, independently-graded id. Relations pointing at this id
     // are transparently remapped to the canonical target via idAlias.
-    const quoteKeys = itemSpans.map(span => normalizeQuote(span.quote)).filter(Boolean)
+    const quoteKeys = itemSpans.map(span => normalizeQuote(span.quote)).filter(Boolean).map(key => `${materialId}::${key}`) // per-material: never merge evidence across materials
     const existingIndex = quoteKeys.map(key => targetIndexByQuote.get(key)).find(value => value !== undefined)
     if (existingIndex !== undefined) {
       const existing = targets[existingIndex]
@@ -151,6 +153,7 @@ export function buildRepasarEnjoyerGroundedContext(
     seenExact.add(identity)
     for (const key of quoteKeys) if (!targetIndexByQuote.has(key)) targetIndexByQuote.set(key, targets.length)
     targets.push({
+      materialLanguage: resolveMaterialLanguage(payload),
       id,
       unitId: id,
       kind,
@@ -197,6 +200,7 @@ export function buildRepasarEnjoyerGroundedContext(
   }
 
   return {
+    materialLanguage: resolveMaterialLanguage(payload),
     fingerprint: selection.fingerprint,
     builderVersion: REPASAR_ENJOYER_ADAPTER_VERSION,
     authorityType: REPASAR_ENJOYER_AUTHORITY,

@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage, academicLanguageInstruction } from '../../materialLanguage'
 import { alaiJson } from '../../alai'
 import type { BrainScope } from '../types'
 import {
@@ -76,7 +77,7 @@ export function buildEnjoyerFlashcardPrompt(request: EnjoyerGenerationRequest): 
     '- Preserve complete academic coverage across the full set of cards, not by packing unrelated facts into compound questions.',
     'Every source item in sourceItems must be covered by at least one returned card.',
     'Every card must list only the sourceItemIds it truly uses. Avoid duplicate questions and unsupported claims.',
-    `Write in ${request.language || 'the language of the source items'}.`,
+    academicLanguageInstruction(request.language),
     request.mode === 'repair'
       ? 'This is a coverage repair. Generate only cards needed for sourceItems. contextItems are context only; do not regenerate the existing deck.'
       : 'This is initial generation for this bounded batch.',
@@ -131,7 +132,8 @@ export async function generateEnjoyerFlashcardDeck(
   scope: BrainScope,
   options: EnjoyerGenerationOptions = {},
 ): Promise<EnjoyerFlashcardDeck> {
-  const source = serializeEnjoyerForFlashcards(payload, scope.fingerprint)
+  const source = serializeEnjoyerForFlashcards(payload, scope.fingerprint, scope)
+  const materialLanguage = resolveMaterialLanguage(payload)
   const provider = options.provider || defaultEnjoyerFlashcardProvider
   const batches = batchEnjoyerSourceItems(source.sourceItems)
   const cards: ProviderFlashcard[] = []
@@ -140,7 +142,7 @@ export async function generateEnjoyerFlashcardDeck(
 
   for (const batch of batches) {
     const raw = await provider({
-      mode: 'initial', fingerprint: scope.fingerprint, language: options.language,
+      mode: 'initial', fingerprint: scope.fingerprint, language: materialLanguage,
       sourceItems: batch, contextItems: [], existingCards: conciseCards(cards),
     })
     providerCalls++
@@ -158,7 +160,7 @@ export async function generateEnjoyerFlashcardDeck(
     const repairBatches = batchEnjoyerSourceItems(uncovered)
     for (const repairBatch of repairBatches) {
       const raw = await provider({
-        mode: 'repair', fingerprint: scope.fingerprint, language: options.language,
+        mode: 'repair', fingerprint: scope.fingerprint, language: materialLanguage,
         sourceItems: repairBatch, contextItems: neighborContext(repairBatch, source), existingCards: conciseCards(cards),
       })
       providerCalls++

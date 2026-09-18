@@ -1,3 +1,4 @@
+import { academicLanguageInstruction } from '../materialLanguage'
 import type { KnowledgeUnit, MaterialBrain } from './types'
 import { computeGroundedCoverage, liveKnowledgeUnits, liveRelationsAmong, primaryEvidenceFor } from './groundedContext'
 
@@ -16,6 +17,7 @@ import { computeGroundedCoverage, liveKnowledgeUnits, liveRelationsAmong, primar
 // ============================================================
 
 export interface RepasarReviewTarget {
+  materialLanguage?: string
   id: string
   unitId: string
   kind: KnowledgeUnit['kind'] | string
@@ -43,6 +45,7 @@ export interface RepasarRelationContext {
 }
 
 export interface RepasarGroundedContext {
+  materialLanguage?: string
   fingerprint: string
   builderVersion: string
   authorityType?: 'studyal_material_enjoyer' | 'material_brain'
@@ -84,7 +87,7 @@ export function buildRepasarGroundedContext(brain: MaterialBrain): RepasarGround
  * (validated server-side; unknown ids are dropped, never trusted).
  */
 export function renderRepasarGroundedContextForPrompt(context: RepasarGroundedContext, maxChars = 60000): string {
-  const lines: string[] = []
+  const lines: string[] = [academicLanguageInstruction(context.materialLanguage)]
   for (const target of context.targets) {
     lines.push(`[TARGET ${target.id}] kind=${target.kind}${target.importanceTier === 'critical' ? ' importance=critical' : ''}`)
     lines.push(`Etiqueta: ${target.label}`)

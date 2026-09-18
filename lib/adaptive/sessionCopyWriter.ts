@@ -7,6 +7,7 @@
 import type { AdaptiveSetup } from '../studySessions';
 
 export interface SessionCopyInput {
+  materialLanguage?: string;
   sessionNumber: number;
   role: string;
   topicLabel: string;
@@ -79,6 +80,7 @@ function sanitizeAICopy(copy: SessionCopy, input: SessionCopyInput): SessionCopy
 
 export function generateFallbackCopy(input: SessionCopyInput): SessionCopy {
   const { role, topicLabel, previousSessionTopic, concepts } = input;
+  if (input.materialLanguage && input.materialLanguage !== 'es') return { title: topicLabel, intro: concepts.filter(Boolean).join(' · ') || topicLabel };
   const t = topicLabel || 'este tema';
 
   // Los títulos SIEMPRE vienen del topic real del material
@@ -142,7 +144,7 @@ export async function writeSessionCopyWithAI(
     const res = await fetch(sessionCopyUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessions, materialTitle, setup, userProfile }),
+      body: JSON.stringify({ sessions, materialTitle, setup, userProfile, materialLanguage: sessions[0]?.materialLanguage }),
       signal,
     });
 

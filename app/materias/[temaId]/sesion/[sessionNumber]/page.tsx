@@ -784,7 +784,7 @@ export default function SessionPage() {
 
       const requestBody = {
         session: { ...chapter, kind: resolvedKind },
-        blueprint: { version: bp.version, topics: bp.topics, blocks: bp.blocks },
+        blueprint: { version: bp.version, materialLanguage: bp.materialLanguage, topics: bp.topics, blocks: bp.blocks },
         setup: as_.adaptiveSetup,
         setupHash: as_.setupHash,
         materialTitle: as_.materialNames?.[0] || "Material",
@@ -996,7 +996,7 @@ export default function SessionPage() {
 
         const requestBody = {
           session: { ...nextChapter, kind: nextKind },
-          blueprint: { version: bp.version, topics: bp.topics, blocks: bp.blocks },
+          blueprint: { version: bp.version, materialLanguage: bp.materialLanguage, topics: bp.topics, blocks: bp.blocks },
           setup: as_.adaptiveSetup,
           setupHash: as_.setupHash,
           materialTitle: as_.materialNames?.[0] || "Material",
@@ -1128,7 +1128,7 @@ export default function SessionPage() {
           message: text,
           chatHistory: withUser.slice(-8).map(message => ({ role: message.role, content: message.content })),
           sessionTitle: classContent?.sessionTitle || "",
-          materialTitle: sessionData?.materialNames?.[0] || "Material",
+          materialLanguage: sessionData?.blueprint?.materialLanguage, materialTitle: sessionData?.materialNames?.[0] || "Material",
           studentProfile: sessionData?.adaptiveSetup ? {
             knowledgeLevel: sessionData.adaptiveSetup.knowledgeLevel || null,
             mainConcern: sessionData.adaptiveSetup.mainConcern || null,
@@ -1374,7 +1374,7 @@ export default function SessionPage() {
           })),
           mode: sessionData?.adaptiveSetup?.evalPreference || "mix_everything",
           sessionTitle: classContent.sessionTitle,
-          materialTitle: sessionData?.materialNames?.[0] || "Material",
+          materialLanguage: sessionData?.blueprint?.materialLanguage, materialTitle: sessionData?.materialNames?.[0] || "Material",
           previousQuestions: previousQuestions.map(question => ({
             id: question.id,
             factKey: question.factKey,
@@ -1649,7 +1649,7 @@ export default function SessionPage() {
         .filter(step => sourceStepIds.includes(step.id))
         .map(step => step.content)
         .join("\n\n")
-      const r = await fetch("/api/adaptive/session-check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: currentQuestion, answer, teachingContent, mode: sessionData?.adaptiveSetup?.evalPreference || "mix_everything", materialTitle: sessionData?.materialNames?.[0] || "Material" }) })
+      const r = await fetch("/api/adaptive/session-check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: currentQuestion, answer, teachingContent, mode: sessionData?.adaptiveSetup?.evalPreference || "mix_everything", materialLanguage: sessionData?.blueprint?.materialLanguage, materialTitle: sessionData?.materialNames?.[0] || "Material" }) })
       const d = await r.json()
       if (d.success) {
         if (activeRecoveryId) {
@@ -2102,7 +2102,7 @@ export default function SessionPage() {
             errorType: failure.result.errorType || null,
           })),
           previousReteachFingerprints: item.reteachContentHistory,
-          materialTitle: sessionData?.materialNames?.[0] || "Material",
+          materialLanguage: sessionData?.blueprint?.materialLanguage, materialTitle: sessionData?.materialNames?.[0] || "Material",
           sessionTitle: classContent?.sessionTitle || "",
           studentProfile: sessionData?.adaptiveSetup ? {
             knowledgeLevel: sessionData.adaptiveSetup.knowledgeLevel || null,
@@ -2222,7 +2222,7 @@ export default function SessionPage() {
         taughtSteps: [{ id: step.id, type: step.type, title: step.title, content: step.content, keyPoint: step.keyPoint }],
         mode: sessionData?.adaptiveSetup?.evalPreference || "mix_everything",
         sessionTitle: classContent?.sessionTitle || "",
-        materialTitle: sessionData?.materialNames?.[0] || "Material",
+        materialLanguage: sessionData?.blueprint?.materialLanguage, materialTitle: sessionData?.materialNames?.[0] || "Material",
         previousQuestions: history.map(question => ({
           id: question.id, factKey: question.factKey, questionText: question.questionText, format: question.format,
         })),

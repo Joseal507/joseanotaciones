@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage, academicLanguageInstruction } from '../../../../lib/materialLanguage'
 import { NextRequest, NextResponse } from 'next/server';
 import { alaiJson } from '../../../../lib/alai';
 
@@ -28,6 +29,7 @@ interface ContextBlock {
 }
 
 interface AskRequest {
+  materialLanguage?: string;
   question: string;
   sessionContext: {
     sessionTitle: string;
@@ -55,14 +57,6 @@ interface AskRequest {
   history?: Array<{ role: 'user' | 'assistant'; content: string }>;
 }
 
-function detectLang(text: string): 'es' | 'en' {
-  if (/[áéíóúüñÁÉÍÓÚÜÑ]/.test(text)) return 'es';
-  const lower = text.toLowerCase();
-  const esCount = (lower.match(/\b(el|la|los|las|de|del|en|un|una|que|es|con|para|por|como|más|también|este|esta|su|sus|se|al|lo|qué|cómo|por qué|cuál)\b/g) || []).length;
-  const enCount = (lower.match(/\b(the|of|and|in|is|it|for|as|on|with|this|that|are|was|were|be|been|have|has|had|what|how|why|which)\b/g) || []).length;
-  return esCount >= enCount ? 'es' : 'en';
-}
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as AskRequest;
@@ -72,7 +66,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Pregunta requerida' }, { status: 400 });
     }
 
-    const lang = detectLang(question + ' ' + materialTitle);
+    const lang = resolveMaterialLanguage({ materialLanguage: body.materialLanguage, blocks: primaryBlocks || relevantBlocks || [] });
     const isSpanish = lang === 'es';
 
     // ═══════════════════════════════════════════════════════════════
@@ -255,7 +249,7 @@ Respond ONLY with valid JSON:
 }`;
 
     const result = await alaiJson({
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'system', content: academicLanguageInstruction(lang, true) }, { role: 'user', content: prompt }],
       temperature: 0.3,
       maxTokens: 1200,
       json: true,

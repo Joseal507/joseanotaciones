@@ -56,6 +56,7 @@ export interface LearningJourney {
   id: string;
   version: number;
   createdAt: number;
+  materialLanguage?: string;
   programGoal: string;
   programNarrative: string;
   programObjectives: string[];

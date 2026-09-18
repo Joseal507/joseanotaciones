@@ -1,3 +1,4 @@
+import { academicLanguageInstruction } from '../../../lib/materialLanguage'
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
@@ -201,10 +202,7 @@ async function handleExplainNodeRequest(sessionId: string, userId: string, nodeI
   // Deterministic, zero-extra-call language authority: the material's
   // own text — never the browser/UI locale — decides the response
   // language (STUDYMAP_LIVE_UX_HARDENING language root-cause fix).
-  const langHint = detectLanguage(groundedText, 'es');
-  const languageInstruction = langHint === 'es'
-    ? 'Responde EN ESPAÑOL — el material está en español, nunca cambies de idioma.'
-    : 'Respond IN ENGLISH — the material is in English, never switch languages.';
+  const languageInstruction = academicLanguageInstruction(context.materialLanguage);
 
   const systemPrompt = `Eres el Profesor ALAI explicando ${isGroup ? 'un grupo de conceptos relacionados' : 'UN concepto puntual'} de un mapa de estudio ya construido por StudyAL desde el material — NO vuelvas a leer el material ni inventes nada fuera de lo que se te da.
 

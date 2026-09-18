@@ -18,6 +18,7 @@ export interface FlashcardEvaluationResult {
 }
 
 export interface FlashcardEvaluationRequest {
+  materialLanguage?: string
   pregunta: string
   respuestaCorrecta: string
   respuestaUsuario: string

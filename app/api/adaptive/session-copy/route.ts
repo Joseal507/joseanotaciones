@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage, academicLanguageInstruction } from '../../../../lib/materialLanguage'
 import { NextRequest, NextResponse } from 'next/server';
 import { alaiRequest } from '../../../../lib/alai';
 import type { AdaptiveSetup } from '../../../../lib/studySessions';
@@ -14,21 +15,6 @@ function hashPayload(sessions: any[], materialTitle: string, setup: any): string
     .join('|');
   const totalBlocks = sessions.reduce((s: number, c: any) => s + (c.blockCount || 0), 0);
   return `${materialTitle}|${setup.examDateType}|${setup.knowledgeLevel}|${totalBlocks}|${topicSignature}`;
-}
-
-function detectLanguage(sessions: any[], materialTitle: string): 'es' | 'en' {
-  const text = [
-    materialTitle,
-    ...sessions.map((s: any) => `${s.topicLabel} ${(s.concepts || []).join(' ')}`)
-  ].join(' ');
-
-  if (/[áéíóúüñÁÉÍÓÚÜÑ]/.test(text)) return 'es';
-
-  const lower = text.toLowerCase();
-  const esCount = (lower.match(/\b(el|la|los|las|de|del|en|un|una|que|es|con|para|por|como|más|también|este|esta|su|sus|se|al|lo|fue|era|muy|hay|pero|porque|cuando|donde|sobre|entre|así|después|antes)\b/g) || []).length;
-  const enCount = (lower.match(/\b(the|of|and|in|is|it|for|as|on|with|this|that|are|was|were|be|been|have|has|had|but|not|from|they|their|into|more|than|about|which|would|could|should|after|before|during|between|through)\b/g) || []).length;
-
-  return esCount >= enCount ? 'es' : 'en';
 }
 
 export async function POST(req: NextRequest) {
@@ -49,14 +35,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, copies: [] });
     }
 
-    const cacheKey = hashPayload(sessions, materialTitle, setup);
+    const cacheKey = `${body.materialLanguage || "und"}:${hashPayload(sessions, materialTitle, setup)}`;
     const cached = recentCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       console.log(`[session-copy] Cache hit para "${materialTitle}"`);
       return NextResponse.json(cached.result);
     }
 
-    const lang = detectLanguage(sessions, materialTitle);
+    const lang = resolveMaterialLanguage({ materialLanguage: body.materialLanguage, blocks: sessions.map((s: { topicLabel: string; concepts?: string[] }) => ({ label: s.topicLabel, summary: (s.concepts || []).join(" ") })) });
     const isSpanish = lang === 'es';
 
     // Contexto del examen para personalizar el tono
@@ -173,7 +159,7 @@ Respond ONLY with valid JSON array:
               ? 'Responde SOLO con JSON válido. Los títulos deben ser únicos por sesión y específicos al material real, nunca genéricos.'
               : 'Respond ONLY with valid JSON. Titles must be unique per session and specific to the actual material, never generic.'
           },
-          { role: 'user', content: prompt },
+          { role: 'user', content: academicLanguageInstruction(lang) + '\n' + prompt },
         ],
         temperature: 0.5,
         max_tokens: 2000,

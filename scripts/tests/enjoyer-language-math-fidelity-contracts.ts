@@ -84,9 +84,9 @@ async function main() {
   // ── E/F/G/H/I/J: root cause + propagation (structural) ──
   await test('E. materialLanguage is resolved ONCE per material and propagated (structural)', () => {
     const routeSource = fs.readFileSync('app/api/adaptive/blueprint/route.ts', 'utf8')
-    assert.match(routeSource, /const materialLanguage = detectLanguage\(languageSample, 'es'\);/,
+    assert.match(routeSource, /let materialLanguage = detectMaterialLanguage\(languageSample\);/,
       'a single materialLanguage must be computed once per material')
-    assert.match(routeSource, /extractDocumentStructure\(pageMap, m\.materialName, materialLanguage\)/,
+    assert.match(routeSource, /extractDocumentStructure\(pageMap, m\.materialName, materialLanguage,/,
       'materialLanguage must be passed into topic extraction')
     assert.match(routeSource, /analyzeTopic\(\s*\n?\s*topic, topicText, topics, m\.materialName, i \+ batchIdx, topics\.length, materialLanguage\s*\n?\s*\)/,
       'the SAME materialLanguage must be passed into concept analysis')
@@ -98,7 +98,7 @@ async function main() {
       routeSource.indexOf('async function extractDocumentStructure'),
       routeSource.indexOf('async function analyzeTopic'),
     )
-    assert.match(extractFnBody, /materialLanguage: 'es' \| 'en'/, 'extractDocumentStructure must accept a materialLanguage parameter')
+    assert.match(extractFnBody, /materialLanguage: string/, 'extractDocumentStructure must accept a materialLanguage parameter')
     assert.match(extractFnBody, /LANGUAGE — MANDATORY/, 'the prompt must carry an explicit, mandatory language directive')
     assert.ok(!extractFnBody.includes("? 'es' : 'en'") || extractFnBody.includes('languageName'),
       'no local per-chunk language re-detection inside topic extraction')

@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage, academicLanguageInstruction } from '../../../../lib/materialLanguage'
 import { NextRequest, NextResponse } from 'next/server';
 import { sanitizeClassContent } from '../../../../lib/adaptive/sanitizeLatex';
 import { recoverAcademicFragment } from '../../../../lib/academic-content/recovery';
@@ -107,6 +108,7 @@ interface TeachRequest {
     kind: SessionKind;
   };
   blueprint: {
+    materialLanguage?: string;
     version?: number;
     topics: any[];
     blocks: any[];
@@ -161,7 +163,7 @@ interface TeachRequest {
   };
 }
 
-function buildTeachingPrompt(req: TeachRequest, materialType: string, langHint: 'es' | 'en'): string {
+function buildTeachingPrompt(req: TeachRequest, materialType: string, langHint: string): string {
   const { session, blueprint, userProfile, setup, materialTitle, totalSessions, previousSessionTitle, nextSessionTitle, previouslyTaught, upcomingConcepts, allBlocks, allTopics, previouslyTaughtBlocks, upcomingBlocks } = req;
 
   const isIntro = session.kind === 'introduction';
@@ -201,9 +203,7 @@ function buildTeachingPrompt(req: TeachRequest, materialType: string, langHint: 
     ? `\nPREOCUPACIÓN DEL ESTUDIANTE: "${setup.mainConcern}"\nAtiéndela si aparece en la sesión.`
     : '';
 
-  const languageInstruction = langHint === 'es'
-    ? 'IDIOMA: escribe TODO en español.'
-    : 'LANGUAGE: write EVERYTHING in English.';
+  const languageInstruction = academicLanguageInstruction(langHint);
 
   const formattingInstruction = `
 ═══════════════════════════════════════════════════════════════
@@ -957,20 +957,6 @@ CONTRATO DE EVALUACIÓN PERSISTIDA:
 `;
 }
 
-function detectLang(materialTitle: string, blocks: any[]): 'es' | 'en' {
-  const text = [
-    materialTitle,
-    ...blocks.slice(0, 5).map(b => `${b.label || ''} ${b.summary || ''}`)
-  ].join(' ');
-
-  if (/[áéíóúüñÁÉÍÓÚÜÑ]/.test(text)) return 'es';
-
-  const lower = text.toLowerCase();
-  const esCount = (lower.match(/\b(el|la|los|las|de|del|en|un|una|que|es|con|para|por|como|más|también|este|esta|su|sus|se|al|lo)\b/g) || []).length;
-  const enCount = (lower.match(/\b(the|of|and|in|is|it|for|as|on|with|this|that|are|was|were|be|been|have|has|had|but|not|from|they|their)\b/g) || []).length;
-
-  return esCount >= enCount ? 'es' : 'en';
-}
 
 
 /**
@@ -1218,7 +1204,8 @@ CONTRATO DE PROFUNDIDAD POR PASO — OBLIGATORIO: el nivel de detalle de "conten
 - analysis: ${DEPTH_INSTRUCTION_BY_COGNITIVE_TARGET.analysis}
 - transfer: ${DEPTH_INSTRUCTION_BY_COGNITIVE_TARGET.transfer}
 No enseñes con una etiqueta de 1-2 frases un concepto cuyo cognitiveTarget exija aplicación, clasificación o transferencia — la evaluación posterior lo exigirá y el estudiante no habrá recibido lo necesario para responder.` : ''
-  return `Genera únicamente la enseñanza de la sesión. No generes preguntas, evaluaciones, bloques evaluativos, respuestas correctas, opciones ni feedback. La evaluación se planificará en una operación posterior.
+  return `${academicLanguageInstruction(resolveMaterialLanguage(body.blueprint))}
+Genera únicamente la enseñanza de la sesión. No generes preguntas, evaluaciones, bloques evaluativos, respuestas correctas, opciones ni feedback. La evaluación se planificará en una operación posterior.
 
 MATERIAL: ${body.materialTitle}
 SESIÓN: ${body.session.title}
@@ -1952,6 +1939,7 @@ async function prepareSessionByFactory(body: TeachRequest & { userId?: string },
   // nunca para ningún otro código de fallo, y nunca excluye OpenRouter de
   // ninguna llamada que no haya fallado ya con esa evidencia.
   const callWithGroqFallbackOnCreditsExhausted = async (params: Parameters<typeof alai>[0]) => {
+    params = { ...params, messages: [{ role: 'system', content: academicLanguageInstruction(resolveMaterialLanguage(body.blueprint)) }, ...params.messages] }
     try {
       return await alai(params)
     } catch (err: any) {
@@ -2308,7 +2296,7 @@ export async function POST(req: NextRequest) {
 
     const academicDomain = resolveAcademicDomain({ persistedDomain:body.academicDomain, materialTitle, blocks:blueprint.blocks || [], topics:blueprint.topics || [] });
     const materialType = legacyMaterialType(academicDomain.academicDomain);
-    const lang = detectLang(materialTitle, blueprint.blocks || []);
+    const lang = resolveMaterialLanguage(blueprint);
 
     console.info('[session-content]', JSON.stringify({ event:'academic_domain_resolved', sessionId:session.id, planId:String(body.planVersion||''), materialId:body.materialHash||null, ...academicDomain }))
 
@@ -2443,7 +2431,7 @@ No incluyas texto fuera del JSON. No inventes contenido ajeno a la fuente.
 ${prior}`
         }
         const generated = await alai({
-          messages: [{ role: 'user', content }],
+          messages: [{ role: 'system', content: academicLanguageInstruction(lang) }, { role: 'user', content }],
           temperature: context.stage === 'complete_generation' ? 0.3 : 0,
           maxTokens: context.stage === 'split_assessment' ? 3200 : context.stage === 'split_teaching' ? 3600 : context.stage === 'split_generation' ? 5200 : 4800,
           json: true,
@@ -2556,7 +2544,7 @@ ${prior}`
           const repair = await alaiJson({
             messages: [{
               role: 'user',
-              content: `Regenera únicamente este fragmento académico conservando su significado y su idioma.
+              content: `${academicLanguageInstruction(lang)}\nRegenera únicamente este fragmento académico conservando su significado y su idioma.
 ROL: ${role}
 ERRORES ESTRUCTURALES: ${issues.join(', ')}
 FRAGMENTO:

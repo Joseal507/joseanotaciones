@@ -138,7 +138,7 @@ async function main() {
     let capturedPrompt = ''
     wireMapDeps(async (input: any) => { capturedPrompt = input.prompt; return { answer: 'ok', pedagogicalNote: '', usedRelationIds: [] } })
     await postExplain({ unitIds: ['map_node:n1'] })
-    assert.match(capturedPrompt, /Responde EN ESPAÑOL/, 'Spanish grounded content must produce a Spanish-language instruction')
+    assert.match(capturedPrompt, /ACADEMIC LANGUAGE AUTHORITY: es\./, 'Spanish grounded content must produce a Spanish-language instruction')
   })
 
   await test('O. no extra provider call is used for language detection (detectLanguage is a pure deterministic function)', () => {
@@ -153,8 +153,8 @@ async function main() {
     const routeSource = fs.readFileSync('app/api/adaptive/blueprint/route.ts', 'utf8')
     assert.ok(!routeSource.includes("test(topicText) ? 'es' : 'en'") && !routeSource.includes("test(sourceSample) ? 'es' : 'en'") && !routeSource.includes("test(fullText) ? 'es' : 'en'"),
       'the fragile accented-character-only heuristic must be gone')
-    const occurrences = (routeSource.match(/detectLanguage\(/g) || []).length
-    assert.ok(occurrences >= 3, 'all three langHint call sites must use the robust shared detector')
+    const occurrences = (routeSource.match(/(?:detectMaterialLanguage|resolveMaterialLanguage)\(/g) || []).length
+    assert.ok(occurrences >= 3, 'all langHint call sites must use the shared materialLanguage authority (superseded es/en detectLanguage)')
   })
 
   // ── P/Q: raw JSON / internal fields never leak into student-visible UI

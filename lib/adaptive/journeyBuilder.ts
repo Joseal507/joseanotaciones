@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage } from '../materialLanguage'
 import type { AdaptiveSetup } from '../studySessions';
 import { buildLearningPath } from './buildLearningPath';
 import { writeSessionCopyWithAI, generateFallbackCopy, type SessionCopyInput } from './sessionCopyWriter';
@@ -8,6 +9,7 @@ import type { LearningRole } from './learningPathTypes';
 import type { LearningArc, StudyChapter } from './learningArcTypes';
 
 export interface LearningJourney {
+  materialLanguage?: string;
   id: string;
   version: number;
   createdAt: number;
@@ -198,6 +200,7 @@ export async function buildLearningJourney(
   signal?: AbortSignal,
 ): Promise<LearningJourney> {
   const clean = cleanTitle(materialTitle);
+  const materialLanguage = resolveMaterialLanguage(rawBlueprint);
 
   const path = buildLearningPath(rawBlueprint);
 
@@ -216,13 +219,29 @@ export async function buildLearningJourney(
     status: idx === 0 ? 'available' : 'locked',
   }));
 
+  // Non-Spanish deterministic presentation uses verbatim source labels; the
+  // existing copy call authors the narrative in materialLanguage below.
+  if (materialLanguage !== 'es') {
+    const topics = (rawBlueprint.topics || []).map((topic: { title?: string }) => String(topic.title || '')).filter(Boolean);
+    for (const arc of arcs) arc.purpose = arc.title;
+    for (const chapter of chapters) {
+      const labels = chapter.concepts.length ? chapter.concepts : topics;
+      if (chapter.kind !== 'learning') chapter.title = labels.slice(0, 2).join(' · ') || clean;
+      chapter.hook = labels.slice(0, 3).join(' · ');
+      chapter.objective = chapter.hook;
+      chapter.why = '';
+      chapter.unlockMessage = '';
+      chapter.exitCriteria = labels.slice(0, 4);
+    }
+  }
   const baseJourney: LearningJourney = {
+    materialLanguage,
     id: `journey_${Date.now().toString(36)}`,
     version: 3,
     createdAt: Date.now(),
-    programGoal: `Dominar ${clean}`,
-    programNarrative: buildProgramNarrative(setup, chapters.length),
-    programObjectives: objectivesFromArcs(arcs),
+    programGoal: materialLanguage === 'es' ? `Dominar ${clean}` : clean,
+    programNarrative: materialLanguage === 'es' ? buildProgramNarrative(setup, chapters.length) : arcs.map(arc => arc.title).join(' · '),
+    programObjectives: materialLanguage === 'es' ? objectivesFromArcs(arcs) : arcs.map(arc => arc.title),
     coverageTarget: 100,
     arcs,
     chapters,
@@ -243,6 +262,7 @@ export async function buildLearningJourney(
 
   if (learningChs.length > 0) {
     const copyInputs: SessionCopyInput[] = learningChs.map((ch, idx) => ({
+      materialLanguage,
       sessionNumber: ch.chapterNumber,
       role: String(ch.arcRole || 'mechanism'),
       topicLabel: ch.title,
@@ -267,11 +287,11 @@ export async function buildLearningJourney(
             // Los bullets se guardan en exitCriteria para mostrarse como puntos
             exitCriteria: bulletPoints.length > 0 ? bulletPoints : ch.exitCriteria,
             hook: bulletPoints.length > 0
-              ? `En esta sesión estudiarás: ${bulletPoints.slice(0, 2).join(', ')}.`
-              : ch.hook,
+              ? (materialLanguage === 'es' ? `En esta sesión estudiarás: ${bulletPoints.slice(0, 2).join(', ')}.` : bulletPoints.slice(0, 2).join(' · '))
+              : copy.intro || ch.hook,
             objective: bulletPoints.length > 0
               ? bulletPoints.join(' · ')
-              : ch.objective,
+              : copy.intro || ch.objective,
           };
         }
       }

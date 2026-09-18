@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage, academicLanguageInstruction, academicVerdict } from '../../../lib/materialLanguage'
 import { NextRequest, NextResponse } from 'next/server';
 import { alaiRequest } from '../../../lib/alai';
 
@@ -16,6 +17,7 @@ export async function POST(request: NextRequest) {
       sourceMaterial,
     } = body;
 
+    const materialLanguage = resolveMaterialLanguage({ materialLanguage: body.materialLanguage, blocks: [{ content: contextoMaterial || body.contexto || respuestaCorrecta, summary: pregunta }] });
     const answer = String(respuestaUsuario || '').trim().toLowerCase();
 
     if (!answer || ['nose', 'no se', 'no sé', 'idk', 'xd', 'aw', 'nose aw'].includes(answer)) {
@@ -24,17 +26,17 @@ export async function POST(request: NextRequest) {
         resultado: {
           nivel: 'incorrecta',
           porcentaje: 5,
-          analisis: 'Tu respuesta no muestra comprensión del tema.',
+          analisis: academicVerdict(materialLanguage, 'incorrect'),
           respuestaCorrecta,
-          explicacion: 'La respuesta no contiene una idea verificable relacionada con la pregunta.',
-          consejo: 'Responde usando una idea concreta del material.'
+          explicacion: String(respuestaCorrecta || ''),
+          consejo: ''
         }
       });
     }
 
-    const context = String(contextoMaterial || '').slice(0, 9000);
+    const context = String(contextoMaterial || body.contexto || '').slice(0, 9000);
 
-    const systemPrompt = `
+    const systemPrompt = `${academicLanguageInstruction(materialLanguage)}
 Eres un profesor estricto y justo.
 
 Evalúa SOLO con base en:

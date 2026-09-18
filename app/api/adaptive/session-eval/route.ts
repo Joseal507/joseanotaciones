@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage, academicLanguageInstruction } from '../../../../lib/materialLanguage'
 import { sanitizeLatex } from '../../../../lib/adaptive/sanitizeLatex';
 import { buildCheckpointAnalysis } from '../../../../lib/adaptive/evaluation/checkpointAnalysis';
 import { NextRequest, NextResponse } from 'next/server'
@@ -43,6 +44,7 @@ interface TaughtStep {
 }
 
 interface SessionEvalRequest {
+  materialLanguage?: string
   taughtSteps: TaughtStep[]
   mode: EvaluationMode
   sessionTitle: string
@@ -652,7 +654,7 @@ export async function POST(req: NextRequest) {
       }),
       generate: async context => {
         const result = await alai({
-          messages: [{ role: 'user', content: `${prompt}${assessmentDirective}\n\n${stageInstruction(context)}` }],
+          messages: [{ role: 'system', content: academicLanguageInstruction(resolveMaterialLanguage({ materialLanguage: body.materialLanguage, blocks: body.taughtSteps }), false) }, { role: 'user', content: `${prompt}${assessmentDirective}\n\n${stageInstruction(context)}` }],
           temperature: context.stage === 'targeted_repair' ? 0.45 : 0.3,
           maxTokens: context.stage === 'split_individual' ? 1800 : 4500,
           json: true,

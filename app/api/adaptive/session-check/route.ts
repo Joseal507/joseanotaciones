@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage, academicLanguageInstruction, academicVerdict } from '../../../../lib/materialLanguage'
 import { NextRequest, NextResponse } from 'next/server'
 import { scoreQuestion } from '../../../../lib/adaptive/evaluation/scoring'
 import { alaiJson } from '../../../../lib/alai'
@@ -16,6 +17,7 @@ export const maxDuration = 60
 export const dynamic = 'force-dynamic'
 
 interface SessionCheckRequest {
+  materialLanguage?: string
   question: CanonicalQuestion
   answer: CanonicalUserAnswer
   teachingContent: string
@@ -34,7 +36,8 @@ async function evaluateWithAI(
   question: CanonicalQuestion,
   answer: CanonicalUserAnswer,
   teachingContent: string,
-  materialTitle: string
+  materialTitle: string,
+  materialLanguage: string
 ): Promise<{
   correct: boolean
   score: number
@@ -44,7 +47,8 @@ async function evaluateWithAI(
   whatWasRight: string
   whatWasWrong: string
 }> {
-  const prompt = `Eres un evaluador pedagógico experto y justo. Tu trabajo NO es decidir si la respuesta es correcta — es EXTRAER señales estructuradas verificables. Otro sistema determinista decide el veredicto final a partir de esas señales.
+  const prompt = `${academicLanguageInstruction(materialLanguage)}
+Eres un evaluador pedagógico experto y justo. Tu trabajo NO es decidir si la respuesta es correcta — es EXTRAER señales estructuradas verificables. Otro sistema determinista decide el veredicto final a partir de esas señales.
 
 MATERIAL: "${materialTitle}"
 
@@ -127,13 +131,13 @@ Devuelve SOLO JSON:
     const decision = deriveWrittenGradingVerdict(signals)
 
     const missingOptionalNote = signals.optionalDetailsMissing.length > 0 && decision.verdict === 'correct'
-      ? ` Como precisión adicional, podrías mencionar: ${signals.optionalDetailsMissing.join(', ')}.`
+      ? ` ${signals.optionalDetailsMissing.join('; ')}.`
       : ''
 
     return {
       correct: decision.correct,
       score: decision.score,
-      feedback: (signals.feedback || (decision.verdict === 'correct' ? 'Correcto.' : decision.verdict === 'partial' ? 'Parcialmente correcto.' : 'Incorrecto.')) + missingOptionalNote,
+      feedback: (signals.feedback || academicVerdict(materialLanguage, decision.verdict === 'correct' ? 'correct' : decision.verdict === 'partial' ? 'partial' : 'incorrect')) + missingOptionalNote,
       needsReteaching: decision.verdict !== 'correct',
       errorType: decision.verdict === 'correct' ? null : (signals.contradiction ? 'contradiction' : signals.vague ? 'vague' : signals.keywordStuffingOnly ? 'keyword_stuffing' : (signals.reasoningRequired && !signals.reasoningValid) ? 'invalid_reasoning' : 'comprehension'),
       whatWasRight: signals.whatWasRight,
@@ -156,6 +160,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as SessionCheckRequest
     const { question, answer, teachingContent, materialTitle } = body
+    const materialLanguage = resolveMaterialLanguage({ materialLanguage: body.materialLanguage, blocks: [{ content: teachingContent, summary: question?.explanation }] })
     const mode = normalizeEvaluationMode(body.mode)
 
     if (!question || answer === undefined || answer === null) {
@@ -238,7 +243,7 @@ export async function POST(req: NextRequest) {
     let result
 
     if (isOpenFormat) {
-      result = await evaluateWithAI(question, answer, teachingContent, materialTitle || 'Material')
+      result = await evaluateWithAI(question, answer, teachingContent, materialTitle || 'Material', materialLanguage)
     } else {
       const scoreResult = scoreQuestion(question, answer)
 
@@ -267,12 +272,12 @@ export async function POST(req: NextRequest) {
       // veredicto+respuesta, `feedback` lleva SOLO la explicación
       // (contenido nuevo, nunca una repetición del veredicto).
       if (scoreResult.correct) {
-        whatWasRight = `Tu respuesta ("${studentDisplay}") es correcta.`
+        whatWasRight = `${academicVerdict(materialLanguage, 'correct')} ${studentDisplay}`
         feedback = sanitizedExplanation || ''
       } else {
         const correctDisplay = presentAnswer(question, question.correctAnswer)
 
-        whatWasWrong = `Respondiste "${studentDisplay}". La respuesta correcta era "${correctDisplay}".`
+        whatWasWrong = `${academicVerdict(materialLanguage, 'incorrect')} ${studentDisplay} → ${correctDisplay}`
         feedback = sanitizedExplanation || ''
       }
 

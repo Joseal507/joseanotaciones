@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage, academicLanguageInstruction } from '../../materialLanguage'
 import { createHash, randomUUID } from 'node:crypto'
 import { generateValidatedLegacyJson } from '../../ai/legacyRouteGeneration'
 import {
@@ -46,6 +47,7 @@ export interface EnjoyerAssessmentTarget {
   sourceOrder: number
 }
 export interface EnjoyerAssessmentUniverse {
+  materialLanguage?: string
   fingerprint: string
   targets: EnjoyerAssessmentTarget[]
   topics: Array<{ id: string; title: string; order: number }>
@@ -308,10 +310,11 @@ export function buildEnjoyerAssessmentUniverse(
     const content = String(item.summary || item.content || item.statement || '').trim()
     const kind = String(item.kind || 'concept').trim()
     if (!sourceItemId || seenIds.has(sourceItemId) || !title || !content || ['metadata', 'decorative', 'divider', 'heading'].includes(kind)) continue
-    const identity = `${normalize(title)}::${normalize(content)}`
-    if (exactContent.has(identity)) continue
     const materialIds = stringArray(item.materialIds)
-    const materialId = String(item.materialId || materialIds[0] || selection.materialIds[0] || '')
+    const materialId = String(item.materialId || materialIds[0] || (selection.materialIds.length === 1 ? selection.materialIds[0] : '') || '')
+    // Identity is scoped per material: identical wording in two materials is two independent sources.
+    const identity = `${materialId}::${normalize(title)}::${normalize(content)}`
+    if (exactContent.has(identity)) continue
     const pages = pageArray(item.pages)
     const spans = sourceSpans(item.sourceSpans)
     const authoritativePages = pages.length ? pages : pageArray(spans.map(span => span.page))
@@ -331,7 +334,7 @@ export function buildEnjoyerAssessmentUniverse(
   targets.sort((a, b) => a.sourceOrder - b.sourceOrder || a.id.localeCompare(b.id))
   if (!targets.length) throw new Error('INSUFFICIENT_KNOWLEDGE')
   const unauthorizedTargetIds = new Set<string>()
-  return { fingerprint: selection.fingerprint, targets, topics, unauthorizedTargetIds }
+  return { materialLanguage: resolveMaterialLanguage(payload), fingerprint: selection.fingerprint, targets, topics, unauthorizedTargetIds }
 }
 
 export type AssessmentDesignReasonCode =
@@ -613,7 +616,8 @@ export function enjoyerQuizCoverageRegime(requestedQuestionCount: number,
 }
 
 function designPrompt(universe: EnjoyerAssessmentUniverse): string {
-  return `Design an assessment coverage budget from an already-completed academic analysis. Do not analyze a PDF or invent knowledge.
+  return `${academicLanguageInstruction(universe.materialLanguage)}
+Design an assessment coverage budget from an already-completed academic analysis. Do not analyze a PDF or invent knowledge.
 Estimate the number of well-formed questions needed for full assessment coverage from the REAL density and structure of these targets. Do not use a fixed formula and do not assume one target equals one question.
 The maximum allowed question count is ${MAX_QUIZ_QUESTIONS}. idealQuestionCountForFullCoverage must be an integer between 1 and ${MAX_QUIZ_QUESTIONS}.
 Group related targets that can be assessed coherently together without creating compound monster questions. Every target ID in ALLOWED_TARGETS must appear in at least one group. A dense target may appear in multiple groups when academically useful. Do not exceed ${MAX_QUIZ_QUESTIONS} groups.
@@ -634,7 +638,8 @@ function generationPrompt(request: Parameters<EnjoyerQuizProvider>[0]): string {
   }))
   const requiredSlots = request.requiredSlots || []
   const atomicSlots = requiredSlots.some(slot => slot.primaryTargetId)
-  return `Generate a grounded Quiz from an already-completed StudyalMaterialEnjoyer analysis. Do not analyze source files or use outside knowledge.
+  return `${academicLanguageInstruction(request.universe.materialLanguage)}
+Generate a grounded Quiz from an already-completed StudyalMaterialEnjoyer analysis. Do not analyze source files or use outside knowledge.
   Return exactly ${request.missingSlots ?? request.requestedCount} questions in REQUIRED_SLOTS order. Each output question MUST use the type assigned to its corresponding slot. The type allocation is authoritative; do not choose or substitute question types. Each question must be one coherent assessment task, not independent questions joined together.
 ${atomicSlots
     ? 'For every question, copy its REQUIRED_SLOTS slotId exactly. Each slot is one atomic primary target with a server-selected question type. The server owns and attaches the academic target; do not return or choose assessment target IDs.'

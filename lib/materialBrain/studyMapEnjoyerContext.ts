@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage, academicLanguageInstruction } from '../materialLanguage'
 import type { SourceSelectionSnapshot } from '../adaptive/sourceSelection'
 
 // ============================================================
@@ -66,6 +67,7 @@ export interface StudyMapCoverageResult {
 }
 
 export interface StudyMapEnjoyerContext {
+  materialLanguage?: string
   fingerprint: string
   nodes: StudyMapNode[]
   edges: StudyMapEdge[]
@@ -195,10 +197,11 @@ export function buildStudyMapEnjoyerContext(payload: unknown, selection: SourceS
     const kind = String(item.kind || 'academic_item').trim()
     if (!sourceItemId || seenIds.has(sourceItemId) || !label || !content) continue
     if (NON_ACADEMIC_KINDS.has(normalize(kind))) continue
-    const exactIdentity = `${normalize(label)}::${normalize(content)}`
-    if (seenExactContent.has(exactIdentity)) continue
     const materialIds = strings(item.materialIds)
-    const materialId = String(item.materialId || materialIds[0] || selection.materialIds[0] || '')
+    const materialId = String(item.materialId || materialIds[0] || (selection.materialIds.length === 1 ? selection.materialIds[0] : '') || '')
+    // Identity is scoped per material: identical wording in two materials is two independent sources.
+    const exactIdentity = `${materialId}::${normalize(label)}::${normalize(content)}`
+    if (seenExactContent.has(exactIdentity)) continue
     const itemSpans = spans(item.sourceSpans)
     const itemPages = pages(item.pages).length ? pages(item.pages) : pages(itemSpans.map(span => span.page))
     const authorized = selectedPages.get(materialId)
@@ -247,7 +250,7 @@ export function buildStudyMapEnjoyerContext(payload: unknown, selection: SourceS
     totalMapTargets: nodes.length, representedMapTargets: nodes.length, coveragePercent: nodes.length ? 100 : 0,
     missingTargetIds: [], totalRelationIds: totalRawRelations, representedRelationIds: edges.length,
   }
-  return { fingerprint: selection.fingerprint, nodes, edges, clusters, visibility, coverage }
+  return { materialLanguage: resolveMaterialLanguage(payload), fingerprint: selection.fingerprint, nodes, edges, clusters, visibility, coverage }
 }
 
 /**
@@ -314,6 +317,7 @@ export function deterministicStudyMapTitle(sourceSelection: SourceSelectionSnaps
 // ============================================================
 
 export interface StudyMapNodeExplanationContext {
+  materialLanguage?: string
   nodes: StudyMapNode[]
   edges: StudyMapEdge[]
   neighbors: StudyMapNode[]
@@ -342,7 +346,7 @@ export function buildStudyMapNodeExplanationContext(
     if (!idSet.has(edge.targetNodeId)) neighborIds.add(edge.targetNodeId)
   }
   const neighbors = context.nodes.filter(candidate => neighborIds.has(candidate.id))
-  return { nodes, edges, neighbors }
+  return { materialLanguage: context.materialLanguage, nodes, edges, neighbors }
 }
 
 /** Compact, id-tagged prompt block for one or several nodes — cheap, focused, never the whole Enjoyer universe. */
@@ -351,7 +355,7 @@ export function renderStudyMapNodeExplanationContext(explanation: StudyMapNodeEx
   const nodeById = new Map(nodes.map(n => [n.id, n]))
   const neighborById = new Map(neighbors.map(n => [n.id, n]))
   const labelFor = (id: string) => nodeById.get(id)?.label || neighborById.get(id)?.label || id
-  const lines: string[] = []
+  const lines: string[] = [academicLanguageInstruction(explanation.materialLanguage)]
   for (const node of nodes) {
     lines.push(`[NODE ${node.id}] kind=${node.kind} importance=${node.importanceTier}`)
     lines.push(`LABEL: ${node.label}`)

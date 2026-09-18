@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage } from '../materialLanguage'
 import { randomUUID } from 'crypto'
 import { getMaterialResult, saveMaterialResult } from '../materials/repository'
 import type { MaterialBrain } from './types'
@@ -50,6 +51,7 @@ export const REPASAR_SNAPSHOT_RESULT_TYPE = 'repasar_snapshot' as const
 export type RepasarReader = 'nino' | 'universitario' | 'profesor' | 'libre'
 
 export interface RepasarFrozenSnapshot {
+  materialLanguage?: string
   schemaVersion: string
   snapshotId: string
   /** Canonical source identity this snapshot belongs to. Cross-fingerprint reuse is impossible. */
@@ -136,6 +138,7 @@ export function freezeRepasarSnapshot(
   return {
     schemaVersion: REPASAR_SNAPSHOT_SCHEMA_VERSION,
     snapshotId: options.snapshotId || `rsnap_${randomUUID()}`,
+    materialLanguage: grounded.materialLanguage,
     fingerprint: grounded.fingerprint,
     builderVersion: grounded.builderVersion,
     authorityType: 'material_brain',
@@ -157,6 +160,7 @@ export function freezeRepasarEnjoyerSnapshot(
   return {
     schemaVersion: REPASAR_SNAPSHOT_SCHEMA_VERSION,
     snapshotId: options.snapshotId || `rsnap_${randomUUID()}`,
+    materialLanguage: grounded.materialLanguage,
     fingerprint: grounded.fingerprint,
     builderVersion: grounded.builderVersion,
     authorityType: 'studyal_material_enjoyer',
@@ -172,6 +176,7 @@ export function freezeRepasarEnjoyerSnapshot(
 /** The frozen snapshot rendered back into the shape the prompt renderer consumes. */
 export function snapshotGroundedContext(snapshot: RepasarFrozenSnapshot): RepasarGroundedContext {
   return {
+    materialLanguage: resolveMaterialLanguage(snapshot),
     fingerprint: snapshot.fingerprint,
     builderVersion: snapshot.builderVersion,
     authorityType: snapshot.authorityType,

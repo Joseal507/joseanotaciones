@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage, academicLanguageInstruction } from '../materialLanguage'
 import type { SourceSelectionSnapshot } from '../adaptive/sourceSelection'
 
 // ============================================================
@@ -56,6 +57,7 @@ export interface AnalysisEnjoyerCluster {
 }
 
 export interface AnalysisEnjoyerContext {
+  materialLanguage?: string
   fingerprint: string
   targets: AnalysisEnjoyerTarget[]
   relations: AnalysisEnjoyerRelation[]
@@ -190,10 +192,11 @@ export function buildAnalysisEnjoyerContext(payload: unknown, selection: SourceS
     const kind = String(item.kind || 'academic_item').trim()
     if (!sourceItemId || seenIds.has(sourceItemId) || !label || !content) continue
     if (NON_ACADEMIC_KINDS.has(normalize(kind))) continue
-    const exactIdentity = `${normalize(label)}::${normalize(content)}`
-    if (seenExactContent.has(exactIdentity)) continue
     const materialIds = strings(item.materialIds)
-    const materialId = String(item.materialId || materialIds[0] || selection.materialIds[0] || '')
+    const materialId = String(item.materialId || materialIds[0] || (selection.materialIds.length === 1 ? selection.materialIds[0] : '') || '')
+    // Identity is scoped per material: identical wording in two materials is two independent sources.
+    const exactIdentity = `${materialId}::${normalize(label)}::${normalize(content)}`
+    if (seenExactContent.has(exactIdentity)) continue
     const itemSpans = spans(item.sourceSpans)
     const itemPages = pages(item.pages).length ? pages(item.pages) : pages(itemSpans.map(span => span.page))
     const authorized = selectedPages.get(materialId)
@@ -236,7 +239,7 @@ export function buildAnalysisEnjoyerContext(payload: unknown, selection: SourceS
   }
 
   const clusters = buildClusters(targets, relations)
-  return { fingerprint: selection.fingerprint, targets, relations, clusters, topics }
+  return { materialLanguage: resolveMaterialLanguage(payload), fingerprint: selection.fingerprint, targets, relations, clusters, topics }
 }
 
 /**
@@ -317,7 +320,7 @@ function buildClusters(targets: AnalysisEnjoyerTarget[], relations: AnalysisEnjo
 export function renderAnalysisEnjoyerContext(context: AnalysisEnjoyerContext, maxChars = 90000): string {
   const targetById = new Map(context.targets.map(target => [target.id, target]))
   const relationById = new Map(context.relations.map(relation => [relation.id, relation]))
-  const lines: string[] = []
+  const lines: string[] = [academicLanguageInstruction(context.materialLanguage)]
   for (const cluster of context.clusters) {
     lines.push(`[CLUSTER ${cluster.id}] kinds=${cluster.kindsPresent.join(',')}${cluster.topicTitle ? ` topic=${cluster.topicTitle}` : ''}`)
     for (const targetId of cluster.targetIds) {
@@ -411,11 +414,7 @@ export function deterministicParaExamen(targets: readonly AnalysisEnjoyerTarget[
 export function deterministicProbabilidadExamen(targets: readonly AnalysisEnjoyerTarget[]): DeterministicProbabilidadItem[] {
   return targets.map(target => {
     const probabilidad = analysisExamProbability(target)
-    const razon = probabilidad === 'alta'
-      ? (target.importanceTier === 'critical' ? 'Concepto marcado como crítico en el material.' : 'Concepto de apoyo con múltiples relaciones — bien conectado al resto del material.')
-      : probabilidad === 'media'
-        ? 'Concepto de apoyo o contextual con conexiones moderadas.'
-        : 'Concepto contextual con poca conexión al resto del material.'
+    const razon = target.content
     return { concepto: target.label, probabilidad, razon, targetId: target.id }
   })
 }

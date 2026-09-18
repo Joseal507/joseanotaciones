@@ -109,6 +109,7 @@ function fixIntroChapter(ch: StudyChapter): StudyChapter {
 
 export function personalizeJourney(journey: LearningJourney, setup: AdaptiveSetup): LearningJourney {
   const voice = buildSetupVoice(setup);
+  if (journey.materialLanguage && journey.materialLanguage !== 'es') return { ...journey, planBadges: voice.badges };
 
   const chapters = (journey.chapters || []).map((ch: StudyChapter, idx: number) => {
     if (ch.kind === 'introduction') return fixIntroChapter(ch);

@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage, academicLanguageInstruction } from '../../../../lib/materialLanguage'
 import { NextRequest, NextResponse } from 'next/server'
 import { alai, safeParseJson } from '../../../../lib/alai'
 import { prepareReteachContent } from '../../../../lib/adaptive/evaluation/reteachContent'
@@ -508,7 +509,7 @@ Devuelve SOLO JSON sin markdown ni fences:
       const call = async (stage: 'normal' | 'targeted_repair', content: string) => {
         const started = Date.now()
         const result = await alai({
-          messages: [{ role: 'user', content }],
+          messages: [{ role: 'system', content: academicLanguageInstruction(resolveMaterialLanguage({ materialLanguage: body.materialLanguage, blocks: [{ content: body.allStepsContent || body.objective?.teachingContent }] })) }, { role: 'user', content }],
           temperature: stage === 'normal' ? 0.4 : 0.7,
           maxTokens: 1600,
           json: true,
@@ -789,7 +790,7 @@ Si el contenido tiene fórmulas matemáticas, úsalas correctamente en LaTeX con
       totalTimeoutMs: 90_000,
       generate: async context => {
         const result = await alai({
-          messages: [{ role: 'user', content: `${prompt}\n\n${stageInstruction(context)}` }],
+          messages: [{ role: 'system', content: academicLanguageInstruction(resolveMaterialLanguage({ materialLanguage: body.materialLanguage, blocks: [{ content: body.allStepsContent || body.objective?.teachingContent }] })) }, { role: 'user', content: `${prompt}\n\n${stageInstruction(context)}` }],
           temperature: context.stage === 'targeted_repair' ? 0.65 : 0.5,
           maxTokens: 650,
           fallbackError: context.providerError,

@@ -167,7 +167,7 @@ export async function POST(request: NextRequest) {
         if (body?.mode === 'evaluate') {
           const question = cached.questions.find(candidate => candidate.id === String(body?.questionId || ''))
           if (!question || !['fill_blank', 'short_answer'].includes(question.type)) return errorResponse('INVALID_CONFIG', 400)
-          const evaluation = await __routeDeps.evaluateQuizOpenAnswer(question as any, String(body?.answer || ''))
+          const evaluation = await __routeDeps.evaluateQuizOpenAnswer(question as any, String(body?.answer || ''), universe.materialLanguage)
           return NextResponse.json({ success: true, resultado: evaluation })
         }
         if (body?.mode === 'complete') {

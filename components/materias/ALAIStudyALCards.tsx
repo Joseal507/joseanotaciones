@@ -20,6 +20,7 @@ const PDFViewer = dynamic(() => import('./FlashcardsPDFViewer'), { ssr: false })
 const SourceViewer = dynamic(() => import('./FlashcardSourceViewer'), { ssr: false });
 
 interface Flashcard {
+  materialLanguage?: string;
   id: string;
   question: string;
   answer: string;
@@ -1122,6 +1123,7 @@ function StudyRepite({ cards, color, onClose, readOnly = false, contexto = '', o
           respuestaCorrecta: current.card.answer,
           respuestaUsuario: userAnswer,
           idioma: 'es',
+          materialLanguage: current.card.materialLanguage,
           contexto,
         }, { signal: controller.signal });
       if (controller.signal.aborted || evaluationAttemptRef.current !== attempt) return;
@@ -1816,6 +1818,7 @@ function StudyRapido({ cards, color, onClose, contexto = '', order = 'bucle', in
           respuestaCorrecta: card.answer,
           respuestaUsuario: userAnswer,
           idioma: 'es',
+          materialLanguage: card.materialLanguage,
           contexto,
         }, { signal: controller.signal });
       if (controller.signal.aborted || evaluationAttemptRef.current !== attempt) return;
@@ -2784,6 +2787,7 @@ export default function ALAIStudyALCards({ materiales, seleccion, tema, materia,
         const provenance = c.provenance?.[0];
         cards.push({
           id: c.id,
+          materialLanguage: c.materialLanguage,
           question: cleanFlashcardText(c.question),
           answer: cleanFlashcardText(c.answer),
           createdAt: Date.now(),

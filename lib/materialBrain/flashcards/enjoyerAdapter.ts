@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage } from '../../materialLanguage'
 import type { BrainScope, Provenance } from '../types'
 import type { FlashcardDeck, FlashcardDeckLookupStatus, FlashcardDeckStore, GeneratedFlashcard } from './types'
 import { FLASHCARD_DECK_SCHEMA_VERSION } from './types'
@@ -34,6 +35,7 @@ export interface EnjoyerSourceExclusion {
 }
 
 export interface EnjoyerFlashcardSource {
+  materialLanguage?: string
   fingerprint: string
   createdAt: number | string | undefined
   sourceItems: EnjoyerSourceItem[]
@@ -80,7 +82,7 @@ const NON_ACADEMIC_KINDS = new Set(['metadata', 'decorative', 'divider', 'headin
 
 function normalize(value: string): string {
   return String(value || '').toLowerCase().normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
+    .replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
 }
 
 function strings(value: unknown): string[] {
@@ -109,7 +111,7 @@ function authorityFrom(payload: unknown): Authority {
   return (wrapper?.blueprint ?? payload) as Authority
 }
 
-export function serializeEnjoyerForFlashcards(payload: unknown, fingerprint: string): EnjoyerFlashcardSource {
+export function serializeEnjoyerForFlashcards(payload: unknown, fingerprint: string, selection?: BrainScope): EnjoyerFlashcardSource {
   const authority = authorityFrom(payload)
   if (authority?.sourceSelectionFingerprint !== fingerprint) throw new Error('SOURCE_SELECTION_FINGERPRINT_MISMATCH')
   const rawTopics = Array.isArray(authority.topicsIndex) ? authority.topicsIndex : []
@@ -137,7 +139,9 @@ export function serializeEnjoyerForFlashcards(payload: unknown, fingerprint: str
       exclusions.push({ id, reason: 'explicit_non_academic_kind' })
       return
     }
-    const identity = `${normalize(name)}::${normalize(content)}`
+    // Scoped per material: identical wording in two materials is two independent sources.
+    const identityMaterialId = String(value.materialId || strings(value.materialIds)[0] || '')
+    const identity = `${identityMaterialId}::${normalize(name)}::${normalize(content)}`
     const duplicate = exactIdentity.get(identity)
     if (duplicate) {
       exclusions.push({ id, reason: 'exact_duplicate', coveredBySourceId: duplicate })
@@ -149,6 +153,13 @@ export function serializeEnjoyerForFlashcards(payload: unknown, fingerprint: str
     const topicIds = strings(value.topicIds)
     const topicId = String(value.topicId || topicIds[0] || '') || null
     const materialIds = strings(value.materialIds)
+    if (selection) {
+      // Same fail-closed boundary as Quiz/Exam/Chat/...: an item outside the selected materials/pages never enters generation.
+      const materialId = String(value.materialId || materialIds[0] || selection.materialIds[0] || '')
+      const allowed = selection.selectedPages[materialId]
+      const itemAuthorityPages = itemPages.length ? itemPages : sourceSpans(value.sourceSpans, [], content).map(span => span.page)
+      if (!allowed || (allowed.length > 0 && itemAuthorityPages.some(page => !allowed.includes(page)))) throw new Error('SOURCE_SELECTION_MISMATCH')
+    }
     items.push({
       id, kind, name, content,
       importance: Number(value.importance ?? 50), difficulty: String(value.difficulty || 'basic'),
@@ -164,7 +175,7 @@ export function serializeEnjoyerForFlashcards(payload: unknown, fingerprint: str
   blocks.forEach((raw, index) => add(raw, index, false))
   concepts.forEach((raw, index) => add(raw, blocks.length + index, true))
   items.sort((a, b) => a.sourceOrder - b.sourceOrder || a.id.localeCompare(b.id))
-  return { fingerprint, createdAt: authority.createdAt, sourceItems: items, excludedSourceItems: exclusions, topics }
+  return { materialLanguage: resolveMaterialLanguage(payload), fingerprint, createdAt: authority.createdAt, sourceItems: items, excludedSourceItems: exclusions, topics }
 }
 
 export function validateProviderCards(
@@ -257,6 +268,7 @@ export function buildEnjoyerDeck(
     const key = `${card.sourceItemIds.slice().sort().join(',')}::${normalize(card.question)}`
     return {
       id: `enjoyer_ai_${stableHash(key)}`,
+      materialLanguage: source.materialLanguage,
       sourceUnitIds: card.sourceItemIds, sourceItemIds: card.sourceItemIds,
       sourceRelationIds: [], retrievalObjective: `enjoyer-source:${card.sourceItemIds.join(',')}`,
       cognitiveType: 'recall', rationale: `AI-generated from persisted Enjoyer source ids: ${card.sourceItemIds.join(',')}`,

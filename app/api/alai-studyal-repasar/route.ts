@@ -1,3 +1,4 @@
+import { academicVerdict } from '../../../lib/materialLanguage'
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
@@ -1494,6 +1495,7 @@ export function projectRepasoRecoveryFeedback(
   pages: number[] = [],
   assessedTargetIds?: ReadonlySet<string>,
 ): RepasoRecoveryFeedback {
+  const materialLanguage = targets[0]?.materialLanguage || 'es'
   const targetById = new Map(targets.map(target => [target.id, target]))
   const isAssessed = (targetId: string) => !assessedTargetIds || assessedTargetIds.has(targetId)
   const sortByTier = (a: RepasoTargetAdjudication, b: RepasoTargetAdjudication) => {
@@ -1517,11 +1519,11 @@ export function projectRepasoRecoveryFeedback(
       : statuses.includes('incorrect')
         ? 'incorrect'
         : 'partial'
-  const title = status === 'correct' ? 'Excelente'
+  const title = materialLanguage !== 'es' ? academicVerdict(materialLanguage, status === 'correct' ? 'correct' : status === 'partial' ? 'partial' : 'incorrect') : status === 'correct' ? 'Excelente'
     : status === 'partial' ? 'Casi lo tienes'
       : status === 'incorrect' ? 'Todavía no'
         : 'Vamos a reforzarlo'
-  const summary = status === 'correct' ? 'Demostraste correctamente esta parte.'
+  const summary = materialLanguage !== 'es' ? title : status === 'correct' ? 'Demostraste correctamente esta parte.'
     : status === 'partial' ? 'Ya demostraste parte de esto — te falta precisión en un punto concreto.'
       : status === 'incorrect' ? 'Hay una idea que no coincide con el material; vamos a corregirla.'
         : 'Todavía no encontramos evidencia de esto en tu respuesta.'
@@ -1554,13 +1556,14 @@ export function projectRepasoRecoveryFeedback(
       const statement = String(target?.statement || '').trim()
       const said = String(item.evidence || '').trim()
       if (!statement) return ''
+      if (materialLanguage !== 'es') return `${labelFor(item.targetId)}: ${said ? `${said} → ` : ''}${statement}`
       return said
         ? `${labelFor(item.targetId)}: escribiste "${said}", pero el material establece: ${statement}`
         : `${labelFor(item.targetId)}: el material establece: ${statement}`
     })
     .filter(Boolean))] : []
 
-  const suggestion = status === 'partial'
+  const suggestion = materialLanguage !== 'es' ? (missing[0] || correction[0] || '') : status === 'partial'
     ? (missing.length
       ? `Vuelve a explicarlo agregando exactamente lo que falta: ${missing[0]}.`
       : 'Vuelve a explicarlo con más precisión sobre lo que ya demostraste.')
@@ -1590,7 +1593,7 @@ export function projectRepasoRecoveryFeedback(
   // only the target's own label/name is used, never its statement/evidence.
   const hint = status === 'missing'
     ? [...new Set(adjudications.map(item => labelFor(item.targetId)))]
-      .map(label => `Repasa en el material qué explica sobre: ${label}.`)
+      .map(label => materialLanguage !== 'es' ? label : `Repasa en el material qué explica sobre: ${label}.`)
       .join(' ')
     : ''
 
@@ -1600,7 +1603,7 @@ export function projectRepasoRecoveryFeedback(
   const enrichment = status === 'correct'
     ? [...new Set(supportingGaps.map(item => {
       const detail = String(item.missingDetail || '').trim()
-      return detail ? `Para hacerlo aún más completo, recuerda que: ${detail}.` : ''
+      return detail ? (materialLanguage !== 'es' ? detail : `Para hacerlo aún más completo, recuerda que: ${detail}.`) : ''
     }).filter(Boolean))]
     : []
 

@@ -1,3 +1,4 @@
+import { resolveMaterialLanguage, academicLanguageInstruction } from '../../../../lib/materialLanguage'
 import { NextRequest, NextResponse } from 'next/server'
 import { alai, safeParseJson } from '../../../../lib/alai'
 
@@ -20,6 +21,7 @@ interface TaughtStep {
 }
 
 interface SessionChatRequest {
+  materialLanguage?: string
   message: string
   chatHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
   sessionTitle?: string
@@ -144,7 +146,7 @@ Devuelve SOLO JSON sin markdown ni fences:
 }`
 
     const result = await alai({
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'system', content: academicLanguageInstruction(resolveMaterialLanguage({ materialLanguage: body.materialLanguage, blocks: body.taughtSteps }), true) }, { role: 'user', content: prompt }],
       temperature: 0.5,
       maxTokens: 500,
       json: true,

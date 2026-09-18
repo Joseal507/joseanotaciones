@@ -1,5 +1,5 @@
 import type { SourceSelectionSnapshot } from '../adaptive/sourceSelection'
-import { detectLanguage } from '../detectLanguage'
+import { resolveMaterialLanguage } from '../materialLanguage'
 
 export const EXAM_ENJOYER_AUTHORITY_TYPE = 'studyal_material_enjoyer' as const
 export const EXAM_ENJOYER_AUTHORITY_VERSION = 'studyal-material-enjoyer-exam-1.0.0'
@@ -92,7 +92,7 @@ export interface ExamEnjoyerUniverse {
    * grading can stay in the material's real language instead of
    * defaulting to Spanish regardless of source language.
    */
-  materialLanguage: 'es' | 'en'
+  materialLanguage: string
 }
 
 export type ExamAnswerAuthority =
@@ -234,7 +234,7 @@ export interface ExamBlueprint {
   minimumViableDurationMinutes: number
   seed: string
   /** EXAM_FINAL blocker #6 — see ExamEnjoyerUniverse.materialLanguage. */
-  materialLanguage: 'es' | 'en'
+  materialLanguage: string
   slots: ExamComposedSlot[]
   totalExamTargets: number
   representedTargetIds: string[]
@@ -540,11 +540,13 @@ export function buildExamEnjoyerUniverse(payload: unknown, selection: SourceSele
     // case-fold, whitespace-collapse only) — NEVER the punctuation/
     // operator-stripping normalize() above — so distinct formulas like
     // "ΔG = a+b" vs "ΔG = a-b" are never merged into one target.
-    const exactIdentity = `${normalizeForIdentity(label)}::${normalizeForIdentity(content)}`
+    // Scoped per material: identical wording in two materials is two independent sources.
+    const identityMaterialId = String(item.materialId || strings(item.materialIds)[0] || (selection.materialIds.length === 1 ? selection.materialIds[0] : '') || '')
+    const exactIdentity = `${identityMaterialId}::${normalizeForIdentity(label)}::${normalizeForIdentity(content)}`
     if (seenExactContent.has(exactIdentity)) { aliases.set(sourceItemId, canonicalByContent.get(exactIdentity)!); rejectedItems.push({ sourceItemId, reason: 'duplicate_exact_content' }); continue }
     if (languageSampleParts.length < 40) languageSampleParts.push(label, content)
     const materialIds = strings(item.materialIds)
-    const materialId = String(item.materialId || materialIds[0] || selection.materialIds[0] || '')
+    const materialId = identityMaterialId
     const authorized = selectedPages.get(materialId)
     if (!authorized) throw new Error('SOURCE_SELECTION_MISMATCH')
 
@@ -730,9 +732,7 @@ export function buildExamEnjoyerUniverse(payload: unknown, selection: SourceSele
   // derive it locally from the Enjoyer's OWN accepted target text.
   // Never PDF reanalysis, never a provider call, never the browser/UI
   // locale.
-  const persistedLanguage = authority.materialLanguage === 'es' || authority.materialLanguage === 'en'
-    ? authority.materialLanguage : null
-  const materialLanguage = persistedLanguage || detectLanguage(languageSampleParts.join(' '), 'es')
+  const materialLanguage = resolveMaterialLanguage(payload)
   return {
     authorityType: EXAM_ENJOYER_AUTHORITY_TYPE, authorityVersion: EXAM_ENJOYER_AUTHORITY_VERSION,
     fingerprint: selection.fingerprint, targets, topics, relations, rejectedItems, materialLanguage,
