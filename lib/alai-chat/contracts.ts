@@ -83,6 +83,8 @@ export interface ChatConversationContext {
   /** Identity of the pending question (the durable turn that generated it). The only valid answer slot. */
   practiceQuestionRef?: string
   practiceLastVerdict?: 'start' | 'correct' | 'partial' | 'incorrect' | 'question'
+  /** The current concept's answer was already explained: the next check must test understanding, never repetition. */
+  practiceRevealed?: boolean
 }
 
 export interface ChatEvidence {

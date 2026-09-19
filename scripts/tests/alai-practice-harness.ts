@@ -52,9 +52,10 @@ function fakeProvider(targets: ReturnType<typeof buildChatEnjoyerContext>['targe
     const next = verdict === 'correct' || start ? byId(candidates[0]) : byId(current[0])
     const lead = start ? 'Vamos a practicar.' : verdict === 'correct' ? 'Correcto.' : verdict === 'partial' ? 'Parcialmente correcto: falta un detalle.' : verdict === 'question' ? 'Claro, te explico brevemente.' : 'No exactamente; te lo explico.'
     const tagForm = state.tagForm && prompt.includes('MODO RESPONDER')
+    const teach = (verdict === 'incorrect' || verdict === 'partial') && attempts >= 2 ? ' La idea central es que el concepto se define por su propiedad esencial y no por un rasgo aislado; por eso, al aplicarlo a un caso nuevo, lo que importa es reconocer esa propiedad y justificarla con el razonamiento correcto del tema.' : ''
     const nth = verdict === 'correct' || start ? '' : ` (reformulada, intento ${attempts + 1})`
     return {
-      answer: `${tagForm ? `[[V:${verdict}]] ` : ''}${lead} Ahora dime: ¿qué ocurre con ${next?.label ?? 'el tema'}${nth}?`,
+      answer: `${tagForm ? `[[V:${verdict}]] ` : ''}${lead} ${teach} Ahora dime: ¿qué ocurre con ${next?.label ?? 'el tema'}${nth}?`,
       usedTargetIds: next ? [next.id] : [], usedRelationIds: [], externalKnowledgeUsed: false, suggestedFollowups: ['no debería mostrarse'], ...(tagForm ? {} : { practiceVerdict: verdict }),
     }
   }

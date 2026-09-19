@@ -14,7 +14,7 @@ import { normalizeChatCandidate, validateChatCandidate } from '../../../lib/alai
 import { detectStrictMaterialOnly } from '../../../lib/alai-chat/intent';
 import {
   buildPracticeDirective, buildPracticeRetrievalQuery, lastAssistantContent, mergePracticeRetrieval, pickPracticeCandidates,
-  nextPracticeState, practiceIntent, practiceTurnKey, readInteractionMode, readPracticeSlot, readPracticeVerdict, splitPracticeVerdictTag, extractAskedQuestion, PRACTICE_START_SLOT, type InteractionMode,
+  nextPracticeState, practiceIntent, practiceTurnKey, readInteractionMode, readPracticeSlot, readPracticeVerdict, splitPracticeVerdictTag, findPracticeStyleIssues, isEchoQuestion, suggestPracticeOperation, questionLeaksAnswer, hasSubstantialExplanation, extractAskedQuestion, PRACTICE_START_SLOT, type InteractionMode,
 } from '../../../lib/alai-chat/practice';
 import { chatInternalCode, chatUserMessage } from '../../../lib/alai-chat/errors';
 import { chatEvidenceFallback, isMaterialPriorityRequest, salvageChatPresentation, type ChatFinalOutcome } from '../../../lib/alai-chat/recovery';
@@ -391,13 +391,34 @@ async function generateGroundedChatTurn(body: Record<string, unknown>, userId: s
     }
     return [];
   };
+  // Tutor-quality backstops. Each is reported once (which triggers the single repair) and then accepted, so a stubborn model
+  // can never turn a pedagogical nicety into a hard failure; the hard rules (concept/verdict coherence) stay strict.
+  const styleStrikes = { style: 0, echo: 0, leak: 0, teach: 0 };
+  const practiceQualityErrors = (candidate: ReturnType<typeof normalizeChatCandidate>): string[] => {
+    if (!practice) return [];
+    const errors: string[] = [];
+    const style = findPracticeStyleIssues(candidate.answer);
+    if (style.length && styleStrikes.style < 1) { styleStrikes.style++; errors.push(...style); }
+    const verdict = practiceStart ? 'start' : readPracticeVerdict(candidate.practiceVerdict) ?? 'partial';
+    const explainedNow = (verdict === 'partial' || verdict === 'incorrect') && (previous?.practiceAttempts || 0) + 1 >= 3;
+    if ((previous?.practiceRevealed === true || explainedNow) && verdict !== 'correct' && isEchoQuestion(candidate.answer) && styleStrikes.echo < 1) {
+      styleStrikes.echo++; errors.push('practice_echo_question:the_answer_was_just_explained_ask_a_transfer_or_application_question_not_a_repetition');
+    }
+    if ((verdict === 'start' || verdict === 'correct') && questionLeaksAnswer(candidate.answer) && styleStrikes.leak < 1) {
+      styleStrikes.leak++; errors.push('practice_question_leaks_answer:ask_openly_without_hinting_the_key_idea_in_the_question');
+    }
+    if (explainedNow && !hasSubstantialExplanation(candidate.answer) && styleStrikes.teach < 1) {
+      styleStrikes.teach++; errors.push('practice_missing_explanation:the_third_miss_must_explain_the_concept_in_2_3_sentences_before_the_transfer_question');
+    }
+    return errors;
+  };
   const validate = (value: unknown, transportComplete?: boolean) => {
     const candidate = normalize(value);
     const check = validateChatCandidate(candidate, {
       ...validationOptions, transportComplete,
       ...(partialAnswers.has(candidate.answer) ? { intent: { ...resolved.intent, shape: 'prose' as const, requestedCount: undefined, ordinal: undefined }, requestedCount: undefined } : {}),
     });
-    const drift = practiceDriftErrors(candidate);
+    const drift = [...practiceDriftErrors(candidate), ...practiceQualityErrors(candidate)];
     return drift.length ? { valid: false, errors: [...check.errors, ...drift] } : check;
   };
   let raw;
@@ -412,7 +433,7 @@ async function generateGroundedChatTurn(body: Record<string, unknown>, userId: s
         prompt: buildGroundedChatPrompt({
           materialLanguage: context.materialLanguage, message, groundedContext: generationPolicy === 'GENERAL_ONLY' ? '' : renderChatEnjoyerContext(retrieval), conversation: { ...resolved.context, sourcePolicy: generationPolicy },
           history, materia: String(body.materia || '').slice(0, 160), tema: String(body.tema || '').slice(0, 160),
-          ...(practice ? { practiceDirective: buildPracticeDirective({ start: practiceStart, lastQuestion: practiceLastQuestion, answer: message, asked: previous?.practiceAsked || [], candidateIds: practiceCandidates.map(target => target.id), currentIds: practiceCurrentIds, attempts: previous?.practiceAttempts || 0 }) } : {}),
+          ...(practice ? { practiceDirective: buildPracticeDirective({ start: practiceStart, lastQuestion: practiceLastQuestion, answer: message, asked: previous?.practiceAsked || [], candidateIds: practiceCandidates.map(target => target.id), currentIds: practiceCurrentIds, attempts: previous?.practiceAttempts || 0, revealed: previous?.practiceRevealed === true, operation: suggestPracticeOperation(practiceCandidates[0], previous?.practiceAsked?.length || 0) }) } : {}),
         }),
         temperature: 0.24,
         maxTokens: resolved.intent.followup && (resolved.intent.shape === 'prose' || resolved.intent.shape === 'concise_prose')

@@ -49,10 +49,10 @@ assert.equal(correct.practiceQuestionRef, 'ref2', 'every generated question beco
 
 // ── remediation is bounded, not an infinite loop ─────────────────────────
 const directive = (attempts: number) => buildPracticeDirective({ start: false, lastQuestion: '¿q?', answer: 'x', asked: ['¿q?'], candidateIds: ['chat_target:n'], currentIds: ['chat_target:cur'], attempts })
-assert.doesNotMatch(directive(1), /ya falló varias veces/); assert.match(directive(3), /da ahora la explicación completa/)
+assert.doesNotMatch(directive(1), /INTENTO 3\+ FALLIDO → explica/); assert.match(directive(3), /SÍ enseña: escribe la explicación clara/)
 assert.match(directive(0), /practiceVerdict/); assert.match(directive(0), /SOLO avanza cuando demuestra comprensión/)
 assert.match(directive(0), /EL MISMO CONCEPTO ACTUAL/); assert.match(directive(0), /NO determinan el idioma de salida/)
-assert.match(buildPracticeDirective({ start: true, lastQuestion: '', answer: '', asked: [] }), /trivia irrestricta/, 'a material session is never turned into unrestricted trivia')
+assert.match(buildPracticeDirective({ start: true, lastQuestion: '', answer: '', asked: [] }), /usa solo el tema\/materia indicados/, 'a material session is never turned into unrestricted trivia')
 
 // ── candidate rotation: unpracticed only, material-interleaved, lead rotates ─
 const five = buildPayload(KEYS)

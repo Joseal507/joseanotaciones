@@ -40,6 +40,7 @@ export function readConversationContext(value: unknown): ChatConversationContext
     ...(Array.isArray(value.practiceTargetIds) ? { practiceTargetIds: boundedIds(value.practiceTargetIds, 60) } : {}),
     ...(Array.isArray(value.practiceCurrentTargetIds) ? { practiceCurrentTargetIds: boundedIds(value.practiceCurrentTargetIds, 12) } : {}),
     ...(Number.isInteger(value.practiceAttempts) && Number(value.practiceAttempts) >= 0 && Number(value.practiceAttempts) <= 50 ? { practiceAttempts: Number(value.practiceAttempts) } : {}),
+    ...(value.practiceRevealed === true ? { practiceRevealed: true } : {}),
     ...(typeof value.practiceQuestionRef === 'string' && value.practiceQuestionRef.trim() ? { practiceQuestionRef: value.practiceQuestionRef.trim().slice(0, 160) } : {}),
     ...(['start', 'correct', 'partial', 'incorrect', 'question'].includes(String(value.practiceLastVerdict)) ? { practiceLastVerdict: value.practiceLastVerdict as 'start' | 'correct' | 'partial' | 'incorrect' | 'question' } : {}),
     ...(isRecord(value.pedagogicalState) && value.pedagogicalState.version === 1 ? {
