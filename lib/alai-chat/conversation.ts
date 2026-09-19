@@ -36,6 +36,8 @@ export function readConversationContext(value: unknown): ChatConversationContext
     ...(typeof value.focusedEntity === 'string' && value.focusedEntity.trim() ? { focusedEntity: value.focusedEntity.trim().slice(0, 100) } : {}),
     ...(typeof value.lastReferent === 'string' && value.lastReferent.trim() ? { lastReferent: value.lastReferent.trim().slice(0, 300) } : {}),
     ...(typeof value.lastAssistantAction === 'string' && ['answered', 'generated_exercise', 'clarification', 'hint'].includes(value.lastAssistantAction) ? { lastAssistantAction: value.lastAssistantAction as any } : {}),
+    ...(Array.isArray(value.practiceAsked) ? { practiceAsked: value.practiceAsked.filter((q): q is string => typeof q === 'string' && q.trim().length > 0).map(q => q.trim().slice(0, 160)).slice(-12) } : {}),
+    ...(Array.isArray(value.practiceTargetIds) ? { practiceTargetIds: boundedIds(value.practiceTargetIds, 60) } : {}),
     ...(isRecord(value.pedagogicalState) && value.pedagogicalState.version === 1 ? {
       pedagogicalState: {
         version: 1,

@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { AnalysisStudyNotes } from './AnalysisStudyNotes';
+import { ANALYSIS_STUDY_NOTES_VERSION, isAnalysisStudyNotes, type AnalysisStudyNotes as StudyNotes } from '../../lib/materialBrain/analysisStudyNotes';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
 import { useAuthorizedSource } from '../../lib/materials/useAuthorizedSource';
 import { readFreeToolState, writeFreeToolState } from '../../lib/freeToolState';
@@ -33,7 +35,7 @@ interface Props {
   sourceSelection?: SourceSelectionSnapshot;
 }
 
-type Analisis = {
+type Analisis = Partial<StudyNotes> & {
   titulo: string;
   nivel_detectado?: string;
   probabilidad_examen?: { concepto: string; probabilidad: 'alta' | 'media' | 'baja'; razon: string }[];
@@ -178,6 +180,8 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [analisis, setAnalisis] = useState<Analisis | null>(null);
+  const [upgradeBusy, setUpgradeBusy] = useState(false);
+  const [upgradeError, setUpgradeError] = useState('');
   const [nivel, setNivel] = useState<NivelEstudio>(nivelProp || 'universidad');
   // nivel detectado automáticamente por ALAI
   const [stepIdx, setStepIdx] = useState(0);
@@ -325,6 +329,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
           credentials: 'same-origin',
           body: JSON.stringify({
             sessionId,
+            format: ANALYSIS_STUDY_NOTES_VERSION,
             materia: materia?.nombre || materia?.name || '',
             tema: tema?.nombre || tema?.name || '',
             nivel,
@@ -337,6 +342,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
         if (!mountedRef.current || controller.signal.aborted || generationControllerRef.current !== controller) return;
 
         if (!res.ok || !data.success || !data.analisis || typeof data.analisis !== 'object') {
+          if (data?.error === 'ANALYSIS_NOTES_INCOMPLETE') throw new Error('No se pudieron completar y verificar los apuntes. Puedes reintentar con el mismo material.');
           throw new Error(data?.error || 'El proveedor devolvió un análisis incompatible.');
         }
         const completed = completeFreeAnalysis(durableStateRef.current, nivel, attempt, data.analisis as Analisis);
@@ -357,6 +363,34 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
         }
       }
   }, [continuityReady, sessionId, nivel, authorizedStatus, authorizedSource, authorizedError, effectiveSourceSelection, materia, tema, masteryContext, persistDurableState]);
+
+  // An explicit format upgrade preserves the completed legacy result on failure.
+  // The server stores V2 separately, so the previous durable artifact is never overwritten.
+  const upgradeToStudyNotes = async () => {
+    if (upgradeBusy || generationLockedRef.current || !sessionId) return;
+    setUpgradeBusy(true);
+    setUpgradeError('');
+    const controller = new AbortController();
+    generationControllerRef.current = controller;
+    try {
+      const response = await fetch('/api/analizar-teorico', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ sessionId, nivel, format: ANALYSIS_STUDY_NOTES_VERSION, upgrade: true }), signal: controller.signal,
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success || !isAnalysisStudyNotes(data.analisis)) throw new Error('No se pudieron completar los apuntes. Tu análisis anterior se conserva.');
+      if (!mountedRef.current || controller.signal.aborted || generationControllerRef.current !== controller) return;
+      persistDurableState(updateFreeAnalysisEntry(durableStateRef.current, nivel, { result: data.analisis, status: 'completed', readSections: [], activeSection: 'overview', completed: false }));
+      setLeidas(new Set());
+      setActiveSection('overview');
+      setAnalisis(data.analisis);
+    } catch (caught) {
+      if (!controller.signal.aborted && mountedRef.current) setUpgradeError(caught instanceof Error ? caught.message : 'No se pudieron organizar los apuntes.');
+    } finally {
+      if (generationControllerRef.current === controller) generationControllerRef.current = null;
+      if (mountedRef.current) setUpgradeBusy(false);
+    }
+  };
 
   // ═══ Restore primero; solo genera si el tipo actual está realmente ausente ═══
   useEffect(() => {
@@ -500,6 +534,7 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
 
   const sectionsList = useMemo(() => {
     if (!analisis) return [];
+    if (isAnalysisStudyNotes(analisis)) return analisis.topics.map(topic => ({ id: topic.id, emoji: '', label: topic.title }));
     const list: { id: string; emoji: string; label: string }[] = [];
     if (analisis.objetivos?.length) list.push({ id: 'objetivos', emoji: '🎯', label: 'Qué aprenderás' });
     if (analisis.si_no_sabes_nada) list.push({ id: 'cero', emoji: '🌱', label: 'Desde cero' });
@@ -615,6 +650,9 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
   }
 
   if (!analisis) return null;
+
+  if (isAnalysisStudyNotes(analisis)) return <AnalysisStudyNotes notes={analisis} materials={materiales} onClose={onClose}
+    readSections={leidas} onToggleRead={toggleLeida} onSave={onGuardarApunte} />;
 
   // ═══ MAIN UI ═══
   return (
@@ -788,6 +826,14 @@ export default function AnalisisTeorico({ materiales, seleccion, tema, materia, 
           padding: '20px 32px 80px',
         }}>
           <div style={{ maxWidth: 820, margin: '0 auto' }}>
+
+            <div style={{ ...parrafo, marginBottom: 24 }}>
+              <button onClick={() => void upgradeToStudyNotes()} disabled={upgradeBusy} style={btnPrimario} data-testid="analysis-upgrade-notes">
+                {upgradeBusy ? 'Organizando apuntes…' : 'Organizar como apuntes por tema'}
+              </button>
+              <p style={{ fontSize: 13 }}>Crea un resumen organizado por temas a partir del mismo material. El análisis anterior seguirá guardado.</p>
+              {upgradeError && <p role="alert">{upgradeError}</p>}
+            </div>
 
             {/* Hero Profesor ALAI */}
             <div style={{

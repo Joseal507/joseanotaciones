@@ -2,6 +2,8 @@ import type { VisualSpec } from './adaptive/visual/visualContract';
 import { chatUserMessage } from './alai-chat/errors';
 export type AlaiMessageRole = 'user' | 'assistant';
 export type AlaiTurnStatus = 'sending' | 'completed' | 'recoverable';
+/** Who initiates. Orthogonal to source policy: 'ask' = student asks ALAI, 'answer' = ALAI asks the student. */
+export type AlaiInteractionMode = 'ask' | 'answer';
 
 export interface DurableAlaiMessage {
   id: string;
@@ -23,6 +25,8 @@ export interface DurableAlaiMessage {
   sourcePages?: number[];
   suggestedFollowups?: string[];
   timestamp?: number;
+  /** Synthetic trigger (Responder start): sent to the server but never shown or replayed as history. */
+  hidden?: boolean;
   /** StudyalMaterialEnjoyer grounding metadata (main Chat only) — additive, backward-compatible with older persisted messages that lack it or that used the pre-Enjoyer field names. */
   mode?: 'MATERIAL_ONLY' | 'GENERAL_ONLY' | 'MIXED';
   usedTargetIds?: string[];
@@ -36,12 +40,17 @@ export interface DurableAlaiTurn {
   attempt: number;
   status: AlaiTurnStatus;
   error?: string;
+  /** Frozen at turn start so retries replay the exact same request. Absent = 'ask' (legacy turns). */
+  interactionMode?: AlaiInteractionMode;
+  practiceStart?: boolean;
 }
 
 export interface DurableAlaiState {
   messages: DurableAlaiMessage[];
   currentTurn: DurableAlaiTurn | null;
   draft: string;
+  /** Selected mode; absent = 'ask' (older persisted conversations). */
+  interactionMode?: AlaiInteractionMode;
   activeMaterialId?: string;
   forcedPage?: number;
 }
@@ -75,7 +84,7 @@ export function recoverInterruptedAlaiState(state: DurableAlaiState): DurableAla
 
 export function beginAlaiTurn(
   state: DurableAlaiState,
-  input: { turnId: string; userMessageId: string; content: string; timestamp: number },
+  input: { turnId: string; userMessageId: string; content: string; timestamp: number; interactionMode?: AlaiInteractionMode; practiceStart?: boolean; hidden?: boolean },
 ): DurableAlaiState {
   if (state.currentTurn?.status === 'sending') return state;
   return {
@@ -87,14 +96,26 @@ export function beginAlaiTurn(
       role: 'user',
       content: input.content,
       timestamp: input.timestamp,
+      ...(input.hidden ? { hidden: true } : {}),
     }],
     currentTurn: {
       id: input.turnId,
       userMessageId: input.userMessageId,
       attempt: 1,
       status: 'sending',
+      ...(input.interactionMode === 'answer' ? { interactionMode: 'answer' as const, ...(input.practiceStart ? { practiceStart: true } : {}) } : {}),
     },
   };
+}
+
+export function alaiInteractionMode(state: Pick<DurableAlaiState, 'interactionMode'>): AlaiInteractionMode {
+  return state.interactionMode === 'answer' ? 'answer' : 'ask';
+}
+
+/** Switching modes never edits messages or the in-flight turn; it only changes what the NEXT turn does. */
+export function setAlaiInteractionMode(state: DurableAlaiState, mode: AlaiInteractionMode): DurableAlaiState {
+  if (state.currentTurn?.status === 'sending' || alaiInteractionMode(state) === mode) return state;
+  return { ...state, interactionMode: mode };
 }
 
 export function retryAlaiTurn(state: DurableAlaiState, turnId: string): DurableAlaiState {

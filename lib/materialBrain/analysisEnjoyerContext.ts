@@ -25,6 +25,8 @@ export interface AnalysisEnjoyerSourceSpan { page: number; quote: string }
 export interface AnalysisEnjoyerTarget {
   id: string
   sourceItemId: string
+  /** All original IDs, including exact duplicates merged for presentation. */
+  sourceItems?: Array<{ id: string; collection: 'block' | 'concept' | 'topic'; materialId: string; pages: number[]; sourceSpans: AnalysisEnjoyerSourceSpan[] }>
   relationIds: string[]
   kind: string
   importance: number
@@ -181,8 +183,8 @@ export function buildAnalysisEnjoyerContext(payload: unknown, selection: SourceS
     ...(Array.isArray(authority.uniqueConceptsIndex) ? authority.uniqueConceptsIndex : []),
   ]
 
-  const seenIds = new Set<string>()
-  const seenExactContent = new Set<string>()
+  const targetByScopedId = new Map<string, AnalysisEnjoyerTarget>()
+  const targetByExactContent = new Map<string, AnalysisEnjoyerTarget>()
   const targets: AnalysisEnjoyerTarget[] = []
   for (const [index, raw] of rawItems.entries()) {
     const item = raw as Record<string, unknown>
@@ -190,30 +192,60 @@ export function buildAnalysisEnjoyerContext(payload: unknown, selection: SourceS
     const label = String(item.name || item.label || item.title || '').trim()
     const content = String(item.summary || item.content || item.statement || '').trim()
     const kind = String(item.kind || 'academic_item').trim()
-    if (!sourceItemId || seenIds.has(sourceItemId) || !label || !content) continue
+    if (!sourceItemId || !label || !content) continue
     if (NON_ACADEMIC_KINDS.has(normalize(kind))) continue
     const materialIds = strings(item.materialIds)
     const materialId = String(item.materialId || materialIds[0] || (selection.materialIds.length === 1 ? selection.materialIds[0] : '') || '')
     // Identity is scoped per material: identical wording in two materials is two independent sources.
-    const exactIdentity = `${materialId}::${normalize(label)}::${normalize(content)}`
-    if (seenExactContent.has(exactIdentity)) continue
+    if (materialIds.some(id => !selectedPages.has(id))) throw new Error('SOURCE_SELECTION_MISMATCH')
+    const scopedId = `${materialId}::${sourceItemId}`
+    const exactIdentity = JSON.stringify([materialId, label.normalize('NFC'), content.normalize('NFC')])
     const itemSpans = spans(item.sourceSpans)
     const itemPages = pages(item.pages).length ? pages(item.pages) : pages(itemSpans.map(span => span.page))
     const authorized = selectedPages.get(materialId)
-    if (!authorized || itemPages.some(page => !authorized.has(page))) throw new Error('SOURCE_SELECTION_MISMATCH')
+    if (!authorized || [...itemPages, ...itemSpans.map(span => span.page)].some(page => !authorized.has(page))) throw new Error('SOURCE_SELECTION_MISMATCH')
+    const collection = index < (Array.isArray(authority.globalOrderedAnalysis) ? authority.globalOrderedAnalysis.length : 0) ? 'block' as const : 'concept' as const
+    const sourceItem = { id: sourceItemId, collection, materialId, pages: itemPages, sourceSpans: itemSpans }
+    const duplicate = targetByExactContent.get(exactIdentity) || targetByScopedId.get(scopedId)
+    if (duplicate) {
+      duplicate.sourceItems?.push(sourceItem)
+      duplicate.pages = pages([...duplicate.pages, ...itemPages])
+      duplicate.evidence = spans([...duplicate.evidence, ...itemSpans])
+      targetByScopedId.set(scopedId, duplicate)
+      continue
+    }
     const topicIds = strings(item.topicIds)
     const topicId = String(item.topicId || topicIds[0] || '') || null
-    seenIds.add(sourceItemId)
-    seenExactContent.add(exactIdentity)
     targets.push({
-      id: `analysis_target:${sourceItemId}`, sourceItemId, relationIds: [],
+      id: `analysis_target:${sourceItemId}${targets.some(target => target.sourceItemId === sourceItemId) ? `:${materialId}` : ''}`, sourceItemId, sourceItems: [sourceItem], relationIds: [],
       kind, importance: importanceNumber(item.importance ?? item.importanceTier), importanceTier: importanceTier(item.importance ?? item.importanceTier),
       materialId: materialId || null, topicId, topicTitle: topicId ? topicTitles.get(topicId) || null : null,
       pages: itemPages, label, content, evidence: itemSpans,
       sourceOrder: Number(item.globalOrder ?? item.firstAppearanceOrder ?? index),
     })
+    targetByExactContent.set(exactIdentity, targets[targets.length - 1])
+    targetByScopedId.set(scopedId, targets[targets.length - 1])
   }
   targets.sort((a, b) => a.sourceOrder - b.sourceOrder || a.id.localeCompare(b.id))
+
+  // Some persisted Enjoyers contain a meaningful topic description but no blocks
+  // for that topic. It remains part of the authorized universe; never silently omit it.
+  for (const raw of Array.isArray(authority.topicsIndex) ? authority.topicsIndex : []) {
+    const topic = raw as Record<string, unknown>
+    const id = String(topic.id || '')
+    const content = String(topic.description || '').trim()
+    if (!id || !content || targets.some(target => target.topicId === id)) continue
+    const materialId = String(topic.materialId || (selection.materialIds.length === 1 ? selection.materialIds[0] : ''))
+    const sourceSpans = spans(topic.sourceSpans)
+    const topicPages = pages(topic.pages)
+    const authorized = selectedPages.get(materialId)
+    if (!authorized || !topicPages.length || [...topicPages, ...sourceSpans.map(span => span.page)].some(page => !authorized.has(page))) throw new Error('SOURCE_SELECTION_MISMATCH')
+    targets.push({ id: `analysis_topic:${id}`, sourceItemId: id, sourceItems: [{ id, collection: 'topic', materialId, pages: topicPages, sourceSpans }],
+      relationIds: [], kind: 'topic_summary', importance: importanceNumber(topic.avgImportance), importanceTier: importanceTier(topic.avgImportance),
+      materialId, topicId: id, topicTitle: String(topic.title || ''), pages: topicPages, label: String(topic.title || ''), content, evidence: sourceSpans,
+      sourceOrder: Number(topic.order ?? targets.length),
+    })
+  }
 
   const sourceIds = new Set(targets.map(target => target.sourceItemId))
   const targetBySourceItemId = new Map(targets.map(target => [target.sourceItemId, target]))

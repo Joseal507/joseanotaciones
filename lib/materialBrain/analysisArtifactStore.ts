@@ -45,9 +45,9 @@ export interface AnalysisArtifact {
   updatedAt: string
 }
 
-export function analysisArtifactIdentity(userId: string, fingerprint: string, nivel: string): string {
+export function analysisArtifactIdentity(userId: string, fingerprint: string, nivel: string, format?: string): string {
   return createHash('sha256')
-    .update(JSON.stringify({ userId, fingerprint, nivel, v: ANALYSIS_ARTIFACT_SCHEMA_VERSION }))
+    .update(JSON.stringify({ userId, fingerprint, nivel, v: ANALYSIS_ARTIFACT_SCHEMA_VERSION, ...(format ? { format } : {}) }))
     .digest('hex')
 }
 

@@ -72,6 +72,9 @@ export interface ChatConversationContext {
   lastReferent?: string
   lastAssistantAction?: 'answered' | 'generated_exercise' | 'clarification' | 'hint'
   pedagogicalState?: PedagogicalState
+  /** Responder (practice) memory: questions ALAI already asked and target ids already practiced. */
+  practiceAsked?: string[]
+  practiceTargetIds?: string[]
 }
 
 export interface ChatEvidence {

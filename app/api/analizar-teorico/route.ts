@@ -4,6 +4,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from 'next/server';
+import { ANALYSIS_STUDY_NOTES_VERSION, compileStudyNotes, isAnalysisStudyNotes, validateStudyNotes } from '../../../lib/materialBrain/analysisStudyNotes';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth/options';
 import { alaiJson, cleanDeep } from '../../../lib/alai';
@@ -27,7 +28,7 @@ import {
   ANALYSIS_ARTIFACT_SCHEMA_VERSION, type AnalysisArtifact, type AnalysisArtifactStore,
 } from '../../../lib/materialBrain/analysisArtifactStore';
 
-export const maxDuration = 120;
+export const maxDuration = 240;
 export const dynamic = 'force-dynamic';
 
 // ============================================================
@@ -197,6 +198,7 @@ async function safeGroundedAlaiJson(prompt: string, systemPrompt: string, maxTok
  */
 async function handleGroundedAnalysisRequest(
   sessionId: string, userId: string, nivel: string, materia: string, tema: string, masteryContext: any,
+  studyNotes = false, upgrade = false,
 ): Promise<NextResponse> {
   const enjoyerLookup = await resolveReadyAnalysisEnjoyer(sessionId, userId);
   if (!enjoyerLookup.context) return groundedErrorResponse(enjoyerLookup.code, enjoyerLookup.status);
@@ -206,7 +208,8 @@ async function handleGroundedAnalysisRequest(
   // fingerprint from the just-resolved (never client-supplied) Enjoyer
   // authority. A forged client fingerprint/materialIds/userId can never
   // select or overwrite another selection's or another user's artifact.
-  const identity = analysisArtifactIdentity(userId, context.fingerprint, nivel);
+  const generatorVersion = studyNotes ? ANALYSIS_STUDY_NOTES_VERSION : ANALYSIS_ENJOYER_ADAPTER_VERSION;
+  const identity = analysisArtifactIdentity(userId, context.fingerprint, nivel, studyNotes ? ANALYSIS_STUDY_NOTES_VERSION : undefined);
 
   // READ-BEFORE-GENERATE: an existing valid durable artifact is restored
   // with ZERO provider calls — never regenerated merely because the
@@ -214,9 +217,25 @@ async function handleGroundedAnalysisRequest(
   // storage, or simply leaving and returning to Análisis).
   const existingArtifact = await __routeDeps.analysisArtifactStore.get(identity);
   if (isValidRestorableArtifact(existingArtifact, {
-    userId, fingerprint: context.fingerprint, nivel, generatorVersion: ANALYSIS_ENJOYER_ADAPTER_VERSION,
+    userId, fingerprint: context.fingerprint, nivel, generatorVersion,
   })) {
+    if (studyNotes) {
+      const notes = existingArtifact.analisis;
+      if (!isAnalysisStudyNotes(notes) || notes.grounding.fingerprint !== context.fingerprint
+        || notes.materialLanguage !== (context.materialLanguage || 'und')
+        || !validateStudyNotes({ ...notes, title: notes.titulo }, context).notes) return groundedErrorResponse('ANALYSIS_RESTORE_INVALID', 409);
+    }
     return NextResponse.json({ success: true, analisis: existingArtifact.analisis });
+  }
+  // A malformed/version-mismatched persisted response is not proof of absence.
+  if (studyNotes && existingArtifact) return groundedErrorResponse('ANALYSIS_RESTORE_INVALID', 409);
+  if (studyNotes && !upgrade) {
+    const legacy = await __routeDeps.analysisArtifactStore.get(analysisArtifactIdentity(userId, context.fingerprint, nivel));
+    if (legacy) {
+      if (!isValidRestorableArtifact(legacy, { userId, fingerprint: context.fingerprint, nivel, generatorVersion: ANALYSIS_ENJOYER_ADAPTER_VERSION })) return groundedErrorResponse('ANALYSIS_RESTORE_INVALID', 409);
+      // Restore valid work first. The student can explicitly compile a new format; the legacy artifact remains intact.
+      return NextResponse.json({ success: true, analisis: legacy.analisis });
+    }
   }
 
   // Single-flight: a second concurrent request for the exact same
@@ -232,13 +251,35 @@ async function handleGroundedAnalysisRequest(
   // read" trying to serialize the very same Response instance twice.
   if (existingGeneration) return existingGeneration.then(response => response.clone() as NextResponse);
 
-  const operation = generateAndPersistAnalysis(context, identity, userId, nivel, materia, tema, masteryContext);
+  const operation = studyNotes
+    ? generateAndPersistStudyNotes(context, identity, userId, nivel)
+    : generateAndPersistAnalysis(context, identity, userId, nivel, materia, tema, masteryContext);
   inFlightAnalysisGenerations.set(identity, operation);
   try {
     return await operation;
   } finally {
     if (inFlightAnalysisGenerations.get(identity) === operation) inFlightAnalysisGenerations.delete(identity);
   }
+}
+
+async function generateAndPersistStudyNotes(context: AnalysisEnjoyerContext, identity: string, userId: string, nivel: string): Promise<NextResponse> {
+  if (!context.targets.length) return groundedErrorResponse('NO_ANALYSIS_TARGETS', 400);
+  let analisis;
+  try {
+    analisis = await compileStudyNotes(context, nivel, ({ system, prompt, maxTokens }) => __routeDeps.alaiJson({
+      messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
+      json: true, temperature: 0.2, maxTokens, taskType: 'summary', timeoutMs: 55_000, transportRetries: 0, maxProviderAttempts: 1,
+    }));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'ANALYSIS_NOTES_INCOMPLETE';
+    return groundedErrorResponse('ANALYSIS_NOTES_INCOMPLETE', 502, detail);
+  }
+  const now = new Date().toISOString();
+  await __routeDeps.analysisArtifactStore.set(identity, {
+    schemaVersion: ANALYSIS_ARTIFACT_SCHEMA_VERSION, generatorVersion: ANALYSIS_STUDY_NOTES_VERSION,
+    userId, sourceSelectionFingerprint: context.fingerprint, nivel, analisis, createdAt: now, updatedAt: now,
+  });
+  return NextResponse.json({ success: true, analisis });
 }
 
 async function generateAndPersistAnalysis(
@@ -2070,9 +2111,10 @@ export async function POST(req: NextRequest) {
       }
       if (!userId) return groundedErrorResponse('UNAUTHORIZED', 401);
       const nivel = ['secundaria', 'universidad', 'medicina', 'doctorado'].includes(body.nivel) ? body.nivel : 'universidad';
-      return handleGroundedAnalysisRequest(
+      return await handleGroundedAnalysisRequest(
         body.sessionId, userId, nivel,
         String(body.materia || '').trim(), String(body.tema || '').trim(), body.masteryContext || null,
+        body.format === ANALYSIS_STUDY_NOTES_VERSION, body.upgrade === true,
       );
     }
 

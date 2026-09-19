@@ -8,13 +8,17 @@ import { boundedHistory } from '../../lib/alai-chat/conversation';
 import { chatProvenanceLabel } from '../../lib/alai-chat/contracts';
 export { parseContentNodes } from '../../lib/alai-chat/content';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
+import { PRACTICE_START_MESSAGE } from '../../lib/alai-chat/practice';
 import {
+  alaiInteractionMode,
   beginAlaiTurn,
   completeAlaiTurn,
   failAlaiTurn,
   initialAlaiState,
   recoverInterruptedAlaiState,
   retryAlaiTurn,
+  setAlaiInteractionMode,
+  type AlaiInteractionMode,
   type DurableAlaiMessage,
   type DurableAlaiState,
 } from '../../lib/freeAlaiState';
@@ -233,6 +237,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
   const messages = conversation.messages;
   const input = conversation.draft;
   const loadingAnswer = conversation.currentTurn?.status === 'sending';
+  const interactionMode = alaiInteractionMode(conversation);
 
   const activeMaterial = materiales[activeMaterialIndex] || materiales[0] || null;
   const activeMaterialId = activeMaterial?.materialId || activeMaterial?.material_id || activeMaterial?.id || '';
@@ -413,10 +418,12 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
           turnId,
           attempt,
           conversationContext: lastAssistant?.conversationContext,
+          // Frozen on the turn, so a retry replays the exact same mode.
+          ...(turn.interactionMode === 'answer' ? { interactionMode: 'answer', ...(turn.practiceStart ? { practiceStart: true } : {}) } : {}),
           // Bounded — deterministic retrieval/grounding is the academic
           // authority, not accumulated assistant prose (Phase 10).
           history: boundedHistory(stateAtStart.messages
-            .filter(message => message.id !== userMessage.id)
+            .filter(message => message.id !== userMessage.id && !message.hidden)
             .slice(-6)
             .map(message => ({ role: message.role, content: message.content }))),
           materia: materia?.nombre || '',
@@ -499,8 +506,29 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
       userMessageId: `${turnId}:user`,
       content: text,
       timestamp: Date.now(),
+      interactionMode: alaiInteractionMode(conversationRef.current),
     });
     persistConversation(next);
+    void runTurn(turnId, 1);
+  }, [loadingAnswer, continuityReady, sessionId, persistConversation, runTurn]);
+
+  /** PREGUNTAR ⇄ RESPONDER. Entering Responder makes ALAI open the practice; leaving it restores normal chat. */
+  const changeInteractionMode = useCallback((mode: AlaiInteractionMode) => {
+    if (sendLockedRef.current || loadingAnswer || !continuityReady || alaiInteractionMode(conversationRef.current) === mode) return;
+    const switched = setAlaiInteractionMode(conversationRef.current, mode);
+    if (mode === 'ask' || !sessionId) { persistConversation(switched); return; }
+    sendLockedRef.current = true;
+    const turnId = uid();
+    const started = beginAlaiTurn(switched, {
+      turnId,
+      userMessageId: `${turnId}:user`,
+      content: PRACTICE_START_MESSAGE,
+      timestamp: Date.now(),
+      interactionMode: 'answer',
+      practiceStart: true,
+      hidden: true,
+    });
+    persistConversation(started);
     void runTurn(turnId, 1);
   }, [loadingAnswer, continuityReady, sessionId, persistConversation, runTurn]);
 
@@ -603,6 +631,23 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
 
         {/* ──── CENTRO: CHAT TIPO CUADERNO ──── */}
         <section className="aal-chat-center">
+          <div className="aal-mode" data-testid="alai-mode-switch">
+            <div className="aal-mode-seg" role="radiogroup" aria-label="Modo de ALAI">
+              {([['ask', 'Preguntar'], ['answer', 'Responder']] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={interactionMode === value}
+                  data-testid={`alai-mode-${value}`}
+                  className={interactionMode === value ? 'active' : ''}
+                  disabled={loadingAnswer}
+                  onClick={() => changeInteractionMode(value)}
+                >{label}</button>
+              ))}
+            </div>
+            <span className="aal-mode-hint" aria-live="polite">{interactionMode === 'answer' ? 'ALAI te pregunta a ti' : 'Pregúntale a ALAI'}</span>
+          </div>
           <div className="aal-notebook">
             <div className="aal-notebook-holes">
               {Array.from({ length: 9 }).map((_, i) => <span key={i} />)}
@@ -623,6 +668,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
               )}
 
               {messages.map((msg, idx) => {
+                if (msg.hidden) return null;
                 const isUser = msg.role === 'user';
                 const pages = msg.sourcePages || [];
                 const onePage = pages.length === 1;
@@ -756,7 +802,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
                   sendMessage();
                 }
               }}
-              placeholder="Escribe tu pregunta aquí..."
+              placeholder={interactionMode === 'answer' ? 'Escribe tu respuesta aquí...' : 'Escribe tu pregunta aquí...'}
               disabled={loadingAnswer}
               className="aal-input"
               rows={1}
@@ -893,6 +939,14 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
           font-weight: 800;
           color: var(--text-primary);
         }
+        .aal-mode { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; padding: 4px 8px 10px; }
+        .aal-mode-seg { display: inline-flex; padding: 3px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--gold) 35%, transparent); background: color-mix(in srgb, var(--gold) 6%, transparent); }
+        .aal-mode-seg button { border: 0; background: transparent; color: var(--text-faint); font: inherit; font-weight: 600; font-size: 13px; padding: 6px 16px; border-radius: 999px; cursor: pointer; transition: background .15s, color .15s; }
+        .aal-mode-seg button:hover:not(:disabled):not(.active) { color: var(--text); }
+        .aal-mode-seg button.active { background: var(--gold); color: #1a1408; }
+        .aal-mode-seg button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+        .aal-mode-seg button:disabled { cursor: not-allowed; opacity: .6; }
+        .aal-mode-hint { font-size: 11.5px; color: var(--text-faint); }
         .aal-hero small {
           display: block;
           margin-top: 4px;
