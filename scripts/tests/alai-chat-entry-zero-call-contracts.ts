@@ -109,9 +109,13 @@ runTest('8. Chat route enforces server-side session authority and Enjoyer backin
 // Invariant 9: No raw material text sent to Chat API; route forbids it
 runTest('9. ALAI Chat sends no raw material text; route enforces RAW_SOURCE_AUTHORITY_FORBIDDEN', () => {
   assert.match(chatRouteSource, /RAW_SOURCE_AUTHORITY_FORBIDDEN/, 'route must reject any request asserting raw source text')
-  const runTurnMatch = chatComponentSource.match(/const runTurn = useCallback\(async[\s\S]*?fetch\('\/api\/alai-studyal-chat'[\s\S]*?body: JSON\.stringify\(\{([\s\S]*?)\}\)/)
+  // The fetch body is built by the shared, thread-scoped request builder (freeAlaiState.buildAlaiTurnRequest).
+  const runTurnMatch = chatComponentSource.match(/const runTurn = useCallback\(async[\s\S]*?fetch\('\/api\/alai-studyal-chat'[\s\S]*?body: JSON\.stringify\(buildAlaiTurnRequest\(([\s\S]*?)\)\),/)
   assert.ok(runTurnMatch, 'Chat fetch call must be extractable')
   assert.doesNotMatch(runTurnMatch[1], /materialText/, 'Chat fetch payload must not include materialText')
+  const builderMatch = readFileSync('lib/freeAlaiState.ts', 'utf8').match(/export function buildAlaiTurnRequest[\s\S]*?\n\}\n/)
+  assert.ok(builderMatch, 'request builder must be extractable')
+  assert.doesNotMatch(builderMatch[0], /materialText|rawText|combinedText/, 'the request builder never carries raw material text')
 })
 
 // Invariant 10: Sibling Free Mode tools unaffected

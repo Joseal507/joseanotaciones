@@ -74,7 +74,15 @@ export interface ChatConversationContext {
   pedagogicalState?: PedagogicalState
   /** Responder (practice) memory: questions ALAI already asked and target ids already practiced. */
   practiceAsked?: string[]
+  /** Targets whose understanding was demonstrated (only a 'correct' verdict adds here). */
   practiceTargetIds?: string[]
+  /** Concept(s) of the pending question; unchanged by partial/incorrect answers and by thread switching. */
+  practiceCurrentTargetIds?: string[]
+  /** Consecutive non-correct attempts on the current concept (bounds remediation). */
+  practiceAttempts?: number
+  /** Identity of the pending question (the durable turn that generated it). The only valid answer slot. */
+  practiceQuestionRef?: string
+  practiceLastVerdict?: 'start' | 'correct' | 'partial' | 'incorrect' | 'question'
 }
 
 export interface ChatEvidence {

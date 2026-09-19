@@ -107,7 +107,7 @@ export function buildPracticeRetrievalQuery(params: { start: boolean; lastQuesti
 }
 
 /** Prompt directive. Language authority is injected separately (academicLanguageInstruction). */
-export function buildPracticeDirective(params: { start: boolean; lastQuestion: string; answer: string; asked: readonly string[]; candidateIds?: readonly string[] }): string {
+export function buildPracticeDirective(params: { start: boolean; lastQuestion: string; answer: string; asked: readonly string[]; candidateIds?: readonly string[]; currentIds?: readonly string[]; attempts?: number }): string {
   const normalized = normalizePracticeNotation(params.answer)
   const asked = params.asked.length ? params.asked.map((q, i) => `${i + 1}. ${q}`).join('\n') : '(ninguna todavía)'
   const common = `MODO RESPONDER — PRÁCTICA ORAL ACTIVA (tiene prioridad sobre "resuelve la petición actual").
@@ -118,28 +118,68 @@ Nunca repitas ni reformules superficialmente una pregunta ya hecha. PREGUNTAS YA
 ${asked}
 CANDIDATOS PARA LA PRÓXIMA PREGUNTA (aún no practicados, por prioridad; sirven para rotar conceptos y materiales): ${params.candidateIds?.length ? params.candidateIds.join(', ') : '(usa el tema)'}.
 Basa la nueva pregunta en el primer candidato, salvo que la conversación pida simplificar o conectar con un concepto ya visto (usa entonces el bloque relacionado).
-Reporta en usedTargetIds los IDs recibidos que usaste (evaluación y nueva pregunta). No inventes afirmaciones del material para calificar. No imprimas IDs ni páginas en answer.
+Reporta en usedTargetIds los IDs recibidos que usaste (evaluación y pregunta). Pon practiceVerdict: "start" en el inicio. No inventes afirmaciones del material para calificar. No imprimas IDs ni páginas en answer.
 Mantén un tono conversacional; no uses tablas de calificación ni puntajes. Deja suggestedFollowups vacío.
 IDIOMA: escribe TODO (saludo, evaluación, corrección y pregunta) en el idioma fijado por ACADEMIC LANGUAGE AUTHORITY. Estas instrucciones, el disparador interno "Iniciar práctica" y el historial están en español solo por implementación y NO determinan el idioma de salida; solo una petición explícita de idioma en el mensaje ACTUAL del estudiante lo cambia, solo para esta respuesta.`
   if (params.start) {
     return `${common}
-INICIO: el estudiante acaba de activar el modo Responder. No hay respuesta que evaluar. Saluda en una línea, invitando a practicar (en el idioma de autoridad), y haz la primera pregunta, fundamental y basada en los bloques ENJOYER.`
+INICIO: el estudiante abrió el hilo Responder por primera vez. No hay respuesta que evaluar. Saluda en una línea, invitando a practicar (en el idioma de autoridad), y haz la primera pregunta, fundamental y basada en los bloques ENJOYER.`
   }
   return `${common}
 ÚLTIMA PREGUNTA QUE HICISTE: ${JSON.stringify(params.lastQuestion || '(no disponible)')}
 RESPUESTA DEL ESTUDIANTE (normalizada solo en notación: sp³ = sp3 = sp 3): ${JSON.stringify(normalized)}
 EVALÚA por significado, no por texto exacto: acepta variantes de notación, sinónimos y equivalentes matemáticos/químicos correctos.
-- Correcta: confírmalo brevemente, refuerza la idea clave solo si aporta, y continúa.
-- Parcialmente correcta: di qué estuvo bien, qué falta y continúa apropiadamente.
-- Incorrecta: explica el error conceptual, da la explicación correcta fundamentada en el material y continúa.
-Si el estudiante dice que no sabe o pide ayuda, explica brevemente y pregunta algo más simple sobre el mismo concepto.
-CONTINUACIÓN ADAPTATIVA: si dominó el concepto, avanza al siguiente o conéctalo con otro concepto del material; si tuvo dificultad, pregunta algo más simple o relacionado. Si el estudiante hace en cambio una pregunta directa, respóndela brevemente y retoma con una pregunta.
-Termina con la siguiente pregunta.`
+CONCEPTO ACTUAL (IDs del bloque de la pregunta pendiente): ${params.currentIds?.length ? params.currentIds.join(', ') : '(no disponible)'}. Intentos no correctos en este concepto: ${params.attempts ?? 0}.
+El estudiante SOLO avanza cuando demuestra comprensión. Clasifica y REPORTA el veredicto: empieza el texto de "answer" con EXACTAMENTE un marcador seguido de un espacio — [[V:correct]] | [[V:partial]] | [[V:incorrect]] | [[V:question]] (en el inicio: [[V:start]]). El servidor elimina el marcador; el estudiante nunca lo ve. Sin marcador la respuesta se rechaza.
+- correct: confírmalo brevemente, refuerza la idea clave solo si aporta y AVANZA: haz una pregunta NUEVA basada en el primer CANDIDATO.
+- partial: NO abandones el concepto. Di qué estuvo bien, qué falta y pide que lo complete/corrija, o haz una pregunta dirigida sobre EL MISMO CONCEPTO ACTUAL.
+- incorrect: explica el error conceptual con el material y sigue en EL MISMO CONCEPTO ACTUAL con una pregunta más simple o reformulada. No pases a otro concepto.
+- question: el estudiante hizo una pregunta o pidió ayuda en vez de responder: respóndela brevemente y vuelve a formular la MISMA pregunta pendiente (o una más simple del mismo concepto).
+${(params.attempts ?? 0) >= 3 ? 'El estudiante ya falló varias veces: da ahora la explicación completa del concepto con el material y luego vuelve a comprobarlo con una pregunta distinta y más sencilla (sin avanzar de concepto).\n' : ''}REGLAS DE COHERENCIA (el servidor las verifica): si practiceVerdict NO es "correct", tu pregunta debe ser sobre el CONCEPTO ACTUAL y usedTargetIds debe incluir sus IDs y NINGÚN ID de los CANDIDATOS. Si es "correct", la pregunta nueva debe basarse en el primer CANDIDATO y usedTargetIds debe incluir su ID.
+Nunca marques "correct" solo porque el estudiante respondió algo. Termina siempre con UNA pregunta.`
 }
 
-export function practiceContextPatch(previous: ChatConversationContext | null, answer: string, usedTargetIds: readonly string[]): Pick<ChatConversationContext, 'practiceAsked' | 'practiceTargetIds'> {
+
+export type PracticeVerdict = 'start' | 'correct' | 'partial' | 'incorrect' | 'question'
+
+/** An unreadable/missing verdict is NEVER treated as understanding: the caller keeps the same concept. */
+export function readPracticeVerdict(value: unknown): Exclude<PracticeVerdict, 'start'> | null {
+  return value === 'correct' || value === 'partial' || value === 'incorrect' || value === 'question' ? value : null
+}
+
+export const PRACTICE_START_SLOT = 'start'
+export function readPracticeSlot(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() && value.length <= 160 ? value.trim() : null
+}
+/** Durable identity of a practice turn = the question being answered. Restores, retries and duplicate submits share one record. */
+export function practiceTurnKey(slot: string): string { return `practice:${slot}` }
+
+/** The only place practice progress changes. Tab/mode switching never reaches it. */
+export function nextPracticeState(input: {
+  previous: ChatConversationContext | null; start: boolean; verdict: unknown; answer: string
+  usedTargetIds: readonly string[]; candidateIds: readonly string[]; questionRef: string
+}): Pick<ChatConversationContext, 'practiceAsked' | 'practiceTargetIds' | 'practiceCurrentTargetIds' | 'practiceAttempts' | 'practiceQuestionRef' | 'practiceLastVerdict'> {
+  const { previous } = input
+  const verdict: PracticeVerdict = input.start ? 'start' : readPracticeVerdict(input.verdict) ?? 'partial'
+  const fresh = input.usedTargetIds.filter(id => input.candidateIds.includes(id)).slice(0, 3)
+  const nextConcept = fresh.length ? fresh : input.candidateIds.slice(0, 1)
+  const priorCurrent = previous?.practiceCurrentTargetIds || []
+  const advance = verdict === 'start' || verdict === 'correct'
+  const mastered = verdict === 'correct' ? [...(previous?.practiceTargetIds || []), ...priorCurrent] : previous?.practiceTargetIds || []
   return {
-    practiceAsked: appendAsked(previous?.practiceAsked, extractAskedQuestion(answer)),
-    practiceTargetIds: [...new Set([...(previous?.practiceTargetIds || []), ...usedTargetIds])].slice(-PRACTICE_LIMITS.targetIds),
+    practiceAsked: appendAsked(previous?.practiceAsked, extractAskedQuestion(input.answer)),
+    practiceTargetIds: [...new Set(mastered)].slice(-PRACTICE_LIMITS.targetIds),
+    practiceCurrentTargetIds: advance ? (nextConcept.length ? nextConcept : priorCurrent) : priorCurrent,
+    practiceAttempts: advance ? 0 : (previous?.practiceAttempts || 0) + (verdict === 'question' ? 0 : 1),
+    practiceQuestionRef: input.questionRef,
+    practiceLastVerdict: verdict,
   }
+}
+
+const VERDICT_TAG = /^\s*\[\[V:(start|correct|partial|incorrect|question)\]\]\s*/i
+
+/** Responder verdict travels as an inline marker at the start of `answer`; it is removed before anything is validated, stored or shown. */
+export function splitPracticeVerdictTag(answer: string): { verdict: string | null; answer: string } {
+  const match = VERDICT_TAG.exec(String(answer || ''))
+  return match ? { verdict: match[1].toLowerCase(), answer: String(answer).slice(match[0].length).trim() } : { verdict: null, answer: String(answer || '') }
 }

@@ -10,12 +10,15 @@ export interface ChatCandidate {
   suggestedFollowups: string[]
   externalKnowledgeUsed: boolean | null
   pedagogicalTransition?: PedagogicalTransition | null
+  /** Responder only: the model's judgement of the student's last answer. Read by the server state machine, never shown. */
+  practiceVerdict?: string | null
 }
 export function normalizeChatCandidate(value: unknown): ChatCandidate {
   const raw = isRecord(value) ? value : {}
   const ped = isRecord(raw.pedagogicalTransition) ? raw.pedagogicalTransition : null
   return {
     answer: typeof raw.answer === 'string' ? raw.answer.trim() : '',
+    practiceVerdict: typeof raw.practiceVerdict === 'string' ? raw.practiceVerdict.trim().toLowerCase() : null,
     usedTargetIds: boundedIds(raw.usedTargetIds), usedRelationIds: boundedIds(raw.usedRelationIds, CHAT_LIMITS.relations),
     suggestedFollowups: Array.isArray(raw.suggestedFollowups) ? raw.suggestedFollowups.slice(0, CHAT_LIMITS.followups).filter((s): s is string => typeof s === 'string' && !!s.trim() && s.length <= 160 && !isInternalChatText(s)) : [],
     externalKnowledgeUsed: typeof raw.externalKnowledgeUsed === 'boolean' ? raw.externalKnowledgeUsed : null,

@@ -8,17 +8,23 @@ import { boundedHistory } from '../../lib/alai-chat/conversation';
 import { chatProvenanceLabel } from '../../lib/alai-chat/contracts';
 export { parseContentNodes } from '../../lib/alai-chat/content';
 import { buildSourceSelectionFromMaterials, type SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection';
-import { PRACTICE_START_MESSAGE } from '../../lib/alai-chat/practice';
+import { PRACTICE_START_MESSAGE, PRACTICE_START_SLOT } from '../../lib/alai-chat/practice';
 import {
-  alaiInteractionMode,
+  alaiPendingQuestionRef,
+  alaiPracticePhase,
+  alaiThreadState,
   beginAlaiTurn,
+  buildAlaiTurnRequest,
   completeAlaiTurn,
   failAlaiTurn,
   initialAlaiState,
   recoverInterruptedAlaiState,
   retryAlaiTurn,
-  setAlaiInteractionMode,
-  type AlaiInteractionMode,
+  needsPracticeStart,
+  selectAlaiThread,
+  selectedAlaiThread,
+  withAlaiThreadState,
+  type AlaiThread,
   type DurableAlaiMessage,
   type DurableAlaiState,
 } from '../../lib/freeAlaiState';
@@ -211,7 +217,10 @@ function highlightKeywords(text: string): React.ReactNode {
 }
 
 export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, onBack, masteryContext, sessionId, sourceSelection }: Props) {
-  const [conversation, setConversation] = useState<DurableAlaiState>(() => initialAlaiState());
+  // Two independent threads (Preguntar / Responder) live in one durable root; `conversation` is the VISIBLE thread only.
+  const [conversationRoot, setConversationRoot] = useState<DurableAlaiState>(() => initialAlaiState());
+  const activeThread = selectedAlaiThread(conversationRoot);
+  const conversation = alaiThreadState(conversationRoot, activeThread);
   const [continuityReady, setContinuityReady] = useState(false);
   const [error, setError] = useState('');
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -226,6 +235,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mountedRef = useRef(true);
+  const rootRef = useRef(conversationRoot);
   const conversationRef = useRef(conversation);
   const activeAttemptRef = useRef('');
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -237,7 +247,9 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
   const messages = conversation.messages;
   const input = conversation.draft;
   const loadingAnswer = conversation.currentTurn?.status === 'sending';
-  const interactionMode = alaiInteractionMode(conversation);
+  const interactionMode: AlaiThread = activeThread;
+  const practicePhase = alaiPracticePhase(conversation);
+  const practiceNeedsStart = needsPracticeStart(conversationRoot);
 
   const activeMaterial = materiales[activeMaterialIndex] || materiales[0] || null;
   const activeMaterialId = activeMaterial?.materialId || activeMaterial?.material_id || activeMaterial?.id || '';
@@ -266,16 +278,23 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
     [selectionSequence.length, activeSelectedPages.length]
   );
 
-  const persistConversation = useCallback((next: DurableAlaiState) => {
-    conversationRef.current = next;
-    setConversation(next);
+  const updateRoot = useCallback((next: DurableAlaiState) => {
+    rootRef.current = next;
+    conversationRef.current = alaiThreadState(next, selectedAlaiThread(next));
+    setConversationRoot(next);
+  }, []);
+
+  /** Persists one thread; the other thread is carried over untouched. */
+  const persistConversation = useCallback((nextThread: DurableAlaiState, thread: AlaiThread = selectedAlaiThread(rootRef.current)) => {
+    const next = withAlaiThreadState(rootRef.current, thread, nextThread);
+    updateRoot(next);
     if (continuityReady && sessionId) {
       const written = writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'alai', next);
       freeNavDebug('ALAI_PERSIST', { sessionId, fingerprint: effectiveSourceSelection.fingerprint, written: !!written });
     } else {
       freeNavDebug('ALAI_PERSIST_SKIPPED', { sessionId, continuityReady });
     }
-  }, [continuityReady, sessionId, effectiveSourceSelection.fingerprint]);
+  }, [continuityReady, sessionId, effectiveSourceSelection.fingerprint, updateRoot]);
 
   useEffect(() => {
     const restored = readFreeToolState<DurableAlaiState>(
@@ -284,8 +303,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
       'alai',
     );
     const next = recoverInterruptedAlaiState(restored?.state || initialAlaiState());
-    conversationRef.current = next;
-    setConversation(next);
+    updateRoot(next);
     if (restored && next !== restored.state && sessionId) {
       writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'alai', next);
     }
@@ -299,16 +317,17 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
   }, [sessionId, effectiveSourceSelection.fingerprint]);
 
   useEffect(() => {
+    rootRef.current = conversationRoot;
     conversationRef.current = conversation;
-  }, [conversation]);
+  }, [conversationRoot, conversation]);
 
   useEffect(() => {
     if (!continuityReady || !sessionId) return;
     const timer = window.setTimeout(() => {
-      writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'alai', conversationRef.current);
+      writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'alai', rootRef.current);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [continuityReady, sessionId, effectiveSourceSelection.fingerprint, conversation]);
+  }, [continuityReady, sessionId, effectiveSourceSelection.fingerprint, conversationRoot]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -316,8 +335,8 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
       mountedRef.current = false;
       activeAttemptRef.current = '';
       requestControllerRef.current?.abort();
-      const current = conversationRef.current;
-      if (current.currentTurn?.status === 'sending' && sessionId) {
+      const current = rootRef.current;
+      if ((current.currentTurn?.status === 'sending' || current.practiceThread?.currentTurn?.status === 'sending') && sessionId) {
         const recoverable = recoverInterruptedAlaiState(current);
         writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'alai', recoverable);
       }
@@ -379,7 +398,9 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
   }, [materiales, isAuthorizedCitation]);
 
   const runTurn = useCallback(async (turnId: string, attempt: number) => {
-    const stateAtStart = conversationRef.current;
+    const turnThread = selectedAlaiThread(rootRef.current);
+    const threadNow = () => alaiThreadState(rootRef.current, turnThread);
+    const stateAtStart = threadNow();
     const turn = stateAtStart.currentTurn;
     const userMessage = stateAtStart.messages.find(message => message.id === turn?.userMessageId);
     if (!turn || turn.id !== turnId || turn.attempt !== attempt || !userMessage) return;
@@ -412,24 +433,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
       const res = await fetch('/api/alai-studyal-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          message: userMessage.content,
-          turnId,
-          attempt,
-          conversationContext: lastAssistant?.conversationContext,
-          // Frozen on the turn, so a retry replays the exact same mode.
-          ...(turn.interactionMode === 'answer' ? { interactionMode: 'answer', ...(turn.practiceStart ? { practiceStart: true } : {}) } : {}),
-          // Bounded — deterministic retrieval/grounding is the academic
-          // authority, not accumulated assistant prose (Phase 10).
-          history: boundedHistory(stateAtStart.messages
-            .filter(message => message.id !== userMessage.id && !message.hidden)
-            .slice(-6)
-            .map(message => ({ role: message.role, content: message.content }))),
-          materia: materia?.nombre || '',
-          tema: tema?.nombre || '',
-          masteryContext,
-        }),
+        body: JSON.stringify(buildAlaiTurnRequest(stateAtStart, { sessionId, turnId, attempt, materia: materia?.nombre || '', tema: tema?.nombre || '', masteryContext })),
         signal: controller.signal,
       });
       const data = await res.json();
@@ -462,9 +466,9 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
         usedRelationIds: Array.isArray(data.usedRelationIds) ? data.usedRelationIds : undefined,
         materialIds: Array.isArray(data.materialIds) ? data.materialIds : undefined,
       };
-      const completed = completeAlaiTurn(conversationRef.current, turnId, attempt, assistantMsg);
-      if (completed === conversationRef.current) return;
-      persistConversation(completed);
+      const completed = completeAlaiTurn(threadNow(), turnId, attempt, assistantMsg);
+      if (completed === threadNow()) return;
+      persistConversation(completed, turnThread);
 
       const pages = assistantMsg.sourcePages || [];
       if (pages.length === 1) {
@@ -476,13 +480,13 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
         }
         setForcedPage(page);
         setScrollTrigger((x) => x + 1);
-        persistConversation({ ...completed, activeMaterialId: matId || completed.activeMaterialId, forcedPage: page });
+        persistConversation({ ...completed, activeMaterialId: matId || completed.activeMaterialId, forcedPage: page }, turnThread);
       }
     } catch (caught: unknown) {
       if (controller.signal.aborted || activeAttemptRef.current !== attemptIdentity) return;
       const message = chatUserMessage(caught);
-      const failed = failAlaiTurn(conversationRef.current, turnId, attempt, message);
-      persistConversation(failed);
+      const failed = failAlaiTurn(threadNow(), turnId, attempt, message);
+      persistConversation(failed, turnThread);
     } finally {
       if (activeAttemptRef.current === attemptIdentity) {
         activeAttemptRef.current = '';
@@ -499,6 +503,10 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
       setError('No se pudo identificar la sesión Free para guardar esta conversación.');
       return;
     }
+    const thread = selectedAlaiThread(rootRef.current);
+    // Responder: an answer is only accepted for the CURRENT pending question (its durable slot).
+    const practiceSlot = thread === 'answer' ? alaiPendingQuestionRef(conversationRef.current) : null;
+    if (thread === 'answer' && (!practiceSlot || alaiPracticePhase(conversationRef.current) !== 'QUESTION_PENDING')) return;
     sendLockedRef.current = true;
     const turnId = uid();
     const next = beginAlaiTurn(conversationRef.current, {
@@ -506,31 +514,45 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
       userMessageId: `${turnId}:user`,
       content: text,
       timestamp: Date.now(),
-      interactionMode: alaiInteractionMode(conversationRef.current),
+      interactionMode: thread,
+      ...(practiceSlot ? { practiceSlot } : {}),
     });
     persistConversation(next);
     void runTurn(turnId, 1);
   }, [loadingAnswer, continuityReady, sessionId, persistConversation, runTurn]);
 
-  /** PREGUNTAR ⇄ RESPONDER. Entering Responder makes ALAI open the practice; leaving it restores normal chat. */
-  const changeInteractionMode = useCallback((mode: AlaiInteractionMode) => {
-    if (sendLockedRef.current || loadingAnswer || !continuityReady || alaiInteractionMode(conversationRef.current) === mode) return;
-    const switched = setAlaiInteractionMode(conversationRef.current, mode);
-    if (mode === 'ask' || !sessionId) { persistConversation(switched); return; }
+  /** Genuinely-new Responder thread only: one hidden trigger turn; its durable slot is 'start'. */
+  const startPractice = useCallback(() => {
+    if (sendLockedRef.current || !continuityReady || !sessionId) return;
+    if (!needsPracticeStart(rootRef.current)) return; // restored/pending/started threads never generate again
     sendLockedRef.current = true;
     const turnId = uid();
-    const started = beginAlaiTurn(switched, {
+    const started = beginAlaiTurn(alaiThreadState(rootRef.current, 'answer'), {
       turnId,
       userMessageId: `${turnId}:user`,
       content: PRACTICE_START_MESSAGE,
       timestamp: Date.now(),
       interactionMode: 'answer',
       practiceStart: true,
+      practiceSlot: PRACTICE_START_SLOT,
       hidden: true,
     });
-    persistConversation(started);
+    persistConversation(started, 'answer');
     void runTurn(turnId, 1);
-  }, [loadingAnswer, continuityReady, sessionId, persistConversation, runTurn]);
+  }, [continuityReady, sessionId, persistConversation, runTurn]);
+
+  /** PREGUNTAR ⇄ RESPONDER switch between two independent threads. It never creates messages or calls the provider. */
+  const changeThread = useCallback((thread: AlaiThread) => {
+    if (sendLockedRef.current || loadingAnswer || !continuityReady || selectedAlaiThread(rootRef.current) === thread) return;
+    const switched = selectAlaiThread(rootRef.current, thread);
+    updateRoot(switched);
+    if (sessionId) writeFreeToolState(sessionId, effectiveSourceSelection.fingerprint, 'alai', switched);
+  }, [loadingAnswer, continuityReady, sessionId, effectiveSourceSelection.fingerprint, updateRoot]);
+
+  // The first Responder question is generated only when the durable thread is empty (never merely because the tab is active).
+  useEffect(() => {
+    if (activeThread === 'answer' && practiceNeedsStart) startPractice();
+  }, [continuityReady, activeThread, practiceNeedsStart, startPractice]);
 
   const retryCurrentTurn = useCallback(() => {
     const current = conversationRef.current.currentTurn;
@@ -642,7 +664,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
                   data-testid={`alai-mode-${value}`}
                   className={interactionMode === value ? 'active' : ''}
                   disabled={loadingAnswer}
-                  onClick={() => changeInteractionMode(value)}
+                  onClick={() => changeThread(value)}
                 >{label}</button>
               ))}
             </div>
@@ -792,9 +814,8 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
               ref={inputRef}
               value={input}
               onChange={(e) => {
-                const next = { ...conversationRef.current, draft: e.target.value };
-                conversationRef.current = next;
-                setConversation(next);
+                // Each thread keeps its own draft.
+                updateRoot(withAlaiThreadState(rootRef.current, selectedAlaiThread(rootRef.current), { ...conversationRef.current, draft: e.target.value }));
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -809,7 +830,7 @@ export default function ALAIStudyALChat({ materiales, seleccion, tema, materia, 
             />
             <button
               type="submit"
-              disabled={loadingAnswer || !input.trim()}
+              disabled={loadingAnswer || !input.trim() || (interactionMode === 'answer' && practicePhase !== 'QUESTION_PENDING')}
               className="aal-send-btn"
               title="Enviar"
             >

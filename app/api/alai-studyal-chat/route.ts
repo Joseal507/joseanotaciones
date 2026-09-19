@@ -14,7 +14,7 @@ import { normalizeChatCandidate, validateChatCandidate } from '../../../lib/alai
 import { detectStrictMaterialOnly } from '../../../lib/alai-chat/intent';
 import {
   buildPracticeDirective, buildPracticeRetrievalQuery, lastAssistantContent, mergePracticeRetrieval, pickPracticeCandidates,
-  practiceContextPatch, practiceIntent, readInteractionMode, extractAskedQuestion, type InteractionMode,
+  nextPracticeState, practiceIntent, practiceTurnKey, readInteractionMode, readPracticeSlot, readPracticeVerdict, splitPracticeVerdictTag, extractAskedQuestion, PRACTICE_START_SLOT, type InteractionMode,
 } from '../../../lib/alai-chat/practice';
 import { chatInternalCode, chatUserMessage } from '../../../lib/alai-chat/errors';
 import { chatEvidenceFallback, isMaterialPriorityRequest, salvageChatPresentation, type ChatFinalOutcome } from '../../../lib/alai-chat/recovery';
@@ -157,7 +157,7 @@ ${JSON.stringify(params.history)}
 MATERIA: ${params.materia}
 TEMA: ${params.tema}
 PREGUNTA ACTUAL: ${JSON.stringify(params.message)}
-Devuelve solo JSON. answer es SIEMPRE una cadena Markdown completa, nunca un array u objeto: {"answer":"...","usedTargetIds":[],"usedRelationIds":[],"externalKnowledgeUsed":false,"suggestedFollowups":[],"pedagogicalTransition":{"action":"generated_exercise|solve_exercise|hint|clarification|answered","targetObject":"...","solutionRevealed":false}} `;
+Devuelve solo JSON. answer es SIEMPRE una cadena Markdown completa, nunca un array u objeto: ${params.practiceDirective ? 'el texto de answer DEBE comenzar con el marcador de veredicto [[V:start|correct|partial|incorrect|question]] (sin él la respuesta se rechaza). Esquema exacto: {"answer":"[[V:...]] texto","usedTargetIds":[],"usedRelationIds":[],"externalKnowledgeUsed":false,"suggestedFollowups":[]}' : `{"answer":"...","usedTargetIds":[],"usedRelationIds":[],"externalKnowledgeUsed":false,"suggestedFollowups":[],"pedagogicalTransition":{"action":"generated_exercise|solve_exercise|hint|clarification|answered","targetObject":"...","solutionRevealed":false}} `}`;
 }
 
 export function extractAnswerFromMalformedJson(text: string): string | null {
@@ -319,9 +319,13 @@ async function generateGroundedChatTurn(body: Record<string, unknown>, userId: s
     sourcePolicy: resolved.context.sourcePolicy, followup: resolved.intent.followup, prioritize,
   });
   // Practice: evidence to grade the previous answer + rotating, material-interleaved candidates for the next question.
-  const practiceCandidates = practice && resolved.context.sourcePolicy !== 'GENERAL_ONLY' ? pickPracticeCandidates(context, previous?.practiceTargetIds || [], undefined, previous?.practiceAsked?.length || 0) : [];
+  // Practice: the pending question's concept stays in scope until understanding is demonstrated; fresh candidates only feed the NEXT question.
+  const practiceCurrentIds = practice ? previous?.practiceCurrentTargetIds || [] : [];
+  const practiceCurrentTargets = context.targets.filter(target => practiceCurrentIds.includes(target.id));
+  const practiceCandidates = practice && resolved.context.sourcePolicy !== 'GENERAL_ONLY'
+    ? pickPracticeCandidates(context, [...(previous?.practiceTargetIds || []), ...practiceCurrentIds], undefined, previous?.practiceAsked?.length || 0) : [];
   const retrieval = practice && resolved.context.sourcePolicy !== 'GENERAL_ONLY'
-    ? mergePracticeRetrieval(evaluationRetrieval, practiceCandidates, context, resolved.context.sourcePolicy)
+    ? mergePracticeRetrieval(evaluationRetrieval, [...practiceCurrentTargets, ...practiceCandidates], context, resolved.context.sourcePolicy)
     : evaluationRetrieval!;
   const strictMaterialExclusive = detectStrictMaterialOnly(message) || resolved.intent.materialInspection || resolved.context.sourcePolicy === 'MATERIAL_ONLY';
   const noMaterialSupport = !retrieval.targets.length && strictMaterialExclusive;
@@ -342,6 +346,10 @@ async function generateGroundedChatTurn(body: Record<string, unknown>, userId: s
   };
   const normalize = (value: unknown) => {
     const candidate = normalizeChatCandidate(value);
+    if (practice) {
+      const tagged = splitPracticeVerdictTag(candidate.answer);
+      if (tagged.verdict) { candidate.answer = tagged.answer; candidate.practiceVerdict = candidate.practiceVerdict || tagged.verdict; }
+    }
     candidate.usedTargetIds = candidate.usedTargetIds.filter(id => knownTargetIds.has(id));
     const usedSources = new Set(retrieval.targets.filter(target => candidate.usedTargetIds.includes(target.id)).map(target => target.sourceItemId));
     candidate.usedRelationIds = candidate.usedRelationIds.filter(id => knownRelationIds.has(id) && retrieval.relations.some(relation => relation.id === id && usedSources.has(relation.fromSourceItemId) && usedSources.has(relation.toSourceItemId)));
@@ -369,12 +377,28 @@ async function generateGroundedChatTurn(body: Record<string, unknown>, userId: s
     }
     return candidate;
   };
+  // Responder: the visible question must match the state machine (same concept until understanding is demonstrated).
+  const practiceCandidateIds = practiceCandidates.map(target => target.id);
+  const practiceDriftErrors = (candidate: ReturnType<typeof normalizeChatCandidate>): string[] => {
+    if (!practice || (!practiceCandidateIds.length && !practiceCurrentIds.length)) return [];
+    const verdict = practiceStart ? 'start' : readPracticeVerdict(candidate.practiceVerdict) ?? 'partial';
+    const used = new Set(candidate.usedTargetIds);
+    if (verdict === 'start' || verdict === 'correct') {
+      return practiceCandidateIds.length && !practiceCandidateIds.some(id => used.has(id)) ? ['practice_missing_next_concept:base_the_new_question_on_the_first_candidate_and_report_its_id'] : [];
+    }
+    if (practiceCurrentIds.length && (practiceCandidateIds.some(id => used.has(id)) || !practiceCurrentIds.some(id => used.has(id)))) {
+      return ['practice_concept_drift:stay_on_the_current_concept_use_only_its_ids_and_do_not_use_candidate_ids'];
+    }
+    return [];
+  };
   const validate = (value: unknown, transportComplete?: boolean) => {
     const candidate = normalize(value);
-    return validateChatCandidate(candidate, {
+    const check = validateChatCandidate(candidate, {
       ...validationOptions, transportComplete,
       ...(partialAnswers.has(candidate.answer) ? { intent: { ...resolved.intent, shape: 'prose' as const, requestedCount: undefined, ordinal: undefined }, requestedCount: undefined } : {}),
     });
+    const drift = practiceDriftErrors(candidate);
+    return drift.length ? { valid: false, errors: [...check.errors, ...drift] } : check;
   };
   let raw;
   try {
@@ -388,7 +412,7 @@ async function generateGroundedChatTurn(body: Record<string, unknown>, userId: s
         prompt: buildGroundedChatPrompt({
           materialLanguage: context.materialLanguage, message, groundedContext: generationPolicy === 'GENERAL_ONLY' ? '' : renderChatEnjoyerContext(retrieval), conversation: { ...resolved.context, sourcePolicy: generationPolicy },
           history, materia: String(body.materia || '').slice(0, 160), tema: String(body.tema || '').slice(0, 160),
-          ...(practice ? { practiceDirective: buildPracticeDirective({ start: practiceStart, lastQuestion: practiceLastQuestion, answer: message, asked: previous?.practiceAsked || [], candidateIds: practiceCandidates.map(target => target.id) }) } : {}),
+          ...(practice ? { practiceDirective: buildPracticeDirective({ start: practiceStart, lastQuestion: practiceLastQuestion, answer: message, asked: previous?.practiceAsked || [], candidateIds: practiceCandidates.map(target => target.id), currentIds: practiceCurrentIds, attempts: previous?.practiceAttempts || 0 }) } : {}),
         }),
         temperature: 0.24,
         maxTokens: resolved.intent.followup && (resolved.intent.shape === 'prose' || resolved.intent.shape === 'concise_prose')
@@ -485,8 +509,10 @@ async function generateGroundedChatTurn(body: Record<string, unknown>, userId: s
     ...(focusUpdate.pedagogicalState ? { pedagogicalState: focusUpdate.pedagogicalState } : {}),
     ...(updatedWorkingMemory ? { workingMemory: updatedWorkingMemory } : {}),
     // Practice memory survives mode switches so a later Responder session does not repeat questions.
-    ...(practice ? practiceContextPatch(previous, candidate.answer, candidate.usedTargetIds.filter(id => practiceCandidates.some(target => target.id === id)))
-      : previous?.practiceAsked ? { practiceAsked: previous.practiceAsked, practiceTargetIds: previous.practiceTargetIds } : {}),
+    ...(practice ? nextPracticeState({
+      previous, start: practiceStart, verdict: candidate.practiceVerdict, answer: candidate.answer,
+      usedTargetIds: candidate.usedTargetIds, candidateIds: practiceCandidates.map(target => target.id), questionRef: String(body.turnId || ''),
+    }) : {}),
   };
   const envelope: ChatEnvelope = {
     schema: 'alai-chat', version: CHAT_SCHEMA_VERSION, answer: candidate.answer,
@@ -546,6 +572,15 @@ async function handleGroundedChatTurn(body: Record<string, unknown>, userId: str
   const turnId = typeof body.turnId === 'string' ? body.turnId.trim() : '';
   const attempt = Number(body.attempt);
   if (body.turnId !== undefined && (!turnId || turnId.length > 160 || !Number.isInteger(attempt) || attempt < 1)) return groundedErrorResponse('INVALID_TURN_IDENTITY', 400);
+  // Responder is its own thread: its durable identity is the QUESTION being answered, never a fresh client id.
+  const practiceSlot = interactionMode === 'answer' ? readPracticeSlot(body.practiceSlot) : null;
+  if (interactionMode === 'answer') {
+    if (!practiceSlot || !turnId) return groundedErrorResponse('INVALID_TURN_IDENTITY', 400);
+    const pendingRef = readConversationContext(body.conversationContext)?.practiceQuestionRef;
+    // start only when the thread is genuinely empty; an answer only to the CURRENT pending question.
+    const consistent = body.practiceStart === true ? practiceSlot === PRACTICE_START_SLOT && !pendingRef : Boolean(pendingRef) && practiceSlot === pendingRef;
+    if (!consistent) return groundedErrorResponse('CHAT_PRACTICE_STALE_QUESTION', 409);
+  }
   console.log('[alai-chat-trace:server:durable_check]', {
     sessionId,
     turnId,
@@ -556,20 +591,20 @@ async function handleGroundedChatTurn(body: Record<string, unknown>, userId: str
       previousGrounding: isRecord(body.previousGrounding) ? boundedIds(body.previousGrounding.usedTargetIds) : [],
       materia: String(body.materia || '').slice(0, 160), tema: String(body.tema || '').slice(0, 160),
       // Only Responder adds identity fields, so every existing Preguntar request hashes exactly as before.
-      ...(interactionMode === 'answer' ? { interactionMode, practiceStart: body.practiceStart === true } : {}),
+      ...(interactionMode === 'answer' ? { interactionMode, practiceStart: body.practiceStart === true, practiceSlot } : {}),
     }) : 'none',
   });
   try {
     const result = turnId && turnId.length <= 160 && Number.isInteger(attempt) && attempt >= 1
       ? await runDurableChatTurn({
           store: __routeDeps.chatTurnStore,
-          id: chatTurnIdentity(userId, sessionId, context.fingerprint, turnId),
+          id: chatTurnIdentity(userId, sessionId, context.fingerprint, practiceSlot ? practiceTurnKey(practiceSlot) : turnId),
           requestHash: chatRequestHash(message, {
             conversation: readConversationContext(body.conversationContext),
             history: boundedHistory(body.history || body.historial),
             previousGrounding: isRecord(body.previousGrounding) ? boundedIds(body.previousGrounding.usedTargetIds) : [],
             materia: String(body.materia || '').slice(0, 160), tema: String(body.tema || '').slice(0, 160),
-            ...(interactionMode === 'answer' ? { interactionMode, practiceStart: body.practiceStart === true } : {}),
+            ...(interactionMode === 'answer' ? { interactionMode, practiceStart: body.practiceStart === true, practiceSlot } : {}),
           }), attempt,
           generate: () => generateGroundedChatTurn(body, userId, context),
         })
