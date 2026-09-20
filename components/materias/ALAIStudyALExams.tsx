@@ -127,6 +127,16 @@ interface Props {
 
 type Phase = 'setup' | 'generating' | 'preview' | 'exam' | 'evaluating' | 'results';
 
+export function examGradingFailureMessage(payload: any): string {
+  if (payload?.retryable || payload?.partialEvaluation?.gradingStatus === 'grading_incomplete') {
+    return 'No pudimos completar la corrección automática en este momento. Tus respuestas están guardadas; puedes reintentar la corrección sin regenerar el examen.';
+  }
+  if (String(payload?.error || '').includes('PERSISTENCE') || String(payload?.error || '').includes('RESTORE')) {
+    return 'No pudimos guardar o recuperar la corrección. Tus respuestas siguen guardadas en este intento; vuelve a intentarlo.';
+  }
+  return 'No se pudo corregir el examen. Tu intento está guardado; vuelve a intentarlo.';
+}
+
 const SKILL_LABEL: Record<Skill, string> = {
   retention: 'Retención', comprehension: 'Comprensión', application: 'Aplicación',
   relation: 'Relaciones', explanation: 'Explicación', critical_thinking: 'Pensamiento crítico',
@@ -1151,18 +1161,38 @@ export default function ALAIStudyALExams({ materiales, seleccion, tema, materia,
       });
     }
     try {
-      const res = await fetch('/api/alai-studyal-exam', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          mode: 'evaluate', sessionId, examId, answers: finals, confidences: finalsConf, questionTimes,
-        }),
-      });
-      const data = await res.json();
-      if (controller.signal.aborted || attempt !== evaluationAttemptRef.current) return;
-      if (!res.ok || !data.success) {
+      let data: any = null;
+      let previousPendingCriteria = Number.POSITIVE_INFINITY;
+      for (;;) {
+        const res = await fetch('/api/alai-studyal-exam', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            mode: 'evaluate', sessionId, examId, answers: finals, confidences: finalsConf, questionTimes,
+          }),
+        });
+        data = await res.json();
+        if (controller.signal.aborted || attempt !== evaluationAttemptRef.current) return;
+        if (res.ok && data.success) break;
+
+        const pendingCriteria = Number(data?.partialEvaluation?.pendingCriteria);
+        const canContinue = data?.retryable === true
+          && data?.partialEvaluation?.canContinue === true
+          && Number.isFinite(pendingCriteria)
+          && pendingCriteria < previousPendingCriteria;
+        if (canContinue) {
+          previousPendingCriteria = pendingCriteria;
+          if (data?.partialEvaluation) setEvaluation(data.partialEvaluation);
+          continue;
+        }
+
         if (data?.partialEvaluation) setEvaluation(data.partialEvaluation);
-        const failure = new Error(data.error) as Error & { preservePartialEvaluation?: boolean };
+        const failure = new Error(examGradingFailureMessage(data)) as Error & { preservePartialEvaluation?: boolean };
+        failure.preservePartialEvaluation = Boolean(data?.partialEvaluation);
+        throw failure;
+      }
+      if (!data?.success) {
+        const failure = new Error(examGradingFailureMessage(data)) as Error & { preservePartialEvaluation?: boolean };
         failure.preservePartialEvaluation = Boolean(data?.partialEvaluation);
         throw failure;
       }

@@ -85,13 +85,13 @@ await test('two worker instances cannot claim the same batch',async()=>{
  await advanceExamGrading({read:id=>store.read(id),cas:(id,rev,job)=>store.cas(id,rev,job)},{...initial(),work:work.slice(0,1)},async()=>{calls++;return {}})
  assert.equal(calls,1);release();assert.equal((await first).status,'completed')
 })
-await test('exhaustion is incomplete with no fabricated zero judgments',async()=>{
+await test('exhaustion is incomplete with no fabricated zero judgments and a later explicit retry can recover',async()=>{
  const store=new MemoryExamGradingStore();let calls=0
  const init={...initial(),work:work.slice(0,2),callBudget:2}
  const job=await advanceExamGrading(store,init,async(_,reserve)=>{await reserve();calls++;return {judgments:[]}})
  assert.equal(calls,2);assert.equal(job.status,'grading_incomplete');assert.deepEqual(job.results,{})
- const again=await advanceExamGrading(store,init,async()=>{throw Error('exhausted must not call')})
- assert.ok(again.diagnostics.includes('budget_exhausted'))
+ const again=await advanceExamGrading(store,init,async(batch,reserve)=>{await reserve();calls++;return {judgments:batch.map(w=>verdict(w.criterion.criterionId))}})
+ assert.equal(again.status,'completed');assert.equal(Object.keys(again.results).length,2);assert.equal(again.retryCycles,1)
 })
 await test('Exam math uses the existing renderer and incomplete results do not become scores',()=>{
  const ui=readFileSync('components/materias/ALAIStudyALExams.tsx','utf8')

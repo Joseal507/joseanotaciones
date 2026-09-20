@@ -14,6 +14,9 @@ export interface ExamGradingJob {
   status: 'pending' | 'grading_incomplete' | 'completed'
   claim: { token: string; until: number } | null
   diagnostics: string[]
+  /** Number of explicit, durable retry cycles opened after a bounded attempt
+   * cycle ended without a grade. Accepted judgments are never cleared. */
+  retryCycles?: number
 }
 export interface GradingRecord { revision: string; job: ExamGradingJob }
 export interface ExamGradingStore {
@@ -128,6 +131,28 @@ export async function advanceExamGrading(store: ExamGradingStore, initial: ExamG
   if (record.job.userId !== initial.userId || record.job.answersHash !== initial.answersHash) {
     console.warn(`[EXAM_GRADING_DIAGNOSTIC] phase=submission_persist_failed examId=${initial.examId} submissionId=${initial.identity} status=conflict normalizedFailureReason=submission_immutable`)
     throw new Error('EXAM_SUBMISSION_IMMUTABLE')
+  }
+  // A provider outage or two unusable responses exhausts the automatic
+  // per-criterion attempt cycle. That must stop this HTTP request, but it must
+  // not permanently brick the durable submission. A later explicit retry
+  // opens one new bounded cycle while preserving every accepted judgment.
+  if (record.job.status === 'grading_incomplete' && !record.job.claim) {
+    const retryJob = record.job
+    const pending = retryJob.work.filter(item => !retryJob.results[item.criterion.criterionId])
+    const cycleExhausted = pending.length > 0 && (
+      retryJob.callsUsed >= retryJob.callBudget
+      || pending.every(item => (retryJob.attempts[item.criterion.criterionId] || 0) >= EXAM_GRADING_ATTEMPTS_PER_CRITERION)
+    )
+    if (cycleExhausted) {
+      for (const item of pending) retryJob.attempts[item.criterion.criterionId] = 0
+      retryJob.callBudget = Math.max(retryJob.callBudget, retryJob.callsUsed)
+        + Math.max(EXAM_GRADING_ATTEMPTS_PER_CRITERION, pending.length * EXAM_GRADING_ATTEMPTS_PER_CRITERION)
+      retryJob.retryCycles = (retryJob.retryCycles || 0) + 1
+      retryJob.diagnostics = [...new Set([...retryJob.diagnostics, 'retry_cycle_opened'])]
+      await store.cas(retryJob.identity, record.revision, retryJob)
+      record = await store.read(initial.identity)
+      if (!record) throw new Error('EXAM_GRADING_RESTORE_FAILED')
+    }
   }
   // The HTTP route uses one batch so the existing 105s provider deadline fits its 120s lifetime.
   for (let batchNumber = 0; batchNumber < (options.maxBatches ?? 6); batchNumber++) {
