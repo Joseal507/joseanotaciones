@@ -1132,6 +1132,98 @@ export default {
         return json({ ok: true, applied: written.meta.changes === 1 })
       }
 
+      // ===== PAGE STUDY (durable state + turn records) =====
+      // Same table and the same proven CAS discipline as alai-chat-turn-cas / truquitos-cas: every write is ONE SQL
+      // statement (insert-if-absent or revision-checked update), so there is no read-then-write race.
+      //  - kind "state": one row per plan. Update only when content_hash matches AND payload.revision advances by exactly 1.
+      //  - kind "turn":  one row per turn slot. Completed rows are immutable; requestHash is immutable; the only legal
+      //    transitions are pending→completed|failed (same attempt), failed→pending (higher attempt) and an EXPIRED pending
+      //    lease → pending (higher attempt). The lease is judged by THIS worker's clock, never by the caller's.
+      if (url.pathname === "/material-results/page-study-cas" && request.method === "POST") {
+        const body = await readBody(request)
+        const PAGE_STUDY_LEASE_MS = 150000
+        const kind = body.kind
+        const isState = kind === "state"
+        const isTurn = kind === "turn"
+        const p = body.payload
+        const idOk = isState ? /^pstudy_state:[a-f0-9]{64}$/.test(String(body.id))
+          : isTurn ? /^pstudy_turn:[a-f0-9]{64}$/.test(String(body.id)) && /^pstudy_turns:[a-f0-9]{64}$/.test(String(body.scope)) : false
+        if (!idOk || typeof body.revision !== "string" || !body.revision
+          || !(body.expectedRevision === null || typeof body.expectedRevision === "string")
+          || !p || typeof p !== "object" || p.version !== 1) {
+          return json({ ok: false, error: "invalid_page_study_write" }, 400)
+        }
+        if (isState) {
+          if (!Number.isInteger(p.revision) || p.revision < 0 || !p.state || p.state.version !== 1
+            || typeof p.state.planId !== "string" || p.state.revision !== p.revision) {
+            return json({ ok: false, error: "invalid_page_study_state" }, 400)
+          }
+          const payload = JSON.stringify(p)
+          if (payload.length > 600000) return json({ ok: false, error: "page_study_state_too_large" }, 400)
+          if (body.expectedRevision === null && p.revision !== 0) return json({ ok: false, error: "page_study_state_creation_requires_revision_0" }, 400)
+          const written = body.expectedRevision === null
+            ? await env.DB.prepare(`INSERT INTO material_results
+                (id, material_id, enfoque, result_type, payload, content_hash, created_at)
+                VALUES (?, ?, 'mixto', 'page_study_state', ?, ?, datetime('now')) ON CONFLICT(id) DO NOTHING`)
+                .bind(body.id, body.id, payload, body.revision).run()
+            : await env.DB.prepare(`UPDATE material_results SET payload = ?, content_hash = ?
+                WHERE id = ? AND result_type = 'page_study_state' AND content_hash = ?
+                AND json_extract(payload, '$.revision') = ?`)
+                .bind(payload, body.revision, body.id, body.expectedRevision, p.revision - 1).run()
+          return json({ ok: true, applied: written.meta.changes === 1 })
+        }
+        const statusOk = ["pending", "failed", "completed"].includes(p.status)
+        if (!statusOk || typeof p.slot !== "string" || !p.slot || p.slot.length > 300
+          || typeof p.requestHash !== "string" || !/^[a-f0-9]{64}$/.test(p.requestHash)
+          || !Number.isInteger(p.attempt) || p.attempt < 1 || !Number.isInteger(p.turnSeq) || p.turnSeq < 1
+          || !Number.isInteger(p.baseRevision) || p.baseRevision < 0
+          || (p.status === "completed" && (!p.result || typeof p.result !== "object" || !p.stateDelta
+            || !Number.isInteger(p.stateDelta.baseRevision) || p.stateDelta.turnSeq !== p.turnSeq || !Array.isArray(p.stateDelta.ops)))) {
+          return json({ ok: false, error: "invalid_page_study_turn" }, 400)
+        }
+        const now = Date.now()
+        if (p.status === "pending") p.startedAt = now
+        const payload = JSON.stringify(p)
+        if (payload.length > 150000) return json({ ok: false, error: "page_study_turn_too_large" }, 400)
+        if (body.expectedRevision === null && p.status !== "pending") return json({ ok: false, error: "page_study_turn_reservation_required" }, 400)
+        const written = body.expectedRevision === null
+          ? await env.DB.prepare(`INSERT INTO material_results
+              (id, material_id, enfoque, result_type, payload, content_hash, created_at)
+              VALUES (?, ?, 'mixto', 'page_study_turn', ?, ?, datetime('now')) ON CONFLICT(id) DO NOTHING`)
+              .bind(body.id, body.scope, payload, body.revision).run()
+          : await env.DB.prepare(`UPDATE material_results SET payload = ?, content_hash = ?
+              WHERE id = ? AND result_type = 'page_study_turn' AND content_hash = ?
+              AND json_extract(payload, '$.status') <> 'completed'
+              AND json_extract(payload, '$.requestHash') = ?
+              AND json_extract(payload, '$.turnSeq') = ?
+              AND ((json_extract(payload, '$.status') = 'pending' AND ? IN ('completed', 'failed') AND json_extract(payload, '$.attempt') = ?)
+                OR (json_extract(payload, '$.status') = 'failed' AND ? = 'pending' AND json_extract(payload, '$.attempt') < ?)
+                OR (json_extract(payload, '$.status') = 'pending' AND ? = 'pending' AND json_extract(payload, '$.attempt') < ?
+                    AND json_extract(payload, '$.startedAt') <= ?))`)
+              .bind(payload, body.revision, body.id, body.expectedRevision, p.requestHash, p.turnSeq,
+                p.status, p.attempt, p.status, p.attempt, p.status, p.attempt, now - PAGE_STUDY_LEASE_MS).run()
+        return json({ ok: true, applied: written.meta.changes === 1 })
+      }
+
+      if (url.pathname === "/material-results/page-study-read" && request.method === "GET") {
+        const id = String(url.searchParams.get("id") || "")
+        const type = /^pstudy_state:[a-f0-9]{64}$/.test(id) ? "page_study_state" : /^pstudy_turn:[a-f0-9]{64}$/.test(id) ? "page_study_turn" : ""
+        if (!type) return json({ ok: false, error: "invalid_page_study_id" }, 400)
+        const row = await env.DB.prepare(`SELECT id, payload, content_hash FROM material_results WHERE id = ? AND result_type = ? LIMIT 1`).bind(id, type).first()
+        return json({ ok: true, result: row || null })
+      }
+
+      if (url.pathname === "/material-results/page-study-turns" && request.method === "GET") {
+        const scope = String(url.searchParams.get("scope") || "")
+        const afterSeq = Number(url.searchParams.get("afterSeq") || 0)
+        const limit = Math.max(1, Math.min(20, Number(url.searchParams.get("limit") || 10)))
+        if (!/^pstudy_turns:[a-f0-9]{64}$/.test(scope) || !Number.isInteger(afterSeq) || afterSeq < 0) return json({ ok: false, error: "invalid_page_study_scope" }, 400)
+        const rows = await env.DB.prepare(`SELECT id, payload, content_hash FROM material_results
+          WHERE material_id = ? AND result_type = 'page_study_turn' AND json_extract(payload, '$.turnSeq') > ?
+          ORDER BY json_extract(payload, '$.turnSeq') ASC, rowid ASC LIMIT ?`).bind(scope, afterSeq, limit).all()
+        return json({ ok: true, results: rows.results || [] })
+      }
+
       // Truquitos uses the existing table with atomic revision-checked writes.
       // No read-then-write race: both insert-if-absent and CAS are single SQL statements.
       if (url.pathname === "/material-results/truquitos-cas" && request.method === "POST") {
