@@ -7,6 +7,7 @@ import StudyALProcess from "./StudyALProcess";
 import StudyALAdaptive from "./StudyALAdaptive";
 import StudyALManual from "./StudyALManual";
 import StudyALManualProcess from "./StudyALManualProcess";
+import PageStudyMode from "./PageStudyMode";
 import ManualLeerMaterial from "./ManualLeerMaterial";
 import ManualAlaiChat from "./ManualAlaiChat";
 import ManualFlashcards from "./ManualFlashcards";
@@ -64,6 +65,14 @@ function readFreeHubResumeSessionIdFromURL(temaId: string | undefined): string |
   if (params.get("temaId") !== temaId) return null;
   if (params.get("freeTool") !== "hub") return null;
   return params.get("freeSessionId") || null;
+}
+
+function readPageStudyPlanIdFromURL(temaId: string | undefined): string | null {
+  if (typeof window === "undefined" || !temaId) return null;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("temaId") !== temaId) return null;
+  const planId = params.get("pageStudyPlanId") || "";
+  return /^pstudy_plan:[a-f0-9]{64}$/.test(planId) ? planId : null;
 }
 
 // FIX P0 (segunda parte): además de resumeSessionId/activeSessions/openFree,
@@ -1104,7 +1113,7 @@ export default function TemaView({
     freeReturnSeed ? (freeReturnSeed.sessionId || null) : readFreeHubResumeSessionIdFromURL(tema?.id)
   ));
   // Ref para el modo elegido — nunca se pisa por guards o re-renders
-  const chosenModeRef = useRef<'free' | 'adaptive' | 'manual' | null>(null);
+  const chosenModeRef = useRef<'free' | 'adaptive' | 'manual' | 'page-study' | null>(null);
 
 
 
@@ -1469,6 +1478,8 @@ export default function TemaView({
   const [showEnfoque, setShowEnfoque] = useState(false);
   const [openAdaptive, setOpenAdaptive] = useState(false);
   const [openManual, setOpenManual] = useState(false);
+  const [pageStudyPlanId, setPageStudyPlanId] = useState<string | null>(() => readPageStudyPlanIdFromURL(tema?.id));
+  const [openPageStudy, setOpenPageStudy] = useState(() => Boolean(readPageStudyPlanIdFromURL(tema?.id)));
   const [manualActiveTool, setManualActiveTool] = useState<DurableManualTool | null>(null);
   const [manualProgress, setManualProgress] = useState<Partial<Record<DurableManualTool, number>>>({});
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
@@ -1490,7 +1501,7 @@ export default function TemaView({
   const [showSeleccion, setShowSeleccion] = useState(false);
   const [enfoqueElegido, setEnfoqueElegido] = useState<"teorico" | "matematico" | "mixto" | "practico" | null>("teorico");
   const [showModeSelector, setShowModeSelector] = useState(false);
-  const [studyMode, setStudyMode] = useState<'free' | 'adaptive' | 'manual'>('free');
+  const [studyMode, setStudyMode] = useState<'free' | 'adaptive' | 'manual' | 'page-study'>('free');
   const [seleccionResult, setSeleccionResult] = useState<
     SeleccionResult[] | null
   >(() => readFreeHubResumeSeleccionFromURL(tema?.id, activeSessions));
@@ -2460,6 +2471,26 @@ export default function TemaView({
           window.history.replaceState({}, '', `${url.pathname}${url.search}`);
           setShowCheatCodes(false);
           setOpenFree(true);
+        }}
+      />
+    );
+
+  if (openPageStudy)
+    return (
+      <PageStudyMode
+        temaId={tema?.id || ''}
+        materiales={tema?.documentos || []}
+        initialSelectedIds={selectedDocs.map((document: any) => getMaterialKey(document))}
+        initialPlanId={pageStudyPlanId}
+        onPlanIdChange={setPageStudyPlanId}
+        onClose={() => {
+          setOpenPageStudy(false);
+          chosenModeRef.current = null;
+          if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('pageStudyPlanId');
+            window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+          }
         }}
       />
     );
@@ -3513,7 +3544,7 @@ export default function TemaView({
       {/* ═══════════════════════════════════════════════════════ */}
       {/* BOTÓN ESTUDIAR — REDISEÑO ÉPICO                        */}
       {/* ═══════════════════════════════════════════════════════ */}
-      {openFree === false && openAdaptive === false && openManual === false &&
+      {openFree === false && openAdaptive === false && openManual === false && openPageStudy === false &&
         showEnfoque === false &&
         showSeleccion === false &&
         selectedIds.length > 0 &&
@@ -3529,7 +3560,7 @@ export default function TemaView({
             mapPageSelectionsToMaterials(selectedDocs, seleccionResult),
           );
           const hasCurrentPageSelection = Array.isArray(seleccionResult) && seleccionResult.length > 0;
-          const requestedMode = chosenModeRef.current || null;
+          const requestedMode = chosenModeRef.current === 'page-study' ? null : chosenModeRef.current;
 
           const matchingSession = selectSessionForSource(activeSessions, {
             materialIds: selectedMatIds,
@@ -4966,6 +4997,7 @@ export default function TemaView({
             background: 'rgba(0,0,0,0.85)',
             backdropFilter: 'blur(18px)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
+            overflowY: 'auto', padding: '24px 12px',
             fontFamily: "var(--font-hand)",
           }}
         >
@@ -4974,7 +5006,7 @@ export default function TemaView({
             style={{
               position: 'relative',
               display: 'flex', flexDirection: 'column', alignItems: 'center',
-              gap: 24,
+              gap: 24, width: '100%', maxWidth: 1160,
             }}
           >
             {/* Líneas de cuaderno */}
@@ -5030,22 +5062,38 @@ export default function TemaView({
                   color: '#a78bfa',
                   locked: false,
                 },
+                {
+                  id: 'page-study',
+                  emoji: '📚',
+                  label: 'Estudio por Páginas',
+                  sub: 'ALAI estudia contigo',
+                  desc: 'Recorre tus materiales en orden, página por página, con una conversación continua.',
+                  color: '#f59e0b',
+                  locked: false,
+                },
               ].map((mode) => {
                 return (
                   <button
                     key={mode.id}
                     onClick={() => {
                       if (mode.locked) return;
+                      const modeId = mode.id as 'free' | 'adaptive' | 'manual' | 'page-study';
                       setShowModeSelector(false);
-                      setStudyMode(mode.id as any);
-                      chosenModeRef.current = mode.id as any;
+                      setStudyMode(modeId);
+                      chosenModeRef.current = modeId;
+                      if (modeId === 'page-study') {
+                        setOpenPageStudy(true);
+                        return;
+                      }
                       setEnfoqueElegido('teorico');
                       setShowSeleccion(true);
                     }}
                     disabled={mode.locked}
+                    aria-label={`Elegir modo ${mode.label}`}
+                    data-testid={`study-mode-${mode.id}`}
                     style={{
                       position: 'relative',
-                      width: 260,
+                      width: 'min(260px, calc(100vw - 48px))',
                       minHeight: 320,
                       background: mode.locked
                         ? 'linear-gradient(160deg, var(--bg-card), var(--bg-primary))'

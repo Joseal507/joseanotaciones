@@ -14,6 +14,7 @@ export interface PageStudyView {
   carryoverDue: number
   nextSlot: string | null
   materials: Array<{ materialId: string; name: string; blocksDone: number; blocksTotal: number; current: boolean }>
+  blocks: Array<{ index: number; materialId: string; materialName: string; pageStart: number; pageEnd: number; phase: 'studied' | 'current' | 'upcoming' }>
 }
 
 /** A block is "started" once anything was recorded for it; until then its first turn uses the block's start slot. */
@@ -44,5 +45,13 @@ export function buildPageStudyView(state: PageStudyState): PageStudyView {
       const blocks = state.plan.blocks.filter(b => b.materialId === m.materialId)
       return { materialId: m.materialId, name: m.name, blocksDone: blocks.filter(b => state.progress[b.blockKey]?.status === 'done').length, blocksTotal: blocks.length, current: block?.materialId === m.materialId }
     }),
+    blocks: state.plan.blocks.map(item => ({
+      index: item.index,
+      materialId: item.materialId,
+      materialName: names[item.materialId] || item.materialId,
+      pageStart: item.start,
+      pageEnd: item.end,
+      phase: state.progress[item.blockKey]?.status === 'done' ? 'studied' : item.index === state.cursor.blockIdx ? 'current' : 'upcoming',
+    })),
   }
 }
