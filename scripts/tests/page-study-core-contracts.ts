@@ -131,7 +131,8 @@ assert.deepEqual(applyDeltaIfPending(once, delta), once, 'a replayed delta is a 
 assert.throws(() => applyDelta(p, { ...delta, baseRevision: p.revision - 1 }), /PAGE_STUDY_STALE_REVISION/); assert.throws(() => applyDelta(p, { ...delta, turnSeq: p.turnSeq + 2 }), /PAGE_STUDY_TURN_OUT_OF_ORDER/)
 const restored: PageStudyState = JSON.parse(JSON.stringify(f)); assert.deepEqual(restored, f, 'JSON rehydration is lossless')
 assert.deepEqual(applyDelta(restored, { baseRevision: restored.revision, turnSeq: restored.turnSeq + 1, at: 5, ops: [{ op: 'pace', pace: 'through' }] }).prefs, { pace: 'through' })
-for (const file of readdirSync('lib/pageStudy')) {
+const PHASE3_ORCHESTRATION = new Set(['tutor.ts'])   // the tutor orchestration is the one module allowed a provider call (guarded in page-study-tutor-contracts)
+for (const file of readdirSync('lib/pageStudy').filter(f => !PHASE3_ORCHESTRATION.has(f))) {
   const source = readFileSync(`lib/pageStudy/${file}`, 'utf8')
   assert.doesNotMatch(source, /from '\.\.\/alai'|from '\.\.\/\.\.\/lib\/alai'|generateValidatedLegacyJson|fetch\(|openrouter|anthropic|detectLanguage|detectMaterialLanguage/i, `${file}: the pure core has no provider, network or language detector`)
 }

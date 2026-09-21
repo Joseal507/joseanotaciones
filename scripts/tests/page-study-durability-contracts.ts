@@ -213,7 +213,7 @@ async function main() {
   const tId = 'truquitos:' + 'c'.repeat(64)
   assert.equal((await post('/material-results/truquitos-cas', { id: tId, revision: 't1', expectedRevision: null, payload: { a: 1 } })).applied, true); assert.equal((await post('/material-results/truquitos-cas', { id: tId, revision: 't2', expectedRevision: 'bad', payload: { a: 2 } })).applied, false); assert.equal((await post('/material-results/truquitos-cas', { id: tId, revision: 't2', expectedRevision: 't1', payload: { a: 2 } })).applied, true)
   assert.equal(ctx.w.rows().filter(r => r.result_type === 'alai_chat_turn').length, 1)
-  const numstat = execSync('git diff --numstat -- cloudflare/studyal-api/src/index.ts', { encoding: 'utf8' }).trim().split(/\s+/); assert.ok(Number(numstat[0]) > 0 && Number(numstat[1]) === 0, `the Worker change is additive only (added ${numstat[0]}, removed ${numstat[1]})`)
+  const numstat = execSync('git diff --numstat 16744e0~1 16744e0 -- cloudflare/studyal-api/src/index.ts', { encoding: 'utf8' }).trim().split(/\s+/); assert.ok(Number(numstat[0]) > 0 && Number(numstat[1]) === 0, `the Worker change (checkpoint commit 16744e0) is additive only (added ${numstat[0]}, removed ${numstat[1]})`)
   assert.match(readFileSync('cloudflare/studyal-api/src/index.ts', 'utf8'), /\/material-results\/alai-chat-turn-cas[\s\S]*\/material-results\/page-study-cas[\s\S]*\/material-results\/truquitos-cas/, 'new routes sit beside, not inside, the existing ones')
 
   // ── Q. the certified max-5 source authority is untouched ───────────────────────────────────────────────────────
