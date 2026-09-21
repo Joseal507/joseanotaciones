@@ -1,4 +1,4 @@
-import { resolveMaterialLanguage, academicLanguageInstruction } from '../../../../lib/materialLanguage'
+import { resolveMaterialLanguage, academicLanguageInstruction, academicVerdict, normalizeMaterialLanguage } from '../../../../lib/materialLanguage'
 import { NextRequest, NextResponse } from 'next/server'
 import { alai, safeParseJson } from '../../../../lib/alai'
 import { prepareReteachContent } from '../../../../lib/adaptive/evaluation/reteachContent'
@@ -32,6 +32,27 @@ import { detectAnswerLeak } from '../../../../lib/adaptive/evaluation/answerLeak
 
 export const maxDuration = 120
 export const dynamic = 'force-dynamic'
+
+// This route has no persisted blueprint/session record to read a trusted
+// materialLanguage from — only the request body, which is untrusted client
+// input. So content evidence (allStepsContent, teachingContent — the
+// authorized source itself) takes priority; body.materialLanguage is only a
+// last-resort hint when the content yields no concrete language ('und').
+// allStepsContent is an array of { title, content } steps, so it must be
+// passed through as-is (not wrapped in a single blocks[].content) or
+// resolveMaterialLanguage's per-block string sampling collapses to 'und'.
+function resolveReteachLanguage(body: Record<string, unknown>): string {
+  const allStepsContent = (body as { allStepsContent?: unknown }).allStepsContent
+  const teachingContent = (body as { objective?: { teachingContent?: unknown } }).objective?.teachingContent
+  const blocks = Array.isArray(allStepsContent)
+    ? allStepsContent
+    : typeof teachingContent === 'string' && teachingContent.trim()
+      ? [{ content: teachingContent }]
+      : []
+  const detected = resolveMaterialLanguage({ blocks })
+  if (detected !== 'und') return detected
+  return normalizeMaterialLanguage((body as { materialLanguage?: unknown }).materialLanguage) || 'und'
+}
 
 // Auditoría adversarial (Codex, Reteach #2.1, post-319a5bc): el vocabulario
 // de errorType de scoring.ts (session-check/route.ts, scoreQuestion) NO es
@@ -509,7 +530,7 @@ Devuelve SOLO JSON sin markdown ni fences:
       const call = async (stage: 'normal' | 'targeted_repair', content: string) => {
         const started = Date.now()
         const result = await alai({
-          messages: [{ role: 'system', content: academicLanguageInstruction(resolveMaterialLanguage({ materialLanguage: body.materialLanguage, blocks: [{ content: body.allStepsContent || body.objective?.teachingContent }] })) }, { role: 'user', content }],
+          messages: [{ role: 'system', content: academicLanguageInstruction(resolveReteachLanguage(body)) }, { role: 'user', content }],
           temperature: stage === 'normal' ? 0.4 : 0.7,
           maxTokens: 1600,
           json: true,
@@ -581,6 +602,7 @@ Devuelve SOLO JSON sin markdown ni fences:
             evaluationMode: body.evaluationMode || 'mix_everything',
             roundNumber,
             teachingContent,
+            materialLanguage: resolveReteachLanguage(body),
           })
           // Adaptar al formato RecoveryQuestion con los campos de target
           const fallbackRecoveryQuestions = fallbackQuestions.map(q => ({
@@ -654,11 +676,16 @@ Devuelve SOLO JSON sin markdown ni fences:
     }
 
     // ── Reteach simple (sin verification questions) ───────────────
+    // correctAnswerDisplay/studentAnswerDisplay normally arrive already
+    // presented (client-side presentAnswer, content-language aware). When
+    // absent, resolve the SAME materialLanguage authority as the rest of
+    // this route instead of hardcoding a language.
+    const reteachSimpleLanguage = resolveReteachLanguage(body)
 
     const correctDisplay = typeof correctAnswerDisplay === 'string' && correctAnswerDisplay.trim()
       ? correctAnswerDisplay
       : typeof correctAnswer === 'boolean'
-        ? (correctAnswer ? 'Verdadero' : 'Falso')
+        ? academicVerdict(reteachSimpleLanguage, correctAnswer ? 'true' : 'false')
         : typeof correctAnswer === 'string'
           ? correctAnswer
           : Array.isArray(correctAnswer)
@@ -668,7 +695,7 @@ Devuelve SOLO JSON sin markdown ni fences:
     const studentDisplay = typeof studentAnswerDisplay === 'string' && studentAnswerDisplay.trim()
       ? studentAnswerDisplay
       : typeof studentAnswer === 'boolean'
-        ? (studentAnswer ? 'Verdadero' : 'Falso')
+        ? academicVerdict(reteachSimpleLanguage, studentAnswer ? 'true' : 'false')
         : typeof studentAnswer === 'string'
           ? studentAnswer
           : Array.isArray(studentAnswer)
@@ -790,7 +817,7 @@ Si el contenido tiene fórmulas matemáticas, úsalas correctamente en LaTeX con
       totalTimeoutMs: 90_000,
       generate: async context => {
         const result = await alai({
-          messages: [{ role: 'system', content: academicLanguageInstruction(resolveMaterialLanguage({ materialLanguage: body.materialLanguage, blocks: [{ content: body.allStepsContent || body.objective?.teachingContent }] })) }, { role: 'user', content: `${prompt}\n\n${stageInstruction(context)}` }],
+          messages: [{ role: 'system', content: academicLanguageInstruction(resolveReteachLanguage(body)) }, { role: 'user', content: `${prompt}\n\n${stageInstruction(context)}` }],
           temperature: context.stage === 'targeted_repair' ? 0.65 : 0.5,
           maxTokens: 650,
           fallbackError: context.providerError,

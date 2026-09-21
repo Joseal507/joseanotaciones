@@ -259,7 +259,7 @@ export async function POST(req: NextRequest) {
       // caso correcto ni en el incorrecto. studentDisplay ahora se usa en
       // ambos casos, así que el feedback siempre puede mostrar qué
       // respondió el estudiante, no solo la respuesta correcta.
-      const studentDisplay = presentAnswer(question, answer)
+      const studentDisplay = presentAnswer(question, answer, materialLanguage)
 
       // Auditoría adversarial (Codex, misión REAL-SESSION QUALITY, C1
       // CONFIRMADO P1): whatWasRight/whatWasWrong se renderizan en la UI
@@ -275,7 +275,7 @@ export async function POST(req: NextRequest) {
         whatWasRight = `${academicVerdict(materialLanguage, 'correct')} ${studentDisplay}`
         feedback = sanitizedExplanation || ''
       } else {
-        const correctDisplay = presentAnswer(question, question.correctAnswer)
+        const correctDisplay = presentAnswer(question, question.correctAnswer, materialLanguage)
 
         whatWasWrong = `${academicVerdict(materialLanguage, 'incorrect')} ${studentDisplay} → ${correctDisplay}`
         feedback = sanitizedExplanation || ''
@@ -295,7 +295,7 @@ export async function POST(req: NextRequest) {
         ...result,
         conceptLabel: question.conceptLabel,
         questionFormat: question.format,
-        correctAnswerDisplay: presentAnswer(question, question.correctAnswer),
+        correctAnswerDisplay: presentAnswer(question, question.correctAnswer, materialLanguage),
         explanation: question.explanation,
       }
     })
