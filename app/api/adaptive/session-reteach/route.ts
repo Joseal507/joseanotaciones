@@ -1,4 +1,4 @@
-import { resolveMaterialLanguage, academicLanguageInstruction } from '../../../../lib/materialLanguage'
+import { resolveMaterialLanguage, academicLanguageInstruction, academicVerdict } from '../../../../lib/materialLanguage'
 import { NextRequest, NextResponse } from 'next/server'
 import { alai, safeParseJson } from '../../../../lib/alai'
 import { prepareReteachContent } from '../../../../lib/adaptive/evaluation/reteachContent'
@@ -581,6 +581,7 @@ Devuelve SOLO JSON sin markdown ni fences:
             evaluationMode: body.evaluationMode || 'mix_everything',
             roundNumber,
             teachingContent,
+            materialLanguage: resolveMaterialLanguage({ materialLanguage: body.materialLanguage, blocks: [{ content: body.allStepsContent || body.objective?.teachingContent }] }),
           })
           // Adaptar al formato RecoveryQuestion con los campos de target
           const fallbackRecoveryQuestions = fallbackQuestions.map(q => ({
@@ -655,10 +656,16 @@ Devuelve SOLO JSON sin markdown ni fences:
 
     // ── Reteach simple (sin verification questions) ───────────────
 
+    // Fallback-only path: correctAnswerDisplay/studentAnswerDisplay normally
+    // arrive already presented (client-side presentAnswer, content-language
+    // aware). When absent, resolve the SAME materialLanguage authority as
+    // the rest of this route instead of hardcoding a language.
+    const reteachSimpleLanguage = resolveMaterialLanguage({ materialLanguage: body.materialLanguage, blocks: [{ content: body.allStepsContent || body.objective?.teachingContent }] })
+
     const correctDisplay = typeof correctAnswerDisplay === 'string' && correctAnswerDisplay.trim()
       ? correctAnswerDisplay
       : typeof correctAnswer === 'boolean'
-        ? (correctAnswer ? 'Verdadero' : 'Falso')
+        ? academicVerdict(reteachSimpleLanguage, correctAnswer ? 'true' : 'false')
         : typeof correctAnswer === 'string'
           ? correctAnswer
           : Array.isArray(correctAnswer)
@@ -668,7 +675,7 @@ Devuelve SOLO JSON sin markdown ni fences:
     const studentDisplay = typeof studentAnswerDisplay === 'string' && studentAnswerDisplay.trim()
       ? studentAnswerDisplay
       : typeof studentAnswer === 'boolean'
-        ? (studentAnswer ? 'Verdadero' : 'Falso')
+        ? academicVerdict(reteachSimpleLanguage, studentAnswer ? 'true' : 'false')
         : typeof studentAnswer === 'string'
           ? studentAnswer
           : Array.isArray(studentAnswer)

@@ -6,6 +6,7 @@ import {
   type GenerationContext,
 } from './questionContract'
 import { validateQuestionTypeForMode } from './evaluationModeContract'
+import type { MaterialLanguage } from '../../materialLanguage'
 
 export interface DeterministicRecoveryFallbackInput {
   sourceQuestion: CanonicalQuestion
@@ -13,6 +14,37 @@ export interface DeterministicRecoveryFallbackInput {
   evaluationMode: unknown
   roundNumber: number
   teachingContent?: string
+  // Content language authority for this recovery round (same resolution as
+  // the LLM path this fallback replaces) — 'und'/unsupported falls back to
+  // English microcopy, never Spanish, so an English material never flips.
+  materialLanguage?: MaterialLanguage
+}
+
+// This deterministic path has no model call to defer to — it needs its own
+// static microcopy. Only the two languages StudyAL actually authors content
+// in are hand-written; anything else (including 'und') resolves to English,
+// which is never a silent mismatch the way defaulting to Spanish would be.
+const FALLBACK_COPY = {
+  en: {
+    genericDistractor: 'An interpretation that does not match the evidence taught.',
+    alternateDistractor: (n: number) => `Alternative interpretation ${n} not supported by the content.`,
+    selectionPrompt: (conceptLabel: string) => `Select the answer supported by the explanation of ${conceptLabel}.`,
+    selectionHint: 'Compare each option against the explanation you just studied.',
+    claimPrompt: (conceptLabel: string, statement: string) => `Based on what you just studied about ${conceptLabel}, this statement is correct: "${statement}"`,
+    claimHint: 'Compare the statement against the explanation you just studied — do not assume it is true.',
+  },
+  es: {
+    genericDistractor: 'Una interpretación que no coincide con la evidencia enseñada.',
+    alternateDistractor: (n: number) => `Interpretación alternativa ${n} no respaldada por el contenido.`,
+    selectionPrompt: (conceptLabel: string) => `Selecciona la respuesta respaldada por la explicación de ${conceptLabel}.`,
+    selectionHint: 'Contrasta cada opción con la explicación que acabas de estudiar.',
+    claimPrompt: (conceptLabel: string, statement: string) => `Según lo que acabas de estudiar sobre ${conceptLabel}, esta afirmación es correcta: "${statement}"`,
+    claimHint: 'Contrasta la afirmación con la explicación que acabas de estudiar, no la des por cierta.',
+  },
+} as const
+
+function fallbackCopy(language: MaterialLanguage | undefined) {
+  return language === 'es' ? FALLBACK_COPY.es : FALLBACK_COPY.en
 }
 
 // Hash de cadena determinista y estable (mismo input => mismo output
@@ -69,18 +101,19 @@ export function validateDeterministicRecoveryFallback(
 export function createDeterministicRecoveryFallback(
   input: DeterministicRecoveryFallbackInput,
 ): CanonicalQuestion[] {
-  const { sourceQuestion, roundNumber } = input
-  const expected = presentAnswer(sourceQuestion, sourceQuestion.correctAnswer)
-  const student = presentAnswer(sourceQuestion, input.studentAnswer)
+  const { sourceQuestion, roundNumber, materialLanguage } = input
+  const copy = fallbackCopy(materialLanguage)
+  const expected = presentAnswer(sourceQuestion, sourceQuestion.correctAnswer, materialLanguage)
+  const student = presentAnswer(sourceQuestion, input.studentAnswer, materialLanguage)
   const labels = uniqueLabels([
     expected,
     student,
     ...sourceOptionLabels(sourceQuestion),
-    'Una interpretación que no coincide con la evidencia enseñada.',
+    copy.genericDistractor,
   ])
   const distractors = labels.filter(label => label !== expected).slice(0, 3)
   while (distractors.length < 2) {
-    distractors.push(`Interpretación alternativa ${distractors.length + 1} no respaldada por el contenido.`)
+    distractors.push(copy.alternateDistractor(distractors.length + 1))
   }
   const prefix = `${sourceQuestion.id}:recovery:${roundNumber}`
   const explanation = input.teachingContent?.trim() || sourceQuestion.explanation
@@ -95,14 +128,14 @@ export function createDeterministicRecoveryFallback(
       difficulty: 'medium',
       targetDimension: 'recognition',
       format: 'multiple_choice',
-      questionText: `Selecciona la respuesta respaldada por la explicación de ${sourceQuestion.conceptLabel}.`,
+      questionText: copy.selectionPrompt(sourceQuestion.conceptLabel),
       options: [
         { id: 'expected', text: expected },
         ...distractors.map((text, index) => ({ id: `distractor_${index + 1}`, text })),
       ],
       correctAnswer: 'expected',
       explanation,
-      hint: 'Contrasta cada opción con la explicación que acabas de estudiar.',
+      hint: copy.selectionHint,
       estimatedSeconds: 30,
       evidencesNeeded: 1,
       factKey: `${prefix}:selection`,
@@ -130,11 +163,11 @@ export function createDeterministicRecoveryFallback(
         difficulty: 'easy',
         targetDimension: 'recognition',
         format: 'true_false',
-        questionText: `Según lo que acabas de estudiar sobre ${sourceQuestion.conceptLabel}, esta afirmación es correcta: "${claimStatement}"`,
+        questionText: copy.claimPrompt(sourceQuestion.conceptLabel, claimStatement),
         options: null,
         correctAnswer: !claimUsesDistractor,
         explanation,
-        hint: 'Contrasta la afirmación con la explicación que acabas de estudiar, no la des por cierta.',
+        hint: copy.claimHint,
         estimatedSeconds: 20,
         evidencesNeeded: 1,
         factKey: `${prefix}:claim`,

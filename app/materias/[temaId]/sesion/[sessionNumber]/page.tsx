@@ -21,6 +21,7 @@ import { FillBlankPresentation } from "../../../../../components/quiz/FillBlankP
 import { AlaiSessionChat, type AlaiChatMessage } from "../../../../../components/materias/AlaiSessionChat"
 import { isAdministrativeQuery } from "../../../../../lib/adaptive/evaluation/chatAssistanceClassifier"
 import { presentAnswer } from "../../../../../lib/adaptive/evaluation/answerPresentation"
+import { academicVerdict } from "../../../../../lib/materialLanguage"
 import {
   beginRecoveryReteach,
   beginRecoveryVerification,
@@ -1141,8 +1142,8 @@ export default function SessionPage() {
           activeRecovery: activeRecoveryItem ? {
             conceptLabel: activeRecoveryItem.conceptLabel,
             originalQuestionText: sourceFailure?.question?.questionText || "",
-            studentAnswerDisplay: sourceFailure ? presentAnswer(sourceFailure.question, sourceFailure.answer) : "",
-            correctAnswerDisplay: sourceFailure ? presentAnswer(sourceFailure.question, sourceFailure.question.correctAnswer) : "",
+            studentAnswerDisplay: sourceFailure ? presentAnswer(sourceFailure.question, sourceFailure.answer, sessionData?.blueprint?.materialLanguage) : "",
+            correctAnswerDisplay: sourceFailure ? presentAnswer(sourceFailure.question, sourceFailure.question.correctAnswer, sessionData?.blueprint?.materialLanguage) : "",
             errorType: activeRecoveryItem.latestErrorType || undefined,
             reteachContent: reteachingContent || undefined,
           } : null,
@@ -2084,8 +2085,8 @@ export default function SessionPage() {
           failedKeyPoints: (sourceQuestion as SessionEvaluationQuestion).coveredKeyPoints || item.latestFactKeys,
           studentAnswer: sourceFailure.answer,
           correctAnswer: sourceQuestion.correctAnswer,
-          studentAnswerDisplay: presentAnswer(sourceQuestion, sourceFailure.answer),
-          correctAnswerDisplay: presentAnswer(sourceQuestion, sourceQuestion.correctAnswer),
+          studentAnswerDisplay: presentAnswer(sourceQuestion, sourceFailure.answer, sessionData?.blueprint?.materialLanguage),
+          correctAnswerDisplay: presentAnswer(sourceQuestion, sourceQuestion.correctAnswer, sessionData?.blueprint?.materialLanguage),
           questionText: sourceQuestion.questionText,
           feedback: sourceFailure.result.feedback,
           previousQuestions: [...item.failures.map(failure => failure.question), ...item.checks.map(check => check.question)],
@@ -2097,8 +2098,8 @@ export default function SessionPage() {
           // el resultado completos de cada fallo real de este target.
           priorFailuresSummary: item.failures.map(failure => ({
             questionText: failure.question.questionText,
-            studentAnswerDisplay: presentAnswer(failure.question, failure.answer),
-            correctAnswerDisplay: presentAnswer(failure.question, failure.question.correctAnswer),
+            studentAnswerDisplay: presentAnswer(failure.question, failure.answer, sessionData?.blueprint?.materialLanguage),
+            correctAnswerDisplay: presentAnswer(failure.question, failure.question.correctAnswer, sessionData?.blueprint?.materialLanguage),
             errorType: failure.result.errorType || null,
           })),
           previousReteachFingerprints: item.reteachContentHistory,
@@ -3359,8 +3360,8 @@ export default function SessionPage() {
             })} style={{ textAlign: "left", padding: "14px 16px", background: selected ? "rgba(59,130,246,0.18)" : "rgba(15,23,42,0.6)", color: "#e2e8f0", border: selected ? "1px solid #60a5fa" : "1px solid rgba(148,163,184,0.2)", borderRadius: 10, cursor: "pointer", fontSize: 15 }}><AcademicContent content={option.text} inline /></button>
           })}</div>}
 
-          {/* TRUE/FALSE */}
-          {currentQuestion.format === "true_false" && <div style={{ display: "grid", gap: 12 }}>{["true", "false"].map(v => <button key={v} onClick={() => setUserAnswer(v === "true")} style={{ textAlign: "left", padding: "14px 16px", background: userAnswer === (v === "true") ? "rgba(59,130,246,0.18)" : "rgba(15,23,42,0.6)", color: "#e2e8f0", border: userAnswer === (v === "true") ? "1px solid #60a5fa" : "1px solid rgba(148,163,184,0.2)", borderRadius: 10, cursor: "pointer", fontSize: 15 }}>{v === "true" ? "Verdadero" : "Falso"}</button>)}</div>}
+          {/* TRUE/FALSE — labels follow the question's content language, never the UI locale */}
+          {currentQuestion.format === "true_false" && <div style={{ display: "grid", gap: 12 }}>{["true", "false"].map(v => <button key={v} onClick={() => setUserAnswer(v === "true")} style={{ textAlign: "left", padding: "14px 16px", background: userAnswer === (v === "true") ? "rgba(59,130,246,0.18)" : "rgba(15,23,42,0.6)", color: "#e2e8f0", border: userAnswer === (v === "true") ? "1px solid #60a5fa" : "1px solid rgba(148,163,184,0.2)", borderRadius: 10, cursor: "pointer", fontSize: 15 }}>{academicVerdict(sessionData?.blueprint?.materialLanguage || "und", v === "true" ? "true" : "false")}</button>)}</div>}
 
           {/* WORD BANK — el questionText completo (con "___" en las posiciones de
               hueco) se parsea UNA sola vez a través de AcademicContent. Dos
@@ -3555,7 +3556,7 @@ export default function SessionPage() {
               return correctOpt ? <span style={{ fontWeight: 700, color: "#34d399" }}><AcademicContent content={correctOpt.text} inline /></span> : null
             }
             if (q.format === "true_false") {
-              return <span style={{ fontWeight: 700, color: "#34d399" }}>{q.correctAnswer === true ? "Verdadero" : "Falso"}</span>
+              return <span style={{ fontWeight: 700, color: "#34d399" }}>{academicVerdict(sessionData?.blueprint?.materialLanguage || "und", q.correctAnswer === true ? "true" : "false")}</span>
             }
             if (q.format === "multi_select") {
               const correctIds = Array.isArray(q.correctAnswer) ? q.correctAnswer as string[] : []

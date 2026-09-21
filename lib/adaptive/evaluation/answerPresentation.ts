@@ -1,4 +1,5 @@
 import type { CanonicalQuestion, CanonicalUserAnswer } from './questionContract'
+import { academicVerdict, type MaterialLanguage } from '../../materialLanguage'
 
 const choiceLabel = (
   question: CanonicalQuestion,
@@ -15,8 +16,12 @@ const choiceLabel = (
 export function presentAnswer(
   question: CanonicalQuestion,
   answer: CanonicalUserAnswer,
+  // Content language belongs to the material/question, never the UI — a
+  // caller that has resolved it (session-check, recovery/reteach summaries)
+  // must pass it through. 'und' is a neutral default, never Spanish.
+  language: MaterialLanguage = 'und',
 ): string {
-  if (typeof answer === 'boolean') return answer ? 'Verdadero' : 'Falso'
+  if (typeof answer === 'boolean') return academicVerdict(language, answer ? 'true' : 'false')
   if (typeof answer === 'string') return choiceLabel(question, answer) ?? answer
   if (Array.isArray(answer)) {
     return answer.map(id => choiceLabel(question, id)).filter((label): label is string => Boolean(label)).join(', ')
