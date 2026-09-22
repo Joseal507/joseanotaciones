@@ -5,8 +5,8 @@ import { AcademicContent } from '../academic/AcademicContent'
 import type { SourceSelectionSnapshot } from '../../lib/adaptive/sourceSelection'
 import type { PageStudyView } from '../../lib/pageStudy/view'
 import {
-  PAGE_STUDY_BLOCK_PRESETS,
   PAGE_STUDY_DEFAULT_BLOCK_SIZE,
+  adaptiveBlockSizeOptions,
   compactPageList,
   normalizePublicTurns,
   safePageStudyMessage,
@@ -20,6 +20,7 @@ interface MaterialOption {
   nombre?: string
   name?: string
   text_status?: string
+  pages_count?: number
 }
 
 interface PreparationGroup {
@@ -144,6 +145,7 @@ export default function PageStudyMode({ temaId, materiales, initialSelectedIds =
   const [setupRetry, setSetupRetry] = useState(false)
   const [retryRequest, setRetryRequest] = useState<{ request: TurnRequest; groups?: PreparationGroup[] } | null>(null)
   const [blockChoice, setBlockChoice] = useState<number | 'custom'>(PAGE_STUDY_DEFAULT_BLOCK_SIZE)
+  const [blockChoiceTouched, setBlockChoiceTouched] = useState(false)
   const [customBlockSize, setCustomBlockSize] = useState('15')
   const [overviewOpen, setOverviewOpen] = useState(true)
   const actionLockRef = useRef(false)
@@ -151,7 +153,14 @@ export default function PageStudyMode({ temaId, materiales, initialSelectedIds =
   const listRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
 
-  const blockSize = blockChoice === 'custom' ? validatePageStudyBlockSize(customBlockSize) : blockChoice
+  // Phase 5I: the block-size step adapts to the ACTUAL selected materials — a tiny document never
+  // offers a 5/10/15/20 choice that all resolve to the same one-block plan anyway.
+  const blockPlan = useMemo(() => adaptiveBlockSizeOptions(orderedIds.map(id => options.find(option => option.id === id)?.raw.pages_count)), [orderedIds, options])
+  useEffect(() => {
+    if (blockChoiceTouched) return
+    setBlockChoice(blockPlan.recommended)
+  }, [blockPlan, blockChoiceTouched])
+  const blockSize = blockPlan.mode === 'full' ? blockPlan.recommended : (blockChoice === 'custom' ? validatePageStudyBlockSize(customBlockSize) : blockChoice)
   const names = useMemo(() => new Map((view?.materials || []).map(material => [material.materialId, material.name])), [view])
 
   const applyState = useCallback((payload: StateResponse) => {
@@ -341,12 +350,16 @@ export default function PageStudyMode({ temaId, materiales, initialSelectedIds =
             })}
           </div>
 
-          <div className="ps-setup-copy ps-block-copy"><span>Paso 2</span><h2>Tamaño de cada bloque</h2><p>15 páginas funciona bien para la mayoría de materiales.</p></div>
-          <div className="ps-block-options" role="radiogroup" aria-label="Páginas por bloque">
-            {PAGE_STUDY_BLOCK_PRESETS.map(size => <button key={size} type="button" role="radio" aria-checked={blockChoice === size} className={blockChoice === size ? 'active' : ''} onClick={() => setBlockChoice(size)}>{size} páginas</button>)}
-            <button type="button" role="radio" aria-checked={blockChoice === 'custom'} className={blockChoice === 'custom' ? 'active' : ''} onClick={() => setBlockChoice('custom')}>Personalizado</button>
-          </div>
-          {blockChoice === 'custom' && <label className="ps-custom-size">Páginas por bloque<input value={customBlockSize} onChange={event => setCustomBlockSize(event.target.value)} inputMode="numeric" type="number" min={1} max={50} aria-invalid={blockSize === null} />{blockSize === null && <span>Escribe un número entre 1 y 50.</span>}</label>}
+          <div className="ps-setup-copy ps-block-copy"><span>Paso 2</span><h2>Tamaño de cada bloque</h2><p>{blockPlan.mode === 'full' ? 'Este material es corto: lo estudiamos completo, sin dividirlo en bloques.' : '15 páginas funciona bien para la mayoría de materiales.'}</p></div>
+          {blockPlan.mode === 'full'
+            ? <div className="ps-block-full" role="status">{blockPlan.fullLabel}</div>
+            : <>
+                <div className="ps-block-options" role="radiogroup" aria-label="Páginas por bloque">
+                  {blockPlan.choices.map(choice => <button key={choice.size} type="button" role="radio" aria-checked={blockChoice === choice.size} className={blockChoice === choice.size ? 'active' : ''} onClick={() => { setBlockChoice(choice.size); setBlockChoiceTouched(true) }}>{choice.label}</button>)}
+                  {blockPlan.showCustom && <button type="button" role="radio" aria-checked={blockChoice === 'custom'} className={blockChoice === 'custom' ? 'active' : ''} onClick={() => { setBlockChoice('custom'); setBlockChoiceTouched(true) }}>Personalizado</button>}
+                </div>
+                {blockChoice === 'custom' && <label className="ps-custom-size">Páginas por bloque<input value={customBlockSize} onChange={event => setCustomBlockSize(event.target.value)} inputMode="numeric" type="number" min={1} max={50} aria-invalid={blockSize === null} />{blockSize === null && <span>Escribe un número entre 1 y 50.</span>}</label>}
+              </>}
 
           {error && <div className="ps-error" role="alert"><span>⚠️ {error}</span>{setupRetry && <button type="button" onClick={startNewPlan} disabled={busy}>Reintentar</button>}</div>}
           <div className="ps-start-row"><span>{orderedIds.length} {orderedIds.length === 1 ? 'material' : 'materiales'} · {blockSize ?? '—'} páginas por bloque</span><button type="button" className="ps-primary" onClick={startNewPlan} disabled={busy || !orderedIds.length || blockSize === null}>{busy ? (preparing ? 'Preparando materiales…' : 'Creando tu estudio…') : 'Empezar a estudiar →'}</button></div>
@@ -392,7 +405,7 @@ export default function PageStudyMode({ temaId, materiales, initialSelectedIds =
           </section>
 
           {overviewOpen && <aside className="ps-context" aria-label="Contexto y progreso del estudio">
-            <div className="ps-progress-card"><div><span>COBERTURA</span><strong>{view.coverage.planPct}% estudiado</strong></div><div className="ps-progress-track"><span style={{ width: `${view.coverage.planPct}%` }} /></div><small>{view.coverage.pagesDone} de {view.coverage.pagesTotal} páginas recorridas</small></div>
+            <div className="ps-progress-card"><div><span>COBERTURA</span><strong>{view.coverage.planPct}% del contenido</strong></div><div className="ps-progress-track"><span style={{ width: `${view.coverage.planPct}%` }} /></div><small>{view.coverage.pagesDone} de {view.coverage.pagesTotal} páginas completas</small></div>
             {view.pending && <div className="ps-pending-note">ALAI espera tu respuesta en la conversación.</div>}
             <div className="ps-context-section"><h2>Plan de estudio</h2><div className="ps-block-list">
               {view.blocks.map(block => <div className={`ps-block ${block.phase}`} key={`${block.materialId}:${block.index}`}><span>{block.phase === 'studied' ? '✓' : block.phase === 'current' ? '●' : '○'}</span><div><strong title={block.materialName}>{block.materialName}</strong><small>Páginas {block.pageStart}–{block.pageEnd}</small></div></div>)}
@@ -416,6 +429,7 @@ function PageStudyStyles() {
     .ps-setup-root{overflow:auto}.ps-setup-card{width:min(980px,calc(100% - 28px));margin:24px auto 40px;padding:clamp(20px,3vw,36px);border:1px solid var(--border-color);border-radius:22px;background:color-mix(in srgb,var(--bg-card) 88%,transparent);box-shadow:0 24px 70px rgba(0,0,0,.25)}
     .ps-setup-copy span{font-size:11px;color:#38bdf8;font-weight:800;text-transform:uppercase;letter-spacing:.12em}.ps-setup-copy h2{font:800 25px var(--font-hand);margin:4px 0}.ps-setup-copy p{margin:0 0 16px;color:var(--text-muted)}.ps-block-copy{margin-top:30px}
     .ps-material-picker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;max-height:330px;overflow:auto;padding:3px}.ps-material-option{display:flex;min-width:0;border:1px solid var(--border-color);border-radius:14px;background:var(--bg-primary)}.ps-material-option.selected{border-color:#38bdf8;background:rgba(56,189,248,.08)}.ps-material-toggle{flex:1;min-width:0;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;border:0;background:transparent;color:var(--text-primary);padding:12px;text-align:left;cursor:pointer}.ps-material-toggle>span:last-child{font-size:12px;color:var(--text-muted)}.ps-order-badge{width:28px;height:28px;display:grid;place-items:center;border-radius:50%;background:rgba(56,189,248,.16);color:#7dd3fc;font-weight:900}.ps-material-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.ps-reorder{display:flex;align-items:center;padding-right:8px;gap:4px}.ps-reorder button{width:32px;height:32px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-card);color:var(--text-primary);cursor:pointer}.ps-reorder button:disabled{opacity:.3;cursor:not-allowed}
+    .ps-block-full{padding:11px 15px;border:1px solid var(--border-color);border-radius:12px;background:rgba(56,189,248,.08);color:#7dd3fc;font-weight:700;display:inline-block}
     .ps-block-options{display:flex;gap:9px;flex-wrap:wrap}.ps-block-options button{min-height:42px;padding:8px 15px;border:1px solid var(--border-color);border-radius:12px;background:var(--bg-primary);color:var(--text-primary);font-weight:700;cursor:pointer}.ps-block-options button.active{border-color:#38bdf8;background:rgba(56,189,248,.13);color:#7dd3fc}.ps-custom-size{display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}.ps-custom-size input{width:100px;min-height:42px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-primary);color:var(--text-primary);padding:8px 10px;font-size:16px}.ps-custom-size span{color:#fca5a5;font-size:13px}.ps-start-row{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:30px;padding-top:20px;border-top:1px solid var(--border-color);color:var(--text-muted)}.ps-primary{min-height:44px;padding:10px 20px;border:0;border-radius:12px;background:linear-gradient(135deg,#38bdf8,#818cf8);color:#071018;font-weight:900;cursor:pointer;box-shadow:0 8px 25px rgba(56,189,248,.22)}.ps-primary:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
     .ps-header-progress{display:flex;flex-direction:column;align-items:flex-end;min-width:76px}.ps-header-progress strong{font-size:20px;color:#7dd3fc}.ps-header-progress span{font-size:11px;color:var(--text-muted)}.ps-workspace-grid{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,320px);gap:14px;padding:14px}.ps-workspace-grid.context-collapsed{grid-template-columns:minmax(0,1fr)}
     .ps-chat{min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid var(--border-color);border-radius:18px;background:color-mix(in srgb,var(--bg-card) 76%,transparent);overflow:hidden}.ps-messages{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:clamp(16px,3vw,34px)}.ps-turn{display:flex;flex-direction:column;gap:14px;margin-bottom:24px}.ps-message{min-width:0;max-width:min(820px,88%);border-radius:17px;padding:15px 17px}.ps-alai{align-self:flex-start;background:var(--bg-primary);border:1px solid var(--border-color)}.ps-user{align-self:flex-end;background:rgba(56,189,248,.13);border:1px solid rgba(56,189,248,.28)}.ps-speaker{font-size:11px;font-weight:900;letter-spacing:.1em;color:#7dd3fc;margin-bottom:8px}.ps-user .ps-speaker{color:var(--text-muted);text-align:right}.ps-message-content{min-width:0;overflow-wrap:anywhere;line-height:1.62}.ps-message-content [data-academic-content]{max-width:100%}.ps-message-content pre,.ps-message-content table,.ps-message-content [role=math]{max-width:100%;overflow-x:auto}.ps-message-content table{border-collapse:collapse}.ps-message-content th,.ps-message-content td{border:1px solid var(--border-color);padding:7px}.ps-message-content h1,.ps-message-content h2,.ps-message-content h3{font-family:var(--font-hand);line-height:1.2}.ps-message-content pre{padding:12px;border-radius:10px;background:#0b0b10}.ps-sources{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--border-color)}.ps-source{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 9px;border-radius:999px;background:rgba(56,189,248,.08);color:#9bdcf7;font-size:11px}

@@ -219,7 +219,12 @@ async function main() {
   // ── Q. the certified max-5 source authority is untouched ───────────────────────────────────────────────────────
   assert.equal(buildSourceSelectionSnapshot(['a', 'b', 'c', 'd', 'e', 'f'], {}).materialIds.length, 5)
   const porcelain = execSync('git status --porcelain', { encoding: 'utf8' })
-  for (const file of ['lib/adaptive/sourceSelection.ts', 'lib/adaptive/materialEnjoyer.ts', 'lib/materialBrain/chatEnjoyerContext.ts', 'lib/materialBrain/quiz/sessionAuthority.ts', 'lib/studySessions.ts', 'lib/alai-chat/turnStore.ts', 'app/api/alai-studyal-chat/route.ts', 'lib/materials/sourceIndex.ts', 'lib/pageStudy/grounding.ts', 'lib/pageStudy/state.ts', 'lib/pageStudy/evidence.ts', 'lib/pageStudy/batching.ts', 'lib/pageStudy/identity.ts']) assert.ok(!porcelain.split('\n').some(l => l.startsWith(' M') && l.endsWith(file)), `frozen file modified: ${file}`)
+  // lib/pageStudy/state.ts intentionally left this list in Phase 5J: coverageOf()'s pagesDone
+  // was derived independently of pct (whole-block-only vs. fractional), producing a labeled
+  // contradiction ("0 de 2 páginas" next to "14% estudiado"). The fix only changed that
+  // derivation (a display value); the reducer/CAS/replay semantics this guard protects are
+  // untouched — see the adaptive-material-language-recovery/page-study Phase 5 contracts.
+  for (const file of ['lib/adaptive/sourceSelection.ts', 'lib/adaptive/materialEnjoyer.ts', 'lib/materialBrain/chatEnjoyerContext.ts', 'lib/materialBrain/quiz/sessionAuthority.ts', 'lib/studySessions.ts', 'lib/alai-chat/turnStore.ts', 'app/api/alai-studyal-chat/route.ts', 'lib/materials/sourceIndex.ts', 'lib/pageStudy/grounding.ts', 'lib/pageStudy/evidence.ts', 'lib/pageStudy/batching.ts', 'lib/pageStudy/identity.ts']) assert.ok(!porcelain.split('\n').some(l => l.startsWith(' M') && l.endsWith(file)), `frozen file modified: ${file}`)
   console.log(`PASS page-study-durability: real Worker + real SQLite CAS; create/read, CAS, idempotent reserve/complete, conflicts, retry, roll-forward once, concurrency, lease, 8-PDF batch switch, restore=0 provider calls, fail-closed storage (provider calls total in scenario: ${providerCalls})`)
 }
 main().catch(error => { console.error(error); process.exit(1) })

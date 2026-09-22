@@ -18,7 +18,47 @@ const T = {
 } as const
 
 export const PAGES = 30
-export interface WorldOptions { pdfs?: number; lang?: Lang; blockSize?: number }
+export type FixtureCorpus = ReturnType<typeof makeCorpus>
+export interface WorldOptions { pdfs?: number; lang?: Lang; blockSize?: number; corpus?: FixtureCorpus }
+
+/**
+ * A literal-content fixture corpus for domain-realistic probes (Phase 5 Blocker 3): unlike
+ * `makeCorpus` (one generic synthetic "hybridization" unit per page, 30 pages), this takes
+ * real authored concepts with their own page/label/summary/quote, so probes can assert on
+ * actual domain content (chemistry/math/history/Falcons-style text) instead of synthetic markers.
+ */
+export interface FixtureConcept { id: string; page: number; label: string; summary: string; quote: string; kind?: string }
+export interface FixtureMaterialSpec { materialId: string; name: string; lang?: Lang; pageCount: number; concepts: FixtureConcept[] }
+export function buildFixtureCorpus(materialsSpec: FixtureMaterialSpec[], blockSize: number): FixtureCorpus {
+  const lang = materialsSpec[0]?.lang ?? 'es'
+  const pageQuote = (i: number, p: number) => {
+    const spec = materialsSpec[i - 1]
+    return spec?.concepts.filter(c => c.page === p).map(c => c.quote).join(' ') || `[página ${p} sin contenido de fixture]`
+  }
+  const rawText = (i: number) => {
+    const spec = materialsSpec[i - 1]
+    return range(1, spec.pageCount).map(p => `[Página ${p}]\n${pageQuote(i, p)}`).join('\n\f\n')
+  }
+  const units = (i: number) => {
+    const spec = materialsSpec[i - 1]
+    return spec.concepts.map(c => ({
+      id: c.id, kind: c.kind ?? 'concept', label: c.label, summary: c.summary, importance: 80, difficulty: 'basic',
+      materialId: spec.materialId, topicId: `${spec.materialId}-t1`, pages: [c.page], sourceSpans: [{ page: c.page, quote: c.quote }], misconceptions: [], globalOrder: c.page * 10,
+    }))
+  }
+  const topics = (i: number) => { const spec = materialsSpec[i - 1]; return [{ id: `${spec.materialId}-t1`, title: spec.name, pages: range(1, spec.pageCount), materialId: spec.materialId }] }
+  const materials = materialsSpec.map(spec => ({ materialId: spec.materialId, name: spec.name, selectedPages: [] as number[] }))
+  const universe = Object.fromEntries(materialsSpec.map(spec => [spec.materialId, range(1, spec.pageCount)]))
+  const payloadFor = (materialIds: string[], selection: ReturnType<typeof buildSourceSelectionSnapshot>) => ({
+    blueprint: {
+      sourceSelectionFingerprint: selection.fingerprint, materialIds, selectedPages: selection.selectedPages, materialLanguage: lang,
+      topicsIndex: materialIds.flatMap(id => topics(materialsSpec.findIndex(s => s.materialId === id) + 1)),
+      globalOrderedAnalysis: materialIds.flatMap(id => units(materialsSpec.findIndex(s => s.materialId === id) + 1)),
+      uniqueConceptsIndex: [],
+    },
+  })
+  return { lang, pdfs: materialsSpec.length, materials, universe, pageQuote, rawText, payloadFor, blockSize }
+}
 
 /** A synthetic corpus: every PDF has 30 pages, every page has a unique FUT-i-p marker, and PDF 1 carries cross-boundary (14–17) targets. */
 export function makeCorpus(opts: WorldOptions = {}) {
@@ -65,7 +105,7 @@ export function defaultScript(ctx: ScriptContext): string {
   if (/^NOMARK/.test(m)) return `Respuesta sin marcadores.`
   if (/^EXTERNAL/.test(m)) return `[[U:question]] [[E:1]] [[T:${ctx.chunk.join(',')}]] Por conocimiento general (no del PDF): ...`
   if (/^ASKWHILEPENDING/.test(m)) return `[[U:clarify]] [[A:open|K1]] Aclaración y una pregunta nueva que debe ignorarse.`
-  if (ctx.move === 'ASK' || ctx.move === 'BLOCK_REVIEW' || ctx.move === 'RETEST') return `[[U:chat]] [[A:short|${ctx.handles[0] || 'K1'}]] A ver si quedó claro: ¿qué recuerdas de esto?`
+  if (ctx.move === 'ASK' || ctx.move === 'BLOCK_REVIEW' || ctx.move === 'RETEST' || ctx.move === 'REMEDIATE') return `[[U:chat]] [[A:short|${ctx.handles[0] || 'K1'}]] A ver si quedó claro: ¿qué recuerdas de esto?`
   if (ctx.move === 'RECALL') return `[[U:chat]] [[A:short|${ctx.handles[0] || 'R1'}]] Antes de seguir, ¿recuerdas cuántos p quedan en sp2?`
   if (ctx.move === 'TEACH') return `[[U:chat]] ${chunk}Siguiente idea, explicada con calma.`
   return `[[U:chat]] Listo. ¿Seguimos?`
@@ -80,7 +120,7 @@ export function parsePrompt(prompt: string): ScriptContext {
 }
 
 export async function makeWorld(opts: WorldOptions & { userId?: string } = {}) {
-  const corpus = makeCorpus(opts)
+  const corpus = opts.corpus ?? makeCorpus(opts)
   const w = makeWorker()
   const userId = opts.userId ?? 'u1'
   const counters = { calls: 0, prompts: [] as string[], lookups: [] as string[], loads: [] as string[] }

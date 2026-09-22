@@ -1,6 +1,6 @@
 import type { AskKind, TutorMarkers, TurnRole } from './turnIntent'
 import type { DeterministicIntent } from './turnIntent'
-import { clip } from './evidence'
+import { clip, isWeak } from './evidence'
 import { currentBlock, dueRechecks } from './state'
 import type { GroundedUnit } from './grounding'
 import type { PageStudyState, StateOp, UnitMeta, Verdict } from './types'
@@ -119,7 +119,16 @@ export function deriveTurn(input: DerivationInput): Derived {
   const taughtCount = (progress?.taught.length ?? 0) + (progress?.projected.length ?? 0) + taught.length
   const untaughtLeft = units.filter(u => !taught.includes(u.unitRef)).length
   const noPendingAfter = !askedRef && !pendingAfter
-  if (!complete && progress && !progress.wrapped && untaughtLeft === 0 && taughtCount > 0 && noPendingAfter && progress.evalAsked >= Math.min(2, taughtCount)) ops.push({ op: 'wrap', blockKey: block.blockKey })
+  // Phase 5: do not wrap while an important weak concept still owes its ONE bounded remediation
+  // pass. Excludes the concept THIS turn's own answer just resolved (its post-answer weak/attempt
+  // state isn't reflected in `state` yet — the next turn's fresh suggestMove reconsiders it with
+  // up-to-date evidence). Without this gate, the block auto-wrapped the instant BLOCK_REVIEW's
+  // cumulative-check cap was reached, racing ahead of the REMEDIATE step and permanently skipping
+  // it for any concept that had already missed earlier in the block.
+  const remediationOwed = progress ? [...progress.taught, ...progress.projected]
+    .filter(ref => !answeredUnitRefs.includes(ref))
+    .some(ref => { const c = state.concepts[ref]; return c && isWeak(c) && c.attempts.length <= 1 }) : false
+  if (!complete && progress && !progress.wrapped && untaughtLeft === 0 && taughtCount > 0 && noPendingAfter && progress.evalAsked >= Math.min(2, taughtCount) && !remediationOwed) ops.push({ op: 'wrap', blockKey: block.blockKey })
   if (!complete && role === 'command' && deterministic.command === 'continue' && progress?.wrapped && !pending) complete = { forced: false }
   if (input.isStart && units.length === 0 && !complete) complete = { forced: false }   // a block with nothing teachable is skipped, never re-started forever
   if (complete) ops.push({ op: 'complete', blockKey: block.blockKey, forced: complete.forced })

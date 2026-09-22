@@ -68,10 +68,21 @@ export function coverageOf(s: PageStudyState): {
   const pagesTotal = s.plan.blocks.reduce((n, b) => n + b.pages.length, 0)
   const done = s.plan.blocks.filter(b => s.progress[b.blockKey]?.status === 'done').reduce((n, b) => n + b.pages.length, 0)
   const partial = block ? (block.pages.length * bPct) / 100 : 0
+  const planPct = pagesTotal ? Math.min(100, Math.round((100 * (done + partial)) / pagesTotal)) : 100
+  // "pagesDone" is a LITERAL, discrete count of pages whose block has truly finished — never
+  // derived from `planPct`. An earlier fix tried deriving pagesDone from planPct (rounding the
+  // fraction to a page count) to make the two numbers agree on screen; that was mathematically
+  // consistent but semantically dishonest: for a 2-page block, planPct=25% rounds to
+  // pagesDone=1, claiming a whole page finished when in truth zero pages have. There is no
+  // per-page unit total in this state to compute TRUE sub-block page traversal (a concept only
+  // records the pages it touches once it is taught, not the total units a page still owes), so
+  // rather than fabricate that precision, pagesDone stays a plain whole-block completion count
+  // and planPct stays continuous content coverage — two intentionally different, both truthful,
+  // metrics. The UI must label them as different things, not imply they are the same fraction.
   const concepts = Object.values(s.concepts)
   return {
     block: { taught: p?.taught.length || 0, projected: p?.projected.length || 0, total, pct: bPct },
-    plan: { pagesDone: done, pagesTotal, pct: pagesTotal ? Math.min(100, Math.round((100 * (done + partial)) / pagesTotal)) : 100 },
+    plan: { pagesDone: done, pagesTotal, pct: planPct },
     concepts: { checked: concepts.filter(isChecked).length, taught: concepts.length, demonstrated: concepts.filter(c => ['demonstrated', 'retained'].includes(conceptStatus(c))).length },
   }
 }

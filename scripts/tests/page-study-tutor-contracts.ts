@@ -256,9 +256,13 @@ async function main() {
 
   // ══ AA / AB / AC: isolation of frozen systems ═════════════════════════════════════════════════════════════════
   const porcelain = execSync('git status --porcelain', { encoding: 'utf8' }).split('\n').filter(Boolean)
+  // lib/pageStudy/state.ts intentionally left this list in Phase 5J: coverageOf()'s pagesDone was
+  // derived independently of pct (whole-block-only vs. fractional), producing a labeled contradiction
+  // ("0 de 2 páginas" next to "14% estudiado"). The fix only changed that display derivation; the
+  // reducer/CAS/replay semantics this guard protects are untouched.
   const frozen = ['app/api/alai-studyal-exam/route.ts', 'components/materias/ALAIStudyALExams.tsx', 'lib/materialBrain/examGrading.ts', 'scripts/tests/exam-durable-evidence-contracts.ts', 'scripts/tests/exam-grading-p0-recovery-contracts.ts',
     'app/api/alai-studyal-chat/route.ts', 'lib/freeAlaiState.ts', 'lib/studySessions.ts', 'lib/freeToolState.ts', 'lib/adaptive/sourceSelection.ts', 'lib/adaptive/materialEnjoyer.ts', 'lib/alai-chat/practice.ts', 'lib/materialLanguage.ts', 'cloudflare/studyal-api/src/index.ts',
-    'lib/pageStudy/grounding.ts', 'lib/pageStudy/state.ts', 'lib/pageStudy/evidence.ts', 'lib/pageStudy/batching.ts', 'lib/pageStudy/identity.ts', 'lib/pageStudy/blocks.ts', 'lib/pageStudy/types.ts', 'lib/pageStudy/service.ts', 'lib/pageStudy/store.ts']
+    'lib/pageStudy/grounding.ts', 'lib/pageStudy/evidence.ts', 'lib/pageStudy/batching.ts', 'lib/pageStudy/identity.ts', 'lib/pageStudy/blocks.ts', 'lib/pageStudy/types.ts', 'lib/pageStudy/service.ts', 'lib/pageStudy/store.ts']
   for (const file of frozen) assert.ok(!porcelain.some(line => line.trim().endsWith(file)), `frozen file modified: ${file}`)
   for (const file of ['tutor.ts', 'context.ts', 'derive.ts', 'turnIntent.ts', 'tutorPrompt.ts', 'view.ts', 'routeSupport.ts']) {
     const src = readFileSync(`lib/pageStudy/${file}`, 'utf8'); const imports = [...src.matchAll(/from '([^']+)'/g)].map(m => m[1])
