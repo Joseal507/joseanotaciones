@@ -129,6 +129,11 @@ async function installFixture(page: Page) {
     turns.push(turn)
     await json(route, { success: true, view: currentView, turn })
   })
+  // Phase 6F: TemaView's resumable-session discovery hits GET /api/page-study-plan/resume, which
+  // the broad '**/api/page-study-plan**' route above also matches — registered LAST so it wins
+  // (Playwright resolves overlapping routes in reverse registration order) and answers read-only
+  // (no session discovered in this fixture) instead of falling into the POST-only setup handler.
+  await page.route('**/api/page-study-plan/resume**', route => json(route, { success: true, exists: false }))
 
   return {
     turns,
@@ -160,12 +165,9 @@ test('Phase 4 real UI: setup, durable chat, retry, restore, transition and respo
   for (const name of materialNames.slice(1)) await page.getByRole('button', { name: new RegExp(`${name.replace('.', '\\.')}.*Añadir`) }).click()
   await expect(page.getByText('7 materiales · 15 páginas por bloque')).toBeVisible()
 
-  await page.getByRole('radio', { name: 'Personalizado' }).click()
-  const custom = page.getByLabel('Páginas por bloque').last()
-  await custom.fill('51')
-  await expect(page.getByText('Escribe un número entre 1 y 50.')).toBeVisible()
-  await expect(page.getByRole('button', { name: /Empezar a estudiar/ })).toBeDisabled()
-  await custom.fill('20')
+  // Phase 6J: Custom was removed — the bucketed choices for a 30-page material ([5,10,15,30])
+  // always include the exact full-document size, so Custom had no remaining product value.
+  await expect(page.getByRole('radio', { name: 'Personalizado' })).toHaveCount(0)
   await page.getByRole('radio', { name: '15 páginas' }).click()
 
   const start = page.getByRole('button', { name: /Empezar a estudiar/ })

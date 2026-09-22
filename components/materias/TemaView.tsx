@@ -1480,6 +1480,10 @@ export default function TemaView({
   const [openManual, setOpenManual] = useState(false);
   const [pageStudyPlanId, setPageStudyPlanId] = useState<string | null>(() => readPageStudyPlanIdFromURL(tema?.id));
   const [openPageStudy, setOpenPageStudy] = useState(() => Boolean(readPageStudyPlanIdFromURL(tema?.id)));
+  // Phase 6B/C/F: discoverable resumable Page Study session for the currently selected materials —
+  // read-only, zero provider calls (GET /api/page-study-plan/resume). Lets the mode card say
+  // "Seguir estudiando" and skip straight to the restored session instead of blindly re-running setup.
+  const [pageStudyResume, setPageStudyResume] = useState<{ planId: string; finished: boolean } | null>(null);
   const [manualActiveTool, setManualActiveTool] = useState<DurableManualTool | null>(null);
   const [manualProgress, setManualProgress] = useState<Partial<Record<DurableManualTool, number>>>({});
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
@@ -2002,6 +2006,26 @@ export default function TemaView({
 
     return [];
   }, [tema.documentos, selectedIds, resumeSessionId, activeSessions]);
+
+  // Phase 6F: discover whether the currently selected materials already have a resumable Page
+  // Study session — read-only, no side effect (never creates a session, unlike the setup POST).
+  // Scoped to when the mode selector is actually open: this is the only moment the discovery
+  // result is shown, and it keeps the extra network call out of the rest of TemaView's lifecycle
+  // (material selection, graph navigation, other study modes) where it has no reason to run.
+  useEffect(() => {
+    if (!showModeSelector) return;
+    const materialIds = selectedDocs.map((d: any) => getMaterialKey(d)).filter(Boolean);
+    if (!materialIds.length || !tema?.id) { setPageStudyResume(null); return; }
+    let cancelled = false;
+    const params = new URLSearchParams({ temaId: tema.id, materialIds: materialIds.join(',') });
+    fetch(`/api/page-study-plan/resume?${params.toString()}`, { credentials: 'same-origin', cache: 'no-store' })
+      .then(res => res.json()).catch(() => null)
+      .then(payload => {
+        if (cancelled) return;
+        setPageStudyResume(payload?.success && payload.exists ? { planId: payload.planId, finished: Boolean(payload.finished) } : null);
+      });
+    return () => { cancelled = true; };
+  }, [showModeSelector, selectedDocs, tema?.id]);
 
   const adaptiveSelectedPages = useMemo(() => {
     // Fuente de verdad: getSessionById() lee el store síncrono (loadAll()),
@@ -5065,9 +5089,11 @@ export default function TemaView({
                 {
                   id: 'page-study',
                   emoji: '📚',
-                  label: 'Estudio por Páginas',
-                  sub: 'ALAI estudia contigo',
-                  desc: 'Recorre tus materiales en orden, página por página, con una conversación continua.',
+                  label: pageStudyResume && !pageStudyResume.finished ? 'Seguir estudiando' : 'Estudio por Páginas',
+                  sub: pageStudyResume && !pageStudyResume.finished ? 'Continuá donde quedaste' : 'ALAI estudia contigo',
+                  desc: pageStudyResume && !pageStudyResume.finished
+                    ? 'Ya tenés una sesión de Estudio por Páginas sin terminar con estos materiales. Retomala exactamente donde la dejaste.'
+                    : 'Recorre tus materiales en orden, página por página, con una conversación continua.',
                   color: '#f59e0b',
                   locked: false,
                 },
@@ -5082,6 +5108,9 @@ export default function TemaView({
                       setStudyMode(modeId);
                       chosenModeRef.current = modeId;
                       if (modeId === 'page-study') {
+                        // Resume the discovered session directly (skip setup) when one exists and
+                        // isn't finished; otherwise PageStudyMode opens to its normal start entry.
+                        if (pageStudyResume && !pageStudyResume.finished) setPageStudyPlanId(pageStudyResume.planId);
                         setOpenPageStudy(true);
                         return;
                       }

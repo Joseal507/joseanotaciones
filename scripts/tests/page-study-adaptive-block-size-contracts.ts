@@ -2,77 +2,102 @@ import assert from 'node:assert/strict'
 import { adaptiveBlockSizeOptions, PAGE_STUDY_BLOCK_PRESETS, PAGE_STUDY_DEFAULT_BLOCK_SIZE } from '../../lib/pageStudy/ui'
 
 /**
- * Phase 5I: block-size options must adapt to the actual selected materials' page counts —
- * a 2-page PDF must never be asked to choose between 5/10/15/20, all of which resolve to the
- * exact same one-block plan as "study the whole thing".
+ * Phase 6I/J: block-size options adapt to the actual selected materials' page counts, via an
+ * explicit bucketed progression (small documents get few choices, large documents get more
+ * granularity, full material always included) — superseding Phase 5's "fixed presets filtered
+ * and unioned with the full length" rule, which produced e.g. [5,10,15,20] for a 20-page
+ * document instead of the cleaner [5,10,20]. Custom is removed entirely (Phase 6J): once the
+ * bucketed choices always include the exact full-document size, Custom had no remaining value.
  */
 
 // 2 pages — tiny material collapses to "full material", no meaningless choice.
 {
   const plan = adaptiveBlockSizeOptions([2])
-  assert.equal(plan.mode, 'full'); assert.equal(plan.recommended, 2); assert.equal(plan.choices.length, 0); assert.equal(plan.showCustom, false)
+  assert.equal(plan.mode, 'full'); assert.equal(plan.recommended, 2); assert.deepEqual(plan.choices.map(c => c.size), []); assert.equal(plan.showCustom, false)
   assert.equal(plan.fullLabel, '2 páginas · material completo')
 }
 
-// 4 pages — still tiny, still full material (never offers choices larger than the document).
+// 4 pages — still tiny, still full material.
 {
   const plan = adaptiveBlockSizeOptions([4])
   assert.equal(plan.mode, 'full'); assert.equal(plan.recommended, 4)
-  assert.ok(!PAGE_STUDY_BLOCK_PRESETS.some(size => size === plan.recommended && size > 4))
 }
 
-// 8 pages — medium: a real subdivision (half) plus the whole material, never the mechanical 5/10/15/20 set.
+// 8 pages → [5, 8]
 {
   const plan = adaptiveBlockSizeOptions([8])
   assert.equal(plan.mode, 'choices')
   assert.deepEqual(plan.choices.map(c => c.size), [5, 8])
-  assert.ok(plan.choices.every(c => c.size <= 8), '8-page material never offers a block size larger than itself')
+  assert.equal(plan.showCustom, false, 'no meaningless Custom option')
   assert.equal(plan.choices.find(c => c.size === 8)!.label.includes('completo'), true)
 }
 
-// 15 pages — larger material: sensible preset choices bounded by the document, including the default.
+// 10 pages → [5, 10]
+{
+  const plan = adaptiveBlockSizeOptions([10])
+  assert.deepEqual(plan.choices.map(c => c.size), [5, 10])
+}
+
+// 15 pages → [5, 10, 15]
 {
   const plan = adaptiveBlockSizeOptions([15])
   assert.deepEqual(plan.choices.map(c => c.size), [5, 10, 15])
   assert.equal(plan.recommended, PAGE_STUDY_DEFAULT_BLOCK_SIZE)
-  assert.equal(plan.showCustom, true)
 }
 
-// 16 pages — the 20 preset doesn't fit; the material's own length (16) is offered explicitly instead.
+// 20 pages → [5, 10, 20] (NOT [5,10,15,20] — 20 is itself the full-material choice, 15 is dropped
+// once it's no longer a distinct meaningful step below the bucket's own granularity)
 {
-  const plan = adaptiveBlockSizeOptions([16])
-  assert.deepEqual(plan.choices.map(c => c.size), [5, 10, 15, 16])
-  assert.ok(plan.choices.every(c => c.size <= 16))
+  const plan = adaptiveBlockSizeOptions([20])
+  assert.deepEqual(plan.choices.map(c => c.size), [5, 10, 20])
 }
 
-// 42 pages — every fixed preset fits; still bounded (no size > document) with Custom available.
+// 25 pages → [5, 10, 15, 25]
 {
-  const plan = adaptiveBlockSizeOptions([42])
-  assert.deepEqual(plan.choices.map(c => c.size), [5, 10, 15, 20, 42])
-  assert.equal(plan.showCustom, true)
+  const plan = adaptiveBlockSizeOptions([25])
+  assert.deepEqual(plan.choices.map(c => c.size), [5, 10, 15, 25])
 }
 
-// Multi-PDF, mixed lengths: the choice is bucketed by the LARGEST selected material — smaller
-// materials in the same selection still resolve to their own single block automatically via
-// planMaterialBlocks (block size >= a material's length collapses it to one block), so bucketing
-// on the max is the only choice that stays meaningful for every material in the selection.
+// 30 pages → [5, 10, 15, 30]
 {
-  const plan = adaptiveBlockSizeOptions([2, 15, 42])
+  const plan = adaptiveBlockSizeOptions([30])
+  assert.deepEqual(plan.choices.map(c => c.size), [5, 10, 15, 30])
+}
+
+// 50 pages → [5, 10, 15, 20, 25, 50]
+{
+  const plan = adaptiveBlockSizeOptions([50])
+  assert.deepEqual(plan.choices.map(c => c.size), [5, 10, 15, 20, 25, 50])
+}
+
+// No option ever exceeds the document's own page count; full material is always present.
+for (const pages of [8, 10, 15, 20, 25, 30, 50]) {
+  const plan = adaptiveBlockSizeOptions([pages])
+  assert.ok(plan.choices.every(c => c.size <= pages), `no option exceeds ${pages} pages`)
+  assert.ok(plan.choices.some(c => c.size === pages), `full material (${pages}) is always present`)
+  assert.equal(plan.showCustom, false, `no meaningless Custom for ${pages} pages`)
+}
+
+// Multi-PDF, mixed lengths (2 + 20): bucketed by the LARGEST selected material — the 2-page
+// material still resolves to its own single block automatically (planMaterialBlocks: block size
+// >= a material's length collapses it to one block), never a phantom page range.
+{
+  const plan = adaptiveBlockSizeOptions([2, 20])
   assert.equal(plan.mode, 'choices')
-  assert.deepEqual(plan.choices.map(c => c.size), [5, 10, 15, 20, 42], 'bucketed by the largest (42), not the smallest (2) or a naive average')
+  assert.deepEqual(plan.choices.map(c => c.size), [5, 10, 20], 'bucketed by the largest (20), not the smallest (2)')
 }
 {
-  // All tiny materials together still collapse to "full material" for the whole selection.
-  const plan = adaptiveBlockSizeOptions([2, 3, 4])
+  // All-small selection (2 + 4 pages): prefers simple full-material behavior.
+  const plan = adaptiveBlockSizeOptions([2, 4])
   assert.equal(plan.mode, 'full'); assert.equal(plan.recommended, 4)
 }
 
 // >5 PDFs: the algorithm itself is agnostic to material COUNT (that constraint lives in the
-// internal <=5 authority-batch rule, untouched) — it must not choke or special-case a long list.
+// internal <=5 authority-batch rule, untouched) — bucketed by the largest of the >5 selected.
 {
   const plan = adaptiveBlockSizeOptions([2, 4, 8, 15, 16, 42, 30])
   assert.equal(plan.mode, 'choices')
-  assert.deepEqual(plan.choices.map(c => c.size), [5, 10, 15, 20, 42], 'bucketed by the largest of the >5 selected materials (42)')
+  assert.deepEqual(plan.choices.map(c => c.size), [5, 10, 15, 20, 25, 42])
 }
 
 // Unknown/missing page-count data (not loaded yet, or a kind Page Study can't page-count):
@@ -84,4 +109,4 @@ import { adaptiveBlockSizeOptions, PAGE_STUDY_BLOCK_PRESETS, PAGE_STUDY_DEFAULT_
   assert.equal(plan.recommended, PAGE_STUDY_DEFAULT_BLOCK_SIZE)
 }
 
-console.log('PASS page-study-adaptive-block-size: 2/4/8/15/16/42-page materials, mixed-length multi-PDF, >5 PDFs, unknown-data fallback — deterministic, bounded by real document length')
+console.log('PASS page-study-adaptive-block-size: 2/4/8/10/15/20/25/30/50-page materials, mixed multi-PDF, >5 PDFs, no Custom, unknown-data fallback — deterministic bucketed progression bounded by real document length')

@@ -22,19 +22,34 @@ export interface AdaptiveBlockSizePlan {
 }
 
 /**
- * Phase 5I: block-size options adapt to the ACTUAL selected materials' page counts instead of
- * always offering the fixed 5/10/15/20/Custom set — a 2-page PDF must never be asked to pick
- * between choices larger than the document itself. Driven by `planMaterialBlocks`' own semantics
- * (block size >= a material's page count already collapses it to one block; block size is one
- * global setting applied per-material, so a mixed-length multi-PDF selection is bucketed by the
- * LARGEST selected material — the only one where the choice is actually meaningful. Smaller
- * materials in the same selection still each resolve to their own single block automatically).
+ * Phase 6I: replaces the Phase 5 "fixed presets filtered/unioned with the full length" rule with
+ * an explicit bucketed progression — small documents get few choices, large documents get more
+ * granularity, and the full material is always available:
+ *   <=5    → [full]
+ *   6–10   → [5, full]
+ *   11–20  → [5, 10, full]
+ *   21–30  → [5, 10, 15, full]
+ *   31–40  → [5, 10, 15, 20, full]
+ *   >40    → [5, 10, 15, 20, 25, full]
+ * (deduplicated/sorted — e.g. 10 pages: bucket gives [5,10], not [5,10,10]). Custom is removed:
+ * Phase 6J found no real product need for it once the bucketed choices always include the exact
+ * full-document size. Bucketed by the LARGEST selected material in a multi-PDF selection — smaller
+ * materials still each resolve to their own single block automatically (block size >= a material's
+ * length collapses it to one block via `planMaterialBlocks`), never a phantom page range.
  *
  * `pageCounts` are per-material page counts of the CURRENTLY SELECTED materials (server-derived
  * truth, e.g. `material.pages_count`); unknown/zero entries are ignored. With no known counts at
  * all (data not loaded yet, or a kind Page Study can't page-count), this degrades to the original
  * fixed preset behavior rather than guessing — never a false "full material" claim.
  */
+const BLOCK_SIZE_BUCKETS: ReadonlyArray<{ max: number; steps: readonly number[] }> = [
+  { max: 10, steps: [5] },
+  { max: 20, steps: [5, 10] },
+  { max: 30, steps: [5, 10, 15] },
+  { max: 40, steps: [5, 10, 15, 20] },
+  { max: Infinity, steps: [5, 10, 15, 20, 25] },
+]
+
 export function adaptiveBlockSizeOptions(pageCounts: readonly unknown[]): AdaptiveBlockSizePlan {
   const known = pageCounts.map(Number).filter(n => Number.isInteger(n) && n > 0)
   if (!known.length) {
@@ -47,13 +62,11 @@ export function adaptiveBlockSizeOptions(pageCounts: readonly unknown[]): Adapti
   if (maxPages <= PAGE_STUDY_TINY_MATERIAL_MAX) {
     return { mode: 'full', recommended: maxPages, choices: [], showCustom: false, fullLabel: `${maxPages} página${maxPages === 1 ? '' : 's'} · material completo` }
   }
-  // Meaningful choices bounded by the material's actual length: the fixed presets that fit, plus
-  // the material's own full length (one block = the whole material), deduped and sorted — never a
-  // preset larger than the document, and always an explicit "whole material" option.
-  const sizes = [...new Set([...PAGE_STUDY_BLOCK_PRESETS.filter(size => size <= maxPages), maxPages])].sort((a, b) => a - b)
+  const bucket = BLOCK_SIZE_BUCKETS.find(b => maxPages <= b.max)!
+  const sizes = [...new Set([...bucket.steps.filter(size => size < maxPages), maxPages])].sort((a, b) => a - b)
   const recommended = sizes.includes(PAGE_STUDY_DEFAULT_BLOCK_SIZE) ? PAGE_STUDY_DEFAULT_BLOCK_SIZE : sizes[sizes.length - 1]
   return {
-    mode: 'choices', recommended, showCustom: true,
+    mode: 'choices', recommended, showCustom: false,
     choices: sizes.map(size => ({ size, label: size === maxPages ? `${size} páginas (material completo)` : `${size} páginas` })),
   }
 }
