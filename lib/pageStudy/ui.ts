@@ -141,3 +141,5 @@ export function safePageStudyMessage(payload: unknown, fallback = 'No pude conti
   const message = (payload as Record<string, unknown>).userMessage
   return typeof message === 'string' && message.trim() ? message.trim() : fallback
 }
+
+export { isPageStudyEnabled } from './featureFlags'

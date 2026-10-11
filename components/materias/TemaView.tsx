@@ -8,6 +8,7 @@ import StudyALAdaptive from "./StudyALAdaptive";
 import StudyALManual from "./StudyALManual";
 import StudyALManualProcess from "./StudyALManualProcess";
 import PageStudyMode from "./PageStudyMode";
+import { isPageStudyEnabled } from "../../lib/pageStudy/featureFlags";
 import ManualLeerMaterial from "./ManualLeerMaterial";
 import ManualAlaiChat from "./ManualAlaiChat";
 import ManualFlashcards from "./ManualFlashcards";
@@ -68,6 +69,7 @@ function readFreeHubResumeSessionIdFromURL(temaId: string | undefined): string |
 }
 
 function readPageStudyPlanIdFromURL(temaId: string | undefined): string | null {
+  if (!isPageStudyEnabled()) return null;
   if (typeof window === "undefined" || !temaId) return null;
   const params = new URLSearchParams(window.location.search);
   if (params.get("temaId") !== temaId) return null;
@@ -2013,7 +2015,7 @@ export default function TemaView({
   // result is shown, and it keeps the extra network call out of the rest of TemaView's lifecycle
   // (material selection, graph navigation, other study modes) where it has no reason to run.
   useEffect(() => {
-    if (!showModeSelector) return;
+    if (!showModeSelector || !isPageStudyEnabled()) return;
     const materialIds = selectedDocs.map((d: any) => getMaterialKey(d)).filter(Boolean);
     if (!materialIds.length || !tema?.id) { setPageStudyResume(null); return; }
     let cancelled = false;
@@ -2499,7 +2501,8 @@ export default function TemaView({
       />
     );
 
-  if (openPageStudy)
+  if (openPageStudy) {
+    if (!isPageStudyEnabled()) return null;
     return (
       <PageStudyMode
         temaId={tema?.id || ''}
@@ -2518,6 +2521,7 @@ export default function TemaView({
         }}
       />
     );
+  }
 
   // Loader instantáneo cuando venimos desde /sesion con autoOpenAdaptive
   // Evita ver el mapa del tema por un instante antes de abrir el plan
@@ -5089,13 +5093,17 @@ export default function TemaView({
                 {
                   id: 'page-study',
                   emoji: '📚',
-                  label: pageStudyResume && !pageStudyResume.finished ? 'Seguir estudiando' : 'Estudio por Páginas',
-                  sub: pageStudyResume && !pageStudyResume.finished ? 'Continuá donde quedaste' : 'ALAI estudia contigo',
-                  desc: pageStudyResume && !pageStudyResume.finished
-                    ? 'Ya tenés una sesión de Estudio por Páginas sin terminar con estos materiales. Retomala exactamente donde la dejaste.'
-                    : 'Recorre tus materiales en orden, página por página, con una conversación continua.',
+                  label: isPageStudyEnabled() && pageStudyResume && !pageStudyResume.finished ? 'Seguir estudiando' : 'Estudio por Páginas',
+                  sub: isPageStudyEnabled()
+                    ? (pageStudyResume && !pageStudyResume.finished ? 'Continuá donde quedaste' : 'ALAI estudia contigo')
+                    : 'Próximamente',
+                  desc: isPageStudyEnabled()
+                    ? (pageStudyResume && !pageStudyResume.finished
+                      ? 'Ya tenés una sesión de Estudio por Páginas sin terminar con estos materiales. Retomala exactamente donde la dejaste.'
+                      : 'Recorre tus materiales en orden, página por página, con una conversación continua.')
+                    : 'Esta función estará disponible muy pronto. Estamos preparando la mejor experiencia de estudio guiado.',
                   color: '#f59e0b',
-                  locked: false,
+                  locked: !isPageStudyEnabled(),
                 },
               ].map((mode) => {
                 return (
@@ -5211,7 +5219,7 @@ export default function TemaView({
                       fontSize: 16, fontWeight: 700,
                       fontFamily: "var(--font-body)",
                     }}>
-                      {mode.locked ? 'próximamente' : 'empezar →'}
+                      {mode.locked ? 'Próximamente' : 'empezar →'}
                     </div>
                   </button>
                 );

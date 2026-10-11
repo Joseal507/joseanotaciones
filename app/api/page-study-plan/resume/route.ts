@@ -8,6 +8,7 @@ import { planIdOf, planKeyOf, stateRecordId } from '../../../../lib/pageStudy/id
 import { PLAN_MATERIAL_MAX } from '../../../../lib/pageStudy/batching'
 import { WorkerPageStudyStore } from '../../../../lib/pageStudy/store'
 import { buildPageStudyView } from '../../../../lib/pageStudy/view'
+import { isPageStudyEnabled } from '../../../../lib/pageStudy/featureFlags'
 import type { Material } from '../../../../lib/materials/types'
 
 export const dynamic = 'force-dynamic'
@@ -54,6 +55,9 @@ async function currentUserId(): Promise<string | null> {
  */
 export async function GET(req: NextRequest) {
   try {
+    if (!isPageStudyEnabled()) {
+      return NextResponse.json({ success: false, exists: false, error: 'PAGE_STUDY_DISABLED', userMessage: 'Estudio por páginas no está disponible temporalmente.' }, { status: 403 })
+    }
     const userId = await currentUserId()
     if (!userId) return NextResponse.json({ success: false, exists: false, userMessage: 'Inicia sesión para continuar.' }, { status: 401 })
     const temaId = (req.nextUrl.searchParams.get('temaId') || '').trim()

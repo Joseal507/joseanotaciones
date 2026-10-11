@@ -9,6 +9,7 @@ import { PLAN_MATERIAL_MAX } from '../../../lib/pageStudy/batching'
 import { PLAN_ID_PATTERN } from '../../../lib/pageStudy/routeSupport'
 import { validatePageStudyBlockSize } from '../../../lib/pageStudy/ui'
 import { buildPageStudyView } from '../../../lib/pageStudy/view'
+import { isPageStudyEnabled } from '../../../lib/pageStudy/featureFlags'
 import type { Material } from '../../../lib/materials/types'
 import type { PageStudyState } from '../../../lib/pageStudy/types'
 
@@ -71,6 +72,9 @@ function setupError(error: unknown): NextResponse {
 /** Restore the server-derived preparation inputs for an existing durable plan. No provider work. */
 export async function GET(req: NextRequest) {
   try {
+    if (!isPageStudyEnabled()) {
+      return NextResponse.json({ success: false, recoverable: false, error: 'PAGE_STUDY_DISABLED', userMessage: 'Estudio por páginas no está disponible temporalmente.' }, { status: 403 })
+    }
     const userId = await currentUserId()
     if (!userId) return NextResponse.json({ success: false, recoverable: false, userMessage: 'Inicia sesión para continuar.' }, { status: 401 })
     const planId = req.nextUrl.searchParams.get('planId') || ''
@@ -88,6 +92,9 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
+    if (!isPageStudyEnabled()) {
+      return NextResponse.json({ success: false, recoverable: false, error: 'PAGE_STUDY_DISABLED', userMessage: 'Estudio por páginas no está disponible temporalmente.' }, { status: 403 })
+    }
     const userId = await currentUserId()
     if (!userId) return NextResponse.json({ success: false, recoverable: false, userMessage: 'Inicia sesión para continuar.' }, { status: 401 })
     const body = (await req.json().catch(() => null)) as Record<string, unknown> | null

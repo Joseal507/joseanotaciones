@@ -5,6 +5,7 @@ import { turnScopeOf } from '../../../../lib/pageStudy/identity'
 import { loadPageStudy } from '../../../../lib/pageStudy/service'
 import { WorkerPageStudyStore } from '../../../../lib/pageStudy/store'
 import { PLAN_ID_PATTERN, pageStudyError } from '../../../../lib/pageStudy/routeSupport'
+import { isPageStudyEnabled } from '../../../../lib/pageStudy/featureFlags'
 import { buildPageStudyView } from '../../../../lib/pageStudy/view'
 import type { TutorResult } from '../../../../lib/pageStudy/tutor'
 
@@ -19,6 +20,9 @@ export const __routeDeps = { getServerSession, store: new WorkerPageStudyStore()
 
 export async function GET(req: NextRequest) {
   try {
+    if (!isPageStudyEnabled()) {
+      return NextResponse.json({ success: false, error: 'PAGE_STUDY_DISABLED', recoverable: false, userMessage: 'Estudio por páginas no está disponible temporalmente.' }, { status: 403 })
+    }
     let userId: string | null = null
     try { userId = ((await __routeDeps.getServerSession(authOptions))?.user as { id?: string } | undefined)?.id ?? null } catch { /* unauthenticated */ }
     if (!userId) return NextResponse.json({ success: false, error: 'UNAUTHORIZED', recoverable: false }, { status: 401 })

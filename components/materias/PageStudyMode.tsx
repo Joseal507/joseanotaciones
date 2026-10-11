@@ -8,6 +8,7 @@ import {
   PAGE_STUDY_DEFAULT_BLOCK_SIZE,
   adaptiveBlockSizeOptions,
   compactPageList,
+  isPageStudyEnabled,
   normalizePublicTurns,
   safePageStudyMessage,
   validatePageStudyBlockSize,
@@ -129,6 +130,17 @@ function Provenance({ turn, names }: { turn: PageStudyPublicTurn; names: Map<str
 }
 
 export default function PageStudyMode({ temaId, materiales, initialSelectedIds = [], initialPlanId, onPlanIdChange, onClose }: Props) {
+  if (!isPageStudyEnabled()) {
+    return (
+      <div className="ps-root" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center', padding: 24 }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+        <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8, fontFamily: 'var(--font-hand)' }}>Estudio por Páginas</h2>
+        <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 24, maxWidth: 400 }}>Esta función no está disponible en este momento. Próximamente estará habilitada.</p>
+        <button type="button" onClick={onClose} style={{ padding: '8px 20px', borderRadius: 20, border: '1px solid var(--border-color, #444)', background: 'rgba(255,255,255,0.1)', color: '#fff', cursor: 'pointer' }}>← Volver</button>
+      </div>
+    )
+  }
+
   const options = useMemo(() => materiales
     .map(material => ({ raw: material, id: materialIdOf(material), name: materialNameOf(material) }))
     .filter(material => material.id), [materiales])

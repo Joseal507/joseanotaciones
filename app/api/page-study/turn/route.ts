@@ -6,6 +6,7 @@ import { getMaterial, getMaterialText } from '../../../../lib/materials/reposito
 import { WorkerPageStudyStore } from '../../../../lib/pageStudy/store'
 import { runTutorTurn, type TutorDeps } from '../../../../lib/pageStudy/tutor'
 import { PLAN_ID_PATTERN, forbiddenClientFields, pageStudyError } from '../../../../lib/pageStudy/routeSupport'
+import { isPageStudyEnabled } from '../../../../lib/pageStudy/featureFlags'
 
 export const maxDuration = 120
 export const dynamic = 'force-dynamic'
@@ -33,6 +34,9 @@ export const __routeDeps = {
 
 export async function POST(req: NextRequest) {
   try {
+    if (!isPageStudyEnabled()) {
+      return NextResponse.json({ success: false, error: 'PAGE_STUDY_DISABLED', recoverable: false, userMessage: 'Estudio por páginas no está disponible temporalmente.' }, { status: 403 })
+    }
     let userId: string | null = null
     try { userId = ((await __routeDeps.getServerSession(authOptions))?.user as { id?: string } | undefined)?.id ?? null } catch { /* unauthenticated */ }
     if (!userId) return NextResponse.json({ success: false, error: 'UNAUTHORIZED', recoverable: false, userMessage: 'Inicia sesión para continuar.' }, { status: 401 })
